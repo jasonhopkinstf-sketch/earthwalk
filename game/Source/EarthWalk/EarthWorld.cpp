@@ -329,14 +329,14 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		}
 
 		TArray<float> Floats;
-		Floats.SetNumUninitialized(NumVerts * 6);
+		Floats.SetNumUninitialized(static_cast<int32>(NumVerts * 6));
 		FMemory::Memcpy(Floats.GetData(), Bytes + Offset, NumVerts * 24);
 		Offset += NumVerts * 24;
 
 		TArray<FVector> Vertices;
 		TArray<FVector> Normals;
-		Vertices.SetNumUninitialized(NumVerts);
-		Normals.SetNumUninitialized(NumVerts);
+		Vertices.SetNumUninitialized(static_cast<int32>(NumVerts));
+		Normals.SetNumUninitialized(static_cast<int32>(NumVerts));
 		const float* Pos = Floats.GetData();
 		const float* Nrm = Pos + NumVerts * 3;
 		for (int64 i = 0; i < NumVerts; ++i)
@@ -348,7 +348,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		}
 
 		TArray<int32> Triangles;
-		Triangles.SetNumUninitialized(NumIndices);
+		Triangles.SetNumUninitialized(static_cast<int32>(NumIndices));
 		FMemory::Memcpy(Triangles.GetData(), Bytes + Offset, NumIndices * 4);
 		Offset += NumIndices * 4;
 		for (int64 i = 0; i < NumIndices; ++i)

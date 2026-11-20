@@ -64,7 +64,7 @@ public:
 				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
 				.ShadowOffset(FVector2D(1.0, 1.0))
 				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
-				.Text(FText::FromString(TEXT("Map data © OpenStreetMap contributors")))
+				.Text(FText::FromString(TEXT("Map data \u00A9 OpenStreetMap contributors")))
 			]
 			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.f)
 			[
