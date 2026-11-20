@@ -18,7 +18,10 @@ namespace
 	constexpr uint32 BarkColor = 0x5a3d2aff;
 	constexpr uint32 LeafColor = 0x3f8a2fff;
 	constexpr uint32 NeedleColor = 0x2f6b2fff;
-	constexpr float NumberSize = 14.f; // text height in cm
+	// Letterboxes are about three times life size, so the number reads from across the street.
+	constexpr double LetterboxPostHeight = 150.0; // cm
+	const FVector LetterboxSize(54.0, 90.0, 66.0); // depth (towards the street), width, height in cm
+	constexpr float NumberSize = 46.f; // text height in cm
 	constexpr float NameSize = 16.f;
 }
 
@@ -172,9 +175,14 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 		}
 		if (Kind == TEXT("house"))
 		{
-			AddBox(At + FVector(0, 0, 50), Facing, FVector(8, 8, 100), World->MaterialFor(PostColor));
-			AddBox(At + FVector(0, 0, 110), Facing, FVector(18, 30, 22), World->MaterialFor(LetterboxColor));
-			AddText(Text, At + FVector(0, 0, 110) + Facing.RotateVector(FVector(9.6, 0, 0)), Facing, NumberSize, FColor(20, 20, 20));
+			const FVector BoxAt = At + FVector(0, 0, LetterboxPostHeight + LetterboxSize.Z * 0.5);
+			AddBox(At + FVector(0, 0, LetterboxPostHeight * 0.5), Facing, FVector(14, 14, LetterboxPostHeight), World->MaterialFor(PostColor));
+			AddBox(BoxAt, Facing, LetterboxSize, World->MaterialFor(LetterboxColor));
+			// Long numbers ("12A", "3/41") shrink to stay on the box. The number is on the street side and on the back.
+			const float Size = FMath::Min(NumberSize, static_cast<float>(LetterboxSize.Y * 0.9 / (FMath::Max(Text.Len(), 1) * 0.62)));
+			const double Out = LetterboxSize.X * 0.5 + 0.8;
+			AddText(Text, BoxAt + Facing.RotateVector(FVector(Out, 0, 0)), Facing, Size, FColor(15, 15, 15));
+			AddText(Text, BoxAt + Facing.RotateVector(FVector(-Out, 0, 0)), FRotator(0.0, Yaw + 180.0, 0.0), Size, FColor(15, 15, 15));
 		}
 		else if (Kind == TEXT("street"))
 		{
