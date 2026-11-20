@@ -19,12 +19,13 @@ if errorlevel 1 goto :changed
 git diff --cached --quiet
 if errorlevel 1 goto :changed
 
+rem Fetch the latest version, then start again from the updated copy of this file.
+if /i "%~1"=="--no-update" goto :run
 echo Getting the latest version...
-git checkout main
-if errorlevel 1 goto :failed
-git pull --ff-only origin main
-if errorlevel 1 goto :failed
+(git checkout main && git pull --ff-only origin main && "%~f0" --no-update)
+goto :failed
 
+:run
 cd server
 echo Installing what the server needs...
 call npm.cmd ci --omit=dev

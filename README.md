@@ -62,9 +62,14 @@ The family server is at https://earthwalk.onrender.com.
 
 1. Install Unreal Engine 5 (5.4 or newer) with the Epic Games Launcher, and Visual
    Studio 2022 with the "Game development with C++" workload (Windows) or Xcode (Mac).
-2. Double-click `game/EarthWalk.uproject`, choose the engine version, and say yes when
-   asked to build the missing modules.
-3. Press Play. You start at the Eiffel Tower.
+2. Close the Unreal editor if it is open, then double-click `game/build.cmd`. It finds the
+   engine, fetches the latest version, and compiles the game. If the build fails it
+   opens `game/build-log.txt` with the reasons.
+3. When it succeeds, say yes to open the project, then press Play. You start at the
+   Eiffel Tower.
+4. The game connects to the family server by default. Type `/code <access code>` once
+   (press Enter first to open the chat box). To use a server on your own PC instead,
+   type `/server http://localhost:8787`.
 
 Controls: `W A S D` move, mouse looks, `Shift` faster, `Space` jump, `F` fly
 (`Space`/`C` up/down), `Enter` chat.

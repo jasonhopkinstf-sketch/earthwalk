@@ -11,3 +11,4 @@ game/.vs/
 game/*.sln
 game/*.xcworkspace
 game/.idea/
+game/build-log.txt
