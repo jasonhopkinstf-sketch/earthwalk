@@ -67,8 +67,8 @@ centre; roads overlap chunk edges a little so they join up).
 House numbers and street names for the same chunk, as JSON. The route is **optional**: a
 client that ignores it still gets the complete world from the chunk meshes. It takes the
 same access code, zoom and rate-limit rules as the chunk route, and the same `x`/`y`
-numbering. The browser client does not use it yet; the Unreal client spawns letterboxes
-and sign posts from it.
+numbering. Both clients plant their trees from it (and skip mesh section 30); the Unreal
+client also spawns letterboxes and sign posts from it.
 
 ```json
 {"x": 33185, "y": 22545, "rev": 1,

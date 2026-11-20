@@ -14,7 +14,25 @@ THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const MAX_IN_FLIGHT = 4;
+const TREE_SECTION = 30; // the server's cone trees; we plant our own from the labels route instead
+const LABEL_RETRY_MS = 15000;
+const LABEL_TRIES = 4;
 const isBuilding = (id) => id >= 20 && id <= 25;
+
+// Tree parts, shared by every chunk: unit shapes scaled per tree (the same proportions as the Unreal game).
+const TRUNK = new THREE.CylinderGeometry(0.5, 0.5, 1, 7);
+const CROWN = new THREE.IcosahedronGeometry(0.5, 1);
+const CONE = new THREE.ConeGeometry(0.5, 1, 8);
+const BARK = new THREE.MeshLambertMaterial({ color: 0x5a3d2a });
+const LEAF = new THREE.MeshLambertMaterial({ color: 0x3f8a2f, flatShading: true });
+const NEEDLE = new THREE.MeshLambertMaterial({ color: 0x2f6b2f, flatShading: true });
+// A rounded crown: one big ball with three smaller ones tucked around it. Offsets and sizes are in canopy radii.
+const CROWN_PARTS = [
+  { at: [0, 0, 0], size: [2, 1.7, 2] },
+  { at: [0.45, 0.45, 0.25], size: [1.4, 1.4, 1.4] },
+  { at: [-0.5, 0.2, -0.3], size: [1.3, 1.3, 1.3] },
+  { at: [0.1, -0.1, -0.55], size: [1.2, 1.2, 1.2] },
+];
 
 export class World {
   constructor(scene, { code = "", radius = 2 } = {}) {
@@ -71,6 +89,10 @@ export class World {
     if (!chunk) return;
     this.root.remove(chunk.group);
     for (const mesh of chunk.group.children) {
+      if (mesh.isInstancedMesh) {
+        mesh.dispose(); // trees share their geometry between chunks, so only the instance data goes
+        continue;
+      }
       mesh.geometry.disposeBoundsTree?.();
       mesh.geometry.dispose();
     }
@@ -124,6 +146,7 @@ export class World {
       if (generation !== this.generation) return; // the player travelled away meanwhile
       this.add(x, y, key, data);
       this.lastError = "";
+      this.requestTrees(x, y, key);
     } catch (err) {
       if (generation !== this.generation) return;
       this.lastError = err instanceof TypeError ? "Cannot reach the world server" : err.message;
@@ -138,6 +161,7 @@ export class World {
     const group = new THREE.Group();
     group.position.set((x - this.originX) * S, 0, (y - this.originY) * S);
     for (const section of data.sections) {
+      if (section.materialId === TREE_SECTION) continue;
       const n = section.uvh.length / 3;
       const pos = new Float32Array(n * 3);
       const nrm = new Float32Array(n * 3);
@@ -164,5 +188,75 @@ export class World {
     group.updateMatrixWorld(true);
     this.root.add(group);
     this.chunks.set(key, { group, heights: data.heights, x, y });
+  }
+
+  /** Fetches a chunk's trees from the labels route. It is optional, so failures are retried slowly and quietly. */
+  async requestTrees(x, y, key, tries = LABEL_TRIES) {
+    const chunk = this.chunks.get(key);
+    if (!chunk || chunk.trees) return;
+    try {
+      const wrapped = ((x % TILES) + TILES) % TILES;
+      const res = await fetch(`/v1/labels/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {} });
+      if (!res.ok) throw new Error(`labels ${res.status}`);
+      const { items } = await res.json();
+      if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile
+      chunk.trees = true;
+      this.plant(chunk, items.filter((it) => it.kind === "tree"));
+    } catch {
+      if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);
+    }
+  }
+
+  /** Plants a chunk's trees: a trunk with a leafy crown, or with a cone for conifers. One instanced mesh per part. */
+  plant(chunk, trees) {
+    if (trees.length === 0) return;
+    const S = this.tileM;
+    const clampTo = (v, lo, hi, fallback) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
+    const leafy = trees.filter((t) => !t.c);
+    const conifers = trees.filter((t) => t.c);
+    const make = (geometry, material, count) => {
+      const mesh = new THREE.InstancedMesh(geometry, material, count);
+      mesh.frustumCulled = false; // instances spread over the whole chunk, far beyond the unit shape's bounds
+      return mesh;
+    };
+    const trunks = make(TRUNK, BARK, trees.length);
+    const crowns = leafy.length ? make(CROWN, LEAF, leafy.length * CROWN_PARTS.length) : null;
+    const cones = conifers.length ? make(CONE, NEEDLE, conifers.length) : null;
+    const part = new THREE.Object3D();
+    const offset = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    let nTrunk = 0, nCrown = 0, nCone = 0;
+    for (const t of trees) {
+      const height = clampTo(t.s, 2, 40, 7);
+      const radius = clampTo(t.r, 0.5, 12, 2);
+      const yaw = THREE.MathUtils.degToRad(t.yaw || 0);
+      const bx = t.u * S, by = t.h, bz = t.v * S;
+      const trunkH = height * (t.c ? 0.3 : 0.45);
+      part.rotation.set(0, yaw, 0);
+      part.position.set(bx, by + trunkH / 2, bz);
+      part.scale.set(0.3, trunkH, 0.3);
+      part.updateMatrix();
+      trunks.setMatrixAt(nTrunk++, part.matrix);
+      if (t.c) {
+        part.position.set(bx, by + height * 0.6, bz);
+        part.scale.set(radius * 1.8, height * 0.8, radius * 1.8);
+        part.updateMatrix();
+        cones.setMatrixAt(nCone++, part.matrix);
+      } else {
+        for (const { at, size } of CROWN_PARTS) {
+          offset.set(at[0], at[1], at[2]).multiplyScalar(radius).applyAxisAngle(up, yaw);
+          part.position.set(bx + offset.x, by + height * 0.65 + offset.y, bz + offset.z);
+          part.scale.set(size[0] * radius, size[1] * radius, size[2] * radius);
+          part.updateMatrix();
+          crowns.setMatrixAt(nCrown++, part.matrix);
+        }
+      }
+    }
+    for (const mesh of [trunks, crowns, cones]) {
+      if (!mesh) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      chunk.group.add(mesh);
+      mesh.updateMatrixWorld(true);
+    }
   }
 }

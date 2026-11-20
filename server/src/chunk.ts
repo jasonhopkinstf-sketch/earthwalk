@@ -583,7 +583,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     addRoof(ring, top, b, Math.abs(area2) / 2, walls, sec(ROOFS[(h >>> 8) % ROOFS.length]));
   }
 
-  // ---- trees: cones (the Unreal client draws its own trees from the labels route instead)
+  // ---- trees: cones, for clients that ignore the labels route (both of ours plant their own trees from it)
   const trees = sec(MATERIALS.tree);
   for (const t of placeTrees(cx, cy, features, cls)) {
     const e = E(t.wx);
