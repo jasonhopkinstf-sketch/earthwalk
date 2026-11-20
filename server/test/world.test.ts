@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildChunkMesh, clipPolyline, encodeChunk, FORMAT_MAGIC, MATERIALS } from "../src/chunk.ts";
+import { buildChunkMesh, insetRing, clipPolyline, encodeChunk, FORMAT_MAGIC, MATERIALS } from "../src/chunk.ts";
 import { Elevation, GRID } from "../src/elevation.ts";
 import { CHUNK_Z, latToY, lonToX, metersPerTile, xToLon, yToLat } from "../src/geo.ts";
 import { buildLabels, generateLabels, type LabelsJson } from "../src/labels.ts";
@@ -269,6 +269,33 @@ test("small rectangular houses get a gable roof", async () => {
   assert.ok(Math.max(...z(roof)) > eaves + 1.5, "the ridge rises above the eaves");
   assert.ok(Math.max(...z(walls)) > eaves + 1.5, "gable ends rise into the roof");
   assert.equal(roof.idx.length, 12, "two slopes of two triangles each");
+});
+
+test("L-shaped houses get a roof that slopes in from every wall", async () => {
+  const S = metersPerTile(CY + 0.5);
+  const d = (metres: number): number => metres / S;
+  const at = (e: number, s: number): [number, number] => [CX + 0.5 + d(e), CY + 0.5 + d(s)];
+  // A 16 x 14 m L with wings 7 m wide.
+  const ring = [at(0, 0), at(16, 0), at(16, 7), at(7, 7), at(7, 14), at(0, 14)];
+  const f: Features = { buildings: [{ id: 7, ring, height: 6 }], roads: [], areas: [], trees: [], addresses: [], coast: [] };
+  const { mesh: m } = await mesh(CX, CY, f);
+  const roof = m.sections.find((s) => s.mat.id === 24 || s.mat.id === 25)!;
+  const z = roof.pos.filter((_, i) => i % 3 === 2);
+  assert.ok(Math.max(...z) > Math.min(...z) + 1.2, "the roof rises above the eaves");
+  for (let i = 0; i < roof.idx.length; i += 3) {
+    const [a, b, c] = [roof.idx[i], roof.idx[i + 1], roof.idx[i + 2]].map((v) => [roof.pos[v * 3], roof.pos[v * 3 + 1]]);
+    assert.ok((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) >= -1e-9, "roof triangles face up");
+  }
+  for (let i = 2; i < roof.nrm.length; i += 3) assert.ok(roof.nrm[i] > 0.3, "roof normals point up");
+});
+
+test("insetRing refuses shapes too narrow for the inset", () => {
+  const L: [number, number][] = [[0, 0], [16, 0], [16, 7], [7, 7], [7, 14], [0, 14]];
+  const inner = insetRing(L, 2.6)!;
+  assert.equal(inner.length, 6);
+  assert.deepEqual(inner.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]), [[2.6, 2.6], [13.4, 2.6], [13.4, 4.4], [4.4, 4.4], [4.4, 11.4], [2.6, 11.4]]);
+  assert.equal(insetRing(L, 3.6), null, "a 7 m wing cannot be inset by 3.6 m from both sides");
+  assert.equal(insetRing([[0, 0], [20, 0], [20, 3], [0, 3]], 1.8), null);
 });
 
 test("labels carry the trees the mesh plants", async () => {

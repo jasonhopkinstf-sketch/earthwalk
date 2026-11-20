@@ -14,7 +14,7 @@ import { type Building, DATA_Z, loadFeatures, type Features, type GroundClass, t
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 5;
+export const GENERATOR_REV = 6;
 export const FLAG_COLLISION = 1;
 
 interface MaterialDef { id: number; color: number; collision: boolean }
@@ -379,16 +379,65 @@ function gableEnd(walls: Section, a: XY, b: XY, eaves: number, ridge: [number, n
   walls.tri(v0, v1, v2);
 }
 
+/** Distance from a point to the segment a-b. */
+function segmentDistance(x: number, y: number, a: XY, b: XY): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const t = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+  return Math.hypot(x - a[0] - dx * t, y - a[1] - dy * t);
+}
+
+const segmentsCross = (a: XY, b: XY, c: XY, d: XY): boolean => {
+  const side = (p: XY, q: XY, r: XY): number => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+};
+
 /**
- * Roofs: a gable on rectangular houses, a hip on other small convex ones, flat on everything else
- * (and whenever OSM says flat). Big or tall buildings stay flat unless OSM says otherwise.
+ * A counter-clockwise ring moved inwards by `d` metres (mitred corners), or null when the shape is
+ * too narrow for that: a wing would collapse or the outline would cross itself.
+ */
+export function insetRing(ring: XY[], d: number): XY[] | null {
+  const n = ring.length;
+  const out: XY[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = ring[(i + n - 1) % n], q = ring[i], r = ring[(i + 1) % n];
+    const la = Math.hypot(q[0] - p[0], q[1] - p[1]), lb = Math.hypot(r[0] - q[0], r[1] - q[1]);
+    if (la < 1e-6 || lb < 1e-6) return null;
+    // Inward is to the left of travel on a counter-clockwise ring.
+    const n1: XY = [-(q[1] - p[1]) / la, (q[0] - p[0]) / la];
+    const n2: XY = [-(r[1] - q[1]) / lb, (r[0] - q[0]) / lb];
+    const k = 1 + n1[0] * n2[0] + n1[1] * n2[1];
+    if (k < 0.3) return null; // a spike: the mitre would shoot far away
+    out.push([q[0] + ((n1[0] + n2[0]) / k) * d, q[1] + ((n1[1] + n2[1]) / k) * d]);
+  }
+  for (let i = 0; i < n; i++) {
+    const a = out[i], b = out[(i + 1) % n];
+    // Every edge must keep its direction (it flips when the edge was shorter than the corners eat up)...
+    const o = ring[i], o2 = ring[(i + 1) % n];
+    if ((b[0] - a[0]) * (o2[0] - o[0]) + (b[1] - a[1]) * (o2[1] - o[1]) <= 0) return null;
+    // ...every corner must really be `d` inside the outline...
+    if (!pointInRing(a[0], a[1], ring as Pt[])) return null;
+    for (let j = 0; j < n; j++) if (segmentDistance(a[0], a[1], ring[j], ring[(j + 1) % n]) < d * 0.98) return null;
+    // ...and the new outline must not cross itself.
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      if (segmentsCross(a, b, out[j], out[(j + 1) % n])) return null;
+    }
+  }
+  return out;
+}
+
+/**
+ * Roofs: a gable on rectangular houses, a hip on other small convex ones, and on L-shaped and other
+ * mid-sized low buildings a hip that follows the outline (sloping in from every wall to a flat strip
+ * along the middle). Flat on everything else and whenever OSM says flat: big or tall buildings stay
+ * flat unless OSM says otherwise.
  */
 function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Section, roof: Section): void {
   const shape = b.roof ?? "";
   const pitched = !/^(flat|skillion)$/.test(shape) &&
-    (/gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape) || (areaM2 < 400 && b.height < 13));
+    (/gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape) || (areaM2 < 1500 && b.height < 13));
   const simple = pitched ? simplifyRing(ring) : [];
-  if (simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
+  if (areaM2 < 400 && simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
     const rise = Math.min(b.height * 0.8, b.roofHeight ?? clamp(0.35 * Math.sqrt(areaM2), 1.8, 5));
     if (isRectangle(simple)) {
       // Ridge along the longer sides.
@@ -418,6 +467,23 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Se
     const tris = earcut(inner.flat());
     for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
     return;
+  }
+  if (simple.length >= 4 && simple.length <= 24) {
+    // Any other outline: slope in from every wall as far as the shape allows, leaving a flat strip on top.
+    for (const d of [4.5, 3.5, 2.6, 1.8]) {
+      const inner = insetRing(simple, d);
+      if (!inner) continue;
+      const rise = Math.min(b.height * 0.8, b.roofHeight ?? d * 0.7);
+      for (let i = 0; i < simple.length; i++) {
+        const j = (i + 1) % simple.length;
+        slopeFace(roof, [[simple[i][0], simple[i][1], top], [simple[j][0], simple[j][1], top], [inner[j][0], inner[j][1], top + rise], [inner[i][0], inner[i][1], top + rise]]);
+      }
+      const first = roof.count;
+      for (const [e, n] of inner) roof.vert(e, n, top + rise, 0, 0, 1);
+      const tris = earcut(inner.flat());
+      for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+      return;
+    }
   }
   const first = roof.count;
   for (const [e, n] of ring) roof.vert(e, n, top, 0, 0, 1);
