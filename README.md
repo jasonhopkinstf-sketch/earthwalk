@@ -32,6 +32,9 @@ Everyone appears as an animal of their choice.
 
 Needs Node.js 22.18 or newer.
 
+On Windows, double-click `update-and-start.cmd` in the top folder: it fetches the latest
+version, installs what the server needs, and starts it. Or by hand:
+
 ```bash
 cd server
 npm install
