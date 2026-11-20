@@ -11,6 +11,7 @@
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionPerInstanceRandom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureObjectParameter.h"
 #include "Materials/MaterialExpressionTime.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
@@ -61,7 +62,9 @@ float3 nm = float3(nxy, sqrt(saturate(1.0 - dot(nxy, nxy)))); // two-channel nor
 float3 T = float3(t2, 0.0);
 float3 B = float3(0.0, 0.0, -1.0);
 float3 wn = normalize(nm.x * T + nm.y * B + nm.z * n);
-float2 f = frac(float2(along / 2.4, height / 3.0));
+// RowShift.x is where the building's ground floor sits within a 3 m storey (AEarthWorld::BuildChunk),
+// so window rows count up from the ground floor rather than from sea level.
+float2 f = frac(float2(along / 2.4, height / 3.0 - RowShift.x));
 float win = (f.x > 0.28 && f.x < 0.72 && f.y > 0.30 && f.y < 0.78) ? 1.0 : 0.0;
 float frame = (f.x > 0.24 && f.x < 0.76 && f.y > 0.26 && f.y < 0.82) ? 1.0 : 0.0;
 float3 wall = saturate(tex * 1.3 * lerp(1.0, Tint * 2.0, TintAmount));
@@ -251,6 +254,7 @@ return saturate(c);
 		if (bWindows)
 		{
 			Inputs.Add(TEXT("Windows"));
+			Inputs.Add(TEXT("RowShift"));
 		}
 		UMaterialExpressionCustom* Custom = CustomNode(Material, Code, Inputs);
 
@@ -269,6 +273,7 @@ return saturate(c);
 		if (bWindows)
 		{
 			Connect(Scalar(Material, TEXT("Windows"), 1.f, 750), Custom, TEXT("Windows"));
+			Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 850), Custom, TEXT("RowShift"));
 		}
 		FinishMaterial(Material, Custom);
 	}

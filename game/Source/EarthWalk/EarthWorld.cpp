@@ -32,6 +32,8 @@ namespace
 	constexpr int32 MaxRequestsInFlight = 4;
 	constexpr int32 MaxLabelRequestsInFlight = 3;
 	constexpr double LabelRetrySeconds = 120.0; // labels are optional, so failures are retried slowly
+	constexpr double StoreyMeters = 3.0; // window row spacing; matches WallCode in EarthWalkAssetsCommandlet.cpp
+	constexpr double WallSinkMeters = 0.6; // how far the server sinks walls below the ground (server/src/chunk.ts)
 }
 
 AEarthWorld::AEarthWorld()
@@ -546,7 +548,6 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 	Mesh->RegisterComponent();
 
 	const bool bFlip = GetDefault<UEarthWalkSettings>()->bFlipTriangleWinding;
-	const TArray<FVector2D> NoUVs;
 	const TArray<FLinearColor> NoColors;
 	const TArray<FProcMeshTangent> NoTangents;
 
@@ -620,7 +621,46 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 			}
 		}
 
-		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, NoUVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
+		// Walls tell their material where the building's ground floor is, so window rows start there
+		// instead of at a multiple of the storey height above sea level (which cuts rows off on slopes).
+		TArray<FVector2D> UVs;
+		if (SurfaceId >= 20 && SurfaceId <= 23)
+		{
+			// The lowest vertex of each vertical line of the wall is the building's base (server/src/chunk.ts).
+			const auto Column = [Pos](int64 i)
+			{
+				uint32 U, V;
+				FMemory::Memcpy(&U, Pos + i * 3, sizeof(U));
+				FMemory::Memcpy(&V, Pos + i * 3 + 1, sizeof(V));
+				return (static_cast<uint64>(U) << 32) | V;
+			};
+			TMap<uint64, float> ColumnBase;
+			ColumnBase.Reserve(NumVerts / 2);
+			for (int64 i = 0; i < NumVerts; ++i)
+			{
+				float& Base = ColumnBase.FindOrAdd(Column(i), TNumericLimits<float>::Max());
+				Base = FMath::Min(Base, Pos[i * 3 + 2]);
+			}
+			UVs.SetNumZeroed(NumVerts);
+			for (int64 i = 0; i + 2 < NumIndices; i += 3)
+			{
+				// A face never mixes buildings, and a gable's ridge has no wall below it, so take the lowest of the three.
+				float Base = TNumericLimits<float>::Max();
+				for (int64 k = 0; k < 3; ++k)
+				{
+					Base = FMath::Min(Base, ColumnBase.FindRef(Column(Triangles[i + k])));
+				}
+				// Only the position within a storey matters, which also keeps the value small and exact.
+				// The server sinks walls WallSinkMeters below the lowest ground corner.
+				const double RowShift = FMath::Frac((static_cast<double>(Base) + WallSinkMeters) / StoreyMeters);
+				for (int64 k = 0; k < 3; ++k)
+				{
+					UVs[Triangles[i + k]] = FVector2D(RowShift, 0.0);
+				}
+			}
+		}
+
+		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, UVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
 		Mesh->SetMaterial(Section, MaterialForSurface(SurfaceId, Color));
 	}
 
