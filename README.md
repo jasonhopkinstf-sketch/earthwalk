@@ -58,7 +58,20 @@ For family in other homes to join, the server has to be reachable from the inter
 See [docs/HOSTING.md](docs/HOSTING.md) for putting it on a cloud host and inviting people.
 The family server is at https://earthwalk.onrender.com.
 
-## Run the game
+## Play the Windows game
+
+Family members do not need Unreal Engine. They install the game from one file:
+
+1. Download the newest `EarthWalk-Setup-<version>.exe` from the
+   [releases page](https://github.com/jasonhopkinstf-sketch/earthwalk/releases) and run it.
+   It installs EarthWalk, the Windows components it needs, and a Start menu entry.
+2. Start EarthWalk, press Enter, and type `/code <access code>` once (the person running
+   the server has the code). Then `/name <your name>` and `/animal <fox, bear, rabbit, cat,
+   owl or frog>`.
+
+To make that installer from this repository, see [docs/HOSTING.md](docs/HOSTING.md).
+
+## Run the game in the editor
 
 1. Install Unreal Engine 5 (5.4 or newer) with the Epic Games Launcher, and Visual
    Studio 2022 with the "Game development with C++" workload (Windows) or Xcode (Mac).

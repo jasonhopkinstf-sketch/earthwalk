@@ -12,3 +12,8 @@ game/*.sln
 game/*.xcworkspace
 game/.idea/
 game/build-log.txt
+
+# Packaged game (game\package.cmd)
+game/Packaged/
+game/package-log.txt
+game/Build/Windows/FileOpenOrder/

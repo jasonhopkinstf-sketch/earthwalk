@@ -46,6 +46,34 @@ If you would rather not use the Dockerfile, choose the Node runtime instead and 
 - Environment variables as above, plus `NODE_VERSION` = `24`,
   `EARTHWALK_TRUST_PROXY` = `1` and `EARTHWALK_CACHE` = `/data`.
 
+## Sharing the Windows game
+
+The Unreal game is turned into a normal Windows program by *packaging* it. One person
+with Unreal Engine installed does this; everyone else just installs the result.
+
+1. Install [Inno Setup](https://jrsoftware.org/isinfo.php) once, which makes the installer:
+   `winget install JRSoftware.InnoSetup`.
+2. Close the Unreal editor and double-click `game\package.cmd`. The first run takes
+   10-20 minutes (it compiles the game and prepares engine content). It writes
+   `game\Packaged\Windows\EarthWalk.exe` (the game folder, runnable as is) and
+   `game\Packaged\EarthWalk-Setup-<version>.exe` (the installer). Details go to
+   `game\package-log.txt`.
+3. Publish the installer as a GitHub release, so there is one link to send:
+
+   ```powershell
+   gh release create v0.1.0 game\Packaged\EarthWalk-Setup-0.1.0.exe --title "EarthWalk 0.1.0" --notes "First Windows release."
+   ```
+
+   (`gh` is the GitHub CLI. Without it, open the repository on GitHub, choose Releases,
+   Draft a new release, and attach the file.)
+4. Send the release link. The installer puts the game in Program Files and the Start menu,
+   and an uninstaller in Windows Settings.
+
+The version number comes from `ProjectVersion` in `game/Config/DefaultGame.ini`; raise it
+before packaging a new release. The game remembers its own settings (name, animal, access
+code) in `%LOCALAPPDATA%\EarthWalk`, separately from the editor's. The server does not
+need to change when the game is updated, and old and new game versions can share a room.
+
 ## Inviting someone
 
 1. Open your server's address in a browser, enter your name, pick an animal, and
