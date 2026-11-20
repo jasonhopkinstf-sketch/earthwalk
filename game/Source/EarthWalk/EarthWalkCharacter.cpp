@@ -11,6 +11,10 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "TimerManager.h"
+#include "UnrealClient.h"
 
 namespace
 {
@@ -74,6 +78,7 @@ void AEarthWalkCharacter::BeginPlay()
 	RefreshFigure();
 	ApplyView();
 	WaitForGround();
+	FParse::Value(FCommandLine::Get(), TEXT("-EWShot="), ShotFile);
 }
 
 void AEarthWalkCharacter::RefreshFigure()
@@ -230,8 +235,25 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	if (bWaitingForGround)
 	{
 		bRunningNow = false;
-		TryLand();
+		if (TryLand() && !ShotFile.IsEmpty() && ShotCountdown < 0.f)
+		{
+			ShotCountdown = 8.f; // let the nearby chunks and shaders settle first
+		}
 		return;
+	}
+
+	if (ShotCountdown >= 0.f)
+	{
+		ShotCountdown -= DeltaSeconds;
+		if (ShotCountdown < 0.f)
+		{
+			FScreenshotRequest::RequestScreenshot(ShotFile, false, false);
+			ShotCountdown = -1.f;
+			ShotFile.Reset();
+			// Give the screenshot a couple of seconds to be written, then leave.
+			FTimerHandle QuitTimer;
+			GetWorld()->GetTimerManager().SetTimer(QuitTimer, []() { FPlatformMisc::RequestExit(false); }, 2.f, false);
+		}
 	}
 
 	UCharacterMovementComponent* Movement = GetCharacterMovement();

@@ -16,7 +16,9 @@
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
+#include "Engine/Texture.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "ProceduralMeshComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -384,6 +386,94 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 	Request->ProcessRequest();
 }
 
+namespace
+{
+	/** How each server surface id is drawn: which master material, which texture, and how strongly the server's colour tints it. */
+	struct FSurfaceStyle
+	{
+		const TCHAR* Master; // asset name under /Game/EarthWalk/Materials
+		const TCHAR* Texture; // name under /Game/EarthWalk/Textures (T_<name>_D and _N), or null
+		float RepeatMeters;
+		float TintAmount; // 0 = texture's own colour, 1 = fully tinted by the server's colour
+		float Roughness;
+		float Windows;
+	};
+
+	const FSurfaceStyle* StyleFor(uint32 SurfaceId)
+	{
+		static const TMap<uint32, FSurfaceStyle> Styles = {
+			// Ground cover (server/src/chunk.ts MATERIALS)
+			{ 0, { TEXT("M_EarthTop"), TEXT("grass"), 4.f, 0.7f, 0.9f, 0.f } }, // unclassified land: rough grass
+			{ 1, { TEXT("M_EarthTop"), TEXT("grass"), 4.f, 0.75f, 0.9f, 0.f } },
+			{ 2, { TEXT("M_EarthTop"), TEXT("forest"), 4.f, 0.4f, 0.95f, 0.f } },
+			{ 3, { TEXT("M_EarthTop"), TEXT("soil"), 5.f, 0.4f, 0.9f, 0.f } },
+			{ 4, { TEXT("M_EarthTop"), TEXT("sand"), 4.f, 0.4f, 0.8f, 0.f } },
+			{ 5, { TEXT("M_EarthTop"), TEXT("grass"), 4.f, 0.5f, 0.9f, 0.f } }, // residential land: lawns
+			{ 6, { TEXT("M_EarthTop"), TEXT("paving"), 2.f, 0.5f, 0.7f, 0.f } },
+			{ 7, { TEXT("M_EarthWater"), nullptr, 0.f, 1.f, 0.f, 0.f } },
+			{ 8, { TEXT("M_EarthTop"), TEXT("rock"), 5.f, 0.4f, 0.9f, 0.f } },
+			// Roads
+			{ 10, { TEXT("M_EarthTop"), TEXT("asphalt"), 3.f, 0.3f, 0.85f, 0.f } },
+			{ 11, { TEXT("M_EarthTop"), TEXT("gravel"), 2.f, 0.6f, 0.9f, 0.f } },
+			{ 12, { TEXT("M_EarthTop"), TEXT("gravel"), 2.f, 0.7f, 0.9f, 0.f } },
+			{ 13, { TEXT("M_EarthWater"), nullptr, 0.f, 1.f, 0.f, 0.f } },
+			// Building walls, with windows
+			{ 20, { TEXT("M_EarthWall"), TEXT("plaster"), 3.f, 0.8f, 0.85f, 1.f } },
+			{ 21, { TEXT("M_EarthWall"), TEXT("brick"), 2.5f, 0.25f, 0.8f, 1.f } },
+			{ 22, { TEXT("M_EarthWall"), TEXT("concrete"), 3.f, 0.6f, 0.75f, 1.f } },
+			{ 23, { TEXT("M_EarthWall"), TEXT("brick"), 2.5f, 0.45f, 0.8f, 1.f } },
+			// Roofs
+			{ 24, { TEXT("M_EarthTop"), TEXT("roof_grey"), 2.f, 0.5f, 0.7f, 0.f } },
+			{ 25, { TEXT("M_EarthTop"), TEXT("roof_clay"), 2.f, 0.3f, 0.75f, 0.f } },
+		};
+		return Styles.Find(SurfaceId);
+	}
+
+	template <class T>
+	T* LoadArt(const TCHAR* Folder, const FString& Name)
+	{
+		return LoadObject<T>(nullptr, *FString::Printf(TEXT("/Game/EarthWalk/%s/%s.%s"), Folder, *Name, *Name));
+	}
+}
+
+UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint32 Rgba)
+{
+	const uint64 Key = (static_cast<uint64>(SurfaceId) << 32) | Rgba;
+	if (const TObjectPtr<UMaterialInstanceDynamic>* Found = SurfaceMaterials.Find(Key))
+	{
+		return *Found;
+	}
+	const FSurfaceStyle* Style = StyleFor(SurfaceId);
+	UMaterialInterface* Master = Style ? LoadArt<UMaterialInterface>(TEXT("Materials"), Style->Master) : nullptr;
+	if (!Master)
+	{
+		return MaterialFor(Rgba); // trees, or the art assets have not been built yet
+	}
+	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Master, this);
+	if (Material)
+	{
+		const FColor Color((Rgba >> 24) & 0xff, (Rgba >> 16) & 0xff, (Rgba >> 8) & 0xff, 255);
+		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
+		if (Style->Texture)
+		{
+			if (UTexture* Albedo = LoadArt<UTexture>(TEXT("Textures"), FString::Printf(TEXT("T_%s_D"), Style->Texture)))
+			{
+				Material->SetTextureParameterValue(TEXT("Albedo"), Albedo);
+			}
+			if (UTexture* Normal = LoadArt<UTexture>(TEXT("Textures"), FString::Printf(TEXT("T_%s_N"), Style->Texture)))
+			{
+				Material->SetTextureParameterValue(TEXT("NormalMap"), Normal);
+			}
+			Material->SetScalarParameterValue(TEXT("Repeat"), Style->RepeatMeters);
+			Material->SetScalarParameterValue(TEXT("TintAmount"), Style->TintAmount);
+			Material->SetScalarParameterValue(TEXT("Roughness"), Style->Roughness);
+			Material->SetScalarParameterValue(TEXT("Windows"), Style->Windows);
+		}
+	}
+	SurfaceMaterials.Add(Key, Material);
+	return Material;
+}
+
 UMaterialInstanceDynamic* AEarthWorld::MaterialFor(uint32 Rgba)
 {
 	if (const TObjectPtr<UMaterialInstanceDynamic>* Found = Materials.Find(Rgba))
@@ -446,6 +536,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 			bOk = false;
 			break;
 		}
+		const uint32 SurfaceId = U32(Offset);
 		const uint32 Color = U32(Offset + 4);
 		const uint32 Flags = U32(Offset + 8);
 		const int64 NumVerts = U32(Offset + 12);
@@ -501,7 +592,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		}
 
 		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, NoUVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
-		Mesh->SetMaterial(Section, MaterialFor(Color));
+		Mesh->SetMaterial(Section, MaterialForSurface(SurfaceId, Color));
 	}
 
 	if (!bOk)
