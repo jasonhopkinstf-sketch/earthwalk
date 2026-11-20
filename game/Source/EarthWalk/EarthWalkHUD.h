@@ -26,6 +26,9 @@ public:
 	void CloseChat();
 	void AddLine(const FString& Text, const FLinearColor& Color = FLinearColor::White);
 
+	/** Pointer free and visible; the mouse looks around only while a button is held. */
+	static void ApplyGameInputMode(APlayerController* PC);
+
 private:
 	void OpenChat();
 	void RunCommand(const FString& Command, const FString& Argument);

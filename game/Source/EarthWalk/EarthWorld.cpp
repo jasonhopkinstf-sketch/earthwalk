@@ -1,10 +1,13 @@
 #include "EarthWorld.h"
 
+#include "EarthChunkLabels.h"
 #include "EarthGeo.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
 #include "Components/CapsuleComponent.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -15,6 +18,8 @@
 #include "Interfaces/IHttpResponse.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "ProceduralMeshComponent.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace
@@ -23,6 +28,8 @@ namespace
 	constexpr uint32 ChunkVersion = 1;
 	constexpr uint32 FlagCollision = 1;
 	constexpr int32 MaxRequestsInFlight = 4;
+	constexpr int32 MaxLabelRequestsInFlight = 2;
+	constexpr double LabelRetrySeconds = 120.0; // labels are optional, so failures are retried slowly
 }
 
 AEarthWorld::AEarthWorld()
@@ -90,7 +97,22 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 	Chunks.Reset();
 	Pending.Reset();
 	RetryAfter.Reset();
+	ClearLabels();
 	ChunkTimer = 0.f;
+}
+
+void AEarthWorld::ClearLabels()
+{
+	for (const TPair<FIntPoint, TObjectPtr<AEarthChunkLabels>>& Pair : Labels)
+	{
+		if (Pair.Value)
+		{
+			Pair.Value->Destroy();
+		}
+	}
+	Labels.Reset();
+	PendingLabels.Reset();
+	LabelRetryAfter.Reset();
 }
 
 FVector AEarthWorld::GeoToWorld(double Lat, double Lon, double AltMeters) const
@@ -208,6 +230,113 @@ void AEarthWorld::UpdateChunks(const FVector& Around)
 		}
 		RequestChunk(Key);
 	}
+
+	UpdateLabels(Center);
+}
+
+/** Letterboxes and street signs for the nearest loaded chunks; they follow the chunks in and out. */
+void AEarthWorld::UpdateLabels(FIntPoint Center)
+{
+	const int32 Radius = FMath::Clamp(GetDefault<UEarthWalkSettings>()->LabelRadiusChunks, 0, 3);
+
+	for (auto It = Labels.CreateIterator(); It; ++It)
+	{
+		const FIntPoint Delta = It.Key() - Center;
+		if (FMath::Max(FMath::Abs(Delta.X), FMath::Abs(Delta.Y)) > Radius + 1 || !Chunks.Contains(It.Key()))
+		{
+			if (It.Value())
+			{
+				It.Value()->Destroy();
+			}
+			It.RemoveCurrent();
+		}
+	}
+
+	TArray<FIntPoint> Wanted;
+	const double Now = FPlatformTime::Seconds();
+	for (int32 DY = -Radius; DY <= Radius; ++DY)
+	{
+		for (int32 DX = -Radius; DX <= Radius; ++DX)
+		{
+			const FIntPoint Key(Center.X + DX, Center.Y + DY);
+			if (!Chunks.Contains(Key) || Labels.Contains(Key) || PendingLabels.Contains(Key))
+			{
+				continue;
+			}
+			if (const double* Until = LabelRetryAfter.Find(Key))
+			{
+				if (Now < *Until)
+				{
+					continue;
+				}
+			}
+			Wanted.Add(Key);
+		}
+	}
+	Wanted.Sort([Center](const FIntPoint& A, const FIntPoint& B)
+	{
+		return (A - Center).SizeSquared() < (B - Center).SizeSquared();
+	});
+	for (const FIntPoint& Key : Wanted)
+	{
+		if (PendingLabels.Num() >= MaxLabelRequestsInFlight)
+		{
+			break;
+		}
+		RequestLabels(Key);
+	}
+}
+
+void AEarthWorld::RequestLabels(FIntPoint Key)
+{
+	PendingLabels.Add(Key);
+	const int32 WrappedX = ((Key.X % 65536) + 65536) % 65536;
+	const FString Url = FString::Printf(TEXT("%s/v1/labels/%d/%d/%d"), *FEarthWalkConfig::ServerUrl(), EarthGeo::ChunkZoom, WrappedX, Key.Y);
+
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(Url);
+	Request->SetVerb(TEXT("GET"));
+	Request->SetTimeout(90.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
+	const int32 RequestGeneration = Generation;
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, RequestGeneration](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		if (RequestGeneration != Generation)
+		{
+			return;
+		}
+		PendingLabels.Remove(Key);
+
+		// Anything but a good reply (an older server says 404, a busy one 429) is dropped quietly.
+		bool bOk = false;
+		if (bConnected && Response.IsValid() && Response->GetResponseCode() == 200)
+		{
+			TSharedPtr<FJsonObject> Json;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+			const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+			if (FJsonSerializer::Deserialize(Reader, Json) && Json.IsValid() && Json->TryGetArrayField(TEXT("items"), Items))
+			{
+				bOk = true;
+				const TObjectPtr<UProceduralMeshComponent>* Mesh = Chunks.Find(Key);
+				if (Mesh && *Mesh && !Labels.Contains(Key))
+				{
+					if (AEarthChunkLabels* Actor = GetWorld()->SpawnActor<AEarthChunkLabels>(FVector::ZeroVector, FRotator::ZeroRotator))
+					{
+						Actor->Build(*Items, (*Mesh)->GetComponentLocation(), TileCm, this);
+						Labels.Add(Key, Actor);
+					}
+				}
+			}
+		}
+		if (!bOk)
+		{
+			LabelRetryAfter.Add(Key, FPlatformTime::Seconds() + LabelRetrySeconds);
+		}
+	});
+	Request->ProcessRequest();
 }
 
 void AEarthWorld::RequestChunk(FIntPoint Key)
@@ -421,6 +550,7 @@ void AEarthWorld::UpdateAvatars()
 			if (Avatar)
 			{
 				Avatar->SetDisplayName(Peer.Name);
+				Avatar->SetAnimal(Peer.Avatar);
 			}
 		}
 		if (Avatar)

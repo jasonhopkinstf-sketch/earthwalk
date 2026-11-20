@@ -55,6 +55,37 @@ Then `sectionCount` sections, each:
 `u`/`v` may fall slightly outside 0–1 (buildings belong to the chunk holding their
 centre; roads overlap chunk edges a little so they join up).
 
+## Labels: `GET /v1/labels/16/{x}/{y}`
+
+House numbers and street names for the same chunk, as JSON. The route is **optional**: a
+client that ignores it still gets the complete world from the chunk meshes. It takes the
+same access code, zoom and rate-limit rules as the chunk route, and the same `x`/`y`
+numbering. The browser client does not use it yet; the Unreal client spawns letterboxes
+and sign posts from it.
+
+```json
+{"x": 33185, "y": 22545, "rev": 1,
+ "items": [
+   {"kind": "house", "text": "12", "u": 0.4, "v": 0.5035, "h": 61.2, "yaw": 180},
+   {"kind": "street", "text": "Rue de Rivoli", "text2": "Rue du Louvre", "u": 0.51, "v": 0.7, "h": 60.9, "yaw": 90, "yaw2": 0}
+ ]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `rev` | Placement revision; bumps when the server lays labels out differently. |
+| `kind` | `house` (a letterbox plate) or `street` (a sign post). |
+| `text`, `text2` | The plate text. A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
+| `u`, `v` | Position across the chunk, as in the meshes: `u` 0 = west edge, 1 = east edge; `v` 0 = north edge, 1 = south edge. May fall slightly outside 0–1 for buildings that straddle the chunk edge. |
+| `h` | Terrain-mesh height at the point, in metres above sea level, so the prop stands on the ground. |
+| `yaw`, `yaw2` | Compass heading in degrees (0 north, 90 east) that the text of `text` / `text2` faces. |
+
+Placement: a house plate stands 1.5 m from the building corner nearest its street
+(`addr:street` if mapped, else the nearest named road within 120 m), facing that road.
+A crossing sign stands on the corner of the junction with the most room, each plate
+facing back across its own street. A street with no crossing in the area gets one plate
+halfway along its piece of the chunk. At most 120 house and 40 street items per chunk.
+
 ## Place search: `GET /v1/geocode?q=...`
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.

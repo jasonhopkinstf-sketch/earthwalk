@@ -71,8 +71,21 @@ The family server is at https://earthwalk.onrender.com.
    (press Enter first to open the chat box). To use a server on your own PC instead,
    type `/server http://localhost:8787`.
 
-Controls: `W A S D` move, mouse looks, `Shift` faster, `Space` jump, `F` fly
-(`Space`/`C` up/down), `Enter` chat.
+Controls (Unreal):
+
+| Key | What it does |
+| --- | --- |
+| `W A S D` | Move |
+| Left-drag the mouse, or `Left`/`Right` arrows | Look around (`Up`/`Down` tilt). The pointer stays free when you are not dragging, so a trackpad works |
+| `2` / `1` | Run / walk (or hold `Shift` to run) |
+| `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
+| `Space` | Jump (walking) or rise (flying) |
+| `F` | Toggle flying (`C` descends) |
+| `Enter` | Chat and commands |
+
+In the editor, click the game viewport once so it has the keyboard; `Shift+F1` gives the
+mouse back to the editor. Houses with a known number get a letterbox, and street corners get
+a sign post, where OpenStreetMap has the data.
 
 Chat commands:
 

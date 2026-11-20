@@ -1,5 +1,7 @@
 #include "EarthWalkCharacter.h"
 
+#include "EarthAnimalFigure.h"
+#include "EarthWalkAvatar.h"
 #include "EarthWalkSettings.h"
 #include "EarthWorld.h"
 #include "Camera/CameraComponent.h"
@@ -7,6 +9,7 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
 
 namespace
@@ -16,16 +19,42 @@ namespace
 	constexpr float FlySpeed = 4000.f;
 	constexpr float FastFlySpeed = 20000.f;
 	constexpr float MouseLookScale = 2.5f; // same as the engine's default look scale
+	constexpr float TurnDegreesPerSecond = 120.f; // arrow keys
+	constexpr float TiltDegreesPerSecond = 80.f;
+	constexpr float ZoomStep = 1.15f; // per wheel notch
 }
 
 AEarthWalkCharacter::AEarthWalkCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	// The camera hangs off a spring arm so it can sit at eye level (arm length 0) or behind the figure.
+	Boom = CreateDefaultSubobject<USpringArmComponent>(TEXT("Boom"));
+	Boom->SetupAttachment(GetCapsuleComponent());
+	Boom->SetRelativeLocation(FVector(0, 0, 64));
+	Boom->bUsePawnControlRotation = true;
+	Boom->bInheritPitch = true;
+	Boom->bInheritYaw = true;
+	Boom->bInheritRoll = false;
+	Boom->TargetArmLength = 0.f;
+	Boom->bDoCollisionTest = false;
+	Boom->ProbeSize = 12.f;
+	Boom->ProbeChannel = ECC_Camera;
+	Boom->bEnableCameraLag = false;
+	Boom->CameraLagSpeed = 12.f;
+	Boom->CameraLagMaxDistance = 150.f;
+	Boom->bEnableCameraRotationLag = false;
+
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
-	Camera->SetupAttachment(GetCapsuleComponent());
-	Camera->SetRelativeLocation(FVector(0, 0, 64));
-	Camera->bUsePawnControlRotation = true;
+	Camera->SetupAttachment(Boom, USpringArmComponent::SocketName);
+	Camera->bUsePawnControlRotation = false;
+
+	// The player's own animal, visible in the third-person views.
+	Figure = CreateDefaultSubobject<UEarthAnimalFigure>(TEXT("Figure"));
+	Figure->SetupAttachment(GetCapsuleComponent());
+	Figure->SetRelativeLocation(FVector(0, 0, -GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
+	Figure->SetRelativeScale3D(FVector(AEarthWalkAvatar::FigureScale));
+	Figure->SetVisibility(false, true);
 
 	bUseControllerRotationYaw = true;
 
@@ -42,7 +71,52 @@ AEarthWalkCharacter::AEarthWalkCharacter()
 void AEarthWalkCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	RefreshFigure();
+	ApplyView();
 	WaitForGround();
+}
+
+void AEarthWalkCharacter::RefreshFigure()
+{
+	Figure->SetAnimal(FEarthWalkConfig::Avatar());
+}
+
+void AEarthWalkCharacter::CycleView()
+{
+	switch (View)
+	{
+	case EEarthView::FirstPerson: View = EEarthView::Shoulder; break;
+	case EEarthView::Shoulder: View = EEarthView::Far; break;
+	default: View = EEarthView::FirstPerson; break;
+	}
+	ApplyView();
+}
+
+void AEarthWalkCharacter::ApplyView()
+{
+	const bool bThirdPerson = View != EEarthView::FirstPerson;
+	Boom->bDoCollisionTest = bThirdPerson;
+	Boom->bEnableCameraLag = bThirdPerson;
+	Figure->SetVisibility(bThirdPerson, true);
+	switch (View)
+	{
+	case EEarthView::Shoulder:
+		ArmTarget = ShoulderDistance;
+		Boom->SocketOffset = FVector(0, 45, 40);
+		Boom->TargetOffset = FVector(0, 0, 30);
+		break;
+	case EEarthView::Far:
+		ArmTarget = FarDistance;
+		Boom->SocketOffset = FVector(0, 0, 80);
+		Boom->TargetOffset = FVector(0, 0, 30);
+		break;
+	default:
+		ArmTarget = 0.f;
+		Boom->TargetArmLength = 0.f; // snap, so your own head is never in shot
+		Boom->SocketOffset = FVector::ZeroVector;
+		Boom->TargetOffset = FVector::ZeroVector;
+		break;
+	}
 }
 
 void AEarthWalkCharacter::WaitForGround()
@@ -105,22 +179,57 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
-	// Looking around works even while the world is still loading.
+	const bool bThirdPerson = View != EEarthView::FirstPerson;
+
+	// Looking around works even while the world is still loading. The mouse only looks while the
+	// left button is held, so a trackpad brush does not spin the view; the arrow keys always do.
 	if (!bTyping)
 	{
-		const float MouseX = PC->GetInputAnalogKeyState(EKeys::MouseX);
-		const float MouseY = PC->GetInputAnalogKeyState(EKeys::MouseY);
-		FRotator View = PC->GetControlRotation();
 		const UEarthWalkSettings* Settings = GetDefault<UEarthWalkSettings>();
-		const double Scale = MouseLookScale * Settings->MouseSensitivity;
-		View.Yaw += MouseX * Scale;
-		View.Pitch = FMath::Clamp(FRotator::NormalizeAxis(View.Pitch) + MouseY * Scale * (Settings->bInvertMouseY ? -1.0 : 1.0), -88.0, 88.0);
-		View.Roll = 0.0;
-		PC->SetControlRotation(View);
+		FRotator Look = PC->GetControlRotation();
+		double Pitch = FRotator::NormalizeAxis(Look.Pitch);
+		if (PC->IsInputKeyDown(EKeys::LeftMouseButton))
+		{
+			const double Scale = MouseLookScale * Settings->MouseSensitivity;
+			Look.Yaw += PC->GetInputAnalogKeyState(EKeys::MouseX) * Scale;
+			Pitch += PC->GetInputAnalogKeyState(EKeys::MouseY) * Scale * (Settings->bInvertMouseY ? -1.0 : 1.0);
+		}
+		const float Turn = (PC->IsInputKeyDown(EKeys::Right) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Left) ? 1.f : 0.f);
+		const float Tilt = (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Down) ? 1.f : 0.f);
+		Look.Yaw += Turn * TurnDegreesPerSecond * DeltaSeconds;
+		Pitch += Tilt * TiltDegreesPerSecond * DeltaSeconds;
+		// Behind the figure, looking too far down would put the camera in the ground.
+		Look.Pitch = bThirdPerson ? FMath::Clamp(Pitch, -70.0, 60.0) : FMath::Clamp(Pitch, -88.0, 88.0);
+		Look.Roll = 0.0;
+		PC->SetControlRotation(Look);
+
+		if (PC->WasInputKeyJustPressed(EKeys::V))
+		{
+			CycleView();
+		}
+		if (bThirdPerson)
+		{
+			const float MinArm = View == EEarthView::Shoulder ? 120.f : 400.f;
+			const float MaxArm = View == EEarthView::Shoulder ? 500.f : 2500.f;
+			if (PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))
+			{
+				ArmTarget = FMath::Clamp(ArmTarget / ZoomStep, MinArm, MaxArm);
+			}
+			if (PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))
+			{
+				ArmTarget = FMath::Clamp(ArmTarget * ZoomStep, MinArm, MaxArm);
+			}
+			(View == EEarthView::Shoulder ? ShoulderDistance : FarDistance) = ArmTarget;
+		}
+	}
+	if (bThirdPerson)
+	{
+		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, ArmTarget, DeltaSeconds, 10.f);
 	}
 
 	if (bWaitingForGround)
 	{
+		bRunningNow = false;
 		TryLand();
 		return;
 	}
@@ -148,21 +257,31 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		SetFlying(!bFlying);
 	}
 
-	const bool bFast = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
-	Movement->MaxWalkSpeed = bFast ? RunSpeed : WalkSpeed;
-	Movement->MaxFlySpeed = bFast ? FastFlySpeed : FlySpeed;
+	// Running: hold Shift, or press 2 to keep running until 1 (or 2 again).
+	if (PC->WasInputKeyJustPressed(EKeys::Two))
+	{
+		bRunToggled = !bRunToggled;
+	}
+	if (PC->WasInputKeyJustPressed(EKeys::One))
+	{
+		bRunToggled = false;
+	}
+	const bool bShift = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
+	bRunningNow = bShift || bRunToggled;
+	Movement->MaxWalkSpeed = bRunningNow ? RunSpeed : WalkSpeed;
+	Movement->MaxFlySpeed = bRunningNow ? FastFlySpeed : FlySpeed;
 
 	const float Forward = (PC->IsInputKeyDown(EKeys::W) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
 	const float Right = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
-	const FRotator View = PC->GetControlRotation();
-	const FRotator Heading(bFlying ? View.Pitch : 0.0, View.Yaw, 0.0);
+	const FRotator Look = PC->GetControlRotation();
+	const FRotator Heading(bFlying ? Look.Pitch : 0.0, Look.Yaw, 0.0);
 	if (Forward != 0.f)
 	{
 		AddMovementInput(Heading.Vector(), Forward);
 	}
 	if (Right != 0.f)
 	{
-		AddMovementInput(FRotationMatrix(FRotator(0.0, View.Yaw, 0.0)).GetUnitAxis(EAxis::Y), Right);
+		AddMovementInput(FRotationMatrix(FRotator(0.0, Look.Yaw, 0.0)).GetUnitAxis(EAxis::Y), Right);
 	}
 
 	if (bFlying)

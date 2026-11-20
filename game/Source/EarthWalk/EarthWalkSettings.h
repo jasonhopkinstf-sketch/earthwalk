@@ -40,6 +40,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "World", meta = (ClampMin = 1, ClampMax = 6))
 	int32 ViewRadiusChunks = 2;
 
+	/** How many chunks around the player get letterboxes and street signs (0 turns them off). */
+	UPROPERTY(Config, EditAnywhere, Category = "World", meta = (ClampMin = 0, ClampMax = 3))
+	int32 LabelRadiusChunks = 1;
+
 	/** Turn on if the world renders inside-out (you can see through the ground from above). */
 	UPROPERTY(Config, EditAnywhere, Category = "World")
 	bool bFlipTriangleWinding = false;

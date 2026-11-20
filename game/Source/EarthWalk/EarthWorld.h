@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "EarthWorld.generated.h"
 
+class AEarthChunkLabels;
 class AEarthWalkAvatar;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
@@ -40,6 +41,9 @@ public:
 	/** True once the chunk under this position has been received and built. */
 	bool HasChunkAt(const FVector& Position) const;
 
+	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
+	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
+
 	int32 NumLoadedChunks() const { return Chunks.Num(); }
 	const FString& GetLastError() const { return LastError; }
 
@@ -47,12 +51,17 @@ private:
 	void UpdateChunks(const FVector& Around);
 	void RequestChunk(FIntPoint Key);
 	bool BuildChunk(FIntPoint Key, const TArray<uint8>& Data);
-	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
+	void UpdateLabels(FIntPoint Center);
+	void RequestLabels(FIntPoint Key);
+	void ClearLabels();
 	void UpdateAvatars();
 	FIntPoint ChunkAt(const FVector& Position) const;
 
 	UPROPERTY()
 	TMap<FIntPoint, TObjectPtr<UProceduralMeshComponent>> Chunks;
+
+	UPROPERTY()
+	TMap<FIntPoint, TObjectPtr<AEarthChunkLabels>> Labels;
 
 	UPROPERTY()
 	TMap<uint32, TObjectPtr<UMaterialInstanceDynamic>> Materials;
@@ -65,6 +74,8 @@ private:
 
 	TSet<FIntPoint> Pending;
 	TMap<FIntPoint, double> RetryAfter;
+	TSet<FIntPoint> PendingLabels;
+	TMap<FIntPoint, double> LabelRetryAfter;
 	FString LastError;
 
 	double OriginX = 0.0; // tile coordinates of engine (0, 0)

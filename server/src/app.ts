@@ -7,6 +7,7 @@ import { cacheRead, cacheWrite, InFlight } from "./cache.ts";
 import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
+import { generateLabels, LABELS_REV } from "./labels.ts";
 import { geocode, type Place } from "./geocode.ts";
 import { GuestDirectory, type PeopleDirectory } from "./people.ts";
 import { Rooms } from "./rooms.ts";
@@ -34,6 +35,7 @@ export interface AppOptions {
   people?: PeopleDirectory;
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
+  buildLabels?: (x: number, y: number) => Promise<Buffer>;
   readCache?: (rel: string) => Promise<Buffer | null>;
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
@@ -73,6 +75,7 @@ export function createApp(options: AppOptions = {}): App {
   const findPlace = options.findPlace ?? geocode;
   const elevation = new Elevation();
   const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
+  const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
   const rooms = new Rooms(options.people ?? new GuestDirectory(accessCode));
   const building = new InFlight<Buffer>();
   const coldBuilds = new Map<string, number[]>(); // caller address -> times of recent uncached builds
@@ -102,35 +105,50 @@ export function createApp(options: AppOptions = {}): App {
     return true;
   };
 
+  /**
+   * Serves one per-chunk product (mesh or labels) from the cache, building and caching it on a miss.
+   * Both kinds share the access check, the zoom/range checks and the per-caller cold-build limit.
+   */
+  const serveBuilt = async (req: IncomingMessage, res: ServerResponse, url: URL, m: RegExpExecArray,
+    cacheRel: (x: number, y: number) => string, build: (x: number, y: number) => Promise<Buffer>, contentType: string): Promise<void> => {
+    if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+    const z = Number(m[1]);
+    const x = Number(m[2]);
+    const y = Number(m[3]);
+    const n = 2 ** CHUNK_Z;
+    if (z !== CHUNK_Z || x >= n || y >= n) return json(res, 400, { error: `chunks exist only at zoom ${CHUNK_Z}` });
+    const rel = cacheRel(x, y);
+    let data = await readCache(rel);
+    if (!data) {
+      if (!mayBuild(callerOf(req))) {
+        res.setHeader("Retry-After", "30");
+        return json(res, 429, { error: "exploring too fast; try again shortly" });
+      }
+      data = await building.get(rel, async () => {
+        const built = await build(x, y);
+        await writeCache(rel, built);
+        return built;
+      });
+    }
+    res.writeHead(200, { "Content-Type": contentType, "Content-Length": data.length, "Cache-Control": "private, max-age=86400" });
+    res.end(data);
+  };
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       const p = url.pathname;
       if (req.method !== "GET") return json(res, 405, { error: "method not allowed" });
 
-      const m = /^\/v1\/chunk\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
-      if (m) {
-        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
-        const z = Number(m[1]);
-        const x = Number(m[2]);
-        const y = Number(m[3]);
-        const n = 2 ** CHUNK_Z;
-        if (z !== CHUNK_Z || x >= n || y >= n) return json(res, 400, { error: `chunks exist only at zoom ${CHUNK_Z}` });
-        const rel = `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`;
-        let data = await readCache(rel);
-        if (!data) {
-          if (!mayBuild(callerOf(req))) {
-            res.setHeader("Retry-After", "30");
-            return json(res, 429, { error: "exploring too fast; try again shortly" });
-          }
-          data = await building.get(rel, async () => {
-            const built = await buildChunk(x, y);
-            await writeCache(rel, built);
-            return built;
-          });
-        }
-        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": data.length, "Cache-Control": "private, max-age=86400" });
-        return void res.end(data);
+      const chunk = /^\/v1\/chunk\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
+      if (chunk) {
+        return serveBuilt(req, res, url, chunk, (x, y) => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`,
+          buildChunk, "application/octet-stream");
+      }
+      const labels = /^\/v1\/labels\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
+      if (labels) {
+        return serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
+          buildLabels, "application/json; charset=utf-8");
       }
       if (p === "/v1/geocode") {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });

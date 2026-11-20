@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildChunkMesh, clipPolyline, encodeChunk, FORMAT_MAGIC, MATERIALS } from "../src/chunk.ts";
 import { Elevation, GRID } from "../src/elevation.ts";
-import { CHUNK_Z, latToY, lonToX, xToLon, yToLat } from "../src/geo.ts";
+import { CHUNK_Z, latToY, lonToX, metersPerTile, xToLon, yToLat } from "../src/geo.ts";
+import { buildLabels, generateLabels, type LabelsJson } from "../src/labels.ts";
 import { buildingHeight, parseOsm, stitchRings, type Features, type OsmJson } from "../src/osm.ts";
 
 const CX = 33185;
@@ -61,10 +62,14 @@ function sampleOsm(): OsmJson {
   return {
     elements: [
       n(1, CX + 0.4, CY + 0.4), n(2, CX + 0.5, CY + 0.4), n(3, CX + 0.5, CY + 0.5), n(4, CX + 0.4, CY + 0.5),
-      { type: "way", id: 100, nodes: [1, 2, 3, 4, 1], tags: { building: "yes", height: "10" } },
-      n(5, CX - 0.5, CY + 0.7), n(6, CX + 1.5, CY + 0.7),
-      { type: "way", id: 101, nodes: [5, 6], tags: { highway: "residential" } },
+      { type: "way", id: 100, nodes: [1, 2, 3, 4, 1], tags: { building: "yes", height: "10", "addr:housenumber": "12", "addr:street": "High Street" } },
+      n(5, CX - 0.5, CY + 0.7), n(16, CX + 0.5, CY + 0.7), n(6, CX + 1.5, CY + 0.7),
+      { type: "way", id: 101, nodes: [5, 16, 6], tags: { highway: "residential", name: "High Street" } },
       { type: "way", id: 102, nodes: [5, 6], tags: { highway: "primary", tunnel: "yes" } },
+      // Mill Lane runs south from High Street, sharing node 16 with it.
+      n(17, CX + 0.5, CY + 0.55), n(18, CX + 0.5, CY + 0.95),
+      { type: "way", id: 106, nodes: [17, 16, 18], tags: { highway: "residential", name: "Mill Lane" } },
+      n(19, CX + 0.2, CY + 0.6, { "addr:housenumber": "7" }),
       n(7, CX + 0.0, CY + 0.0), n(8, CX + 0.3, CY + 0.0), n(9, CX + 0.3, CY + 0.3), n(10, CX + 0.0, CY + 0.3),
       { type: "way", id: 103, nodes: [7, 8, 9, 10, 7], tags: { natural: "wood" } },
       n(11, CX + 0.8, CY + 0.2, { natural: "tree" }),
@@ -81,10 +86,16 @@ test("parseOsm classifies features", () => {
   const f = parseOsm(sampleOsm());
   assert.equal(f.buildings.length, 1);
   assert.equal(f.buildings[0].height, 10);
-  assert.equal(f.roads.length, 1, "tunnels are skipped");
+  assert.equal(f.buildings[0].housenumber, "12");
+  assert.equal(f.buildings[0].street, "High Street");
+  assert.equal(f.roads.length, 2, "tunnels are skipped");
   assert.equal(f.roads[0].cls, "road");
+  assert.deepEqual(f.roads.map((r) => r.name).sort(), ["High Street", "Mill Lane"]);
   assert.deepEqual(f.areas.map((a) => a.cls).sort(), ["forest", "water"]);
   assert.equal(f.trees.length, 1);
+  assert.equal(f.addresses.length, 1);
+  assert.equal(f.addresses[0].housenumber, "7");
+  assert.equal(f.addresses[0].street, undefined);
 });
 
 async function mesh(cx: number, cy: number, f: Features) {
@@ -132,7 +143,7 @@ test("roads sit just above the terrain mesh", async () => {
 });
 
 test("neighbouring chunks share identical edge heights", async () => {
-  const empty: Features = { buildings: [], roads: [], areas: [], trees: [], coast: [] };
+  const empty: Features = { buildings: [], roads: [], areas: [], trees: [], addresses: [], coast: [] };
   const a = await mesh(CX, CY, empty);
   const b = await mesh(CX + 1, CY, empty);
   const edge = (m: typeof a.mesh, e: number): Map<number, number> => {
@@ -175,7 +186,7 @@ test("encodeChunk writes the documented layout", async () => {
 
 test("coastlines put the sea on their right-hand side", async () => {
   // A coast running north through the middle of the chunk: land (left) is west, sea is east.
-  const coast: Features = { buildings: [], roads: [], areas: [], trees: [], coast: [[[CX + 0.5, CY + 1.2], [CX + 0.5, CY + 0.5], [CX + 0.5, CY - 0.2]]] };
+  const coast: Features = { buildings: [], roads: [], areas: [], trees: [], addresses: [], coast: [[[CX + 0.5, CY + 1.2], [CX + 0.5, CY + 0.5], [CX + 0.5, CY - 0.2]]] };
   const { mesh: m } = await mesh(CX, CY, coast);
   const S = m.metersPerTile;
   const water = m.sections.find((s) => s.mat.id === MATERIALS.water.id)!;
@@ -187,7 +198,7 @@ test("coastlines put the sea on their right-hand side", async () => {
 
 test("inner rings of an area are holes", async () => {
   const sq = (a: number, b: number): [number, number][] => [[CX + a, CY + a], [CX + b, CY + a], [CX + b, CY + b], [CX + a, CY + b]];
-  const lake: Features = { buildings: [], roads: [], areas: [{ id: 1, cls: "water", rings: [sq(0.1, 0.9), sq(0.4, 0.6)] }], trees: [], coast: [] };
+  const lake: Features = { buildings: [], roads: [], areas: [{ id: 1, cls: "water", rings: [sq(0.1, 0.9), sq(0.4, 0.6)] }], trees: [], addresses: [], coast: [] };
   const { mesh: m } = await mesh(CX, CY, lake);
   const S = m.metersPerTile;
   const water = m.sections.find((s) => s.mat.id === MATERIALS.water.id)!;
@@ -199,4 +210,48 @@ test("inner rings of an area are holes", async () => {
     if (e > 0.42 && e < 0.58 && n > 0.42 && n < 0.58) touchesIsland = true;
   }
   assert.equal(touchesIsland, false, "the island is dry");
+});
+
+test("labels: letterboxes face the street and signs stand at crossings", async () => {
+  const f = parseOsm(sampleOsm());
+  const elev = hills();
+  await elev.ensure(CX - 0.5, CY - 0.5, CX + 1.5, CY + 1.5);
+  const items = buildLabels(CX, CY, f, elev);
+  const S = metersPerTile(CY + 0.5);
+  const metres = (du: number, dv: number): number => Math.hypot(du, dv) * S;
+  const bearing = (du: number, dv: number): number => ((Math.atan2(du, -dv) * 180) / Math.PI + 360) % 360;
+  const apart = (a: number, b: number): number => Math.abs(((a - b + 540) % 360) - 180);
+
+  // Number 12 stands 1.5 m off the building corner nearest High Street (which runs along v = 0.7), facing it.
+  const twelve = items.find((i) => i.kind === "house" && i.text === "12");
+  assert.ok(twelve, "house 12 has a letterbox");
+  const corners = f.buildings[0].ring.map(([x, y]) => [x - CX, y - CY]);
+  const nearest = Math.min(...corners.map(([u, v]) => metres(twelve.u - u, twelve.v - v)));
+  assert.ok(Math.abs(nearest - 1.5) < 0.05, `letterbox is ${nearest} m from the building`);
+  assert.ok(twelve.v > 0.5, "letterbox is on the street side of the building");
+  assert.ok(apart(twelve.yaw, bearing(0, 0.7 - twelve.v)) < 5, `yaw ${twelve.yaw} faces the road`);
+
+  const seven = items.find((i) => i.kind === "house" && i.text === "7");
+  assert.ok(seven, "the standalone address node has a letterbox");
+  assert.ok(metres(seven.u - 0.2, seven.v - 0.6) < 2, "it stays near its node");
+
+  const signs = items.filter((i) => i.kind === "street" && [i.text, i.text2].sort().join() === "High Street,Mill Lane");
+  assert.equal(signs.length, 1, "one sign post for the crossing");
+  assert.ok(metres(signs[0].u - 0.5, signs[0].v - 0.7) < 8, "the sign stands at the crossing");
+  assert.ok(Math.abs(apart(signs[0].yaw, signs[0].yaw2!) - 90) < 5, `plates ${signs[0].yaw}/${signs[0].yaw2} face across their streets`);
+
+  for (const it of items) {
+    assert.ok(Math.abs(it.h - elev.surfaceHeight(CX + it.u, CY + it.v)) < 1e-6, `${it.text} stands on the terrain`);
+    assert.ok(it.u >= -0.05 && it.u <= 1.05 && it.v >= -0.05 && it.v <= 1.05, `${it.text} is inside the chunk`);
+  }
+});
+
+test("generateLabels returns well-formed JSON for an empty area", async () => {
+  const empty: Features = { buildings: [], roads: [], areas: [], trees: [], addresses: [], coast: [] };
+  const buf = await generateLabels(CX, CY, hills(), async () => empty);
+  const json = JSON.parse(buf.toString("utf8")) as LabelsJson;
+  assert.equal(json.x, CX);
+  assert.equal(json.y, CY);
+  assert.equal(typeof json.rev, "number");
+  assert.equal(json.items.length, 0);
 });

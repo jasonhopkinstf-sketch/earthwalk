@@ -13,8 +13,11 @@ export type Pt = [number, number]; // world coordinates (CHUNK_Z tile units)
 export type GroundClass = "urban" | "farm" | "grass" | "forest" | "sand" | "rock" | "paved" | "water";
 export type RoadClass = "road" | "path" | "rail" | "stream";
 
-export interface Building { id: number; ring: Pt[]; height: number }
-export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[] }
+export interface Building { id: number; ring: Pt[]; height: number; housenumber?: string; street?: string }
+/** `name` is set for highway ways only. */
+export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string }
+/** A house number mapped as a standalone point rather than on a building. */
+export interface AddressPoint { id: number; at: Pt; housenumber: string; street?: string }
 /** Ground cover. A point is inside if it is within an odd number of rings, so inner rings are holes (islands in a lake). */
 export interface Area { id: number; cls: GroundClass; rings: Pt[][] }
 export interface TreePoint { id: number; at: Pt }
@@ -23,6 +26,7 @@ export interface Features {
   roads: Road[];
   areas: Area[];
   trees: TreePoint[];
+  addresses: AddressPoint[];
   /** Coastline pieces. By OpenStreetMap convention, land is on the left of the direction of travel. */
   coast: Pt[][];
 }
@@ -58,7 +62,7 @@ function overpassQuery(b: BBox): string {
   return `[out:json][timeout:40];(` +
     `way["building"]${bb};way["highway"]${bb};way["railway"="rail"]${bb};way["waterway"]${bb};` +
     `way["natural"]${bb};way["landuse"]${bb};way["leisure"]${bb};way["amenity"="parking"]${bb};` +
-    `node["natural"="tree"]${bb};` +
+    `node["natural"="tree"]${bb};node["addr:housenumber"]${bb};` +
     `relation["type"="multipolygon"]["building"]${bb};relation["type"="multipolygon"]["natural"]${bb};` +
     `relation["type"="multipolygon"]["landuse"]${bb};relation["type"="multipolygon"]["leisure"]${bb};` +
     `);out body;>;out skel qt;`;
@@ -216,6 +220,8 @@ const PATH_WIDTH: Record<string, number> = {
   footway: 1.8, path: 1.5, cycleway: 2.2, steps: 2, track: 2.8, bridleway: 2, corridor: 1.8,
 };
 
+const named = (road: Road, name: string | undefined): Road => (name?.trim() ? { ...road, name: name.trim() } : road);
+
 function roadOf(id: number, tags: Record<string, string>, pts: Pt[]): Road | null {
   if (tags.tunnel && tags.tunnel !== "no") return null;
   if ((num(tags.layer) ?? 0) < 0) return null;
@@ -225,9 +231,9 @@ function roadOf(id: number, tags: Record<string, string>, pts: Pt[]): Road | nul
     if (hw in ROAD_WIDTH) {
       const lanes = num(tags.lanes);
       const width = num(tags.width) ?? (lanes && lanes >= 1 && lanes <= 10 ? Math.max(lanes * 3.2, 3.5) : ROAD_WIDTH[hw]);
-      return { id, cls: "road", width: Math.min(Math.max(width, 2.5), 40), pts };
+      return named({ id, cls: "road", width: Math.min(Math.max(width, 2.5), 40), pts }, tags.name);
     }
-    if (hw in PATH_WIDTH) return { id, cls: "path", width: PATH_WIDTH[hw], pts };
+    if (hw in PATH_WIDTH) return named({ id, cls: "path", width: PATH_WIDTH[hw], pts }, tags.name);
     return null;
   }
   if (tags.railway === "rail") return { id, cls: "rail", width: 3, pts };
@@ -282,16 +288,22 @@ export function stitchRings(parts: number[][]): number[][] {
   return rings;
 }
 
+/** Address tags for the labels route; absent tags stay absent rather than becoming undefined fields. */
+const street = (tags: Record<string, string>): { street?: string } => (tags["addr:street"]?.trim() ? { street: tags["addr:street"].trim() } : {});
+const address = (tags: Record<string, string>): { housenumber?: string; street?: string } =>
+  tags["addr:housenumber"]?.trim() ? { housenumber: tags["addr:housenumber"].trim(), ...street(tags) } : {};
+
 export function parseOsm(json: OsmJson): Features {
   const nodes = new Map<number, Pt>();
   const ways = new Map<number, OsmElement>();
-  const out: Features = { buildings: [], roads: [], areas: [], trees: [], coast: [] };
+  const out: Features = { buildings: [], roads: [], areas: [], trees: [], addresses: [], coast: [] };
 
   for (const el of json.elements) {
     if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) {
       const at: Pt = [lonToX(el.lon, CHUNK_Z), latToY(el.lat, CHUNK_Z)];
       nodes.set(el.id, at);
       if (el.tags?.natural === "tree") out.trees.push({ id: el.id, at });
+      if (el.tags?.["addr:housenumber"]?.trim()) out.addresses.push({ id: el.id, at, housenumber: el.tags["addr:housenumber"].trim(), ...street(el.tags) });
     } else if (el.type === "way" && el.nodes) {
       ways.set(el.id, el);
     }
@@ -315,7 +327,7 @@ export function parseOsm(json: OsmJson): Features {
   const isBuilding = (tags: Record<string, string>): boolean => !!tags.building && tags.building !== "no";
   const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[]): void => {
     if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return;
-    out.buildings.push({ id, ring, height: buildingHeight(id, tags) });
+    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags) });
   };
 
   const usedAsOuter = new Set<number>();

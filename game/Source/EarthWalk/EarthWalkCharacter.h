@@ -5,14 +5,26 @@
 #include "EarthWalkCharacter.generated.h"
 
 class UCameraComponent;
+class UEarthAnimalFigure;
+class USpringArmComponent;
+
+/** Where the camera sits. */
+enum class EEarthView : uint8
+{
+	FirstPerson,
+	Shoulder,
+	Far,
+};
 
 /**
- * The local player: first-person walking, with a fly mode for covering distance.
+ * The local player: walking, with a fly mode for covering distance.
  *
- *   W A S D   move            Shift   go faster
- *   Mouse     look            Space   jump (walking) / rise (flying)
- *   F         toggle flying   C       descend (flying)
- *   Enter     chat and commands
+ *   W A S D        move                 Shift (hold) or 2   run, 1 walk
+ *   Left drag      look                 Left/Right arrows   turn, Up/Down tilt
+ *   V              camera view          Mouse wheel         closer / further (third person)
+ *   Space          jump (walking) / rise (flying)
+ *   F              toggle flying        C                   descend (flying)
+ *   Enter          chat and commands
  */
 UCLASS()
 class AEarthWalkCharacter : public ACharacter
@@ -30,18 +42,40 @@ public:
 
 	void SetFlying(bool bFly);
 	bool IsFlying() const { return bFlying; }
+	bool IsRunning() const { return bRunningNow; }
 	bool IsWaitingForGround() const { return bWaitingForGround; }
 
-	/** While true (chat box open), movement keys are ignored. */
+	/** First person, over the shoulder, far behind, then round again. */
+	void CycleView();
+	EEarthView GetView() const { return View; }
+
+	/** Rebuilds the player's own figure from the saved animal choice. */
+	void RefreshFigure();
+
+	/** While true (chat box open), movement and look keys are ignored. */
 	bool bTyping = false;
 
 private:
 	void WaitForGround();
 	bool TryLand();
+	void ApplyView();
+
+	UPROPERTY()
+	TObjectPtr<USpringArmComponent> Boom;
 
 	UPROPERTY()
 	TObjectPtr<UCameraComponent> Camera;
 
+	UPROPERTY()
+	TObjectPtr<UEarthAnimalFigure> Figure;
+
+	EEarthView View = EEarthView::FirstPerson;
+	float ShoulderDistance = 250.f;
+	float FarDistance = 700.f;
+	float ArmTarget = 0.f;
+
 	bool bFlying = false;
 	bool bWaitingForGround = true;
+	bool bRunToggled = false;
+	bool bRunningNow = false;
 };

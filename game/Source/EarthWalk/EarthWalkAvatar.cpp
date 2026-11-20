@@ -1,36 +1,19 @@
 #include "EarthWalkAvatar.h"
 
+#include "EarthAnimalFigure.h"
 #include "Camera/PlayerCameraManager.h"
-#include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
-#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
-#include "Materials/MaterialInstanceDynamic.h"
-#include "UObject/ConstructorHelpers.h"
 
 AEarthWalkAvatar::AEarthWalkAvatar()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 
-	// Engine basic shapes are 100 cm across and centred on their origin.
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-
-	Body = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Body"));
-	Body->SetupAttachment(RootComponent);
-	Body->SetStaticMesh(Cylinder.Object);
-	Body->SetRelativeScale3D(FVector(0.45, 0.45, 1.3));
-	Body->SetRelativeLocation(FVector(0, 0, 65));
-	Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-	Head = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Head"));
-	Head->SetupAttachment(RootComponent);
-	Head->SetStaticMesh(Sphere.Object);
-	Head->SetRelativeScale3D(FVector(0.34));
-	Head->SetRelativeLocation(FVector(0, 0, 150));
-	Head->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Figure = CreateDefaultSubobject<UEarthAnimalFigure>(TEXT("Figure"));
+	Figure->SetupAttachment(RootComponent);
+	Figure->SetRelativeScale3D(FVector(FigureScale));
 
 	Label = CreateDefaultSubobject<UTextRenderComponent>(TEXT("Label"));
 	Label->SetupAttachment(RootComponent);
@@ -42,20 +25,23 @@ AEarthWalkAvatar::AEarthWalkAvatar()
 	Label->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
+void AEarthWalkAvatar::BeginPlay()
+{
+	Super::BeginPlay();
+	if (Figure->GetAnimal().IsEmpty())
+	{
+		Figure->SetAnimal(TEXT("fox"));
+	}
+}
+
 void AEarthWalkAvatar::SetDisplayName(const FString& Name)
 {
 	Label->SetText(FText::FromString(Name));
+}
 
-	// Give each person their own colour, derived from their name.
-	const uint8 Hue = static_cast<uint8>(GetTypeHash(Name) % 256);
-	const FLinearColor Color = FLinearColor::MakeFromHSV8(Hue, 170, 230);
-	for (UStaticMeshComponent* Part : { Body.Get(), Head.Get() })
-	{
-		if (UMaterialInstanceDynamic* Material = Part->CreateAndSetMaterialInstanceDynamic(0))
-		{
-			Material->SetVectorParameterValue(TEXT("Color"), Color);
-		}
-	}
+void AEarthWalkAvatar::SetAnimal(const FString& Id)
+{
+	Figure->SetAnimal(Id);
 }
 
 void AEarthWalkAvatar::SetTarget(const FVector& FeetLocation, double YawDegrees)

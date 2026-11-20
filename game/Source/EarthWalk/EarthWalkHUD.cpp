@@ -113,6 +113,9 @@ public:
 	void SetStatus(const FString& Text) { Status->SetText(FText::FromString(Text)); }
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
 
+	/** While the chat is closed the overlay ignores the pointer, so a stray click cannot steal the keyboard. */
+	void SetHitTestable(bool bHitTestable) { SetVisibility(bHitTestable ? EVisibility::Visible : EVisibility::HitTestInvisible); }
+
 private:
 	void HandleCommitted(const FText& Text, ETextCommit::Type How)
 	{
@@ -147,6 +150,7 @@ void AEarthWalkHUD::BeginPlay()
 	if (GEngine && GEngine->GameViewport)
 	{
 		SAssignNew(Overlay, SEarthWalkOverlay, this);
+		Overlay->SetHitTestable(false);
 		GEngine->GameViewport->AddViewportWidgetContent(Overlay.ToSharedRef(), 10);
 	}
 
@@ -162,12 +166,27 @@ void AEarthWalkHUD::BeginPlay()
 		});
 	}
 
-	if (APlayerController* PC = GetOwningPlayerController())
+	ApplyGameInputMode(GetOwningPlayerController());
+	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly, Enter to chat. Try /goto Sydney Opera House."), NoticeColor);
+}
+
+void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
+{
+	if (!PC)
 	{
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
+		return;
 	}
-	AddLine(TEXT("Welcome to EarthWalk. WASD to move, F to fly, Enter to chat. Try /goto Sydney Opera House."), NoticeColor);
+	// Game-and-UI mode captures the mouse only while a button is down, which is what makes
+	// click-drag looking work; game-only mode would capture it permanently.
+	FInputModeGameAndUI Mode;
+	Mode.SetHideCursorDuringCapture(true);
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::LockOnCapture);
+	PC->SetInputMode(Mode);
+	PC->bShowMouseCursor = true;
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport();
+	}
 }
 
 void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -227,6 +246,7 @@ void AEarthWalkHUD::OpenChat()
 	{
 		Character->bTyping = true;
 	}
+	Overlay->SetHitTestable(true);
 	FInputModeGameAndUI Mode;
 	Mode.SetWidgetToFocus(Overlay->GetInput());
 	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
@@ -243,14 +263,17 @@ void AEarthWalkHUD::CloseChat()
 	}
 	bChatOpen = false;
 	ChatClosedAt = FPlatformTime::Seconds();
+	if (Overlay.IsValid())
+	{
+		Overlay->SetHitTestable(false);
+	}
 	if (APlayerController* PC = GetOwningPlayerController())
 	{
 		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
 		{
 			Character->bTyping = false;
 		}
-		PC->SetInputMode(FInputModeGameOnly());
-		PC->bShowMouseCursor = false;
+		ApplyGameInputMode(PC);
 	}
 }
 
@@ -270,6 +293,10 @@ FString AEarthWalkHUD::StatusText() const
 		if (Character->IsFlying())
 		{
 			Text += TEXT("  |  flying");
+		}
+		if (Character->IsRunning())
+		{
+			Text += TEXT("  |  running");
 		}
 		if (Character->IsWaitingForGround())
 		{
@@ -316,6 +343,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>"), NoticeColor);
 		AddLine(TEXT("/server <address>   /code <access code>"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
+		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
 	{
@@ -362,6 +390,10 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		if (Net)
 		{
 			Net->Connect();
+		}
+		if (Command == TEXT("animal") && Character)
+		{
+			Character->RefreshFigure();
 		}
 		if ((Command == TEXT("server") || Command == TEXT("code")) && Character)
 		{
