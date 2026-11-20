@@ -111,6 +111,11 @@ return saturate(c);
 
 	UTexture2D* ImportTexture(IAssetTools& Tools, const FString& File, const FString& Name, bool bNormalMap)
 	{
+		// Re-importing rewrites the (large) texture assets even when nothing changed, so keep existing ones.
+		if (UTexture2D* Existing = LoadObject<UTexture2D>(nullptr, *FString::Printf(TEXT("%s/%s.%s"), TexturePath, *Name, *Name)))
+		{
+			return Existing;
+		}
 		UAssetImportTask* Task = NewObject<UAssetImportTask>();
 		Task->AddToRoot();
 		Task->Filename = File;
