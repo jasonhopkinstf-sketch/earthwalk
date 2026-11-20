@@ -97,6 +97,7 @@ function join() {
 // Who am I? A sign-in cookie from an earlier visit means the join screen is only a formality.
 const whoAmI = fetch("/v1/me").then((r) => (r.ok ? r.json() : null)).catch(() => null);
 Promise.all([fetch("/health").then((r) => r.json()), whoAmI]).then(([health, me]) => {
+  if (health.version) document.getElementById("credit").insertAdjacentText("afterbegin", "EarthWalk v" + health.version + " · ");
   account = me;
   // Only ask for a code when this server needs one (or the invite link carried one), and never from a signed-in person.
   $("code-row").hidden = !!me || (!health.codeRequired && !$("code").value);

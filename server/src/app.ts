@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { cacheRead, cacheWrite, InFlight } from "./cache.ts";
 import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
@@ -54,6 +55,9 @@ export interface AppOptions {
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
 }
+
+/** The server version, from package.json, shown by clients so a deploy can be told apart. */
+export const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
 export interface App { server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; close(): void }
 
@@ -297,7 +301,7 @@ export function createApp(options: AppOptions = {}): App {
         const place = await findPlace(url.searchParams.get("q") ?? "");
         return place ? json(res, 200, place) : json(res, 404, { error: "place not found" });
       }
-      if (p === "/health") return json(res, 200, { ok: true, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, ...rooms.stats() });
+      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, ...rooms.stats() });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
       if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);

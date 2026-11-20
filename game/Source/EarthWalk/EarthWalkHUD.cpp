@@ -13,6 +13,7 @@
 #include "GenericPlatform/GenericPlatformHttp.h"
 #include "HttpModule.h"
 #include "InputCoreTypes.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Serialization/JsonReader.h"
@@ -29,6 +30,17 @@
 
 namespace
 {
+	/** ProjectVersion from DefaultGame.ini, so a build can be told apart on screen. */
+	FString GameVersion()
+	{
+		FString Version;
+		if (GConfig)
+		{
+			GConfig->GetString(TEXT("/Script/EngineSettings.GeneralProjectSettings"), TEXT("ProjectVersion"), Version, GGameIni);
+		}
+		return Version.IsEmpty() ? FString(TEXT("dev")) : Version;
+	}
+
 	const FLinearColor NoticeColor(0.75f, 0.9f, 1.f);
 	const FLinearColor ErrorColor(1.f, 0.6f, 0.5f);
 	constexpr int32 MaxLines = 80;
@@ -64,7 +76,7 @@ public:
 				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
 				.ShadowOffset(FVector2D(1.0, 1.0))
 				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
-				.Text(FText::FromString(TEXT("Map data © OpenStreetMap contributors")))
+				.Text(FText::FromString(FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion())))
 			]
 			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.f)
 			[
