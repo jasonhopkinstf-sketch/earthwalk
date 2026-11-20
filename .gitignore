@@ -1,0 +1,13 @@
+# server
+server/node_modules/
+server/cache/
+
+# Unreal Engine
+game/Binaries/
+game/DerivedDataCache/
+game/Intermediate/
+game/Saved/
+game/.vs/
+game/*.sln
+game/*.xcworkspace
+game/.idea/
