@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "Templates/Function.h"
 #include "EarthWalkHUD.generated.h"
 
 class SEarthWalkOverlay;
@@ -34,11 +35,15 @@ private:
 	void RunCommand(const FString& Command, const FString& Argument);
 	void GoToPlace(const FString& Query);
 	void GoToPerson(const FString& Name);
+	/** Asks the server where a place is; `Found` runs only on success, failures are reported in the log. */
+	void LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found);
+	void ShowPeople();
 	FString StatusText() const;
 
 	TSharedPtr<SEarthWalkOverlay> Overlay;
 	FDelegateHandle ChatHandle;
 	FDelegateHandle NoticeHandle;
+	FDelegateHandle WelcomeHandle;
 	bool bChatOpen = false;
 	double ChatClosedAt = 0.0;
 	float StatusTimer = 0.f;

@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,9 +8,11 @@ import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
 import { generateLabels, LABELS_REV } from "./labels.ts";
-import { geocode, type Place } from "./geocode.ts";
-import { GuestDirectory, type PeopleDirectory } from "./people.ts";
-import { Rooms } from "./rooms.ts";
+import { geocode, placeName as reversePlace, type Place } from "./geocode.ts";
+import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
+import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
+import { Presence } from "./presence.ts";
+import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -33,6 +35,18 @@ export interface AppOptions {
   coldBuildLimit?: number;
   coldBuildWindowMs?: number;
   people?: PeopleDirectory;
+  /** The accounts (people who signed in with Google). Created in memory when not given. */
+  accounts?: AccountDirectory;
+  /** Emails allowed to sign up without the access code. */
+  invited?: string[];
+  /** Google OAuth client; sign-in is offered only when set. */
+  google?: GoogleOptions;
+  /** Public address of this server (for Google's redirect), e.g. https://earthwalk.onrender.com. Taken from the request when absent. */
+  baseUrl?: string;
+  /** Swaps Google's one-time code for a verified identity. Replaceable for tests (Google is never called). */
+  signIn?: (code: string, nonce: string, redirectUri: string) => Promise<GoogleIdentity>;
+  /** Names a position for the people list and `/home`. */
+  placeName?: (lat: number, lon: number) => Promise<string | null>;
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
@@ -41,7 +55,19 @@ export interface AppOptions {
   findPlace?: (query: string) => Promise<Place | null>;
 }
 
-export interface App { server: Server; rooms: Rooms; close(): void }
+export interface App { server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; close(): void }
+
+const PENDING_MS = 10 * 60 * 1000; // sign-ins and game links wait at most this long
+const COOKIE_DAYS = 180;
+const LINK_CODE = /^[A-Za-z0-9]{4,16}$/;
+
+function html(res: ServerResponse, status: number, title: string, body: string): void {
+  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title>
+<style>body{font:17px/1.5 system-ui,sans-serif;background:#141922;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0}main{max-width:28em;padding:2em}h1{font-size:1.5em}a{color:#9fd98f}</style>
+<main><h1>${title}</h1>${body}</main>`);
+}
+const escapeHtml = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -76,7 +102,14 @@ export function createApp(options: AppOptions = {}): App {
   const elevation = new Elevation();
   const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
-  const rooms = new Rooms(options.people ?? new GuestDirectory(accessCode));
+  const accounts = options.accounts ?? new AccountDirectory(undefined, { accessCode, invited: options.invited });
+  const placeName = options.placeName ?? reversePlace;
+  const rooms = new Rooms(options.people ?? accounts, { placeName });
+  const presence = new Presence(accounts, rooms, placeName);
+  const google = options.google;
+  const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
+  const pendingAuth = new Map<string, { nonce: string; link: string | null; next: string; accessCode: string; created: number }>();
+  const links = new Map<string, { token: string; name: string; avatar: string; created: number }>(); // game link code -> token waiting to be collected
   const building = new InFlight<Buffer>();
   const coldBuilds = new Map<string, number[]>(); // caller address -> times of recent uncached builds
 
@@ -85,10 +118,118 @@ export function createApp(options: AppOptions = {}): App {
     return forwarded || req.socket.remoteAddress || "unknown";
   };
 
+  /** The player token a request carries (Bearer header or the browser's cookie), if it is a live one. */
+  const tokenOf = (req: IncomingMessage): string | null => {
+    const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+    if (bearer && accounts.byToken(bearer)) return bearer;
+    const cookie = cookieValue(req.headers.cookie, TOKEN_COOKIE);
+    return cookie && accounts.byToken(cookie) ? cookie : null;
+  };
+
   const allowed = (req: IncomingMessage, url: URL): boolean => {
     if (!accessCode) return true;
     const header = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
-    return sameCode(header ?? url.searchParams.get("code") ?? "", accessCode);
+    return sameCode(header ?? url.searchParams.get("code") ?? "", accessCode) || tokenOf(req) !== null;
+  };
+
+  const baseUrlOf = (req: IncomingMessage): string => {
+    if (options.baseUrl) return options.baseUrl.replace(/\/+$/, "");
+    const proto = (options.trustProxy && String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim()) || "http";
+    return `${proto}://${req.headers.host ?? "localhost"}`;
+  };
+  const expire = <T extends { created: number }>(map: Map<string, T>): void => {
+    const cutoff = Date.now() - PENDING_MS;
+    for (const [k, v] of map) if (v.created < cutoff) map.delete(k);
+  };
+  const tokenCookie = (req: IncomingMessage, token: string | null): string =>
+    `${TOKEN_COOKIE}=${token ?? ""}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${token ? COOKIE_DAYS * 86400 : 0}${baseUrlOf(req).startsWith("https:") ? "; Secure" : ""}`;
+
+  /**
+   * Sign-in and account routes, kept apart from the world routes. A server without Google
+   * configured answers the sign-in routes with 404 and everything else keeps working.
+   */
+  const serveAccounts = async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {
+    const p = url.pathname;
+    if (p === "/auth/google") {
+      if (!google || !signIn) return json(res, 404, { error: "Google sign-in is not set up on this server" }), true;
+      expire(pendingAuth);
+      const link = url.searchParams.get("link") ?? "";
+      const next = url.searchParams.get("next") ?? "/";
+      const state = randomBytes(16).toString("base64url");
+      const nonce = randomBytes(16).toString("base64url");
+      pendingAuth.set(state, { nonce, link: LINK_CODE.test(link) ? link.toUpperCase() : null, next: next.startsWith("/") && !next.startsWith("//") ? next : "/", accessCode: url.searchParams.get("code") ?? "", created: Date.now() });
+      res.writeHead(302, { Location: authUrl(google, `${baseUrlOf(req)}/auth/google/callback`, state, nonce), "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
+    if (p === "/auth/google/callback") {
+      if (!google || !signIn) return json(res, 404, { error: "Google sign-in is not set up on this server" }), true;
+      expire(pendingAuth);
+      const state = url.searchParams.get("state") ?? "";
+      const pending = pendingAuth.get(state);
+      pendingAuth.delete(state);
+      const code = url.searchParams.get("code");
+      if (!pending || !code) return html(res, 400, "Sign-in did not complete", `<p>${escapeHtml(url.searchParams.get("error") ?? "The sign-in link has expired.")} <a href="/">Try again</a>.</p>`), true;
+      let identity: GoogleIdentity;
+      try {
+        identity = await signIn(code, pending.nonce, `${baseUrlOf(req)}/auth/google/callback`);
+      } catch (err) {
+        console.error(`google sign-in: ${err instanceof Error ? err.message : String(err)}`);
+        return html(res, 502, "Google did not confirm the sign-in", `<p>Please <a href="/">try again</a>.</p>`), true;
+      }
+      const result = accounts.signIn(identity, { accessCode: pending.accessCode });
+      if (!result) {
+        if (pending.link) return html(res, 403, "Not invited yet", `<p>${escapeHtml(identity.email)} is not on this server's guest list. Type <b>/code &lt;access code&gt;</b> in the game first, then <b>/login</b> again, or ask whoever runs the server to invite you.</p>`), true;
+        res.writeHead(302, { Location: "/?signin=not-invited", "Cache-Control": "no-store" });
+        return res.end(), true;
+      }
+      if (pending.link) {
+        expire(links);
+        links.set(pending.link, { token: result.token, name: result.person.name, avatar: result.person.avatar, created: Date.now() });
+        return html(res, 200, `Signed in as ${escapeHtml(result.person.name)}`, `<p>You can close this page and go back to EarthWalk. The game signs itself in within a few seconds.</p>`), true;
+      }
+      res.writeHead(302, { Location: pending.next, "Set-Cookie": tokenCookie(req, result.token), "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
+    if (p === "/auth/logout") {
+      const token = tokenOf(req);
+      if (token) accounts.revokeToken(token);
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": tokenCookie(req, null), "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ ok: true }));
+      return true;
+    }
+    if (p === "/link") {
+      // The game opened this page: hand the person to Google, remembering which game asked.
+      const code = url.searchParams.get("code") ?? "";
+      if (!LINK_CODE.test(code)) return html(res, 400, "Bad link", "<p>This link is missing its code. Type <b>/login</b> in the game to get a fresh one.</p>"), true;
+      if (!google) return html(res, 404, "Sign-in is not set up", "<p>This server has no Google sign-in. Use <b>/code</b> in the game instead.</p>"), true;
+      const to = new URL("/auth/google", "http://x");
+      to.searchParams.set("link", code.toUpperCase());
+      if (url.searchParams.get("access")) to.searchParams.set("code", url.searchParams.get("access")!);
+      res.writeHead(302, { Location: to.pathname + to.search, "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
+    const link = /^\/v1\/link\/([A-Za-z0-9]+)$/.exec(p);
+    if (link) {
+      // The game polls this until its person has signed in; the token is handed out once.
+      if (!LINK_CODE.test(link[1])) return json(res, 400, { error: "bad link code" }), true;
+      expire(links);
+      const ready = links.get(link[1].toUpperCase());
+      res.setHeader("Cache-Control", "no-store");
+      if (!ready) return json(res, 200, { pending: true }), true;
+      links.delete(link[1].toUpperCase());
+      return json(res, 200, { token: ready.token, name: ready.name, avatar: ready.avatar }), true;
+    }
+    if (p === "/v1/me" || p === "/v1/people") {
+      const me = accounts.byToken(tokenOf(req));
+      if (!me) return json(res, 401, { error: "sign in first" }), true;
+      res.setHeader("Cache-Control", "no-store");
+      if (p === "/v1/me") return json(res, 200, { id: me.id, name: me.name, avatar: me.avatar, email: me.email, home: me.home, created: me.created }), true;
+      return json(res, 200, { people: presence.snapshot() }), true;
+    }
+    return false;
   };
 
   /** Building a new part of the world costs downloads from shared public services, so cap it per caller. */
@@ -138,7 +279,8 @@ export function createApp(options: AppOptions = {}): App {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       const p = url.pathname;
-      if (req.method !== "GET") return json(res, 405, { error: "method not allowed" });
+      if (req.method !== "GET" && !(req.method === "POST" && p === "/auth/logout")) return json(res, 405, { error: "method not allowed" });
+      if (await serveAccounts(req, res, url)) return;
 
       const chunk = /^\/v1\/chunk\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (chunk) {
@@ -155,7 +297,7 @@ export function createApp(options: AppOptions = {}): App {
         const place = await findPlace(url.searchParams.get("q") ?? "");
         return place ? json(res, 200, place) : json(res, 404, { error: "place not found" });
       }
-      if (p === "/health") return json(res, 200, { ok: true, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, ...rooms.stats() });
+      if (p === "/health") return json(res, 200, { ok: true, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, ...rooms.stats() });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
       if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);
@@ -172,5 +314,5 @@ export function createApp(options: AppOptions = {}): App {
     rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req));
   });
 
-  return { server, rooms, close: () => { rooms.close(); server.close(); } };
+  return { server, rooms, accounts, presence, close: () => { presence.close(); rooms.close(); server.close(); } };
 }

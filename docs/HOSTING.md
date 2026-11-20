@@ -37,6 +37,56 @@ from `server/Dockerfile` on Render without changes).
 
 Render sets the `PORT` variable itself and the server listens on it.
 
+## Sign in with Google
+
+Without this, everyone is a guest who types a name and the access code. With it, family
+members sign in with their Google account once per device, are remembered, get a home to
+start from (`/home`), and can see who is online and where (`/who`, and the people panel in
+the browser). It takes one free OAuth client in Google Cloud and three environment variables.
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com), make a project
+   (any name, e.g. "EarthWalk"), and open **APIs & Services**.
+2. **OAuth consent screen** (in newer consoles: *Google Auth Platform > Branding* and *Audience*):
+   - App name "EarthWalk", your email as the support and developer contact.
+   - **Audience / User type: External.** The app can stay in *Testing*: then only people you
+     add under **Test users** can sign in (up to 100), which suits a family server fine. If
+     you would rather not list them there, press **Publish app** instead; the app asks only
+     for name and email, so no verification is needed.
+   - Scopes: nothing to add (`openid`, `email` and `profile` are always available).
+3. **Credentials > Create credentials > OAuth client ID**:
+   - Application type: **Web application**.
+   - **Authorised redirect URIs**: `https://<your-service>.onrender.com/auth/google/callback`
+     (and `http://localhost:8787/auth/google/callback` if you also run the server on your PC).
+   - Copy the **Client ID** and **Client secret**.
+4. Add these environment variables to the service on Render (it redeploys by itself):
+
+   | Variable | Value |
+   | --- | --- |
+   | `EARTHWALK_GOOGLE_CLIENT_ID` | the client id from step 3 (ends in `.apps.googleusercontent.com`) |
+   | `EARTHWALK_GOOGLE_CLIENT_SECRET` | the client secret from step 3 |
+   | `EARTHWALK_BASE_URL` | `https://<your-service>.onrender.com`: the address Google sends people back to, no trailing slash |
+   | `EARTHWALK_INVITED` | optional: emails that may sign up without the access code, comma-separated |
+
+5. Open the server's address: the join screen now has **Sign in with Google**, and
+   `/health` says `"googleSignIn": true`.
+
+**Who may sign up.** A Google account the server has not seen before is accepted when either
+its email is in `EARTHWALK_INVITED` or the sign-in carried the access code (the browser join
+screen passes the code typed into its box; the game passes the code set with `/code`). So the
+access code stays the one house key: invite people exactly as before, and they can sign in
+with Google on top. Once an account is known it signs in without the code. If the server has
+no access code at all, anyone can sign up (as anyone can already join).
+
+**Where it is stored.** People, their homes and the hashes of their sign-in tokens live in
+`people/people.json` under the cache directory (`/data` on Render), so they survive restarts
+and redeploys as long as the disk does. To remove someone, delete their entry from that file
+and restart; their tokens stop working at once because they point at the entry.
+
+**The Windows game** has no Google login of its own. Type `/login` in the game: it opens your
+browser at the server's sign-in page, and once you have signed in there the game picks up its
+token within a few seconds and remembers it. `/logout` forgets it. The game needs no access
+code once it is signed in.
+
 ### Without Docker
 
 If you would rather not use the Dockerfile, choose the Node runtime instead and set:
@@ -71,7 +121,7 @@ with Unreal Engine installed does this; everyone else just installs the result.
 
 The version number comes from `ProjectVersion` in `game/Config/DefaultGame.ini`; raise it
 before packaging a new release. The game remembers its own settings (name, animal, access
-code) in `%LOCALAPPDATA%\EarthWalk`, separately from the editor's. The server does not
+code, sign-in token, home) in `%LOCALAPPDATA%\EarthWalk`, separately from the editor's. The server does not
 need to change when the game is updated, and old and new game versions can share a room.
 
 ## Inviting someone
@@ -84,7 +134,8 @@ need to change when the game is updated, and old and new game versions can share
    and they are in your room. `/join <name>` takes either of you to the other.
 
 Anyone with the link can join, so share it the way you would share a house key.
-To lock everyone out, change `EARTHWALK_ACCESS_CODE` on the host and redeploy.
+To lock everyone out, change `EARTHWALK_ACCESS_CODE` on the host and redeploy. People who
+signed in with Google keep their sign-in; remove them from `people.json` as described above.
 
 ## Things to know
 

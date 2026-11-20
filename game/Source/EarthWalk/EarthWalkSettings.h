@@ -58,7 +58,7 @@ public:
 
 /**
  * Per-player values. Each is resolved in this order:
- *   1. command line (-EWServer= -EWName= -EWAvatar= -EWRoom= -EWCode= -EWLat= -EWLon=)
+ *   1. command line (-EWServer= -EWName= -EWAvatar= -EWRoom= -EWCode= -EWToken= -EWLat= -EWLon=)
  *   2. what the player last set with a chat command (saved in GameUserSettings.ini)
  *   3. the project defaults above
  */
@@ -68,11 +68,28 @@ struct FEarthWalkConfig
 	static FString PlayerName();
 	static FString Room();
 	static FString Avatar();
+	/**
+	 * What the server accepts as the Bearer credential: the signed-in player's token when
+	 * there is one (/login), otherwise the shared access code (/code).
+	 */
 	static FString AccessCode();
+	/** The shared access code alone, even when signed in (the sign-in link carries it). */
+	static FString SharedCode();
+	/** The signed-in player's token, or empty when playing as a guest. */
+	static FString PlayerToken();
+	static bool IsSignedIn() { return !PlayerToken().IsEmpty(); }
+	/** The account home saved from the last welcome, if any. */
+	static bool Home(double& OutLat, double& OutLon, FString& OutName);
+	/** Where to appear: the signed-in account's home, else where this device left off, else the project default. */
 	static void StartLocation(double& OutLat, double& OutLon);
 
-	/** Saves a per-player override. Keys: Server, Name, Avatar, Room, Code, Lat, Lon. */
+	/**
+	 * Saves a per-player override. Keys: Server, Name, Avatar, Room, Code, Token, HomeLat, HomeLon,
+	 * HomeName, Lat, Lon. An empty value clears the override.
+	 */
 	static void Save(const TCHAR* Key, const FString& Value);
+	/** True when the player set this value (command line or chat command) rather than using the project default. */
+	static bool HasOverride(const TCHAR* Key, FString& Out) { return Lookup(Key, Out); }
 
 private:
 	static bool Lookup(const TCHAR* Key, FString& Out);

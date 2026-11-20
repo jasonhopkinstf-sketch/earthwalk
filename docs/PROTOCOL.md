@@ -17,12 +17,19 @@ tile coordinates `(tx, ty)` is `(tx − originTx) × S` metres east and
 The scale is only exact at the origin's latitude, so clients re-centre when the player
 travels far.
 
-## Access code
+## Access code and player tokens
 
 If the server was started with `EARTHWALK_ACCESS_CODE`, the chunk and place-search requests
 need it as `Authorization: Bearer <code>` (or `?code=<code>`), and the meetup `hello` needs it
 as `token`. Without it they answer `401`. `GET /health` is always open and reports
-`codeRequired`.
+`codeRequired` and `googleSignIn`.
+
+A **player token** stands in for the access code everywhere the code is accepted. It is a
+long random string the server hands to someone who signed in with Google (below); the server
+keeps only its hash. The browser carries it in an `HttpOnly` cookie (`ew_token`), which also
+travels with the WebSocket upgrade, so a signed-in browser sends no `token` in `hello`. The
+Unreal game sends it as the Bearer header and as `hello.token`. Guests with the access code
+keep working exactly as before.
 
 A caller that asks for too many not-yet-built chunks in a short time gets `429` with a
 `Retry-After` header.
@@ -90,6 +97,32 @@ halfway along its piece of the chunk. At most 120 house and 40 street items per 
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.
 
+## Sign in with Google
+
+Offered only when the server has `EARTHWALK_GOOGLE_CLIENT_ID` and `_SECRET` (see
+docs/HOSTING.md); otherwise these routes answer `404` and `/health` says `"googleSignIn": false`.
+
+| Route | Meaning |
+| --- | --- |
+| `GET /auth/google?code=<access code>&next=/` | Sends the browser to Google. `code` (optional) is the shared access code: a Google account that is not yet known is accepted only if the sign-in carries the code or its email is in `EARTHWALK_INVITED` (or the server has no access code). `next` is where to return to (same-origin paths only). |
+| `GET /auth/google/callback` | Google returns here. On success the browser gets the token cookie and goes to `next`; an uninvited account is sent to `/?signin=not-invited`. |
+| `POST /auth/logout` | Revokes the token in the cookie or Bearer header and clears the cookie. |
+| `GET /v1/me` | Token required. `{"id","name","avatar","email","home":{"lat","lon","name"}|null,"created"}`. |
+| `GET /v1/people` | Token required. `{"people":[...]}`, the same entries as the `people` message below. |
+
+### Linking the Unreal game
+
+The game has no browser of its own, so it signs in through one:
+
+1. The game makes a short code (`ABCD2345`) and opens `<server>/link?code=ABCD2345&access=<access code>`
+   in the system browser. That page forwards to `/auth/google` with the code attached.
+2. The person signs in with Google in the browser and sees a "you can go back to the game" page.
+3. Meanwhile the game polls `GET /v1/link/ABCD2345` every couple of seconds. It answers
+   `{"pending":true}` until the sign-in completes, then once (and only once)
+   `{"token":"...","name":"Mum","avatar":"owl"}`. The game saves the token for later launches.
+
+Link codes are 4 to 16 letters and digits, case-insensitive, and are forgotten after ten minutes.
+
 ## Meetups: WebSocket `/v1/ws`
 
 JSON text messages, each with a type field `t`.
@@ -98,16 +131,20 @@ Client to server:
 
 | Message | Meaning |
 | --- | --- |
-| `{"t":"hello","name":"Mum","room":"family","avatar":"owl","token":"..."}` | Must be first. `avatar` is the player's animal: a short lowercase id (`fox`, `bear`, `rabbit`, `cat`, `owl`, `frog`; anything invalid becomes `fox`). Clients decide how each animal looks. `token` is the access code, if the server has one. |
+| `{"t":"hello","name":"Mum","room":"family","avatar":"owl","token":"..."}` | Must be first. `avatar` is the player's animal: a short lowercase id (`fox`, `bear`, `rabbit`, `cat`, `owl`, `frog`; anything invalid becomes `fox`). Clients decide how each animal looks. `token` is the access code or a player token (or comes from the browser cookie). A signed-in client may leave out `name` and `avatar` to use the account's; when it sends them, they become the account's. |
 | `{"t":"pos","lat":..,"lon":..,"alt":..,"yaw":..}` | Where I am (feet, metres above sea level; yaw is a compass heading in degrees). Send about 10 times a second. |
 | `{"t":"chat","text":"hello"}` | Say something to the room. |
+| `{"t":"home"}` / `{"t":"home","lat":..,"lon":..,"name":"Eiffel Tower"}` | Signed-in only. Make where I stand my home (the server names the place), or the given place. Answered with a `home` message, or `error` `guest` / `nowhere`. |
+| `{"t":"people"}` | Ask for the people list again (it is also pushed whenever it changes). |
 
 Server to client:
 
 | Message | Meaning |
 | --- | --- |
-| `{"t":"welcome","id":"..","name":"..","avatar":"..","room":"..","peers":[{"id","name","avatar","lat","lon","alt","yaw"}],"history":[...]}` | You are in. `name` may differ from what you asked for if it was taken. `history` holds recent chat lines. |
+| `{"t":"welcome","id":"..","name":"..","avatar":"..","room":"..","peers":[{"id","name","avatar","lat","lon","alt","yaw"}],"history":[...],"signedIn":true,"personId":"..","home":{"lat","lon","name"}}` | You are in. `name` may differ from what you asked for if it was taken. `history` holds recent chat lines. `personId` and `home` (which may be `null`) are present only for a signed-in player; a signed-in client should start at `home` when it is set. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
 | `{"t":"peers","p":[[id,lat,lon,alt,yaw],...]}` | People who moved since the last update (10 per second). |
 | `{"t":"chat","id":"..","name":"..","text":"..","ts":1700000000000}` | A chat line (also echoed to the sender). |
-| `{"t":"error","code":"denied" \| "full" \| "slow","text":".."}` | Something was refused. |
+| `{"t":"people","p":[{"id","name","avatar","online","room","place","lat","lon","lastSeen","home"}]}` | Everyone with an account (guests are not listed), online first. Sent right after `welcome`, whenever someone with an account arrives or leaves or their place name changes, and on request. `room` and `place` are where they are, or were last; `lat`/`lon` (about 10 m precision) only while online; `lastSeen` is milliseconds since the epoch; `home` is the name of their home or `null`. Place names come from a reverse lookup of the position, rounded to about a kilometre and at most once every 30 s per person. |
+| `{"t":"home","lat":..,"lon":..,"name":".."}` | Your home was saved. |
+| `{"t":"error","code":"denied" \| "full" \| "slow" \| "guest" \| "nowhere" \| "home","text":".."}` | Something was refused. |

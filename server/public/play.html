@@ -22,12 +22,17 @@
     <input id="say" maxlength="300" autocomplete="off" placeholder="Press Enter to chat. Type /help for commands.">
   </div>
   <div id="hint">Click the view to look around · WASD move · Shift faster · Space jump · F fly</div>
+  <div id="people" hidden>
+    <h2>People</h2>
+    <ul id="people-list"></ul>
+  </div>
   <div id="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
 </div>
 
 <form id="join">
   <h1>EarthWalk</h1>
   <p class="lead">Walk anywhere on Earth, together.</p>
+  <p id="account" hidden>Signed in as <b id="account-name"></b>. <a href="#" id="signout">Sign out</a></p>
   <label for="name">Your name</label>
   <input id="name" maxlength="24" required autocomplete="nickname">
   <fieldset>
@@ -42,6 +47,11 @@
   </div>
   <p id="join-error" role="alert"></p>
   <button id="go">Enter the world</button>
+  <div id="google-row" hidden>
+    <p class="soft small">or</p>
+    <button type="button" id="google">Sign in with Google</button>
+    <p class="soft small">Remembers you on this device, gives you a home to start from, and shows you who is online.</p>
+  </div>
   <p class="soft small">Needs a keyboard and mouse for now.</p>
 </form>
 

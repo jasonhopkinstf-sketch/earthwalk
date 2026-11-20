@@ -17,3 +17,6 @@ game/build-log.txt
 game/Packaged/
 game/package-log.txt
 game/Build/Windows/FileOpenOrder/
+
+# Claude Code worktrees
+.claude/worktrees/

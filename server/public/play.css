@@ -33,3 +33,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #join-error { color: #ffb3a1; min-height: 1.4em; margin: 10px 0 0; }
 .soft { opacity: .65; font-weight: 400; }
 .small { font-size: 12px; margin: 10px 0 0; text-align: center; }
+
+#account { margin: -8px 0 10px; font-size: 13px; color: #bfe6ff; }
+#account a { color: inherit; }
+#google-row p { margin: 8px 0; }
+#google { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .35); background: #fff; color: #1f1f1f; font: inherit; font-weight: 600; cursor: pointer; }
+#google::before { content: "G"; display: inline-block; margin-right: 8px; font-weight: 800; color: #4285f4; }
+#people { position: fixed; top: 48px; right: 12px; width: min(280px, calc(100vw - 24px)); max-height: 50vh; overflow-y: auto; background: var(--panel); padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+#people h2 { margin: 0 0 4px; font-size: 13px; opacity: .8; }
+#people ul { list-style: none; margin: 0; padding: 0; }
+#people li { padding: 3px 0; display: flex; gap: 6px; align-items: baseline; }
+#people li.online { cursor: pointer; }
+#people li.online:hover { color: #bfe6ff; }
+#people li.offline { opacity: .55; }
+#people .dot { width: 8px; height: 8px; border-radius: 50%; background: #777; flex: none; position: relative; top: -1px; }
+#people .online .dot { background: var(--accent); }
+#people .where { opacity: .8; }
