@@ -48,6 +48,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "World")
 	bool bFlipTriangleWinding = false;
 
+	/**
+	 * Google Map Tiles API key for the photographic world (/world photo). Leave empty to keep it off.
+	 * A key written here is shipped with the game; a key typed with /mapskey stays on this PC only.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "World")
+	FString GoogleMapTilesKey;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Player")
 	bool bInvertMouseY = false;
 
@@ -58,7 +65,7 @@ public:
 
 /**
  * Per-player values. Each is resolved in this order:
- *   1. command line (-EWServer= -EWName= -EWAvatar= -EWRoom= -EWCode= -EWToken= -EWLat= -EWLon=)
+ *   1. command line (-EWServer= -EWName= -EWAvatar= -EWRoom= -EWCode= -EWToken= -EWLat= -EWLon= -EWMapsKey=)
  *   2. what the player last set with a chat command (saved in GameUserSettings.ini)
  *   3. the project defaults above
  */
@@ -77,6 +84,8 @@ struct FEarthWalkConfig
 	static FString SharedCode();
 	/** The signed-in player's token, or empty when playing as a guest. */
 	static FString PlayerToken();
+	/** The Google Map Tiles API key for the photographic world, or empty when there is none. */
+	static FString MapsKey();
 	static bool IsSignedIn() { return !PlayerToken().IsEmpty(); }
 	/** The account home saved from the last welcome, if any. */
 	static bool Home(double& OutLat, double& OutLon, FString& OutName);
@@ -85,7 +94,7 @@ struct FEarthWalkConfig
 
 	/**
 	 * Saves a per-player override. Keys: Server, Name, Avatar, Room, Code, Token, HomeLat, HomeLon,
-	 * HomeName, Lat, Lon. An empty value clears the override.
+	 * HomeName, Lat, Lon, MapsKey. An empty value clears the override.
 	 */
 	static void Save(const TCHAR* Key, const FString& Value);
 	/** True when the player set this value (command line or chat command) rather than using the project default. */

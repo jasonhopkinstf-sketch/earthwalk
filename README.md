@@ -117,8 +117,27 @@ Chat commands:
 | `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in) |
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
+| `/world photo`, `/world generated` | Unreal only: switch between Google's photographic 3D world and our generated one (see below) |
+| `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for `/world photo` |
 
 Project defaults live in `game/Config/DefaultGame.ini`.
+
+## The photographic world (experiment)
+
+The Unreal game can show Google's Photorealistic 3D Tiles instead of the generated world. It needs:
+
+1. The free **Cesium for Unreal** plugin (2.28 or newer for UE 5.8), installed into the engine from Fab.
+   `game/build.cmd` notices it and builds the game with it; without it the game builds and plays as
+   before and `/world photo` says the plugin is missing.
+2. A Google Cloud API key with the **Map Tiles API** enabled (billing must be on). Give it to the game
+   with `/mapskey <key>` (saved on that PC only), `-EWMapsKey=<key>` on the command line, or
+   `GoogleMapTilesKey` in `game/Config/DefaultGame.ini` (that one ships with the game, so do not commit it).
+
+`/world photo` then swaps our chunks for the tiles at the same spot, and `/world generated` swaps back;
+`-EWWorld=photo` starts in the photographic world. The generated world stays the default. Google's
+attribution is drawn on screen by the plugin. Other players still appear, but heights there are measured
+from the ellipsoid rather than sea level, so someone in the other kind of world can appear above or below
+the street. The code is in `game/Source/EarthWalk/EarthPhotoWorld.cpp`.
 
 ## How it fits together
 

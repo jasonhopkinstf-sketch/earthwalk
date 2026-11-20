@@ -69,6 +69,16 @@ FString FEarthWalkConfig::PlayerToken()
 	return Lookup(TEXT("Token"), Value) ? Value : FString();
 }
 
+FString FEarthWalkConfig::MapsKey()
+{
+	FString Value;
+	if (!Lookup(TEXT("MapsKey"), Value))
+	{
+		Value = GetDefault<UEarthWalkSettings>()->GoogleMapTilesKey;
+	}
+	return Value.TrimStartAndEnd();
+}
+
 FString FEarthWalkConfig::AccessCode()
 {
 	const FString Token = PlayerToken();

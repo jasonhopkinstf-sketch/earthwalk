@@ -2,6 +2,7 @@
 
 #include "EarthChunkLabels.h"
 #include "EarthGeo.h"
+#include "EarthPhotoWorld.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
@@ -19,6 +20,8 @@
 #include "Engine/Texture.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "ProceduralMeshComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -61,6 +64,16 @@ AEarthWorld* AEarthWorld::Get(const UObject* WorldContext)
 void AEarthWorld::BeginPlay()
 {
 	Super::BeginPlay();
+	// -EWWorld=photo starts in the photographic world (used for comparison screenshots).
+	FString Kind;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-EWWorld="), Kind) && Kind.Equals(TEXT("photo"), ESearchCase::IgnoreCase))
+	{
+		FString Reason;
+		if (!SetPhotoWorld(true, Reason))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("EarthWalk: %s"), *Reason);
+		}
+	}
 	double Lat = 0.0, Lon = 0.0;
 	FEarthWalkConfig::StartLocation(Lat, Lon);
 	SetOrigin(Lat, Lon);
@@ -103,6 +116,41 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 	RetryAfter.Reset();
 	ClearLabels();
 	ChunkTimer = 0.f;
+
+	if (bPhotoWorld)
+	{
+		// The georeference moves first, so a new tileset starts loading in the right place.
+		EarthPhoto::SetOrigin(GetWorld(), Lat, Lon);
+		if (!PhotoTileset)
+		{
+			PhotoTileset = EarthPhoto::SpawnTileset(GetWorld(), FEarthWalkConfig::MapsKey());
+		}
+		PhotoSince = FPlatformTime::Seconds();
+	}
+}
+
+bool AEarthWorld::SetPhotoWorld(bool bPhoto, FString& OutReason)
+{
+	if (bPhoto)
+	{
+		if (!EarthPhoto::IsBuiltIn())
+		{
+			OutReason = TEXT("The photographic world needs the Cesium for Unreal plugin, which this build does not have.");
+			return false;
+		}
+		if (FEarthWalkConfig::MapsKey().IsEmpty())
+		{
+			OutReason = TEXT("The photographic world needs a Google Map Tiles key. Type /mapskey <key> first.");
+			return false;
+		}
+	}
+	else if (PhotoTileset)
+	{
+		PhotoTileset->Destroy();
+		PhotoTileset = nullptr;
+	}
+	bPhotoWorld = bPhoto;
+	return true;
 }
 
 void AEarthWorld::ClearLabels()
@@ -143,6 +191,13 @@ FIntPoint AEarthWorld::ChunkAt(const FVector& Position) const
 
 bool AEarthWorld::HasChunkAt(const FVector& Position) const
 {
+	if (bPhotoWorld)
+	{
+		// Tiles arrive coarse first and sharpen; wait for most of them so the player lands on the real
+		// street rather than on a rough stand-in, but never wait for ever.
+		const double Waited = FPlatformTime::Seconds() - PhotoSince;
+		return Waited > 3.0 && (EarthPhoto::LoadProgress(PhotoTileset) >= 95.f || Waited > 30.0);
+	}
 	return Chunks.Contains(ChunkAt(Position));
 }
 
@@ -183,6 +238,10 @@ void AEarthWorld::Tick(float DeltaSeconds)
 
 void AEarthWorld::UpdateChunks(const FVector& Around)
 {
+	if (bPhotoWorld)
+	{
+		return; // the photographic tiles stand in for our own chunks, which SetOrigin has dropped
+	}
 	const int32 Radius = FMath::Clamp(GetDefault<UEarthWalkSettings>()->ViewRadiusChunks, 1, 6);
 	const FIntPoint Center = ChunkAt(Around);
 

@@ -38,8 +38,19 @@ public:
 	FVector GeoToWorld(double Lat, double Lon, double AltMeters) const;
 	void WorldToGeo(const FVector& Position, double& OutLat, double& OutLon, double& OutAltMeters) const;
 
-	/** True once the chunk under this position has been received and built. */
+	/**
+	 * True once there is ground to look for under this position: the chunk there has been received
+	 * and built, or, in the photographic world, the tiles around the camera have (mostly) loaded.
+	 */
 	bool HasChunkAt(const FVector& Position) const;
+
+	/**
+	 * Chooses between the generated world (the default) and Google's photographic 3D tiles. Returns
+	 * false with a reason when the photographic world cannot be shown (no plugin, no key). The change
+	 * takes effect at the next SetOrigin, so callers follow it with a teleport to where the player is.
+	 */
+	bool SetPhotoWorld(bool bPhoto, FString& OutReason);
+	bool IsPhotoWorld() const { return bPhotoWorld; }
 
 	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
 	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
@@ -83,6 +94,13 @@ private:
 
 	UPROPERTY()
 	TMap<FString, TObjectPtr<AEarthWalkAvatar>> Avatars;
+
+	/** The Cesium tileset of the photographic world, while it is on (EarthPhotoWorld.h). */
+	UPROPERTY()
+	TObjectPtr<AActor> PhotoTileset;
+
+	bool bPhotoWorld = false;
+	double PhotoSince = 0.0; // when the photographic world was last pointed at a new place
 
 	TSet<FIntPoint> Pending;
 	TMap<FIntPoint, double> RetryAfter;

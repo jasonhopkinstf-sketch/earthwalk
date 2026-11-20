@@ -71,12 +71,12 @@ public:
 			]
 			+ SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Bottom).Padding(16.f)
 			[
-				SNew(STextBlock)
+				SAssignNew(Credit, STextBlock)
 				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
 				.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.7f))
 				.ShadowOffset(FVector2D(1.0, 1.0))
 				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
-				.Text(FText::FromString(FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion())))
+				.Text(FText::FromString(CreditText(false)))
 			]
 			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.f)
 			[
@@ -123,6 +123,15 @@ public:
 	}
 
 	void SetStatus(const FString& Text) { Status->SetText(FText::FromString(Text)); }
+
+	/** The credit line names whoever's data is on screen. In the photographic world the Cesium plugin adds Google's logo and per-tile credits itself. */
+	static FString CreditText(bool bPhotoWorld)
+	{
+		return FString::Printf(bPhotoWorld
+			? TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors")
+			: TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion());
+	}
+	void SetCredit(bool bPhotoWorld) { Credit->SetText(FText::FromString(CreditText(bPhotoWorld))); }
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
 
 	/** While the chat is closed the overlay ignores the pointer, so a stray click cannot steal the keyboard. */
@@ -150,6 +159,7 @@ private:
 
 	TWeakObjectPtr<AEarthWalkHUD> Owner;
 	TSharedPtr<STextBlock> Status;
+	TSharedPtr<STextBlock> Credit;
 	TSharedPtr<SScrollBox> Log;
 	TSharedPtr<SEditableTextBox> Input;
 	TArray<TSharedRef<SWidget>> Lines;
@@ -253,6 +263,8 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	{
 		StatusTimer = 0.5f;
 		Overlay->SetStatus(StatusText());
+		const AEarthWorld* CreditWorld = AEarthWorld::Get(this);
+		Overlay->SetCredit(CreditWorld && CreditWorld->IsPhotoWorld());
 	}
 
 	// A signed-in player's home wins over wherever this device started, once per launch.
@@ -387,6 +399,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
+		AddLine(TEXT("/world photo   Google's photographic 3D world (needs /mapskey <key>)        /world generated   back to ours"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
@@ -460,6 +473,32 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			Earth->WorldToGeo(Character->GetActorLocation(), Lat, Lon, Alt);
 			AddLine(FString::Printf(TEXT("You are at %.6f, %.6f, %.0f m above sea level."), Lat, Lon, Alt), NoticeColor);
 		}
+	}
+	else if (Command == TEXT("world") && (Argument.Equals(TEXT("photo"), ESearchCase::IgnoreCase) || Argument.Equals(TEXT("generated"), ESearchCase::IgnoreCase)))
+	{
+		AEarthWorld* Earth = AEarthWorld::Get(this);
+		if (Earth && Character)
+		{
+			const bool bPhoto = Argument.Equals(TEXT("photo"), ESearchCase::IgnoreCase);
+			double Lat, Lon, Alt;
+			Earth->WorldToGeo(Character->GetActorLocation(), Lat, Lon, Alt);
+			FString Reason;
+			if (Earth->SetPhotoWorld(bPhoto, Reason))
+			{
+				AddLine(bPhoto ? TEXT("Switching to the photographic world (Google 3D tiles). It sharpens over a few seconds.") : TEXT("Back to the generated world."), NoticeColor);
+				Character->TeleportToGeo(Lat, Lon); // reload the world in place
+			}
+			else
+			{
+				AddLine(Reason, ErrorColor);
+			}
+		}
+	}
+	else if (Command == TEXT("mapskey") && !Argument.IsEmpty())
+	{
+		// Kept in this PC's own settings, never sent to the room and never echoed.
+		FEarthWalkConfig::Save(TEXT("MapsKey"), Argument);
+		AddLine(TEXT("Saved the Google Map Tiles key on this PC. Type /world photo to use it."), NoticeColor);
 	}
 	else if (Command == TEXT("fly"))
 	{
