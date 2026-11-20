@@ -78,4 +78,8 @@ private:
 	bool bWaitingForGround = true;
 	bool bRunToggled = false;
 	bool bRunningNow = false;
+
+	/** Developer aid: -EWShot=<file.png> saves a screenshot a few seconds after landing, then quits. */
+	FString ShotFile;
+	float ShotCountdown = -1.f;
 };

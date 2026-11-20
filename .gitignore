@@ -17,6 +17,8 @@ game/build-log.txt
 game/Packaged/
 game/package-log.txt
 game/Build/Windows/FileOpenOrder/
+game/Textures/
+game/assets-log.txt
 
-# Claude Code worktrees
-.claude/worktrees/
+# Claude Code worktrees and local settings
+.claude/

@@ -44,6 +44,12 @@ public:
 	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
 	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
 
+	/**
+	 * The textured material for one of the server's surface ids (docs/PROTOCOL.md), tinted with its
+	 * colour. Falls back to the plain tinted material until game\Tools\build-assets.cmd has been run.
+	 */
+	UMaterialInstanceDynamic* MaterialForSurface(uint32 SurfaceId, uint32 Rgba);
+
 	int32 NumLoadedChunks() const { return Chunks.Num(); }
 	const FString& GetLastError() const { return LastError; }
 
@@ -65,6 +71,9 @@ private:
 
 	UPROPERTY()
 	TMap<uint32, TObjectPtr<UMaterialInstanceDynamic>> Materials;
+
+	UPROPERTY()
+	TMap<uint64, TObjectPtr<UMaterialInstanceDynamic>> SurfaceMaterials;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BaseMaterial;
