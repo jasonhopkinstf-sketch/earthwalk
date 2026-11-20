@@ -139,6 +139,18 @@ attribution is drawn on screen by the plugin. Other players still appear, but he
 from the ellipsoid rather than sea level, so someone in the other kind of world can appear above or below
 the street. The code is in `game/Source/EarthWalk/EarthPhotoWorld.cpp`.
 
+What to expect (checked on UE 5.8 with Cesium for Unreal 2.31 in November 2026):
+
+- The tiles are aerial photogrammetry. From the air and across a city they look like the real place;
+  from head height in a leafy suburb, trees and houses become large blurred slabs. That is the data at
+  its finest, not a loading fault.
+- The first visit to a place takes about half a minute to load; after that the plugin's cache
+  (`game/cesium-request-cache.sqlite`, not committed) makes it a few seconds.
+- The player lands on the highest surface at that spot, which can be a roof.
+- The tiles carry their own baked sunlight and are lit again by ours, so shade looks blue.
+- Each start of the photographic world is one billable "root" request to Google; walking and flying
+  around afterwards is not billed separately. `-EWPhotoStats` logs the plugin's loading statistics.
+
 ## How it fits together
 
 See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the chunk format and the meetup messages.
@@ -163,6 +175,9 @@ For checking the look without playing, the game takes a screenshot and quits whe
 with `-EWShot=<file.png>` (together with `-EWLat`/`-EWLon`/`-EWCode` as needed).
 `-EWYaw=<compass degrees>` and `-EWPitch=<degrees>` point the player first, `-EWView=0|1|2` picks
 the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in the picture.
+`-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
+8 second wait before the picture. While a screenshot is pending the game ignores the keyboard and
+mouse, so typing in another window cannot move the player.
 
 ## Data and attribution
 

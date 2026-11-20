@@ -41,6 +41,8 @@ public:
 	/**
 	 * True once there is ground to look for under this position: the chunk there has been received
 	 * and built, or, in the photographic world, the tiles around the camera have (mostly) loaded.
+	 * The photographic answer stays true once given, until the player is sent somewhere else: turning
+	 * round asks for new tiles, and that must not freeze someone who is already walking.
 	 */
 	bool HasChunkAt(const FVector& Position) const;
 
@@ -51,6 +53,15 @@ public:
 	 */
 	bool SetPhotoWorld(bool bPhoto, FString& OutReason);
 	bool IsPhotoWorld() const { return bPhotoWorld; }
+
+	/**
+	 * In the photographic world: the engine Z of the ground at the origin, where a teleport puts the
+	 * player. False until the tiles have answered, which takes a few seconds, and in the generated world.
+	 */
+	bool PhotoGroundAtOrigin(double& OutZ) const;
+
+	/** The player has just been moved to where they will stand, so judge the tiles from there, from now. */
+	void RestartPhotoWait();
 
 	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
 	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
@@ -101,6 +112,9 @@ private:
 
 	bool bPhotoWorld = false;
 	double PhotoSince = 0.0; // when the photographic world was last pointed at a new place
+	mutable bool bPhotoReady = false; // HasChunkAt has said yes since then
+	bool bPhotoGroundKnown = false;
+	double PhotoGroundZ = 0.0;
 
 	TSet<FIntPoint> Pending;
 	TMap<FIntPoint, double> RetryAfter;

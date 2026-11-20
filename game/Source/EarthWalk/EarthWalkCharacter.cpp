@@ -86,6 +86,9 @@ void AEarthWalkCharacter::BeginPlay()
 	FParse::Value(FCommandLine::Get(), TEXT("-EWShot="), ShotFile);
 	bAutoWalk = FParse::Param(FCommandLine::Get(), TEXT("EWWalk"));
 	bShotWithUI = FParse::Param(FCommandLine::Get(), TEXT("EWShotUI"));
+	FParse::Value(FCommandLine::Get(), TEXT("-EWShotDelay="), ShotDelay);
+	FParse::Value(FCommandLine::Get(), TEXT("-EWFly="), StartFlyMeters);
+	bHandsOff = !ShotFile.IsEmpty();
 	// Our +X is north and +Y east, so a compass heading is the engine yaw as it stands.
 	const bool bYaw = FParse::Value(FCommandLine::Get(), TEXT("-EWYaw="), StartLook.Yaw);
 	const bool bPitch = FParse::Value(FCommandLine::Get(), TEXT("-EWPitch="), StartLook.Pitch);
@@ -138,8 +141,30 @@ void AEarthWalkCharacter::ApplyView()
 void AEarthWalkCharacter::WaitForGround()
 {
 	bWaitingForGround = true;
+	bParkedAtPhotoGround = false;
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->SetMovementMode(MOVE_None);
+}
+
+/**
+ * In the photographic world the height of the ground arrives before the tiles do. Waiting there, at
+ * head height, makes the plugin load what the player is about to see; waiting where a teleport left
+ * them (often under the photographic ground) makes it load a great deal that they never will.
+ */
+void AEarthWalkCharacter::ParkAtPhotoGround()
+{
+	AEarthWorld* Earth = AEarthWorld::Get(this);
+	const FVector Here = GetActorLocation();
+	double GroundZ = 0.0;
+	// The answer is for the origin; a few steps away the ground can already be a roof higher.
+	if (bParkedAtPhotoGround || !Earth || Here.Size2D() > 300.0 || !Earth->PhotoGroundAtOrigin(GroundZ))
+	{
+		return;
+	}
+	bParkedAtPhotoGround = true;
+	const double HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	SetActorLocation(FVector(Here.X, Here.Y, GroundZ + HalfHeight + 15.0), false, nullptr, ETeleportType::TeleportPhysics);
+	Earth->RestartPhotoWait();
 }
 
 /** Finds the ground under the player by tracing straight down; false until the terrain there has loaded. */
@@ -155,7 +180,11 @@ bool AEarthWalkCharacter::TryLand()
 	FCollisionQueryParams Params(FName(TEXT("EarthWalkLand")), /*bTraceComplex*/ true, this);
 	const FVector Top(Here.X, Here.Y, 1000000.0);
 	const FVector Bottom(Here.X, Here.Y, -100000.0);
-	if (!GetWorld()->LineTraceSingleByChannel(Hit, Top, Bottom, ECC_Visibility, Params))
+	// Parked at the photographic ground: look from just above it first, so a coarse stand-in tile that
+	// has not been replaced yet and pokes up overhead is not mistaken for the street.
+	const bool bNear = bParkedAtPhotoGround
+		&& GetWorld()->LineTraceSingleByChannel(Hit, FVector(Here.X, Here.Y, Here.Z + 1000.0), Bottom, ECC_Visibility, Params);
+	if (!bNear && !GetWorld()->LineTraceSingleByChannel(Hit, Top, Bottom, ECC_Visibility, Params))
 	{
 		return false; // chunk received, but its collision is still being prepared
 	}
@@ -205,7 +234,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 
 	// Looking around works even while the world is still loading. The mouse only looks while the
 	// left button is held, so a trackpad brush does not spin the view; the arrow keys always do.
-	if (!bTyping)
+	if (!bTyping && !bHandsOff)
 	{
 		const UEarthWalkSettings* Settings = GetDefault<UEarthWalkSettings>();
 		FRotator Look = PC->GetControlRotation();
@@ -253,9 +282,20 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	if (bWaitingForGround)
 	{
 		bRunningNow = false;
-		if (TryLand() && !ShotFile.IsEmpty() && ShotCountdown < 0.f)
+		ParkAtPhotoGround();
+		if (!TryLand())
 		{
-			ShotCountdown = 8.f; // let the nearby chunks and shaders settle first
+			return;
+		}
+		if (StartFlyMeters > 0.f)
+		{
+			SetFlying(true);
+			AddActorWorldOffset(FVector(0.0, 0.0, StartFlyMeters * 100.0), false, nullptr, ETeleportType::TeleportPhysics);
+			StartFlyMeters = 0.f;
+		}
+		if (!ShotFile.IsEmpty() && ShotCountdown < 0.f)
+		{
+			ShotCountdown = FMath::Max(ShotDelay, 0.f); // let the nearby chunks and shaders settle first
 		}
 		return;
 	}
@@ -292,27 +332,30 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
-	if (PC->WasInputKeyJustPressed(EKeys::F))
+	const auto Down = [this, PC](const FKey& Key) { return !bHandsOff && PC->IsInputKeyDown(Key); };
+	const auto Pressed = [this, PC](const FKey& Key) { return !bHandsOff && PC->WasInputKeyJustPressed(Key); };
+
+	if (Pressed(EKeys::F))
 	{
 		SetFlying(!bFlying);
 	}
 
 	// Running: hold Shift, or press 2 to keep running until 1 (or 2 again).
-	if (PC->WasInputKeyJustPressed(EKeys::Two))
+	if (Pressed(EKeys::Two))
 	{
 		bRunToggled = !bRunToggled;
 	}
-	if (PC->WasInputKeyJustPressed(EKeys::One))
+	if (Pressed(EKeys::One))
 	{
 		bRunToggled = false;
 	}
-	const bool bShift = PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
+	const bool bShift = Down(EKeys::LeftShift) || Down(EKeys::RightShift);
 	bRunningNow = bShift || bRunToggled;
 	Movement->MaxWalkSpeed = bRunningNow ? RunSpeed : WalkSpeed;
 	Movement->MaxFlySpeed = bRunningNow ? FastFlySpeed : FlySpeed;
 
-	const float Forward = (PC->IsInputKeyDown(EKeys::W) || bAutoWalk ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
-	const float Right = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
+	const float Forward = (Down(EKeys::W) || bAutoWalk ? 1.f : 0.f) - (Down(EKeys::S) ? 1.f : 0.f);
+	const float Right = (Down(EKeys::D) ? 1.f : 0.f) - (Down(EKeys::A) ? 1.f : 0.f);
 	const FRotator Look = PC->GetControlRotation();
 	const FRotator Heading(bFlying ? Look.Pitch : 0.0, Look.Yaw, 0.0);
 	if (Forward != 0.f)
@@ -326,17 +369,17 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 
 	if (bFlying)
 	{
-		const float Up = (PC->IsInputKeyDown(EKeys::SpaceBar) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::C) ? 1.f : 0.f);
+		const float Up = (Down(EKeys::SpaceBar) ? 1.f : 0.f) - (Down(EKeys::C) ? 1.f : 0.f);
 		if (Up != 0.f)
 		{
 			AddMovementInput(FVector::UpVector, Up);
 		}
 	}
-	else if (PC->WasInputKeyJustPressed(EKeys::SpaceBar))
+	else if (Pressed(EKeys::SpaceBar))
 	{
 		Jump();
 	}
-	else if (!PC->IsInputKeyDown(EKeys::SpaceBar))
+	else if (!Down(EKeys::SpaceBar))
 	{
 		StopJumping();
 	}

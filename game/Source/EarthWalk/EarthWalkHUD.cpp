@@ -78,7 +78,10 @@ public:
 				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
 				.Text(FText::FromString(CreditText(false)))
 			]
-			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.f)
+			// In the photographic world the plugin writes Google's credits along the bottom left, and they
+			// have to stay readable, so the chat moves up out of their way.
+			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom)
+			.Padding(TAttribute<FMargin>::CreateLambda([this]() { return FMargin(16.f, 16.f, 16.f, bPhotoCredit ? 44.f : 16.f); }))
 			[
 				SNew(SBox).WidthOverride(560.f)
 				[
@@ -132,7 +135,11 @@ public:
 			? FString::Printf(TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors"), *GameVersion())
 			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion());
 	}
-	void SetCredit(bool bPhotoWorld) { Credit->SetText(FText::FromString(CreditText(bPhotoWorld))); }
+	void SetCredit(bool bPhotoWorld)
+	{
+		bPhotoCredit = bPhotoWorld;
+		Credit->SetText(FText::FromString(CreditText(bPhotoWorld)));
+	}
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
 
 	/** While the chat is closed the overlay ignores the pointer, so a stray click cannot steal the keyboard. */
@@ -161,6 +168,7 @@ private:
 	TWeakObjectPtr<AEarthWalkHUD> Owner;
 	TSharedPtr<STextBlock> Status;
 	TSharedPtr<STextBlock> Credit;
+	bool bPhotoCredit = false;
 	TSharedPtr<SScrollBox> Log;
 	TSharedPtr<SEditableTextBox> Input;
 	TArray<TSharedRef<SWidget>> Lines;

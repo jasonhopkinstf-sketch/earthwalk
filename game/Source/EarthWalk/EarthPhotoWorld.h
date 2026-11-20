@@ -16,7 +16,11 @@ class UWorld;
  * turn to match ours (+X north, +Y east), and the Cesium georeference origin follows
  * AEarthWorld::SetOrigin. Heights differ: the tiles are measured from the WGS84 ellipsoid, our
  * world from sea level, which is some tens of metres apart depending on where you are. The player
- * is placed by tracing down to the ground, so this only shows in the reported altitude.
+ * is placed on the ground the tiles report (SampleGround), so this only shows in the reported altitude.
+ *
+ * The tiles are aerial photogrammetry: convincing from the air, rough from head height, where trees
+ * and houses turn into large blurred slabs. That is the data, not a loading fault; a finer screen-space
+ * error setting gives the same picture.
  */
 namespace EarthPhoto
 {
@@ -31,4 +35,12 @@ namespace EarthPhoto
 
 	/** How much of what the camera needs has loaded, 0 to 100. */
 	float LoadProgress(const AActor* Tileset);
+
+	/**
+	 * Asks the tiles for the height of the ground at a place, at full detail and whatever the camera
+	 * is looking at. Done is called later on the game thread with the engine Z in cm, or with false
+	 * when there is no answer (no plugin, no tiles there). The answer is for the origin that was set
+	 * when it arrives, so callers drop it if the origin has moved since they asked.
+	 */
+	void SampleGround(UWorld* World, AActor* Tileset, double Lat, double Lon, TFunction<void(bool bFound, double Z)> Done);
 }

@@ -19,6 +19,8 @@ game/package-log.txt
 game/Build/Windows/FileOpenOrder/
 game/Textures/
 game/assets-log.txt
+# Tile cache of the Cesium plugin (photographic world); its request URLs hold the Google key
+game/cesium-request-cache.sqlite*
 
 # Claude Code worktrees and local settings
 .claude/

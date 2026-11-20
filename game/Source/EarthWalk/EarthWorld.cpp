@@ -125,8 +125,33 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 		{
 			PhotoTileset = EarthPhoto::SpawnTileset(GetWorld(), FEarthWalkConfig::MapsKey());
 		}
-		PhotoSince = FPlatformTime::Seconds();
+		RestartPhotoWait();
+		// Ask where the ground is here. The answer does not depend on the camera, which at this moment is
+		// wherever the player happened to be, often below the photographic ground.
+		bPhotoGroundKnown = false;
+		const int32 AskedGeneration = Generation;
+		EarthPhoto::SampleGround(GetWorld(), PhotoTileset, Lat, Lon, [WeakThis = TWeakObjectPtr<AEarthWorld>(this), AskedGeneration](bool bFound, double Z)
+		{
+			AEarthWorld* Self = WeakThis.Get();
+			if (Self && Self->bPhotoWorld && Self->Generation == AskedGeneration && bFound)
+			{
+				Self->bPhotoGroundKnown = true;
+				Self->PhotoGroundZ = Z;
+			}
+		});
 	}
+}
+
+bool AEarthWorld::PhotoGroundAtOrigin(double& OutZ) const
+{
+	OutZ = PhotoGroundZ;
+	return bPhotoWorld && bPhotoGroundKnown;
+}
+
+void AEarthWorld::RestartPhotoWait()
+{
+	PhotoSince = FPlatformTime::Seconds();
+	bPhotoReady = false;
 }
 
 bool AEarthWorld::SetPhotoWorld(bool bPhoto, FString& OutReason)
@@ -150,6 +175,7 @@ bool AEarthWorld::SetPhotoWorld(bool bPhoto, FString& OutReason)
 		PhotoTileset = nullptr;
 	}
 	bPhotoWorld = bPhoto;
+	bPhotoGroundKnown = false;
 	return true;
 }
 
@@ -195,8 +221,12 @@ bool AEarthWorld::HasChunkAt(const FVector& Position) const
 	{
 		// Tiles arrive coarse first and sharpen; wait for most of them so the player lands on the real
 		// street rather than on a rough stand-in, but never wait for ever.
-		const double Waited = FPlatformTime::Seconds() - PhotoSince;
-		return Waited > 3.0 && (EarthPhoto::LoadProgress(PhotoTileset) >= 95.f || Waited > 30.0);
+		if (!bPhotoReady)
+		{
+			const double Waited = FPlatformTime::Seconds() - PhotoSince;
+			bPhotoReady = Waited > 3.0 && (EarthPhoto::LoadProgress(PhotoTileset) >= 95.f || Waited > 30.0);
+		}
+		return bPhotoReady;
 	}
 	return Chunks.Contains(ChunkAt(Position));
 }
