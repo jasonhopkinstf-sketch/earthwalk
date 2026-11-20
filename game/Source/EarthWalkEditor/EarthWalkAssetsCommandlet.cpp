@@ -7,7 +7,9 @@
 #include "IAssetTools.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionPerInstanceRandom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionTextureObjectParameter.h"
 #include "Materials/MaterialExpressionTime.h"
@@ -79,6 +81,19 @@ float b = sin(p.y * 1.1 - Time * 0.7) + sin((p.x - p.y) * 0.4 + Time * 0.5);
 WorldNormal = normalize(float3(a * 0.02, b * 0.02, 1.0));
 Rough = 0.08;
 return Tint;
+)HLSL");
+
+	/** Tree canopies and trunks (instanced): the tint, varied per tree, with ruffled normals for leaves. */
+	const TCHAR* const FoliageCode = TEXT(R"HLSL(
+float3 p = WorldPos / 70.0;
+float v = sin(p.x * 1.9 + p.y * 1.3) * sin(p.y * 1.7 + p.z * 2.1) * sin(p.z * 1.5 + p.x * 1.1);
+float3 hue = lerp(float3(0.85, 1.05, 0.7), float3(1.1, 0.95, 0.75), Rand);
+float3 c = Tint * hue * (0.8 + 0.3 * v);
+float3 q = WorldPos / 9.0;
+float3 bump = float3(sin(q.y * 1.3 + Rand * 6.0) * sin(q.z * 0.9), sin(q.z * 1.1 + Rand * 3.0) * sin(q.x * 0.8), sin(q.x * 1.2 + Rand) * sin(q.y * 0.7));
+WorldNormal = normalize(normalize(Normal) + Fluff * 0.35 * bump);
+Rough = 0.95;
+return saturate(c);
 )HLSL");
 
 	bool SaveAsset(UObject* Asset)
@@ -253,6 +268,30 @@ return Tint;
 		FinishMaterial(Material, Custom);
 	}
 
+	void BuildFoliageMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthFoliage"));
+		if (!Material)
+		{
+			return;
+		}
+		UMaterialExpressionCustom* Custom = CustomNode(Material, FoliageCode, { TEXT("WorldPos"), TEXT("Normal"), TEXT("Tint"), TEXT("Rand"), TEXT("Fluff") });
+		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
+		Tint->ParameterName = TEXT("Color");
+		Tint->DefaultValue = FLinearColor(0.2f, 0.5f, 0.18f);
+		Connect(Node<UMaterialExpressionWorldPosition>(Material, -900, -300), Custom, TEXT("WorldPos"));
+		Connect(Node<UMaterialExpressionVertexNormalWS>(Material, -900, -150), Custom, TEXT("Normal"));
+		Connect(Tint, Custom, TEXT("Tint"));
+		Connect(Node<UMaterialExpressionPerInstanceRandom>(Material, -900, 150), Custom, TEXT("Rand"));
+		Connect(Scalar(Material, TEXT("Fluff"), 1.f, 300), Custom, TEXT("Fluff"));
+		// Leaves and bark are matt: almost no specular highlight.
+		UMaterialExpressionConstant* Matt = Node<UMaterialExpressionConstant>(Material, -300, 400);
+		Matt->R = 0.08f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Matt, TEXT(""), MP_Specular);
+		Material->bUsedWithInstancedStaticMeshes = true;
+		FinishMaterial(Material, Custom);
+	}
+
 	void BuildWaterMaterial(IAssetTools& Tools)
 	{
 		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthWater"));
@@ -312,7 +351,8 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 	BuildTexturedMaterial(Tools, TEXT("M_EarthTop"), TopCode, Textures.FindRef(TEXT("T_grass_D")), Textures.FindRef(TEXT("T_grass_N")), false);
 	BuildTexturedMaterial(Tools, TEXT("M_EarthWall"), WallCode, Textures.FindRef(TEXT("T_plaster_D")), Textures.FindRef(TEXT("T_plaster_N")), true);
 	BuildWaterMaterial(Tools);
+	BuildFoliageMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: %d textures, 3 materials under /Game/EarthWalk"), Textures.Num());
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: %d textures, 4 materials under /Game/EarthWalk"), Textures.Num());
 	return 0;
 }

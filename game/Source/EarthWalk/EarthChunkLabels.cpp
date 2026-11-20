@@ -1,6 +1,7 @@
 #include "EarthChunkLabels.h"
 
 #include "EarthWorld.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Dom/JsonObject.h"
@@ -14,6 +15,9 @@ namespace
 	constexpr uint32 PostColor = 0x6b6b6bff;
 	constexpr uint32 LetterboxColor = 0xe8e4d8ff;
 	constexpr uint32 PlateColor = 0x0f4d2aff;
+	constexpr uint32 BarkColor = 0x5a3d2aff;
+	constexpr uint32 LeafColor = 0x3f8a2fff;
+	constexpr uint32 NeedleColor = 0x2f6b2fff;
 	constexpr float NumberSize = 14.f; // text height in cm
 	constexpr float NameSize = 16.f;
 }
@@ -23,7 +27,13 @@ AEarthChunkLabels::AEarthChunkLabels()
 	PrimaryActorTick.bCanEverTick = false;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cone(TEXT("/Engine/BasicShapes/Cone.Cone"));
 	CubeMesh = Cube.Object;
+	CylinderMesh = Cylinder.Object;
+	SphereMesh = Sphere.Object;
+	ConeMesh = Cone.Object;
 }
 
 void AEarthChunkLabels::AddBox(const FVector& Location, const FRotator& Rotation, const FVector& SizeCm, UMaterialInterface* Material)
@@ -70,6 +80,59 @@ void AEarthChunkLabels::AddPlate(const FString& Text, const FVector& Location, d
 	AddText(Text, Location + Facing.RotateVector(FVector(-2.0, 0, 0)), Back, NameSize, FColor::White);
 }
 
+UInstancedStaticMeshComponent* AEarthChunkLabels::Instanced(TObjectPtr<UInstancedStaticMeshComponent>& Slot, UStaticMesh* Mesh, UMaterialInterface* Material, bool bCollide)
+{
+	if (!Slot)
+	{
+		UInstancedStaticMeshComponent* Component = NewObject<UInstancedStaticMeshComponent>(this);
+		Component->SetStaticMesh(Mesh);
+		if (Material)
+		{
+			Component->SetMaterial(0, Material);
+		}
+		Component->SetMobility(EComponentMobility::Movable);
+		if (bCollide)
+		{
+			Component->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			Component->SetCollisionObjectType(ECC_WorldStatic);
+			Component->SetCollisionResponseToAllChannels(ECR_Block);
+		}
+		else
+		{
+			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+		Component->SetupAttachment(RootComponent);
+		Component->RegisterComponent();
+		Slot = Component;
+	}
+	return Slot;
+}
+
+/** A tree from engine shapes: a trunk with either a cluster of leafy spheres or a conifer cone. Scales are in metres. */
+void AEarthChunkLabels::AddTree(const FVector& Base, double Yaw, double HeightM, double RadiusM, bool bConifer, AEarthWorld* World)
+{
+	const FRotator Spin(0.0, Yaw, 0.0);
+	const double TrunkH = HeightM * (bConifer ? 0.3 : 0.45);
+	Instanced(Trunks, CylinderMesh, World->MaterialForFoliage(BarkColor, 0.f), true)
+		->AddInstance(FTransform(Spin, Base + FVector(0, 0, TrunkH * 50.0), FVector(0.3, 0.3, TrunkH)), true);
+	if (bConifer)
+	{
+		Instanced(Conifers, ConeMesh, World->MaterialForFoliage(NeedleColor, 1.f), false)
+			->AddInstance(FTransform(Spin, Base + FVector(0, 0, HeightM * 60.0), FVector(RadiusM * 1.8, RadiusM * 1.8, HeightM * 0.8)), true);
+	}
+	else
+	{
+		UInstancedStaticMeshComponent* Leaves = Instanced(Canopies, SphereMesh, World->MaterialForFoliage(LeafColor, 1.f), false);
+		// A rounded crown: one big sphere with three smaller ones tucked around and above it.
+		const FVector Centre = Base + FVector(0, 0, HeightM * 65.0);
+		Leaves->AddInstance(FTransform(Spin, Centre, FVector(RadiusM * 2.0, RadiusM * 2.0, RadiusM * 1.7)), true);
+		Leaves->AddInstance(FTransform(Spin, Centre + Spin.RotateVector(FVector(RadiusM * 45.0, RadiusM * 25.0, RadiusM * 45.0)), FVector(RadiusM * 1.4)), true);
+		Leaves->AddInstance(FTransform(Spin, Centre + Spin.RotateVector(FVector(-RadiusM * 50.0, -RadiusM * 30.0, RadiusM * 20.0)), FVector(RadiusM * 1.3)), true);
+		Leaves->AddInstance(FTransform(Spin, Centre + Spin.RotateVector(FVector(RadiusM * 10.0, -RadiusM * 55.0, -RadiusM * 10.0)), FVector(RadiusM * 1.2)), true);
+	}
+	++Trees;
+}
+
 void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const FVector& ChunkOrigin, double TileCm, AEarthWorld* World)
 {
 	for (const TSharedPtr<FJsonValue>& Value : Items)
@@ -80,9 +143,9 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			continue;
 		}
 		const FJsonObject& Json = **Item;
-		FString Kind, Text;
+		FString Kind;
 		double U = 0.0, V = 0.0, H = 0.0, Yaw = 0.0;
-		if (!Json.TryGetStringField(TEXT("kind"), Kind) || !Json.TryGetStringField(TEXT("text"), Text) ||
+		if (!Json.TryGetStringField(TEXT("kind"), Kind) ||
 			!Json.TryGetNumberField(TEXT("u"), U) || !Json.TryGetNumberField(TEXT("v"), V) || !Json.TryGetNumberField(TEXT("h"), H))
 		{
 			continue;
@@ -92,6 +155,21 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 		const FVector At = ChunkOrigin + FVector(-V * TileCm, U * TileCm, H * 100.0);
 		const FRotator Facing(0.0, Yaw, 0.0);
 
+		if (Kind == TEXT("tree"))
+		{
+			double HeightM = 7.0, RadiusM = 2.0, Conifer = 0.0;
+			Json.TryGetNumberField(TEXT("s"), HeightM);
+			Json.TryGetNumberField(TEXT("r"), RadiusM);
+			Json.TryGetNumberField(TEXT("c"), Conifer);
+			AddTree(At, Yaw, FMath::Clamp(HeightM, 2.0, 40.0), FMath::Clamp(RadiusM, 0.5, 12.0), Conifer > 0.5, World);
+			continue;
+		}
+
+		FString Text;
+		if (!Json.TryGetStringField(TEXT("text"), Text))
+		{
+			continue;
+		}
 		if (Kind == TEXT("house"))
 		{
 			AddBox(At + FVector(0, 0, 50), Facing, FVector(8, 8, 100), World->MaterialFor(PostColor));

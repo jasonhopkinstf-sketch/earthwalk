@@ -9,12 +9,12 @@
 import earcut from "earcut";
 import { CHUNK_Z, hash32, metersPerTile } from "./geo.ts";
 import { Elevation, GRID } from "./elevation.ts";
-import { DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
+import { type Building, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
 
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 4;
+export const GENERATOR_REV = 5;
 export const FLAG_COLLISION = 1;
 
 interface MaterialDef { id: number; color: number; collision: boolean }
@@ -209,39 +209,22 @@ export function seaMask(features: Features, X0: number, Y0: number): Uint8Array 
   return mask;
 }
 
-export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation): ChunkMesh {
-  const S = metersPerTile(cy + 0.5, CHUNK_Z);
-  const sections = new Map<number, Section>();
-  const sec = (m: MaterialDef): Section => {
-    let s = sections.get(m.id);
-    if (!s) sections.set(m.id, (s = new Section(m)));
-    return s;
-  };
-  const E = (wx: number): number => (wx - cx) * S;
-  const N = (wy: number): number => -(wy - cy) * S;
-  const ground = (wx: number, wy: number): number => elev.surfaceHeight(wx, wy);
-  /** Smooth terrain normal (east, north, up) from the raw elevation field. */
-  const groundNormal = (wx: number, wy: number): [number, number, number] => {
-    const d = 1 / GRID;
-    const dE = (elev.rawHeight(wx + d, wy) - elev.rawHeight(wx - d, wy)) / (2 * d * S);
-    const dN = (elev.rawHeight(wx, wy - d) - elev.rawHeight(wx, wy + d)) / (2 * d * S);
-    const len = Math.hypot(dE, dN, 1);
-    return [-dE / len, -dN / len, 1 / len];
-  };
+/** Bounding box of a ring, or null when it misses the chunk entirely. */
+function inBox(ring: Pt[], cx: number, cy: number): [number, number, number, number] | null {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of ring) {
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+  }
+  if (x1 < cx || x0 > cx + 1 || y1 < cy || y0 > cy + 1) return null;
+  return [x0, y0, x1, y1];
+}
 
-  // ---- ground cover: rasterise area polygons onto the terrain grid
+/** Ground cover per terrain cell: 0 = default ground, else 1 + index into GROUND_ORDER. */
+export function groundClasses(cx: number, cy: number, features: Features, elev: Elevation): Uint8Array {
   const cls = new Uint8Array(GRID * GRID); // 0 = default ground, else 1 + index into GROUND_ORDER
-  const inBox = (ring: Pt[]): [number, number, number, number] | null => {
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const [x, y] of ring) {
-      if (x < x0) x0 = x;
-      if (x > x1) x1 = x;
-      if (y < y0) y0 = y;
-      if (y > y1) y1 = y;
-    }
-    if (x1 < cx || x0 > cx + 1 || y1 < cy || y0 > cy + 1) return null;
-    return [x0, y0, x1, y1];
-  };
   const rowHits: number[] = [];
   for (let order = 0; order < GROUND_ORDER.length; order++) {
     for (const area of features.areas) {
@@ -298,6 +281,171 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       if (sea) cls[j * GRID + i] = waterCls;
     }
   }
+  return cls;
+}
+
+export interface TreeSpot { wx: number; wy: number; seed: number; height: number; radius: number; conifer: boolean }
+
+/** Where trees stand: mapped single trees, plus scattered ones in forests and (sparsely) on grass. */
+export function placeTrees(cx: number, cy: number, features: Features, cls: Uint8Array): TreeSpot[] {
+  const out: TreeSpot[] = [];
+  const footprintBoxes = features.buildings.map((b) => ({ b, box: inBox(b.ring, cx, cy) })).filter((x) => x.box);
+  const insideBuilding = (wx: number, wy: number): boolean =>
+    footprintBoxes.some(({ b, box }) => wx >= box![0] && wx <= box![2] && wy >= box![1] && wy <= box![3] && pointInRing(wx, wy, b.ring));
+  const add = (wx: number, wy: number, seed: number, conifer: boolean): void => {
+    out.push({ wx, wy, seed, height: 6 + (seed % 700) / 100, radius: 1.6 + ((seed >>> 10) % 160) / 100, conifer });
+  };
+  for (const t of features.trees) {
+    if (t.at[0] >= cx && t.at[0] < cx + 1 && t.at[1] >= cy && t.at[1] < cy + 1) add(t.at[0], t.at[1], hash32(t.id), false);
+  }
+  const forestCls = GROUND_ORDER.indexOf("forest") + 1;
+  const grassCls = GROUND_ORDER.indexOf("grass") + 1;
+  for (let j = 0; j < GRID; j++) {
+    for (let i = 0; i < GRID; i++) {
+      const c = cls[j * GRID + i];
+      if (c !== forestCls && c !== grassCls) continue;
+      const seed = hash32(cx * GRID + i, cy * GRID + j);
+      if (c === grassCls && seed % 9 !== 0) continue;
+      const wx = cx + (i + 0.15 + ((seed >>> 4) % 70) / 100) / GRID;
+      const wy = cy + (j + 0.15 + ((seed >>> 12) % 70) / 100) / GRID;
+      if (!insideBuilding(wx, wy)) add(wx, wy, seed >>> 3, c === forestCls && (seed >>> 20) % 5 < 2);
+    }
+  }
+  return out;
+}
+
+type XY = [number, number];
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/** Drops near-duplicate and nearly collinear vertices (turns under about 12 degrees). */
+function simplifyRing(ring: XY[]): XY[] {
+  const out: XY[] = [];
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const p = ring[(i + n - 1) % n];
+    const q = ring[i];
+    const r = ring[(i + 1) % n];
+    const ax = q[0] - p[0], ay = q[1] - p[1], bx = r[0] - q[0], by = r[1] - q[1];
+    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+    if (la < 0.3) continue;
+    const sin = Math.abs(ax * by - ay * bx) / (la * lb || 1);
+    const dot = (ax * bx + ay * by) / (la * lb || 1);
+    if (sin < 0.21 && dot > 0) continue;
+    out.push(q);
+  }
+  return out;
+}
+
+const isConvex = (ring: XY[]): boolean => {
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const p = ring[i], q = ring[(i + 1) % n], r = ring[(i + 2) % n];
+    if ((q[0] - p[0]) * (r[1] - q[1]) - (q[1] - p[1]) * (r[0] - q[0]) < -1e-6) return false;
+  }
+  return true;
+};
+
+const isRectangle = (ring: XY[]): boolean => {
+  if (ring.length !== 4) return false;
+  for (let i = 0; i < 4; i++) {
+    const p = ring[i], q = ring[(i + 1) % 4], r = ring[(i + 2) % 4];
+    const ax = q[0] - p[0], ay = q[1] - p[1], bx = r[0] - q[0], by = r[1] - q[1];
+    if (Math.abs(ax * bx + ay * by) > 0.26 * Math.hypot(ax, ay) * Math.hypot(bx, by)) return false;
+  }
+  return true;
+};
+
+/** A quad or triangle on a roof slope, with the face normal pointing up and out. */
+function slopeFace(sec: Section, pts: [number, number, number][]): void {
+  const [p, q, r] = pts;
+  let nx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]);
+  let ny = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]);
+  let nz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+  const len = Math.hypot(nx, ny, nz) || 1;
+  const first = sec.count;
+  for (const [e, n, h] of pts) sec.vert(e, n, h, nx / len, ny / len, nz / len);
+  for (let i = 1; i + 1 < pts.length; i++) sec.triUp(first, first + i, first + i + 1);
+}
+
+/** A vertical gable triangle over edge a-b of a counter-clockwise ring, in the wall section. */
+function gableEnd(walls: Section, a: XY, b: XY, eaves: number, ridge: [number, number, number]): void {
+  const de = b[0] - a[0], dn = b[1] - a[1];
+  const len = Math.hypot(de, dn) || 1;
+  const ne = dn / len, nn = -de / len;
+  const v0 = walls.vert(a[0], a[1], eaves, ne, nn, 0);
+  const v1 = walls.vert(b[0], b[1], eaves, ne, nn, 0);
+  const v2 = walls.vert(ridge[0], ridge[1], ridge[2], ne, nn, 0);
+  walls.tri(v0, v1, v2);
+}
+
+/**
+ * Roofs: a gable on rectangular houses, a hip on other small convex ones, flat on everything else
+ * (and whenever OSM says flat). Big or tall buildings stay flat unless OSM says otherwise.
+ */
+function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Section, roof: Section): void {
+  const shape = b.roof ?? "";
+  const pitched = !/^(flat|skillion)$/.test(shape) &&
+    (/gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape) || (areaM2 < 400 && b.height < 13));
+  const simple = pitched ? simplifyRing(ring) : [];
+  if (simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
+    const rise = Math.min(b.height * 0.8, b.roofHeight ?? clamp(0.35 * Math.sqrt(areaM2), 1.8, 5));
+    if (isRectangle(simple)) {
+      // Ridge along the longer sides.
+      const [p0, p1, p2, p3] = simple;
+      const long = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) >= Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+      const [a, b2, c, d] = long ? [p0, p1, p2, p3] : [p1, p2, p3, p0];
+      const r0: [number, number, number] = [(d[0] + a[0]) / 2, (d[1] + a[1]) / 2, top + rise];
+      const r1: [number, number, number] = [(b2[0] + c[0]) / 2, (b2[1] + c[1]) / 2, top + rise];
+      slopeFace(roof, [[a[0], a[1], top], [b2[0], b2[1], top], r1, r0]);
+      slopeFace(roof, [[c[0], c[1], top], [d[0], d[1], top], r0, r1]);
+      gableEnd(walls, b2, c, top, r1);
+      gableEnd(walls, d, a, top, r0);
+      return;
+    }
+    // Hip: the outline pulled in towards the middle and raised, with a small flat top.
+    let mx = 0, my = 0;
+    for (const [x, y] of simple) { mx += x; my += y; }
+    mx /= simple.length;
+    my /= simple.length;
+    const inner: XY[] = simple.map(([x, y]) => [mx + (x - mx) * 0.35, my + (y - my) * 0.35]);
+    for (let i = 0; i < simple.length; i++) {
+      const j = (i + 1) % simple.length;
+      slopeFace(roof, [[simple[i][0], simple[i][1], top], [simple[j][0], simple[j][1], top], [inner[j][0], inner[j][1], top + rise], [inner[i][0], inner[i][1], top + rise]]);
+    }
+    const first = roof.count;
+    for (const [e, n] of inner) roof.vert(e, n, top + rise, 0, 0, 1);
+    const tris = earcut(inner.flat());
+    for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+    return;
+  }
+  const first = roof.count;
+  for (const [e, n] of ring) roof.vert(e, n, top, 0, 0, 1);
+  const tris = earcut(ring.flat());
+  for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+}
+
+export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation): ChunkMesh {
+  const S = metersPerTile(cy + 0.5, CHUNK_Z);
+  const sections = new Map<number, Section>();
+  const sec = (m: MaterialDef): Section => {
+    let s = sections.get(m.id);
+    if (!s) sections.set(m.id, (s = new Section(m)));
+    return s;
+  };
+  const E = (wx: number): number => (wx - cx) * S;
+  const N = (wy: number): number => -(wy - cy) * S;
+  const ground = (wx: number, wy: number): number => elev.surfaceHeight(wx, wy);
+  /** Smooth terrain normal (east, north, up) from the raw elevation field. */
+  const groundNormal = (wx: number, wy: number): [number, number, number] => {
+    const d = 1 / GRID;
+    const dE = (elev.rawHeight(wx + d, wy) - elev.rawHeight(wx - d, wy)) / (2 * d * S);
+    const dN = (elev.rawHeight(wx, wy - d) - elev.rawHeight(wx, wy + d)) / (2 * d * S);
+    const len = Math.hypot(dE, dN, 1);
+    return [-dE / len, -dN / len, 1 / len];
+  };
+
+  const cls = groundClasses(cx, cy, features, elev);
 
   // ---- terrain
   const heights = new Float32Array((GRID + 1) * (GRID + 1));
@@ -432,51 +580,25 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       walls.tri(v0, v1, v2);
       walls.tri(v0, v2, v3);
     }
-    const roof = sec(ROOFS[(h >>> 8) % ROOFS.length]);
-    const first = roof.count;
-    for (const [e, n] of ring) roof.vert(e, n, top, 0, 0, 1);
-    const tris = earcut(ring.flat());
-    for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+    addRoof(ring, top, b, Math.abs(area2) / 2, walls, sec(ROOFS[(h >>> 8) % ROOFS.length]));
   }
 
-  // ---- trees: mapped single trees, plus scattered ones in forests and (sparsely) on grass
-  const trees = (): Section => sec(MATERIALS.tree);
-  const footprintBoxes = features.buildings.map((b) => ({ b, box: inBox(b.ring) })).filter((x) => x.box);
-  const insideBuilding = (wx: number, wy: number): boolean =>
-    footprintBoxes.some(({ b, box }) => wx >= box![0] && wx <= box![2] && wy >= box![1] && wy <= box![3] && pointInRing(wx, wy, b.ring));
-  const addTree = (wx: number, wy: number, seed: number): void => {
-    const s = trees();
-    const height = 6 + (seed % 700) / 100;
-    const radius = 1.6 + ((seed >>> 10) % 160) / 100;
-    const e = E(wx);
-    const n = N(wy);
-    const g = ground(wx, wy);
+  // ---- trees: cones (the Unreal client draws its own trees from the labels route instead)
+  const trees = sec(MATERIALS.tree);
+  for (const t of placeTrees(cx, cy, features, cls)) {
+    const e = E(t.wx);
+    const n = N(t.wy);
+    const g = ground(t.wx, t.wy);
     const SIDES = 6;
-    const slope = radius / height;
-    const apex = s.vert(e, n, g + height, 0, 0, 1);
-    const first = s.count;
+    const slope = t.radius / t.height;
+    const apex = trees.vert(e, n, g + t.height, 0, 0, 1);
+    const first = trees.count;
     for (let k = 0; k < SIDES; k++) {
       const a = (k / SIDES) * Math.PI * 2;
       const len = Math.hypot(1, slope);
-      s.vert(e + Math.cos(a) * radius, n + Math.sin(a) * radius, g + 0.8, Math.cos(a) / len, Math.sin(a) / len, slope / len);
+      trees.vert(e + Math.cos(a) * t.radius, n + Math.sin(a) * t.radius, g + 0.8, Math.cos(a) / len, Math.sin(a) / len, slope / len);
     }
-    for (let k = 0; k < SIDES; k++) s.tri(first + k, first + ((k + 1) % SIDES), apex);
-  };
-  for (const t of features.trees) {
-    if (t.at[0] >= cx && t.at[0] < cx + 1 && t.at[1] >= cy && t.at[1] < cy + 1) addTree(t.at[0], t.at[1], hash32(t.id));
-  }
-  const forestCls = GROUND_ORDER.indexOf("forest") + 1;
-  const grassCls = GROUND_ORDER.indexOf("grass") + 1;
-  for (let j = 0; j < GRID; j++) {
-    for (let i = 0; i < GRID; i++) {
-      const c = cls[j * GRID + i];
-      if (c !== forestCls && c !== grassCls) continue;
-      const seed = hash32(cx * GRID + i, cy * GRID + j);
-      if (c === grassCls && seed % 9 !== 0) continue;
-      const wx = cx + (i + 0.15 + ((seed >>> 4) % 70) / 100) / GRID;
-      const wy = cy + (j + 0.15 + ((seed >>> 12) % 70) / 100) / GRID;
-      if (!insideBuilding(wx, wy)) addTree(wx, wy, seed >>> 3);
-    }
+    for (let k = 0; k < SIDES; k++) trees.tri(first + k, first + ((k + 1) % SIDES), apex);
   }
 
   return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((a, b) => a.mat.id - b.mat.id), metersPerTile: S };

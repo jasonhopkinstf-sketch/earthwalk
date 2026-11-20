@@ -7,15 +7,20 @@
 
 import { CHUNK_Z, metersPerTile } from "./geo.ts";
 import { Elevation } from "./elevation.ts";
-import { clipPolyline, featuresForChunk } from "./chunk.ts";
+import { clipPolyline, featuresForChunk, groundClasses, placeTrees } from "./chunk.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 1;
+export const LABELS_REV = 2;
 
 export interface LabelItem {
-  kind: "house" | "street";
-  text: string;
+  kind: "house" | "street" | "tree";
+  /** Plate text; absent on trees. */
+  text?: string;
+  /** Trees: height and canopy radius in metres, and 1 for a conifer. */
+  s?: number;
+  r?: number;
+  c?: number;
   /** Second plate of a street sign at a crossing. */
   text2?: string;
   u: number;
@@ -33,6 +38,7 @@ const SIGN_CLEARANCE_M = 1.5;
 const SIGN_DEDUPE_M = 25;
 const HOUSE_CAP = 120;
 const STREET_CAP = 40;
+const TREE_CAP = 1500;
 
 type Dir = [number, number];
 interface Placed { it: LabelItem; at: Pt }
@@ -160,7 +166,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     const second = sorted.find((h) => h.road.name!.toLowerCase() !== first.road.name!.toLowerCase())!;
     const key = pairKey(first.road.name!, second.road.name!);
     // Dual carriageways cross a side street twice within a few metres: one sign is enough.
-    if (crossings.some((c) => pairKey(c.it.text, c.it.text2!) === key && dist(c.at, at) < m(SIGN_DEDUPE_M))) continue;
+    if (crossings.some((c) => pairKey(c.it.text!, c.it.text2!) === key && dist(c.at, at) < m(SIGN_DEDUPE_M))) continue;
     const d1 = directionAt(first.road.pts, first.i);
     const d2 = directionAt(second.road.pts, second.i);
     const n1: Dir = [-d1[1], d1[0]];
@@ -204,9 +210,21 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
   }
   plates.sort((a, b) => b.len - a.len);
 
+  // ---- trees, as placed in the mesh, so clients with their own tree models can draw them
+  const trees: LabelItem[] = [];
+  const spots = placeTrees(cx, cy, features, groundClasses(cx, cy, features, elev));
+  const step = Math.max(1, Math.ceil(spots.length / TREE_CAP));
+  for (let i = 0; i < spots.length; i += step) {
+    const t = spots[i];
+    const u = r7(t.wx - cx);
+    const v = r7(t.wy - cy);
+    trees.push({ kind: "tree", u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: t.seed % 360, s: r1(t.height), r: r1(t.radius), c: t.conifer ? 1 : 0 });
+  }
+
   return [
     ...houses.slice(0, HOUSE_CAP).map((h) => h.it),
     ...[...crossings, ...plates].slice(0, STREET_CAP).map((s) => s.it),
+    ...trees,
   ];
 }
 

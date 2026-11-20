@@ -30,7 +30,7 @@ namespace
 	constexpr uint32 ChunkVersion = 1;
 	constexpr uint32 FlagCollision = 1;
 	constexpr int32 MaxRequestsInFlight = 4;
-	constexpr int32 MaxLabelRequestsInFlight = 2;
+	constexpr int32 MaxLabelRequestsInFlight = 3;
 	constexpr double LabelRetrySeconds = 120.0; // labels are optional, so failures are retried slowly
 }
 
@@ -474,6 +474,29 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	return Material;
 }
 
+UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Fluff)
+{
+	const uint64 Key = (static_cast<uint64>(Fluff > 0.5f ? 101 : 100) << 32) | Rgba;
+	if (const TObjectPtr<UMaterialInstanceDynamic>* Found = SurfaceMaterials.Find(Key))
+	{
+		return *Found;
+	}
+	UMaterialInterface* Master = LoadArt<UMaterialInterface>(TEXT("Materials"), TEXT("M_EarthFoliage"));
+	if (!Master)
+	{
+		return MaterialFor(Rgba);
+	}
+	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Master, this);
+	if (Material)
+	{
+		const FColor Color((Rgba >> 24) & 0xff, (Rgba >> 16) & 0xff, (Rgba >> 8) & 0xff, 255);
+		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
+		Material->SetScalarParameterValue(TEXT("Fluff"), Fluff);
+	}
+	SurfaceMaterials.Add(Key, Material);
+	return Material;
+}
+
 UMaterialInstanceDynamic* AEarthWorld::MaterialFor(uint32 Rgba)
 {
 	if (const TObjectPtr<UMaterialInstanceDynamic>* Found = Materials.Find(Rgba))
@@ -546,6 +569,12 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		{
 			bOk = false;
 			break;
+		}
+		if (SurfaceId == 30)
+		{
+			// The server's cone trees are for the browser; this client grows its own from the labels route.
+			Offset += NumVerts * 24 + NumIndices * 4;
+			continue;
 		}
 
 		TArray<float> Floats;

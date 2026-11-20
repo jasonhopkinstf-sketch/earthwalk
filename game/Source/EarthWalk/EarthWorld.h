@@ -50,6 +50,9 @@ public:
 	 */
 	UMaterialInstanceDynamic* MaterialForSurface(uint32 SurfaceId, uint32 Rgba);
 
+	/** Leafy or bark material for trees (instanced), tinted; Fluff 1 ruffles the normals for canopies. */
+	UMaterialInstanceDynamic* MaterialForFoliage(uint32 Rgba, float Fluff);
+
 	int32 NumLoadedChunks() const { return Chunks.Num(); }
 	const FString& GetLastError() const { return LastError; }
 

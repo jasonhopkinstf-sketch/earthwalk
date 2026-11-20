@@ -13,7 +13,11 @@ export type Pt = [number, number]; // world coordinates (CHUNK_Z tile units)
 export type GroundClass = "urban" | "farm" | "grass" | "forest" | "sand" | "rock" | "paved" | "water";
 export type RoadClass = "road" | "path" | "rail" | "stream";
 
-export interface Building { id: number; ring: Pt[]; height: number; housenumber?: string; street?: string }
+export interface Building {
+  id: number; ring: Pt[]; height: number; housenumber?: string; street?: string;
+  /** OSM roof:shape and roof:height, when mapped. */
+  roof?: string; roofHeight?: number;
+}
 /** `name` is set for highway ways only. */
 export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string }
 /** A house number mapped as a standalone point rather than on a building. */
@@ -293,6 +297,14 @@ const street = (tags: Record<string, string>): { street?: string } => (tags["add
 const address = (tags: Record<string, string>): { housenumber?: string; street?: string } =>
   tags["addr:housenumber"]?.trim() ? { housenumber: tags["addr:housenumber"].trim(), ...street(tags) } : {};
 
+function roofOf(tags: Record<string, string>): { roof?: string; roofHeight?: number } {
+  const out: { roof?: string; roofHeight?: number } = {};
+  if (tags["roof:shape"]) out.roof = tags["roof:shape"];
+  const h = num(tags["roof:height"]);
+  if (h && h > 0 && h < 50) out.roofHeight = h;
+  return out;
+}
+
 export function parseOsm(json: OsmJson): Features {
   const nodes = new Map<number, Pt>();
   const ways = new Map<number, OsmElement>();
@@ -327,7 +339,7 @@ export function parseOsm(json: OsmJson): Features {
   const isBuilding = (tags: Record<string, string>): boolean => !!tags.building && tags.building !== "no";
   const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[]): void => {
     if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return;
-    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags) });
+    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags), ...roofOf(tags) });
   };
 
   const usedAsOuter = new Set<number>();

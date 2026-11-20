@@ -74,8 +74,9 @@ and sign posts from it.
 | Field | Meaning |
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
-| `kind` | `house` (a letterbox plate) or `street` (a sign post). |
-| `text`, `text2` | The plate text. A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
+| `kind` | `house` (a letterbox plate), `street` (a sign post) or `tree`. |
+| `text`, `text2` | The plate text (absent on trees). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
+| `s`, `r`, `c` | Trees only: height and canopy radius in metres, and `c` = 1 for a conifer. Trees are the same ones the chunk mesh draws as cones (surface id 30), so a client with its own tree models skips that section and plants these instead. At most 1500 per chunk, thinned evenly. |
 | `u`, `v` | Position across the chunk, as in the meshes: `u` 0 = west edge, 1 = east edge; `v` 0 = north edge, 1 = south edge. May fall slightly outside 0–1 for buildings that straddle the chunk edge. |
 | `h` | Terrain-mesh height at the point, in metres above sea level, so the prop stands on the ground. |
 | `yaw`, `yaw2` | Compass heading in degrees (0 north, 90 east) that the text of `text` / `text2` faces. |

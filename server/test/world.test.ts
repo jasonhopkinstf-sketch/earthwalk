@@ -255,3 +255,32 @@ test("generateLabels returns well-formed JSON for an empty area", async () => {
   assert.equal(typeof json.rev, "number");
   assert.equal(json.items.length, 0);
 });
+
+test("small rectangular houses get a gable roof", async () => {
+  const S = metersPerTile(CY + 0.5);
+  const d = (metres: number): number => metres / S;
+  const ring: [number, number][] = [[CX + 0.5, CY + 0.5], [CX + 0.5 + d(10), CY + 0.5], [CX + 0.5 + d(10), CY + 0.5 + d(6)], [CX + 0.5, CY + 0.5 + d(6)]];
+  const f: Features = { buildings: [{ id: 7, ring, height: 6 }], roads: [], areas: [], trees: [], addresses: [], coast: [] };
+  const { mesh: m } = await mesh(CX, CY, f);
+  const z = (s: { pos: number[] }): number[] => s.pos.filter((_, i) => i % 3 === 2);
+  const roof = m.sections.find((s) => s.mat.id === 24 || s.mat.id === 25)!;
+  const walls = m.sections.find((s) => s.mat.id >= 20 && s.mat.id <= 23)!;
+  const eaves = Math.min(...z(roof));
+  assert.ok(Math.max(...z(roof)) > eaves + 1.5, "the ridge rises above the eaves");
+  assert.ok(Math.max(...z(walls)) > eaves + 1.5, "gable ends rise into the roof");
+  assert.equal(roof.idx.length, 12, "two slopes of two triangles each");
+});
+
+test("labels carry the trees the mesh plants", async () => {
+  const f = parseOsm(sampleOsm());
+  const elev = hills();
+  await elev.ensure(CX - 0.5, CY - 0.5, CX + 1.5, CY + 1.5);
+  const trees = buildLabels(CX, CY, f, elev).filter((i) => i.kind === "tree");
+  const { mesh: m } = await mesh(CX, CY, f);
+  const cones = m.sections.find((s) => s.mat.id === MATERIALS.tree.id)!;
+  assert.equal(trees.length, cones.count / 7, "one item per cone (6 base vertices and an apex)");
+  for (const t of trees) {
+    assert.ok(t.s! >= 6 && t.s! < 13.1 && t.r! >= 1.6 && t.r! < 3.3, "sizes as placed");
+    assert.ok(t.u >= 0 && t.u < 1 && t.v >= 0 && t.v < 1, "inside the chunk");
+  }
+});
