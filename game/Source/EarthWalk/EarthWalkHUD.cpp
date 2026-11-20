@@ -127,9 +127,10 @@ public:
 	/** The credit line names whoever's data is on screen. In the photographic world the Cesium plugin adds Google's logo and per-tile credits itself. */
 	static FString CreditText(bool bPhotoWorld)
 	{
-		return FString::Printf(bPhotoWorld
-			? TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors")
-			: TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion());
+		// Printf checks its format at compile time, so each one has to be a literal of its own.
+		return bPhotoWorld
+			? FString::Printf(TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors"), *GameVersion())
+			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion());
 	}
 	void SetCredit(bool bPhotoWorld) { Credit->SetText(FText::FromString(CreditText(bPhotoWorld))); }
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
