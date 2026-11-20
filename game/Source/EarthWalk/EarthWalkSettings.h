@@ -22,6 +22,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Player")
 	FString PlayerName = TEXT("Guest");
 
+	/** Which animal the player appears as: fox, bear, rabbit, cat, owl or frog. */
+	UPROPERTY(Config, EditAnywhere, Category = "Player")
+	FString Avatar = TEXT("fox");
+
 	/** People in the same room see each other and share a chat. */
 	UPROPERTY(Config, EditAnywhere, Category = "Player")
 	FString Room = TEXT("family");
@@ -50,7 +54,7 @@ public:
 
 /**
  * Per-player values. Each is resolved in this order:
- *   1. command line (-EWServer= -EWName= -EWRoom= -EWCode= -EWLat= -EWLon=)
+ *   1. command line (-EWServer= -EWName= -EWAvatar= -EWRoom= -EWCode= -EWLat= -EWLon=)
  *   2. what the player last set with a chat command (saved in GameUserSettings.ini)
  *   3. the project defaults above
  */
@@ -59,10 +63,11 @@ struct FEarthWalkConfig
 	static FString ServerUrl();
 	static FString PlayerName();
 	static FString Room();
+	static FString Avatar();
 	static FString AccessCode();
 	static void StartLocation(double& OutLat, double& OutLon);
 
-	/** Saves a per-player override. Keys: Server, Name, Room, Code, Lat, Lon. */
+	/** Saves a per-player override. Keys: Server, Name, Avatar, Room, Code, Lat, Lon. */
 	static void Save(const TCHAR* Key, const FString& Value);
 
 private:

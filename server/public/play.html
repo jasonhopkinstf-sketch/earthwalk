@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EarthWalk</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/play.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/build/three.module.js",
+  "three-mesh-bvh": "/vendor/three-mesh-bvh/build/index.module.js"
+} }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" hidden>
+  <div id="status"></div>
+  <div id="chat">
+    <div id="log" aria-live="polite"></div>
+    <input id="say" maxlength="300" autocomplete="off" placeholder="Press Enter to chat. Type /help for commands.">
+  </div>
+  <div id="hint">Click the view to look around · WASD move · Shift faster · Space jump · F fly</div>
+  <div id="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
+</div>
+
+<form id="join">
+  <h1>EarthWalk</h1>
+  <p class="lead">Walk anywhere on Earth, together.</p>
+  <label for="name">Your name</label>
+  <input id="name" maxlength="24" required autocomplete="nickname">
+  <fieldset>
+    <legend>Your animal</legend>
+    <div id="animals"></div>
+  </fieldset>
+  <label for="room">Room <span class="soft">(people in the same room see each other)</span></label>
+  <input id="room" maxlength="32" required value="family" autocomplete="off">
+  <div id="code-row" hidden>
+    <label for="code">Access code <span class="soft">(from whoever invited you)</span></label>
+    <input id="code" maxlength="128" autocomplete="off">
+  </div>
+  <p id="join-error" role="alert"></p>
+  <button id="go">Enter the world</button>
+  <p class="soft small">Needs a keyboard and mouse for now.</p>
+</form>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

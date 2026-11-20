@@ -313,7 +313,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);
-		AddLine(TEXT("/name <name>   /room <room>   /server <address>   /code <access code>"), NoticeColor);
+		AddLine(TEXT("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>"), NoticeColor);
+		AddLine(TEXT("/server <address>   /code <access code>"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
@@ -353,16 +354,16 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			Character->SetFlying(!Character->IsFlying());
 		}
 	}
-	else if ((Command == TEXT("name") || Command == TEXT("room") || Command == TEXT("server") || Command == TEXT("code")) && !Argument.IsEmpty())
+	else if ((Command == TEXT("name") || Command == TEXT("animal") || Command == TEXT("room") || Command == TEXT("server") || Command == TEXT("code")) && !Argument.IsEmpty())
 	{
-		const TCHAR* Key = Command == TEXT("name") ? TEXT("Name") : Command == TEXT("room") ? TEXT("Room") : Command == TEXT("server") ? TEXT("Server") : TEXT("Code");
+		const TCHAR* Key = Command == TEXT("name") ? TEXT("Name") : Command == TEXT("animal") ? TEXT("Avatar") : Command == TEXT("room") ? TEXT("Room") : Command == TEXT("server") ? TEXT("Server") : TEXT("Code");
 		FEarthWalkConfig::Save(Key, Argument);
 		AddLine(TEXT("Saved. Reconnecting..."), NoticeColor);
 		if (Net)
 		{
 			Net->Connect();
 		}
-		if (Command == TEXT("server") && Character)
+		if ((Command == TEXT("server") || Command == TEXT("code")) && Character)
 		{
 			// Reload the world from the new server.
 			const AEarthWorld* Earth = AEarthWorld::Get(this);
@@ -426,6 +427,10 @@ void AEarthWalkHUD::GoToPlace(const FString& Query)
 	Request->SetURL(Url);
 	Request->SetVerb(TEXT("GET"));
 	Request->SetTimeout(30.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
 	AddLine(FString::Printf(TEXT("Looking for \"%s\"..."), *Query), NoticeColor);
 	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Query](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
 	{

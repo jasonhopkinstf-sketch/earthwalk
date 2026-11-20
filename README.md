@@ -16,9 +16,15 @@ There are two parts:
 - **`game/`**, the Unreal Engine game. It streams chunks from the server around you,
   lets you walk and fly, and shows the other people in your room.
 
+The server also serves a **browser version** of the game at its own address, so someone
+can join with nothing but a link. Browser and Unreal players share the same rooms.
+Everyone appears as an animal of their choice.
+
 ## Status
 
 - The server is working and tested (`npm test`), including against live map data.
+- The browser client is working and tested with two players (`npm run e2e`). It needs
+  a keyboard and mouse; there are no touch controls yet.
 - The Unreal project has **not been compiled yet**. It was written without access to
   the engine, so expect a round of compile fixes the first time it is opened.
 
@@ -32,19 +38,21 @@ npm install
 npm start
 ```
 
-Then open http://localhost:8787 for a browser preview of the generated world (drag to
-look around, type a place and press Go). Useful settings (environment variables):
+Then open http://localhost:8787 to play in the browser: enter a name, pick an animal,
+and you are in. (http://localhost:8787/viewer.html is a bird's-eye preview.) Useful
+settings (environment variables):
 
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Port to listen on (default 8787) |
-| `EARTHWALK_ACCESS_CODE` | If set, players must enter this code (`/code` in game) to join |
+| `EARTHWALK_ACCESS_CODE` | If set, players need this code to join and to load the world |
+| `EARTHWALK_TRUST_PROXY` | Set to `1` when running behind a hosting provider's proxy |
 | `EARTHWALK_CONTACT` | Contact shown to the OpenStreetMap services in the User-Agent, as their usage policies ask |
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
 
-For family in other homes to join, the server has to be reachable from the internet
-(a small cloud host, or your own PC with port 8787 forwarded).
+For family in other homes to join, the server has to be reachable from the internet.
+See [docs/HOSTING.md](docs/HOSTING.md) for putting it on a cloud host and inviting people.
 
 ## Run the game
 
@@ -64,7 +72,8 @@ Chat commands:
 | `/goto <place>` | Travel anywhere: `/goto Times Square`, `/goto 35.3606, 138.7274` |
 | `/join <name>` | Go to someone in your room |
 | `/who` | List who is in your room |
-| `/name`, `/room`, `/server`, `/code` | Set your name, room, server address, access code |
+| `/invite` | Browser only: copy a link that lets someone join your room |
+| `/name`, `/animal`, `/room`, `/server`, `/code` | Unreal only: set your name, animal, room, server address, access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
 
 Project defaults live in `game/Config/DefaultGame.ini`.

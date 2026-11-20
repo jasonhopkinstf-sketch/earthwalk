@@ -11,6 +11,7 @@ class IWebSocket;
 struct FEarthPeer
 {
 	FString Name;
+	FString Avatar; // which animal they chose
 	double Lat = 0.0;
 	double Lon = 0.0;
 	double Alt = 0.0; // metres above sea level, at the feet

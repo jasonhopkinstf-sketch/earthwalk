@@ -45,7 +45,7 @@ test("two people meet in a room, see each other move and chat", async () => {
   try {
     const mum = client(s.url);
     await mum.open;
-    mum.send({ t: "hello", name: "Mum", room: "Family" });
+    mum.send({ t: "hello", name: "Mum", room: "Family", avatar: "owl" });
     const w1 = await mum.next("welcome");
     assert.equal(w1.peers.length, 0);
     mum.send({ t: "pos", lat: 48.8583, lon: 2.2945, alt: 35, yaw: 90 });
@@ -57,7 +57,11 @@ test("two people meet in a room, see each other move and chat", async () => {
     assert.equal(w2.name, "Mum 2");
     assert.equal(w2.peers.length, 1);
     assert.equal(w2.peers[0].lat, 48.8583);
-    assert.equal((await mum.next("join")).name, "Mum 2");
+    assert.equal(w2.peers[0].avatar, "owl");
+    assert.equal(w2.avatar, "fox", "missing or invalid animals fall back to the default");
+    const joined = await mum.next("join");
+    assert.equal(joined.name, "Mum 2");
+    assert.equal(joined.avatar, "fox");
 
     kid.send({ t: "pos", lat: 48.86, lon: 2.3, alt: 40, yaw: 10 });
     const peers = await mum.next("peers");

@@ -220,6 +220,10 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 	Request->SetURL(Url);
 	Request->SetVerb(TEXT("GET"));
 	Request->SetTimeout(90.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
 	const int32 RequestGeneration = Generation;
 	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, RequestGeneration](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
 	{
@@ -234,9 +238,18 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 			RetryAfter.Remove(Key);
 			return;
 		}
-		LastError = !bConnected || !Response.IsValid()
-			? FString::Printf(TEXT("Cannot reach the world server at %s"), *FEarthWalkConfig::ServerUrl())
-			: FString::Printf(TEXT("The world server could not build part of this area (HTTP %d)"), Response->GetResponseCode());
+		if (!bConnected || !Response.IsValid())
+		{
+			LastError = FString::Printf(TEXT("Cannot reach the world server at %s"), *FEarthWalkConfig::ServerUrl());
+		}
+		else if (Response->GetResponseCode() == 401)
+		{
+			LastError = TEXT("The world server needs an access code. Type /code <code>");
+		}
+		else
+		{
+			LastError = FString::Printf(TEXT("The world server could not build part of this area (HTTP %d)"), Response->GetResponseCode());
+		}
 		RetryAfter.Add(Key, FPlatformTime::Seconds() + 10.0);
 	});
 	Request->ProcessRequest();

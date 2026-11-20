@@ -62,6 +62,7 @@ void UEarthWalkNet::Connect()
 			Hello->SetStringField(TEXT("t"), TEXT("hello"));
 			Hello->SetStringField(TEXT("name"), FEarthWalkConfig::PlayerName());
 			Hello->SetStringField(TEXT("room"), FEarthWalkConfig::Room());
+			Hello->SetStringField(TEXT("avatar"), FEarthWalkConfig::Avatar());
 			const FString Code = FEarthWalkConfig::AccessCode();
 			if (!Code.IsEmpty())
 			{
@@ -222,6 +223,7 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 	{
 		FEarthPeer Peer;
 		Peer.Name = Json->GetStringField(TEXT("name"));
+		Json->TryGetStringField(TEXT("avatar"), Peer.Avatar);
 		Peers.Add(Json->GetStringField(TEXT("id")), Peer);
 		OnNotice.Broadcast(FString::Printf(TEXT("%s joined. Type /join %s to go to them."), *Peer.Name, *Peer.Name));
 	}
@@ -252,6 +254,7 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 				{
 					FEarthPeer Peer;
 					Peer.Name = (*Object)->GetStringField(TEXT("name"));
+					(*Object)->TryGetStringField(TEXT("avatar"), Peer.Avatar);
 					ReadPeerPosition(*Object, Peer);
 					Names.Add(Peer.Name);
 					Peers.Add((*Object)->GetStringField(TEXT("id")), Peer);

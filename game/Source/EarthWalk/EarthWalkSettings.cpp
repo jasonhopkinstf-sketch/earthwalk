@@ -51,6 +51,12 @@ FString FEarthWalkConfig::Room()
 	return Lookup(TEXT("Room"), Value) ? Value : GetDefault<UEarthWalkSettings>()->Room;
 }
 
+FString FEarthWalkConfig::Avatar()
+{
+	FString Value;
+	return (Lookup(TEXT("Avatar"), Value) ? Value : GetDefault<UEarthWalkSettings>()->Avatar).ToLower();
+}
+
 FString FEarthWalkConfig::AccessCode()
 {
 	FString Value;

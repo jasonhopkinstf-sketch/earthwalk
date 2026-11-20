@@ -4,17 +4,21 @@
   "private": true,
   "type": "module",
   "description": "EarthWalk world server: generates world chunks from open map data and hosts meetup rooms",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "start": "node src/index.ts",
     "dev": "node --watch src/index.ts",
     "test": "node --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "node e2e/two-players.mjs"
   },
   "dependencies": {
     "earcut": "^3.0.0",
     "pngjs": "^7.0.0",
     "three": "^0.170.0",
+    "three-mesh-bvh": "^0.9.18",
     "ws": "^8.18.0"
   },
   "devDependencies": {

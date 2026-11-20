@@ -29,6 +29,8 @@ const Z = 16;
 const params = new URLSearchParams(location.search);
 let lat = parseFloat(params.get("lat") ?? "48.8583");
 let lon = parseFloat(params.get("lon") ?? "2.2945");
+// On a server with an access code, open this page as /viewer.html?code=...
+const auth = params.get("code") ? `?code=${encodeURIComponent(params.get("code"))}` : "";
 const radius = Math.min(4, parseInt(params.get("r") ?? "1", 10));
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -97,7 +99,7 @@ async function load() {
   const jobs = [];
   for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
     const x = Math.floor(ox) + dx, y = Math.floor(oy) + dy;
-    jobs.push(fetch(`/v1/chunk/${Z}/${x}/${y}`).then(async (r) => {
+    jobs.push(fetch(`/v1/chunk/${Z}/${x}/${y}${auth}`).then(async (r) => {
       if (!r.ok) throw new Error(r.status);
       const group = decode(await r.arrayBuffer(), ox, oy, S0);
       world.add(group);
@@ -116,7 +118,7 @@ async function load() {
 
 document.getElementById("go").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const r = await fetch(`/v1/geocode?q=${encodeURIComponent(document.getElementById("q").value)}`);
+  const r = await fetch(`/v1/geocode?q=${encodeURIComponent(document.getElementById("q").value)}${auth.replace("?", "&")}`);
   if (!r.ok) { status.textContent = "Place not found"; return; }
   ({ lat, lon } = await r.json());
   load();

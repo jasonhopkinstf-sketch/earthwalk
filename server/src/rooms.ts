@@ -16,6 +16,8 @@ const TICK_MS = 100;
 interface Member {
   id: string;
   name: string;
+  /** Which animal the player appears as; clients decide how each one looks. */
+  avatar: string;
   ws: WebSocket;
   lat: number; lon: number; alt: number; yaw: number;
   hasPos: boolean;
@@ -27,6 +29,8 @@ interface Room { members: Map<string, Member>; history: ChatLine[] }
 
 const clean = (s: unknown, max: number): string =>
   typeof s === "string" ? s.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max) : "";
+const DEFAULT_AVATAR = "fox";
+const avatarId = (s: unknown): string => (typeof s === "string" && /^[a-z][a-z0-9-]{0,15}$/.test(s) ? s : DEFAULT_AVATAR);
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 export class Rooms {
@@ -89,14 +93,14 @@ export class Rooms {
         const taken = new Set([...r.members.values()].map((m) => m.name.toLowerCase()));
         for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${clean(person.displayName, MAX_NAME - 3)} ${n}`;
         room = r;
-        me = { id: randomUUID().slice(0, 8), name, ws, lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [] };
+        me = { id: randomUUID().slice(0, 8), name, avatar: avatarId(msg.avatar), ws, lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [] };
         clearTimeout(helloTimer);
         send({
-          t: "welcome", id: me.id, name: me.name, room: roomName,
-          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}) })),
+          t: "welcome", id: me.id, name: me.name, avatar: me.avatar, room: roomName,
+          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}) })),
           history: r.history,
         });
-        this.broadcast(r, { t: "join", id: me.id, name: me.name });
+        this.broadcast(r, { t: "join", id: me.id, name: me.name, avatar: me.avatar });
         r.members.set(me.id, me);
         return;
       }
