@@ -81,9 +81,14 @@ private:
 
 	/**
 	 * Developer aids: -EWShot=<file.png> saves a screenshot a few seconds after landing, then quits;
-	 * -EWView=0|1|2 starts in that camera view; -EWWalk makes the player walk forward by itself.
+	 * -EWView=0|1|2 starts in that camera view; -EWWalk makes the player walk forward by itself;
+	 * -EWYaw=<compass degrees> and -EWPitch=<degrees> set where the player looks at the start;
+	 * -EWShotUI keeps the on-screen text (chat, credits) in the screenshot.
 	 */
 	FString ShotFile;
 	float ShotCountdown = -1.f;
 	bool bAutoWalk = false;
+	bool bShotWithUI = false;
+	bool bStartLookPending = false;
+	FRotator StartLook = FRotator::ZeroRotator;
 };

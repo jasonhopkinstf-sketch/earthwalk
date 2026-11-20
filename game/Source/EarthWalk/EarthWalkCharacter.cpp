@@ -85,6 +85,11 @@ void AEarthWalkCharacter::BeginPlay()
 	WaitForGround();
 	FParse::Value(FCommandLine::Get(), TEXT("-EWShot="), ShotFile);
 	bAutoWalk = FParse::Param(FCommandLine::Get(), TEXT("EWWalk"));
+	bShotWithUI = FParse::Param(FCommandLine::Get(), TEXT("EWShotUI"));
+	// Our +X is north and +Y east, so a compass heading is the engine yaw as it stands.
+	const bool bYaw = FParse::Value(FCommandLine::Get(), TEXT("-EWYaw="), StartLook.Yaw);
+	const bool bPitch = FParse::Value(FCommandLine::Get(), TEXT("-EWPitch="), StartLook.Pitch);
+	bStartLookPending = bYaw || bPitch;
 }
 
 void AEarthWalkCharacter::RefreshFigure()
@@ -192,6 +197,12 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 
 	const bool bThirdPerson = View != EEarthView::FirstPerson;
 
+	if (bStartLookPending)
+	{
+		bStartLookPending = false;
+		PC->SetControlRotation(StartLook);
+	}
+
 	// Looking around works even while the world is still loading. The mouse only looks while the
 	// left button is held, so a trackpad brush does not spin the view; the arrow keys always do.
 	if (!bTyping)
@@ -254,7 +265,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		ShotCountdown -= DeltaSeconds;
 		if (ShotCountdown < 0.f)
 		{
-			FScreenshotRequest::RequestScreenshot(ShotFile, false, false);
+			FScreenshotRequest::RequestScreenshot(ShotFile, bShotWithUI, false);
 			ShotCountdown = -1.f;
 			ShotFile.Reset();
 			// Give the screenshot a couple of seconds to be written, then leave.

@@ -161,6 +161,8 @@ are committed, so this only needs running after changing the texture list or the
 
 For checking the look without playing, the game takes a screenshot and quits when started
 with `-EWShot=<file.png>` (together with `-EWLat`/`-EWLon`/`-EWCode` as needed).
+`-EWYaw=<compass degrees>` and `-EWPitch=<degrees>` point the player first, `-EWView=0|1|2` picks
+the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in the picture.
 
 ## Data and attribution
 
