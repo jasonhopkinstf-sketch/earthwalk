@@ -61,6 +61,8 @@ void AEarthWalkAvatar::Tick(float DeltaSeconds)
 		: FMath::VInterpTo(Current, TargetLocation, DeltaSeconds, 10.f);
 	const FRotator Facing = FMath::RInterpTo(GetActorRotation(), FRotator(0.0, TargetYaw, 0.0), DeltaSeconds, 10.f);
 	SetActorLocationAndRotation(Next, Facing);
+	const float Speed = DeltaSeconds > 0.f ? static_cast<float>(FVector::Dist2D(Next, Current) / DeltaSeconds) : 0.f;
+	Figure->Animate(DeltaSeconds, Speed > 4000.f ? 0.f : Speed, false); // a teleport is not a sprint
 
 	// Keep the name readable: turn it to the viewer and grow it with distance.
 	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();

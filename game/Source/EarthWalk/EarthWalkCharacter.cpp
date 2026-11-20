@@ -76,9 +76,15 @@ void AEarthWalkCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	RefreshFigure();
+	int32 StartView = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-EWView="), StartView))
+	{
+		View = static_cast<EEarthView>(FMath::Clamp(StartView, 0, 2));
+	}
 	ApplyView();
 	WaitForGround();
 	FParse::Value(FCommandLine::Get(), TEXT("-EWShot="), ShotFile);
+	bAutoWalk = FParse::Param(FCommandLine::Get(), TEXT("EWWalk"));
 }
 
 void AEarthWalkCharacter::RefreshFigure()
@@ -231,6 +237,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	{
 		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, ArmTarget, DeltaSeconds, 10.f);
 	}
+	Figure->Animate(DeltaSeconds, bWaitingForGround ? 0.f : static_cast<float>(GetVelocity().Size2D()), bFlying && !bWaitingForGround);
 
 	if (bWaitingForGround)
 	{
@@ -293,7 +300,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	Movement->MaxWalkSpeed = bRunningNow ? RunSpeed : WalkSpeed;
 	Movement->MaxFlySpeed = bRunningNow ? FastFlySpeed : FlySpeed;
 
-	const float Forward = (PC->IsInputKeyDown(EKeys::W) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
+	const float Forward = (PC->IsInputKeyDown(EKeys::W) || bAutoWalk ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
 	const float Right = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
 	const FRotator Look = PC->GetControlRotation();
 	const FRotator Heading(bFlying ? Look.Pitch : 0.0, Look.Yaw, 0.0);

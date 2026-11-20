@@ -79,7 +79,11 @@ private:
 	bool bRunToggled = false;
 	bool bRunningNow = false;
 
-	/** Developer aid: -EWShot=<file.png> saves a screenshot a few seconds after landing, then quits. */
+	/**
+	 * Developer aids: -EWShot=<file.png> saves a screenshot a few seconds after landing, then quits;
+	 * -EWView=0|1|2 starts in that camera view; -EWWalk makes the player walk forward by itself.
+	 */
 	FString ShotFile;
 	float ShotCountdown = -1.f;
+	bool bAutoWalk = false;
 };
