@@ -12,9 +12,8 @@ use [Render](https://render.com) as the example. Plans and prices change, so che
 their pricing page before you start. At the time of writing, the free web service
 sleeps when idle and cannot have a disk, so the smallest paid instance is the one to use.
 
-> The Dockerfile has not been built in a real Docker environment yet; the same
-> install and start commands were run directly and work. If the first deploy fails,
-> the build log will say why.
+The family server is running this way at https://earthwalk.onrender.com (first deployed
+from `server/Dockerfile` on Render without changes).
 
 ## Deploy on Render
 

@@ -56,6 +56,7 @@ settings (environment variables):
 
 For family in other homes to join, the server has to be reachable from the internet.
 See [docs/HOSTING.md](docs/HOSTING.md) for putting it on a cloud host and inviting people.
+The family server is at https://earthwalk.onrender.com.
 
 ## Run the game
 
