@@ -164,6 +164,15 @@ void AEarthWalkHUD::BeginPlay()
 		{
 			AddLine(Text, NoticeColor);
 		});
+		WelcomeHandle = Net->OnWelcome.AddWeakLambda(this, [this]()
+		{
+			// A signed-in player's animal comes from the account; show it.
+			APlayerController* PC = GetOwningPlayerController();
+			if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
+			{
+				Character->RefreshFigure();
+			}
+		});
 	}
 
 	ApplyGameInputMode(GetOwningPlayerController());
@@ -195,6 +204,7 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		Net->OnChat.Remove(ChatHandle);
 		Net->OnNotice.Remove(NoticeHandle);
+		Net->OnWelcome.Remove(WelcomeHandle);
 	}
 	if (Overlay.IsValid() && GEngine && GEngine->GameViewport)
 	{
@@ -231,6 +241,26 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	{
 		StatusTimer = 0.5f;
 		Overlay->SetStatus(StatusText());
+	}
+
+	// A signed-in player's home wins over wherever this device started, once per launch.
+	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	double HomeLat = 0.0, HomeLon = 0.0;
+	FString HomeName;
+	if (Net && Net->TakePendingHome(HomeLat, HomeLon, HomeName))
+	{
+		const AEarthWorld* Earth = AEarthWorld::Get(this);
+		AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn());
+		if (Earth && Character)
+		{
+			double Lat, Lon, Alt;
+			Earth->WorldToGeo(Character->GetActorLocation(), Lat, Lon, Alt);
+			if (FMath::Abs(Lat - HomeLat) > 0.001 || FMath::Abs(Lon - HomeLon) > 0.001)
+			{
+				AddLine(FString::Printf(TEXT("Taking you home: %s"), *HomeName), NoticeColor);
+				Character->TeleportToGeo(HomeLat, HomeLon);
+			}
+		}
 	}
 }
 
@@ -342,6 +372,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);
 		AddLine(TEXT("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>"), NoticeColor);
 		AddLine(TEXT("/server <address>   /code <access code>"), NoticeColor);
+		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
+		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
 	}
@@ -355,15 +387,57 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	}
 	else if (Command == TEXT("who"))
 	{
-		TArray<FString> Names;
+		ShowPeople();
+	}
+	else if (Command == TEXT("login"))
+	{
+		if (Net && Net->IsSignedIn())
+		{
+			AddLine(FString::Printf(TEXT("You are already signed in as %s. /logout forgets this sign-in."), *Net->GetMyName()), NoticeColor);
+		}
+		else if (Net)
+		{
+			Net->BeginLogin();
+		}
+	}
+	else if (Command == TEXT("logout"))
+	{
 		if (Net)
 		{
-			for (const TPair<FString, FEarthPeer>& Pair : Net->GetPeers())
+			Net->Logout();
+		}
+	}
+	else if (Command == TEXT("home"))
+	{
+		if (!Net || !Net->IsConnected())
+		{
+			AddLine(TEXT("Not connected to the meetup server."), ErrorColor);
+		}
+		else if (!Net->IsSignedIn())
+		{
+			AddLine(TEXT("Sign in first (/login) to have a home."), ErrorColor);
+		}
+		else if (Argument.IsEmpty())
+		{
+			if (Character && Character->IsWaitingForGround())
 			{
-				Names.Add(Pair.Value.Name);
+				AddLine(TEXT("Wait until you have landed, then try /home again."), ErrorColor);
+			}
+			else
+			{
+				Net->SendHome();
 			}
 		}
-		AddLine(Names.Num() ? FString::Printf(TEXT("Here with you: %s"), *FString::Join(Names, TEXT(", "))) : FString(TEXT("Nobody else is in this room right now.")), NoticeColor);
+		else
+		{
+			LookUpPlace(Argument, [this](const FString& Name, double Lat, double Lon)
+			{
+				if (UEarthWalkNet* NetNow = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+				{
+					NetNow->SendHome(Lat, Lon, Name);
+				}
+			});
+		}
 	}
 	else if (Command == TEXT("where"))
 	{
@@ -413,6 +487,46 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	}
 }
 
+/** "5 min ago", "3 h ago", for the people list. */
+static FString Ago(int64 WhenMs)
+{
+	const int64 Minutes = (FDateTime::UtcNow().ToUnixTimestamp() * 1000 - WhenMs) / 60000;
+	if (Minutes < 2) return TEXT("just now");
+	if (Minutes < 60) return FString::Printf(TEXT("%lld min ago"), Minutes);
+	if (Minutes < 48 * 60) return FString::Printf(TEXT("%lld h ago"), (Minutes + 30) / 60);
+	return FString::Printf(TEXT("%lld days ago"), (Minutes + 720) / 1440);
+}
+
+void AEarthWalkHUD::ShowPeople()
+{
+	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	TArray<FString> Names;
+	if (Net)
+	{
+		for (const TPair<FString, FEarthPeer>& Pair : Net->GetPeers())
+		{
+			Names.Add(Pair.Value.Name);
+		}
+	}
+	AddLine(Names.Num() ? FString::Printf(TEXT("Here with you: %s"), *FString::Join(Names, TEXT(", "))) : FString(TEXT("Nobody else is in this room right now.")), NoticeColor);
+	if (!Net || !Net->IsSignedIn())
+	{
+		return;
+	}
+	for (const FEarthPerson& Person : Net->GetPeople())
+	{
+		const FString Where = Person.bOnline
+			? FString::Printf(TEXT("in \"%s\"%s"), *Person.Room, Person.Place.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(", %s"), *Person.Place))
+			: FString::Printf(TEXT("offline, last seen %s%s"), *Ago(Person.LastSeen), Person.Place.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" near %s"), *Person.Place));
+		AddLine(FString::Printf(TEXT("%s: %s"), *Person.Name, *Where), NoticeColor);
+	}
+	if (Net->GetPeople().Num() == 0)
+	{
+		AddLine(TEXT("Nobody else has signed in yet."), NoticeColor);
+	}
+	Net->RequestPeople(); // refresh for next time
+}
+
 void AEarthWalkHUD::GoToPerson(const FString& Name)
 {
 	const UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
@@ -438,7 +552,33 @@ void AEarthWalkHUD::GoToPerson(const FString& Name)
 	}
 	if (!Match)
 	{
-		AddLine(FString::Printf(TEXT("Nobody called \"%s\" is in this room. Type /who to see who is here."), *Name), ErrorColor);
+		// Not in this room: maybe somewhere else on the people list.
+		for (const FEarthPerson& Person : Net->GetPeople())
+		{
+			if (Person.Name.Equals(Name, ESearchCase::IgnoreCase) || Person.Name.StartsWith(Name, ESearchCase::IgnoreCase))
+			{
+				if (!Person.bOnline)
+				{
+					AddLine(FString::Printf(TEXT("%s is not online right now (last seen %s)."), *Person.Name, *Ago(Person.LastSeen)), ErrorColor);
+				}
+				else if (!Person.bHasPosition)
+				{
+					AddLine(FString::Printf(TEXT("%s has not arrived anywhere yet. Try again in a moment."), *Person.Name), ErrorColor);
+				}
+				else
+				{
+					AddLine(FString::Printf(TEXT("%s is in room \"%s\". Switching rooms and travelling there..."), *Person.Name, *Person.Room), NoticeColor);
+					FEarthWalkConfig::Save(TEXT("Room"), Person.Room);
+					if (UEarthWalkNet* NetNow = GetGameInstance()->GetSubsystem<UEarthWalkNet>())
+					{
+						NetNow->Connect();
+					}
+					Character->TeleportToGeo(Person.Lat + 0.00003, Person.Lon);
+				}
+				return;
+			}
+		}
+		AddLine(FString::Printf(TEXT("Nobody called \"%s\" is here. Type /who to see who is around."), *Name), ErrorColor);
 	}
 	else if (!Match->bHasPosition)
 	{
@@ -454,6 +594,19 @@ void AEarthWalkHUD::GoToPerson(const FString& Name)
 
 void AEarthWalkHUD::GoToPlace(const FString& Query)
 {
+	LookUpPlace(Query, [this](const FString& Name, double Lat, double Lon)
+	{
+		AddLine(FString::Printf(TEXT("Travelling to %s"), *Name), NoticeColor);
+		APlayerController* PC = GetOwningPlayerController();
+		if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
+		{
+			Character->TeleportToGeo(Lat, Lon);
+		}
+	});
+}
+
+void AEarthWalkHUD::LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found)
+{
 	const FString Url = FString::Printf(TEXT("%s/v1/geocode?q=%s"), *FEarthWalkConfig::ServerUrl(), *FGenericPlatformHttp::UrlEncode(Query));
 	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(Url);
@@ -464,7 +617,7 @@ void AEarthWalkHUD::GoToPlace(const FString& Query)
 		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
 	}
 	AddLine(FString::Printf(TEXT("Looking for \"%s\"..."), *Query), NoticeColor);
-	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Query](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Query, Found](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
 	{
 		if (!bConnected || !Response.IsValid())
 		{
@@ -482,12 +635,7 @@ void AEarthWalkHUD::GoToPlace(const FString& Query)
 		}
 		FString Name;
 		Json->TryGetStringField(TEXT("name"), Name);
-		AddLine(FString::Printf(TEXT("Travelling to %s"), *Name), NoticeColor);
-		APlayerController* PC = GetOwningPlayerController();
-		if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
-		{
-			Character->TeleportToGeo(Lat, Lon);
-		}
+		Found(Name, Lat, Lon);
 	});
 	Request->ProcessRequest();
 }

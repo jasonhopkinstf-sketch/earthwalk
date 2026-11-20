@@ -42,13 +42,16 @@ npm start
 ```
 
 Then open http://localhost:8787 to play in the browser: enter a name, pick an animal,
-and you are in. (http://localhost:8787/viewer.html is a bird's-eye preview.) Useful
+and you are in. With Google sign-in turned on, **Sign in with Google** on that screen remembers
+you on the device, gives you a home to start from and shows who else is online. (http://localhost:8787/viewer.html is a bird's-eye preview.) Useful
 settings (environment variables):
 
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Port to listen on (default 8787) |
 | `EARTHWALK_ACCESS_CODE` | If set, players need this code to join and to load the world |
+| `EARTHWALK_GOOGLE_CLIENT_ID`, `EARTHWALK_GOOGLE_CLIENT_SECRET`, `EARTHWALK_BASE_URL` | Turn on "Sign in with Google" (see [docs/HOSTING.md](docs/HOSTING.md)) |
+| `EARTHWALK_INVITED` | Emails that may sign up with Google without the access code, comma-separated |
 | `EARTHWALK_TRUST_PROXY` | Set to `1` when running behind a hosting provider's proxy |
 | `EARTHWALK_CONTACT` | Contact shown to the OpenStreetMap services in the User-Agent, as their usage policies ask |
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
@@ -66,8 +69,9 @@ Family members do not need Unreal Engine. They install the game from one file:
    [releases page](https://github.com/jasonhopkinstf-sketch/earthwalk/releases) and run it.
    It installs EarthWalk, the Windows components it needs, and a Start menu entry.
 2. Start EarthWalk, press Enter, and type `/code <access code>` once (the person running
-   the server has the code). Then `/name <your name>` and `/animal <fox, bear, rabbit, cat,
-   owl or frog>`.
+   the server has the code). Then either `/login` to sign in with Google (your browser opens;
+   the game remembers you afterwards), or `/name <your name>` and `/animal <fox, bear, rabbit,
+   cat, owl or frog>` to play as a guest.
 
 To make that installer from this repository, see [docs/HOSTING.md](docs/HOSTING.md).
 
@@ -105,10 +109,13 @@ Chat commands:
 | Command | What it does |
 | --- | --- |
 | `/goto <place>` | Travel anywhere: `/goto Times Square`, `/goto 35.3606, 138.7274` |
-| `/join <name>` | Go to someone in your room |
-| `/who` | List who is in your room |
+| `/join <name>` | Go to someone in your room (or, when signed in, anyone online: it switches room) |
+| `/who` | List who is in your room and, when signed in, everyone with an account: online or not, which room, and where on Earth |
+| `/login`, `/logout` | Sign in with Google (the game opens your browser; the browser version has a button on its join screen) and forget the sign-in |
+| `/home`, `/home <place>` | Signed in only: make where you stand (or a place) your home. You start there next time, on any device |
 | `/invite` | Browser only: copy a link that lets someone join your room |
-| `/name`, `/animal`, `/room`, `/server`, `/code` | Unreal only: set your name, animal, room, server address, access code (the browser asks on its join screen) |
+| `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in) |
+| `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
 
 Project defaults live in `game/Config/DefaultGame.ini`.
@@ -119,8 +126,10 @@ See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the chunk format and the meetup mes
 All world-generation logic is on the server, so it can be tested without the engine;
 the game only uploads the meshes it receives.
 
-`server/src/people.ts` is where a people system plugs in (planned: Maijel), to decide
-who may join and under what name instead of free-typed guest names.
+`server/src/people.ts` holds the people system: guests (a typed name plus the access code)
+and accounts (Google sign-in, remembered by a player token, with a home and a chosen animal),
+stored as one JSON file under the cache directory. `server/src/presence.ts` joins that with
+the rooms to say who is online and where. The access code doubles as the sign-up gate.
 
 ## Art assets
 

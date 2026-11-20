@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
-import { GuestDirectory } from "../src/people.ts";
-import { Rooms } from "../src/rooms.ts";
+import { AccountDirectory, GuestDirectory } from "../src/people.ts";
+import { Presence } from "../src/presence.ts";
+import { Rooms, TOKEN_COOKIE } from "../src/rooms.ts";
 
 type Msg = Record<string, any>;
 
@@ -107,5 +108,97 @@ test("rooms are separate and the access code is enforced", async () => {
     b.ws.close();
   } finally {
     s.stop();
+  }
+});
+
+test("signed-in people: token hello, home, people list, and the guest fallback", async () => {
+  const dir = new AccountDirectory(undefined, { accessCode: "secret" });
+  const mum = dir.signIn({ sub: "g-1", email: "mum@example.com", name: "Mum" }, { accessCode: "secret" })!;
+  const rooms = new Rooms(dir, { placeName: async () => "Montmartre, Paris" });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const url = `ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`;
+  const people = new Presence(dir, rooms, async () => "Montmartre, Paris", 60_000);
+  try {
+    const a = client(url);
+    await a.open;
+    a.send({ t: "hello", room: "family", token: mum.token, avatar: "owl" });
+    const w = await a.next("welcome");
+    assert.equal(w.name, "Mum", "the account's name is used when none is given");
+    assert.equal(w.avatar, "owl");
+    assert.equal(w.signedIn, true);
+    assert.equal(w.personId, mum.person.id);
+    assert.equal(w.home, null);
+    const list = await a.next("people");
+    assert.equal(list.p.length, 1);
+    assert.equal(list.p[0].online, true);
+    assert.equal(list.p[0].room, "family");
+
+    // Setting home where I stand names the place; setting it to coordinates keeps the given name.
+    a.send({ t: "home" });
+    assert.equal((await a.next("error")).code, "nowhere");
+    a.send({ t: "pos", lat: 48.8867, lon: 2.3431, alt: 100, yaw: 0 });
+    a.send({ t: "home" });
+    const home = await a.next("home");
+    assert.deepEqual(home, { t: "home", lat: 48.8867, lon: 2.3431, name: "Montmartre, Paris" });
+    a.send({ t: "home", lat: 48.8583, lon: 2.2945, name: "Eiffel Tower" });
+    assert.equal((await a.next("home")).name, "Eiffel Tower");
+    assert.equal(dir.get(mum.person.id)?.home?.name, "Eiffel Tower");
+
+    // Presence: once named, the list says where she is.
+    await people.refresh();
+    a.send({ t: "people" });
+    const named = await a.next("people");
+    assert.equal(named.p[0].place, "Montmartre, Paris");
+    assert.equal(named.p[0].lat, 48.8867);
+
+    // A guest with the access code joins the same room and sees the people list too; guests cannot set a home.
+    const g = client(url);
+    await g.open;
+    g.send({ t: "hello", name: "Visitor", room: "family", token: "secret" });
+    const gw = await g.next("welcome");
+    assert.equal(gw.signedIn, false);
+    assert.equal(gw.home, undefined);
+    assert.equal((await g.next("people")).p.length, 1, "guests are not listed");
+    g.send({ t: "home" });
+    assert.equal((await g.next("error")).code, "guest");
+
+    // A reconnect with the same token lands at home.
+    a.ws.close();
+    await g.next("leave");
+    const b = client(url);
+    await b.open;
+    b.send({ t: "hello", room: "family", token: mum.token });
+    assert.equal((await b.next("welcome")).home.name, "Eiffel Tower");
+    b.ws.close();
+    g.ws.close();
+  } finally {
+    people.close();
+    rooms.close();
+    server.close();
+  }
+});
+
+test("the browser's cookie stands in for the token in hello", async () => {
+  const dir = new AccountDirectory(undefined, { accessCode: "secret" });
+  const kid = dir.signIn({ sub: "g-2", email: "kid@example.com", name: "Kid" }, { accessCode: "secret" })!;
+  const rooms = new Rooms(dir);
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const url = `ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`;
+  try {
+    const ws = new WebSocket(url, { headers: { cookie: `other=1; ${TOKEN_COOKIE}=${kid.token}` } });
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    ws.send(JSON.stringify({ t: "hello", room: "family" }));
+    const welcome = await new Promise<Msg>((r) => ws.on("message", (d) => r(JSON.parse(d.toString()))));
+    assert.equal(welcome.t, "welcome");
+    assert.equal(welcome.name, "Kid");
+    assert.equal(welcome.signedIn, true);
+    ws.close();
+  } finally {
+    rooms.close();
+    server.close();
   }
 });

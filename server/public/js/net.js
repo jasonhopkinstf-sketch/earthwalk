@@ -4,6 +4,7 @@ export class Meetup extends EventTarget {
   constructor() {
     super();
     this.peers = new Map(); // id -> { name, avatar, lat, lon, alt, yaw, hasPosition }
+    this.people = []; // everyone with an account: { id, name, avatar, online, room, place, lat, lon, lastSeen, home }
     this.joined = false;
     this.me = null;
     this.wanted = false;
@@ -14,7 +15,11 @@ export class Meetup extends EventTarget {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
-  /** @param {{ name: string, room: string, avatar: string, code?: string }} hello */
+  /**
+   * `code` is the shared access code. A signed-in browser needs neither a code nor a name:
+   * its sign-in cookie goes along with the connection and the server knows who it is.
+   * @param {{ name?: string, room: string, avatar?: string, code?: string }} hello
+   */
   connect(hello) {
     this.close();
     this.hello = hello;
@@ -28,7 +33,8 @@ export class Meetup extends EventTarget {
     const ws = new WebSocket(`${scheme}//${location.host}/v1/ws`);
     this.ws = ws;
     ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ t: "hello", name: this.hello.name, room: this.hello.room, avatar: this.hello.avatar, ...(this.hello.code ? { token: this.hello.code } : {}) }));
+      const { name, room, avatar, code } = this.hello;
+      ws.send(JSON.stringify({ t: "hello", room, ...(name ? { name } : {}), ...(avatar ? { avatar } : {}), ...(code ? { token: code } : {}) }));
     });
     ws.addEventListener("message", (e) => {
       if (this.ws !== ws) return;
@@ -70,6 +76,16 @@ export class Meetup extends EventTarget {
     else this.send({ t: "chat", text });
   }
 
+  /** Sets my home: to the given place, or (with no arguments) to where I am standing now. */
+  sendHome(place) {
+    if (!this.joined) return this.emit("notice", "Not connected to the meetup server.");
+    this.send(place ? { t: "home", lat: place.lat, lon: place.lon, name: place.name } : { t: "home" });
+  }
+
+  requestPeople() {
+    this.send({ t: "people" });
+  }
+
   /** Exact name first, then anyone whose name starts with what was typed. */
   findPeer(name) {
     const wanted = name.toLowerCase();
@@ -81,11 +97,17 @@ export class Meetup extends EventTarget {
     return partial;
   }
 
+  /** Someone from the people list (any room), by the same name rule. */
+  findPerson(name) {
+    const wanted = name.toLowerCase();
+    return this.people.find((p) => p.name.toLowerCase() === wanted) ?? this.people.find((p) => p.name.toLowerCase().startsWith(wanted)) ?? null;
+  }
+
   handle(msg) {
     switch (msg.t) {
       case "welcome": {
         this.joined = true;
-        this.me = { id: msg.id, name: msg.name, room: msg.room, avatar: msg.avatar };
+        this.me = { id: msg.id, name: msg.name, room: msg.room, avatar: msg.avatar, signedIn: !!msg.signedIn, personId: msg.personId ?? null, home: msg.home ?? null };
         this.peers.clear();
         for (const p of msg.peers ?? []) {
           this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number" });
@@ -108,6 +130,14 @@ export class Meetup extends EventTarget {
           const peer = this.peers.get(id);
           if (peer) Object.assign(peer, { lat, lon, alt, yaw, hasPosition: true });
         }
+        break;
+      case "people":
+        this.people = Array.isArray(msg.p) ? msg.p : [];
+        this.emit("people", this.people);
+        break;
+      case "home":
+        if (this.me) this.me.home = { lat: msg.lat, lon: msg.lon, name: msg.name };
+        this.emit("home", this.me?.home);
         break;
       case "chat":
         this.emit("chat", { name: msg.name, text: msg.text });

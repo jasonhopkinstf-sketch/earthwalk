@@ -57,10 +57,38 @@ FString FEarthWalkConfig::Avatar()
 	return (Lookup(TEXT("Avatar"), Value) ? Value : GetDefault<UEarthWalkSettings>()->Avatar).ToLower();
 }
 
-FString FEarthWalkConfig::AccessCode()
+FString FEarthWalkConfig::SharedCode()
 {
 	FString Value;
 	return Lookup(TEXT("Code"), Value) ? Value : GetDefault<UEarthWalkSettings>()->AccessCode;
+}
+
+FString FEarthWalkConfig::PlayerToken()
+{
+	FString Value;
+	return Lookup(TEXT("Token"), Value) ? Value : FString();
+}
+
+FString FEarthWalkConfig::AccessCode()
+{
+	const FString Token = PlayerToken();
+	return Token.IsEmpty() ? SharedCode() : Token;
+}
+
+bool FEarthWalkConfig::Home(double& OutLat, double& OutLon, FString& OutName)
+{
+	FString LatText, LonText;
+	if (!Lookup(TEXT("HomeLat"), LatText) || !Lookup(TEXT("HomeLon"), LonText))
+	{
+		return false;
+	}
+	OutLat = FCString::Atod(*LatText);
+	OutLon = FCString::Atod(*LonText);
+	if (!Lookup(TEXT("HomeName"), OutName))
+	{
+		OutName = FString::Printf(TEXT("%.5f, %.5f"), OutLat, OutLon);
+	}
+	return FMath::Abs(OutLat) <= 85.0 && FMath::Abs(OutLon) <= 180.0;
 }
 
 void FEarthWalkConfig::StartLocation(double& OutLat, double& OutLon)
@@ -68,6 +96,16 @@ void FEarthWalkConfig::StartLocation(double& OutLat, double& OutLon)
 	const UEarthWalkSettings* Settings = GetDefault<UEarthWalkSettings>();
 	OutLat = Settings->StartLatitude;
 	OutLon = Settings->StartLongitude;
+
+	// A signed-in player starts at home. The per-device memory below is kept for guests.
+	double HomeLat = 0.0, HomeLon = 0.0;
+	FString HomeName;
+	if (IsSignedIn() && Home(HomeLat, HomeLon, HomeName))
+	{
+		OutLat = HomeLat;
+		OutLon = HomeLon;
+		return;
+	}
 
 	FString LatText, LonText;
 	if (Lookup(TEXT("Lat"), LatText) && Lookup(TEXT("Lon"), LonText))
