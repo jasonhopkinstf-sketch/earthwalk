@@ -215,6 +215,12 @@ few streets away and waits; hop on with E and it drives you there, by road when 
 and in one jump when it is not, saying odd and thoughtful things as it goes. Friends can share it.
 `server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
 
+Fifty-four kinds of animal now live in the world (`server/src/life.ts` places them,
+`server/public/js/liferigs.js` draws them): farm animals, pets, wildlife, insects that flutter over
+the grass, frogs and herons by the water, crabs and gulls on the sand, and the big animals of each
+part of the world, from zebras and elephants to pandas, bison and reindeer. Each has a name and a
+character to talk to, the larger ones can be ridden, and all of them can be told what to do.
+
 Going into houses (in the browser so far): press E at the front door of a plain four-square house
 to go in, and E again just inside it to come out. Inside are rooms laid out from thirty recipes of
 our own (`server/src/interior.ts`), stretched to fit the real house: a hall or living room behind

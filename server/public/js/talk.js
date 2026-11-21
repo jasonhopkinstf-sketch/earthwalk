@@ -12,10 +12,15 @@ import { hash32 } from "./lifemotion.js";
 export const CALLED = {
   cow: "cow", sheep: "sheep", horse: "horse", chicken: "hen", duck: "duck", pigeon: "pigeon", bird: "bird", cat: "cat", dog: "dog",
   rabbit: "rabbit", deer: "deer", squirrel: "squirrel", kangaroo: "kangaroo", llama: "llama", camel: "camel", penguin: "penguin",
+  pig: "pig", goat: "goat", donkey: "donkey", goose: "goose", mouse: "mouse", hedgehog: "hedgehog", fox: "fox", frog: "frog", snail: "snail",
+  tortoise: "tortoise", crab: "crab", beaver: "beaver", otter: "otter", swan: "swan", heron: "heron", seagull: "seagull", sparrow: "sparrow",
+  flamingo: "flamingo", seal: "seal", butterfly: "butterfly", bee: "bee", dragonfly: "dragonfly", ladybird: "ladybird", ant: "ant",
+  grasshopper: "grasshopper", elephant: "elephant", giraffe: "giraffe", zebra: "zebra", lion: "lion", monkey: "monkey", panda: "panda",
+  koala: "koala", bear: "bear", moose: "moose", bison: "bison", reindeer: "reindeer", capybara: "capybara", marmot: "marmot",
   tractor: "tractor", boat: "rowing boat", sailboat: "sailing boat", car: "car", taxi: "taxi", train: "train", tree: "tree", house: "house",
 };
 /** How high above the ground its speech bubble floats, and how near you must be to talk to it. */
-const BUBBLE_AT = { tree: 4.5, house: 3.4, train: 4.8, camel: 3.2, horse: 2.8, llama: 2.7, deer: 2.4, cow: 2.2, tractor: 3.1, sailboat: 4.2, car: 2.3, taxi: 2.5, kangaroo: 2.2 };
+const BUBBLE_AT = { elephant: 4.2, giraffe: 5.4, moose: 2.9, bison: 2.5, bear: 2.2, zebra: 2.3, lion: 1.9, reindeer: 2.4, donkey: 2.2, panda: 1.7, flamingo: 1.9, heron: 1.7, tree: 4.5, house: 3.4, train: 4.8, camel: 3.2, horse: 2.8, llama: 2.7, deer: 2.4, cow: 2.2, tractor: 3.1, sailboat: 4.2, car: 2.3, taxi: 2.5, kangaroo: 2.2 };
 const REACH = { tree: 4, house: 7, train: 9, sailboat: 7, tractor: 6, car: 5, taxi: 5 };
 const REACH_M = 5.5;
 const WALKED_OFF_M = 16;

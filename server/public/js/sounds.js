@@ -3,7 +3,7 @@
 
 const MAX_VOICES = 6;
 /** How loud each call is against the others. */
-const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5, toot: 0.5, chug: 0.45, whistle: 0.9 };
+const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5, toot: 0.5, chug: 0.45, whistle: 0.9, oink: 0.5, honk: 0.6, squeak: 0.25, ribbit: 0.4, buzz: 0.15, cheep: 0.25, trumpet: 0.9 };
 
 export class Sounds {
   constructor() {
@@ -118,6 +118,62 @@ const cluck = (ctx, out, t0, p, level = 0.8) => note(ctx, out, t0, {
 
 /** Each voice schedules its notes and returns how long it lasts, in seconds. */
 const VOICES = {
+  // A snuffly "oink, oink".
+  oink(ctx, out, t0, p) {
+    for (const [at, f] of [[0, 1], [0.26, 1.12]]) {
+      note(ctx, out, t0 + at, {
+        type: "sawtooth", pitch: [[0, 210 * p * f], [0.08, 150 * p * f], [0.2, 120 * p * f]], level: [[0.02, 0.8], [0.14, 0.6], [0.2, 0]],
+        tremolo: [38, 0.7], chain: [["bandpass", 700, 1.5]],
+      });
+    }
+    return 0.5;
+  },
+  // A goose: two nasal notes, the second a little lower.
+  honk(ctx, out, t0, p) {
+    for (const [at, f] of [[0, 1], [0.3, 0.9]]) {
+      note(ctx, out, t0 + at, {
+        type: "sawtooth", pitch: [[0, 430 * p * f], [0.05, 470 * p * f], [0.22, 400 * p * f]], level: [[0.02, 0.8], [0.18, 0.7], [0.25, 0]],
+        chain: [["bandpass", 1150, 2], ["lowpass", 2600, 0.7]],
+      });
+    }
+    return 0.6;
+  },
+  // A mouse: two tiny rising squeaks.
+  squeak(ctx, out, t0, p) {
+    for (const at of [0, 0.16]) note(ctx, out, t0 + at, { type: "sine", pitch: [[0, 2400 * p], [0.06, 3300 * p], [0.11, 2700 * p]], level: [[0.01, 0.7], [0.08, 0.5], [0.11, 0]] });
+    return 0.3;
+  },
+  // A frog: "rib-bit", two croaks that slide up.
+  ribbit(ctx, out, t0, p) {
+    for (const [at, f] of [[0, 1], [0.2, 1.25]]) {
+      note(ctx, out, t0 + at, {
+        type: "sawtooth", pitch: [[0, 170 * p * f], [0.14, 330 * p * f]], level: [[0.02, 0.8], [0.11, 0.7], [0.16, 0]],
+        tremolo: [46, 0.9], chain: [["bandpass", 900, 1.2]],
+      });
+    }
+    return 0.4;
+  },
+  // A bee going by.
+  buzz(ctx, out, t0, p) {
+    note(ctx, out, t0, {
+      type: "sawtooth", pitch: [[0, 185 * p], [0.35, 215 * p], [0.8, 180 * p]], level: [[0.15, 0.7], [0.6, 0.6], [0.8, 0]],
+      tremolo: [28, 0.6], chain: [["lowpass", 1100, 1]],
+    });
+    return 0.8;
+  },
+  // A sparrow: three quick chirps.
+  cheep(ctx, out, t0, p) {
+    for (const [at, f] of [[0, 1], [0.12, 1.08], [0.24, 0.96]]) note(ctx, out, t0 + at, { type: "sine", pitch: [[0, 3200 * p * f], [0.04, 4300 * p * f], [0.08, 3000 * p * f]], level: [[0.01, 0.7], [0.06, 0.5], [0.08, 0]] });
+    return 0.35;
+  },
+  // An elephant: a brassy note that leaps up and sags.
+  trumpet(ctx, out, t0, p) {
+    note(ctx, out, t0, {
+      type: "sawtooth", pitch: [[0, 330 * p], [0.15, 640 * p], [0.7, 580 * p], [1.0, 380 * p]], level: [[0.05, 0.9], [0.7, 0.8], [1.0, 0]],
+      vibrato: [9, 22], chain: [["bandpass", 1200, 1], ["lowpass", 3200, 0.7]],
+    });
+    return 1.0;
+  },
   // "Mmm-ooo": a low buzz that opens up and sinks away.
   moo(ctx, out, t0, p) {
     note(ctx, out, t0, {

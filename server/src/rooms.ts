@@ -15,7 +15,7 @@ const MAX_ROOM_SIZE = 32;
 const HISTORY = 30;
 const TICK_MS = 100;
 /** What can be ridden. The clients decide where each of these is; the server only keeps track of who is on what. */
-const RIDEABLE = new Set(["horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer", "tractor", "boat", "sailboat", "car", "taxi", "train"]);
+const RIDEABLE = new Set(["horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer", "donkey", "pig", "goat", "zebra", "elephant", "giraffe", "bison", "moose", "reindeer", "bear", "lion", "panda", "tortoise", "tractor", "boat", "sailboat", "car", "taxi", "train"]);
 /** A taxi waits this long for whoever called it, may be called this often, and says this many things of its own on a ride, about this far apart. */
 const TAXI_WAIT_MS = 5 * 60_000;
 const TAXI_EVERY_MS = 15_000;

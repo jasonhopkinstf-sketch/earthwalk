@@ -4,7 +4,9 @@ import { groundClasses, placeTrees } from "../src/chunk.ts";
 import { Elevation } from "../src/elevation.ts";
 import { hash32, latToY, lonToX, metersPerTile, xToLon, yToLat } from "../src/geo.ts";
 import { buildLabels } from "../src/labels.ts";
-import { CREATURE_CAP, HOME_CAP, localStars, placeHomes, placeWild, WILD_CREATURE_CAP, WILD_HOME_CAP, type Home } from "../src/life.ts";
+import { CREATURE_CAP, HOME_CAP, localFauna, localStars, MORE_CREATURE_CAP, MORE_HOME_CAP, placeHomes, placeWild, WILD_CREATURE_CAP, WILD_HOME_CAP, type Home } from "../src/life.ts";
+import { deedsOf, TALKABLE } from "../src/talk.ts";
+import { MOUNTS } from "../public/js/riding.js";
 import { fieldOf, parseOsm, type Features, type OsmJson, type Pt } from "../src/osm.ts";
 import { callTime, CALL_SLOT, creatureAt, hash32 as clientHash, memberId, SPECIES } from "../public/js/lifemotion.js";
 import { RIGS } from "../public/js/liferigs.js";
@@ -225,7 +227,7 @@ test("deer keep near woods, and the local stars turn up only where they belong",
   assert.ok(!kinds(await wildOn(-12, -77, null, 100)).includes("llama"), "but not down at the coast in Lima");
   assert.ok(kinds(await wildOn(25, 30, "sand")).includes("camel"), "camels on Egyptian sand");
   assert.ok(kinds(await wildOn(-45.9, 170.5, "sand")).includes("penguin"), "penguins on a beach near Dunedin");
-  assert.deepEqual(kinds(await wildOn(43.5, -1.5, "sand")).filter((k) => k !== "bird"), [], "a beach in France has neither");
+  assert.deepEqual(kinds(await wildOn(43.5, -1.5, "sand")).filter((k) => k === "camel" || k === "penguin"), [], "a beach in France has neither");
   assert.ok(!kinds(await wildOn(-35.3, 149.1, "grass")).includes("squirrel"), "and Australia has no squirrels");
 
   // The open sea (water with no outline on the map) has no ducks.
@@ -258,8 +260,8 @@ test("the limits for wild animals hold in a chunk packed with homes, and a flock
   const ground = groundClasses(CX, CY, f, elev);
   const homes = placeWild(CX, CY, f, ground, placeTrees(CX, CY, f, ground), elev);
   const others = homes.filter((h) => h.sp !== "bird");
-  assert.ok(others.length > 20 && others.length <= WILD_HOME_CAP, `${others.length} homes`);
-  assert.ok(others.reduce((n, h) => n + h.n, 0) <= WILD_CREATURE_CAP);
+  assert.ok(others.length > 20 && others.length <= WILD_HOME_CAP + MORE_HOME_CAP, `${others.length} homes`);
+  assert.ok(others.reduce((n, h) => n + h.n, 0) <= WILD_CREATURE_CAP + MORE_CREATURE_CAP);
 
   let flocks = 0;
   for (let i = 0; i < 200; i++) {
@@ -367,5 +369,69 @@ test("animals with a voice call now and then, at a moment everyone agrees on", (
     }
     const expected = 3000 / SPECIES[sp].call;
     assert.ok(calls > expected * 0.6 && calls < expected * 1.5, `${sp} called ${calls} times, about ${expected.toFixed(0)} expected`);
+  }
+});
+
+test("many more animals, each where it belongs", async () => {
+  const has = (homes: Home[], ...any: string[]): boolean => homes.some((h) => any.includes(h.sp));
+  // Grass in Paris: insects, and nothing from another continent.
+  const paris = await wildOn(48.86, 2.29, "grass");
+  assert.ok(has(paris, "butterfly") && has(paris, "bee", "grasshopper", "ladybird", "snail", "ant"), `insects on the grass (got ${kinds(paris)})`);
+  assert.ok(!has(paris, "elephant", "giraffe", "zebra", "lion", "monkey", "panda", "koala", "bison", "reindeer", "capybara", "flamingo", "seal"), "no strangers");
+  // The Serengeti.
+  const plains = await wildOn(-2.3, 34.8, "grass");
+  assert.ok(has(plains, "zebra") && has(plains, "giraffe", "elephant", "lion"), `the big animals of the plains (got ${kinds(plains)})`);
+  assert.ok(has(await wildOn(44.5, -103.5, "grass"), "bison"), "bison in South Dakota");
+  assert.ok(has(await wildOn(68.5, 23.6, "grass"), "reindeer"), "reindeer in Lapland");
+  assert.ok(!has(await wildOn(68.5, 23.6, "grass"), "butterfly", "bee", "grasshopper", "ladybird", "ant", "snail"), "and no insects that far north");
+  assert.ok(has(await wildOn(46.5, 8, "grass", 1900), "marmot") && !has(await wildOn(46.5, 8, "grass", 500), "marmot"), "marmots high in the Alps, not down in the valley");
+  // Beaches: crabs and gulls anywhere, seals in the cold, flamingos in the warm.
+  assert.ok(has(await wildOn(43.5, -1.5, "sand"), "crab") && has(await wildOn(43.5, -1.5, "sand"), "seagull"), "crabs and gulls on a French beach");
+  assert.ok(has(await wildOn(57.2, -6.2, "sand"), "seal") && !has(await wildOn(25, 30, "sand"), "seal"), "seals on Skye, not in Egypt");
+  assert.ok(has(await wildOn(12.2, -68.3, "sand"), "flamingo") && !has(await wildOn(57.2, -6.2, "sand"), "flamingo"), "flamingos on Bonaire, not on Skye");
+  assert.ok(has(await wildOn(48.86, 2.29, "urban"), "sparrow"), "sparrows in town");
+
+  // A wood beside open ground: a fox in Europe, a panda in Sichuan, monkeys in the tropics.
+  const edge = async (lat: number, lon: number): Promise<Home[]> => {
+    const cx = Math.floor(lonToX(lon)), cy = Math.floor(latToY(lat));
+    const elev = await ready(cx, cy, 40);
+    const f = empty();
+    f.areas.push({ id: 1, cls: "forest", rings: [sqAt(cx, cy, -0.1, -0.1, 1.1, 0.5)] }, { id: 2, cls: "grass", rings: [sqAt(cx, cy, -0.1, 0.5, 1.1, 1.1)] });
+    const ground = groundClasses(cx, cy, f, elev);
+    return placeWild(cx, cy, f, ground, placeTrees(cx, cy, f, ground), elev);
+  };
+  let foxes = 0, pandas = 0, monkeys = 0;
+  for (let i = 0; i < 6; i++) {
+    foxes += (await edge(48.86, 2.29 + i * 0.006)).filter((h) => h.sp === "fox").length;
+    pandas += (await edge(30.7, 103.9 + i * 0.006)).filter((h) => h.sp === "panda").length;
+    monkeys += (await edge(-3.1, -60 + i * 0.006)).filter((h) => h.sp === "monkey").length;
+  }
+  assert.ok(foxes >= 1 && pandas >= 1 && monkeys >= 1, `${foxes} foxes, ${pandas} pandas, ${monkeys} monkeys`);
+
+  // A pond with grass round it: frogs or a heron on the bank, a swan, an otter or dragonflies on the water.
+  const cx = Math.floor(lonToX(4.7)), cy = Math.floor(latToY(52));
+  const elev = await ready(cx, cy, 40);
+  const f = empty();
+  f.areas.push({ id: 1, cls: "grass", rings: [sqAt(cx, cy, -0.1, -0.1, 1.1, 1.1)] }, { id: 2, cls: "water", rings: [sqAt(cx, cy, 0.3, 0.3, 0.7, 0.7)] });
+  const ground = groundClasses(cx, cy, f, elev);
+  const pond = placeWild(cx, cy, f, ground, [], elev);
+  assert.ok(has(pond, "frog", "heron", "beaver") && has(pond, "swan", "otter", "dragonfly"), `life in and round the pond (got ${kinds(pond)})`);
+  assert.ok(has(pond, "duck"), "and the ducks are still there");
+
+  const fauna = localFauna(48.86, 2.29);
+  assert.deepEqual([fauna.savanna, fauna.koala, fauna.reindeer, fauna.hedgehog, fauna.marmot], [false, false, false, true, true]);
+  assert.ok(localFauna(-27.5, 153).koala && !localFauna(-27.5, 153).monkey && !localFauna(-27.5, 153).hedgehog, "koalas in Queensland, and neither monkeys nor hedgehogs");
+});
+
+test("every animal can be talked to, and whatever can be ridden can be told where to go", () => {
+  for (const name of Object.keys(RIGS)) {
+    if (name === "bird") continue; // the flock overhead is out of earshot
+    assert.ok(TALKABLE.has(name), `${name} has a name and a character`);
+  }
+  assert.ok(Object.keys(RIGS).length >= 55, `${Object.keys(RIGS).length} kinds of animal and machine`);
+  for (const [name, mount] of Object.entries(MOUNTS)) {
+    if (["boat", "sailboat", "train"].includes(name)) continue;
+    assert.ok(deedsOf(name).includes("goto"), `a ${name} can take its rider somewhere`);
+    assert.ok((mount as { seat: number }).seat > 0.2);
   }
 });

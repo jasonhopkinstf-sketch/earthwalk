@@ -255,7 +255,9 @@ test("generateLabels returns well-formed JSON for an empty area", async () => {
   assert.equal(json.x, CX);
   assert.equal(json.y, CY);
   assert.equal(typeof json.rev, "number");
-  assert.equal(json.items.filter((i) => i.sp !== "bird").length, 0, "nothing but, perhaps, a flock of birds overhead");
+  const others = json.items.filter((i) => i.sp !== "bird" && i.sp !== "butterfly");
+  assert.equal(others.length, 0, "nothing but, perhaps, a flock of birds overhead and a few butterflies over the rough ground");
+  assert.ok(json.items.length < 12, "and not many of those");
 });
 
 test("small rectangular houses get a gable roof", async () => {
