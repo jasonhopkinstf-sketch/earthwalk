@@ -29,7 +29,8 @@ function turn(from, to) {
   return d;
 }
 /** One car in six is a van. Its paint and size come from its identity, so they are the same for everyone. */
-function looks(id) {
+function looks(id, sp = "car") {
+  if (sp === "taxi") return { rig: VEHICLES.taxi, coat: VEHICLES.taxi.palette[0], size: 1 };
   const rig = VEHICLES[hash32(id, SALT_PAINT) % 6 === 0 ? "van" : "car"];
   return { rig, coat: rig.palette[hash32(id, SALT_PAINT + 1) % rig.palette.length], size: 0.94 + 0.12 * unit(id, SALT_PAINT + 2) };
 }
@@ -207,7 +208,7 @@ export class Traffic {
 
   /** Draws a car that somebody is driving, or has left standing, where they took it. */
   putMount(life, m, t, counts) {
-    const { rig, coat, size } = looks(m.thing);
+    const { rig, coat, size } = looks(m.thing, m.sp);
     life.base.compose(this.v.set(m.x, m.y, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, 0)), this.s.set(size, size, size));
     life.put(rig, coat, counts, null, 0, 0, t, 0);
   }

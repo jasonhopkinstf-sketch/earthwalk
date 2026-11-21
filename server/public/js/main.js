@@ -9,6 +9,8 @@ import { Riding } from "./riding.js";
 import { Sounds } from "./sounds.js";
 import { Passport } from "./passport.js";
 import { Orders } from "./orders.js";
+import { Houses } from "./houses.js";
+import { Taxis } from "./taxi.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
@@ -48,9 +50,9 @@ sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
 const life = new Life(scene, world, sounds, traffic);
 // What the E and T keys would do just now, shown together at the bottom of the screen.
-const hints = { ride: "", talk: "" };
+const hints = { ride: "", talk: "", door: "" };
 function showHints() {
-  const text = [hints.ride, hints.talk].filter(Boolean).join("   ·   ");
+  const text = [hints.ride || hints.door, hints.talk].filter(Boolean).join("   ·   ");
   $("ride").hidden = !text;
   $("ride").textContent = text;
 }
@@ -67,7 +69,13 @@ const talk = new Talk({
 });
 life.riding = riding;
 traffic.riding = riding;
+const houses = new Houses({
+  world, player,
+  say: (text) => notice(text),
+  hint: (text) => { if (hints.door !== text) { hints.door = text; showHints(); } },
+});
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
+const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -219,6 +227,7 @@ function frame(now) {
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
   talk.frame(dt);
+  houses.frame(dt);
   everyone.length = 1;
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
@@ -342,7 +351,9 @@ addEventListener("keydown", (e) => {
   } else if (e.code === "KeyP" && document.activeElement !== say && !e.repeat) {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
-    riding.key(); // hop on whatever is nearest, or hop off
+    // A door within reach, and nothing to ride: go in or out. Otherwise hop on whatever is nearest, or hop off.
+    if (houses.near && !riding.mine && !riding.near) void houses.use();
+    else riding.key();
   }
 });
 say.addEventListener("focus", () => { player.typing = true; player.keys.clear(); });
@@ -378,10 +389,17 @@ async function command(name, arg) {
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
+    notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
+    notice("E   at the front door of a house: go in, and E again just inside it to come out");
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
     notice("    and tell it what to do: follow me, come here, stay, go home, do a trick, make your noise;");
     notice("    riding it, say where to: take me to the beach");
     notice("P   your passport (or /passport): countries, places, friends, stamps and your level");
+  } else if (name === "taxi") {
+    if (!arg) return notice("Say where to, like this: /taxi the beach");
+    if (!meetup.joined) return problem("Not connected to the meetup server.");
+    notice(`Calling a taxi to take you to ${arg}...`);
+    meetup.sendTaxi(arg);
   } else if (name === "passport" || name === "journal") {
     passport.toggle();
   } else if (name === "goto" && arg) {
@@ -474,4 +492,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, sounds, command, isStarted: () => started };

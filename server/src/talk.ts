@@ -36,6 +36,7 @@ const KINDS: Record<string, { a: string; names: string[] }> = {
   boat: { a: "a rowing boat", names: ["Bobbin", "Little Wave", "Mallard", "Driftwood", "Skipper", "Minnow", "Pond Queen", "Splosh"] },
   sailboat: { a: "a sailing boat", names: ["Breezy", "Sea Biscuit", "Windsong", "Gull", "Morning Tide", "Kestrel", "Jib", "Starling"] },
   car: { a: "a car", names: ["Rusty", "Zippy", "Bumper", "Beep", "Dot", "Old Faithful", "Sprocket", "Trundle"] },
+  taxi: { a: "a taxi", names: ["Meter", "Hackney", "Checker", "Cabby", "Detour", "Honk", "Kerbside", "Fare"] },
   train: { a: "a train", names: ["Clackety", "The Morning Flyer", "Old Number Seven", "Rattler", "Whistler", "The Slow Coach", "Puffing Betty", "Express Eric"] },
   tree: { a: "a tree", names: ["Old Barkley", "Twiggy", "Grandmother Oak", "Rustle", "Leafy Len", "Willow Wendy", "Knot", "Sapling Sam"] },
   house: { a: "a house", names: ["Old Bricks", "Chimney", "The Cottage", "Doorstep", "Gable", "Rafters", "Windowsill", "Hearth"] },
@@ -159,7 +160,7 @@ const WALKERS = new Set(["chicken", "duck", "pigeon", "cat", "dog", "rabbit", "s
 export function deedsOf(sp: string): Deed[] {
   if (STEEDS.has(sp)) return ["follow", "come", "stay", "home", "trick", "noise", "goto"];
   if (WALKERS.has(sp)) return ["follow", "come", "stay", "home", "trick", "noise"];
-  if (sp === "car" || sp === "tractor") return ["stay", "home", "noise", "goto"];
+  if (sp === "car" || sp === "tractor" || sp === "taxi") return ["stay", "home", "noise", "goto"];
   if (sp === "train") return ["noise"];
   return [];
 }
@@ -198,6 +199,28 @@ export function doingLine(wish: Wish, n: number): string {
   const line = DOING[wish.deed][n % DOING[wish.deed].length];
   return wish.deed === "goto" && wish.place ? `To ${wish.place}? ${line}` : line;
 }
+
+/** What a taxi is told on top of who it is: taxis talk, and say things nobody asked for. */
+const CABBY = "You are a taxi with a passenger aboard, and taxis talk. When nobody has spoken for a while you say something of your own: one or two short sentences that sound odd at first and turn out to have something true and wise in them. It can be about the road, maps, time, weather, how people are, or the place you are driving through (a real fact about it is welcome). Never ask a question that needs an answer, never say the same thing twice, and keep it gentle: a small child may be listening.";
+/** What a taxi says of its own accord when there is no AI to ask. */
+const MUSINGS = [
+  "Every road is somebody's way home. I drive politely, in case it is yours.",
+  "A map is just a place holding still long enough to be drawn.",
+  "A roundabout is the one place where everyone agrees to go the same way. Briefly.",
+  "I have never once arrived early. I have only ever arrived, and people decided how they felt about it.",
+  "Left and right swap over when you turn round. Nobody ever warns you.",
+  "The shortest way is not always the nearest. Ask any river.",
+  "A red light is just the road asking you to look around for a moment.",
+  "People think I carry passengers. Mostly I carry conversations from one place to another.",
+  "A bridge is a road that got brave.",
+  "You can only ever see the bit of the journey you are in. That is plenty, if you look.",
+  "Every place is the middle of somewhere, if you ask the people who live there.",
+  "Rain makes the same road into a different road. I have driven both.",
+  "I count lamp posts. Not because it matters, but because they turn up so reliably.",
+  "Getting lost is only finding somewhere you had not planned to.",
+  "The wheels do all the going round so that we can go straight. I think about that a lot.",
+  "Somebody built this road a barrowful at a time. I say thank you with my tyres.",
+];
 
 /** The tool the model calls to do a deed. */
 const doTool = (deeds: Deed[]) => ({
@@ -347,6 +370,36 @@ export class Talker {
       else if (err instanceof Anthropic.RateLimitError) this.complain("the AI service is rate-limiting us");
       else if (err instanceof Anthropic.APIError) this.complain(`the AI service answered ${err.status ?? "with an error"}`);
       else this.complain(err instanceof Error ? err.message : String(err));
+      return stock();
+    }
+  }
+
+  /**
+   * What a thing with a passenger says of its own accord: remark number `n` of the ride, through
+   * `place` on the way to `dest`. It is part of the same conversation as anything said to it.
+   */
+  async muse(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number): Promise<Said> {
+    const p = persona(thing, sp);
+    const stock = (): Said => ({ name: p.name, text: MUSINGS[(hash32(thing, 0x4d555345) + n) % MUSINGS.length], ai: false });
+    if (!this.ask || !(await this.canSpend())) return stock();
+    const key = `${room}/${sp}/${thing}`;
+    const now = this.now();
+    let talk = this.history.get(key);
+    if (!talk || now - talk.at > HISTORY_MS) talk = { at: now, turns: [], said: 0 };
+    talk.at = now;
+    this.history.delete(key);
+    this.history.set(key, talk);
+    const line = `(Nobody has spoken for a little while. You are driving your passenger${place ? ` through ${place}` : ""}${dest ? ` on the way to ${dest}` : ""}. Say something of your own now.)`;
+    try {
+      const answer = await this.ask(this.model, `${systemPrompt(p, place, sp)}\n${CABBY}`, [...talk.turns, { role: "user", content: line }]);
+      await this.spent(answer.inputTokens, answer.outputTokens);
+      if (!answer.text) return stock();
+      const text = answer.text.replace(/\s+/g, " ").slice(0, 400);
+      talk.turns.push({ role: "user", content: line }, { role: "assistant", content: text });
+      if (talk.turns.length > HISTORY_TURNS * 2) talk.turns.splice(0, talk.turns.length - HISTORY_TURNS * 2);
+      return { name: p.name, text, ai: true };
+    } catch (err) {
+      this.complain(err instanceof Error ? err.message : String(err));
       return stock();
     }
   }

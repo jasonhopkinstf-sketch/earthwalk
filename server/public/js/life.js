@@ -341,7 +341,7 @@ export class Life {
 
   /** A thing that is being talked to speaks up in its own voice as well, if it has one. */
   speak(sp, thing, x, z) {
-    const voice = RIGS[sp]?.voice ?? { car: "toot", train: "whistle" }[sp];
+    const voice = RIGS[sp]?.voice ?? { car: "toot", taxi: "toot", train: "whistle" }[sp];
     if (voice) this.call(voice, thing, x, z);
   }
 

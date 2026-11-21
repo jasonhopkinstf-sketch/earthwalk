@@ -15,6 +15,7 @@ import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
 import { Talker } from "./talk.ts";
 import { Journals, type JournalStore } from "./journal.ts";
+import { generateInterior, INTERIOR_REV } from "./interior.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 
@@ -60,12 +61,16 @@ export interface AppOptions {
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
+  /** The inside of a home, or null when the chunk has no such home to walk into. */
+  buildInterior?: (x: number, y: number, id: number) => Promise<Buffer | null>;
   readCache?: (rel: string) => Promise<Buffer | null>;
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
   /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
   findNear?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
+  /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
+  taxiRemarkMs?: [number, number];
 }
 
 /** The server version, from package.json, shown by clients so a deploy can be told apart. */
@@ -120,6 +125,7 @@ export function createApp(options: AppOptions = {}): App {
   const elevation = new Elevation();
   const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
+  const buildInterior = options.buildInterior ?? ((x, y, id) => generateInterior(x, y, id, elevation));
   const accounts = options.accounts ?? new AccountDirectory(undefined, { accessCode, invited: options.invited });
   const placeName = options.placeName ?? reversePlace;
   const givenName = options.placeName;
@@ -132,12 +138,26 @@ export function createApp(options: AppOptions = {}): App {
   const wayTo = async (lat: number, lon: number, place: string, sp: string) => {
     const found = await findNear(place, lat, lon);
     if (!found) return null;
-    const driven = sp === "car" || sp === "tractor"
+    const driven = sp === "car" || sp === "tractor" || sp === "taxi"
       ? await Promise.race([routeBetween(lat, lon, found.lat, found.lon).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 12_000).unref())])
       : null;
     return { name: found.name.split(",").slice(0, 2).join(","), lat: found.lat, lon: found.lon, ...(driven ? { path: driven.path } : {}) };
   };
-  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo });
+  /** A taxi for someone at a position who wants to go to a place: the place, and a road for the taxi to come along from a few streets away. */
+  const cab = async (lat: number, lon: number, place: string) => {
+    const dest = await wayTo(lat, lon, place, "taxi");
+    if (!dest) return null;
+    let pickup: [number, number][] = [[lat, lon]]; // failing a road to come by, it simply turns up
+    const gaveUp = Date.now() + 8000;
+    for (const k of [0, 3, 6, 1, 4, 7, 2, 5]) {
+      if (Date.now() > gaveUp) break;
+      const from = [lat + (260 / 111_320) * Math.cos((k * Math.PI) / 4), lon + (260 / (111_320 * Math.cos((lat * Math.PI) / 180))) * Math.sin((k * Math.PI) / 4)];
+      const way = await routeBetween(from[0], from[1], lat, lon).catch(() => null);
+      if (way && way.metres >= 100 && way.metres <= 900) { pickup = way.path; break; }
+    }
+    return { dest, pickup };
+  };
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
@@ -329,6 +349,27 @@ export function createApp(options: AppOptions = {}): App {
       if (labels) {
         return await serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
           buildLabels, "application/json; charset=utf-8", (built) => !partialLabels.has(built));
+      }
+      const interior = /^\/v1\/interior\/(\d+)\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
+      if (interior) {
+        // The inside of one home: built the first time someone walks in, and kept.
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        const [z, x, y, id] = [Number(interior[1]), Number(interior[2]), Number(interior[3]), Number(interior[4])];
+        if (z !== CHUNK_Z || x >= 2 ** CHUNK_Z || y >= 2 ** CHUNK_Z || !Number.isSafeInteger(id)) return json(res, 400, { error: `homes exist only at zoom ${CHUNK_Z}` });
+        const rel = `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}/${CHUNK_Z}/${x}/${y}/${id}.ewc`;
+        let data = await readCache(rel);
+        if (!data) {
+          if (!mayBuild(callerOf(req))) {
+            res.setHeader("Retry-After", "30");
+            return json(res, 429, { error: "exploring too fast; try again shortly" });
+          }
+          const built = await buildInterior(x, y, id);
+          if (!built) return json(res, 404, { error: "no home to walk into there" });
+          await writeCache(rel, built);
+          data = built;
+        }
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": data.length, "Cache-Control": "private, max-age=86400" });
+        return void res.end(data);
       }
       if (p === "/v1/geocode") {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });

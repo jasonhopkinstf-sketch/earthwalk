@@ -36,7 +36,7 @@ export class Orders {
     this.trip = null; // where I am being taken: { thing, sp, name, x, z, path, i }
     this.remount = null; // what to get back on after a jump
     this.meetup.addEventListener("order", (e) => this.onOrder(e.detail));
-    this.riding.extra = (dt, t) => this.frame(dt, t);
+    this.riding.extras.push((dt, t) => this.frame(dt, t));
   }
 
   /** Where a member of the room is in the scene: me, or a friend this game can see. */
@@ -74,8 +74,11 @@ export class Orders {
     const far = Math.hypot(target.x - p.position.x, target.z - p.position.z);
     const path = Array.isArray(o.path) && o.path.length > 1 ? o.path.map(([lat, lon]) => this.world.geoToScene(lat, lon)) : null;
     // A car keeps to roads, so without a way by road it jumps; an animal or a tractor can cut across country.
-    if (path || (far <= CROSS_COUNTRY_M && !mine.mount.afloat && mine.sp !== "car")) {
-      this.trip = { thing: o.thing, sp: o.sp, name: o.name, path: path ?? [target], i: 0, end: { lat: o.lat, lon: o.lon } };
+    if (path || (far <= CROSS_COUNTRY_M && !mine.mount.afloat && mine.sp !== "car" && mine.sp !== "taxi")) {
+      // Join the way at its nearest point: whoever boards a taxi before it has pulled up is not driven back to where they called it.
+      let i = 0;
+      if (path) for (let k = 1; k < path.length; k++) if (Math.hypot(path[k].x - p.position.x, path[k].z - p.position.z) < Math.hypot(path[i].x - p.position.x, path[i].z - p.position.z)) i = k;
+      this.trip = { thing: o.thing, sp: o.sp, name: o.name, path: path ?? [target], i, end: { lat: o.lat, lon: o.lon } };
       this.say(`${path ? "Driving" : "Riding"} to ${o.name}. Steer (WASD) to take over.`);
     } else {
       // Too far to go by road in this lifetime: one jump, and back on at the other end.
@@ -108,12 +111,12 @@ export class Orders {
       this.say("You have the reins again.");
       return;
     }
-    // Held up for a few seconds (a wall, a part of the world that will not load): do the rest in one jump.
-    const gone = Math.hypot(p.position.x - (trip.x ?? p.position.x), p.position.z - (trip.z ?? p.position.z));
-    trip.x = p.position.x;
-    trip.z = p.position.z;
-    trip.held = gone < 0.5 * dt ? (trip.held ?? 0) + dt : 0;
-    if (trip.held > 4 && trip.end) {
+    // Getting no nearer for five seconds (a wall in the way, a part of the world that will not load):
+    // do the rest in one jump. Getting nearer means passing a point of the way, or closing on the next.
+    const ahead = trip.path[trip.i];
+    const short = (trip.path.length - trip.i) * 1000 + Math.hypot(ahead.x - p.position.x, ahead.z - p.position.z);
+    if (trip.best === undefined || short < trip.best - 1.5) { trip.best = short; trip.held = 0; } else trip.held = (trip.held ?? 0) + dt;
+    if (trip.held > 5 && trip.end) {
       this.trip = null;
       this.say(`The road gave out. Off to ${trip.name} the quick way!`);
       this.remount = { thing: trip.thing, sp: trip.sp };

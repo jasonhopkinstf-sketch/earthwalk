@@ -18,7 +18,7 @@ export const FORMAT_VERSION = 1;
 export const GENERATOR_REV = 9;
 export const FLAG_COLLISION = 1;
 
-interface MaterialDef { id: number; color: number; collision: boolean }
+export interface MaterialDef { id: number; color: number; collision: boolean }
 const rgb = (hex: number): number => ((hex << 8) | 0xff) >>> 0; // 0xRRGGBB -> RGBA8
 
 export const MATERIALS = {
@@ -70,11 +70,11 @@ export const PLAIN_KINDS = /^(garage|garages|shed|carport|roof|greenhouse|kiosk|
 /** Buildings people live in, or that the map only calls a building: when large, these follow the local style of flats. */
 const DWELLING_KINDS = /^(|residential|house|detached|semidetached_house|terrace|apartments|bungalow|dormitory|hotel)$/;
 
-const painted = (m: MaterialDef, hex: number): MaterialDef => ({ id: m.id, color: rgb(hex), collision: m.collision });
+export const painted = (m: MaterialDef, hex: number): MaterialDef => ({ id: m.id, color: rgb(hex), collision: m.collision });
 /** A roof in a colour: the warm ones (clay, rust) are roof1, the cool and pale ones roof0. */
 const roofIn = (hex: number): MaterialDef => painted((hex >>> 16) > (hex & 0xff) + 40 && ((hex >>> 8) & 0xff) < 0xb0 ? MATERIALS.roof1 : MATERIALS.roof0, hex);
 
-class Section {
+export class Section {
   readonly mat: MaterialDef;
   readonly pos: number[] = [];
   readonly nrm: number[] = [];
@@ -341,7 +341,7 @@ export function placeTrees(cx: number, cy: number, features: Features, cls: Uint
   return out;
 }
 
-type XY = [number, number];
+export type XY = [number, number];
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /** Drops near-duplicate and nearly collinear vertices (turns under about 12 degrees). */
@@ -454,7 +454,7 @@ export function insetRing(ring: XY[], d: number): XY[] | null {
 }
 
 /** A flat polygon with a given normal, wound to agree with it. */
-function face(sec: Section, pts: [number, number, number][], n: [number, number, number]): void {
+export function face(sec: Section, pts: [number, number, number][], n: [number, number, number]): void {
   const [a, b, c] = pts;
   const gx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
   const gy = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
@@ -633,9 +633,30 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: n
 }
 
 /**
- * `look` is the style of the houses; left out, it is the style of where the chunk is in the world.
+ * A home that can be walked into: its outline (four corners, chunk-local metres, counter-clockwise),
+ * where its front door is on that outline and which way is out, how high its floor is and how tall
+ * its walls, and the numbers its inside is made from (interior.ts).
  */
-export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle): ChunkMesh {
+export interface HomeDoor {
+  id: number;
+  corners: XY[];
+  /** The door: its place on the wall, the unit vector along that wall, and the one pointing out of the house. */
+  x: number; y: number; along: XY; out: XY;
+  floor: number;
+  height: number;
+  seed: number;
+  wall: number;
+}
+/** Homes with a side shorter or longer than this, or on ground that drops more than `HOME_SLOPE_M` across them, keep their doors shut. */
+const HOME_MIN_M = 5;
+const HOME_MAX_M = 24;
+const HOME_SLOPE_M = 0.8;
+
+/**
+ * `look` is the style of the houses; left out, it is the style of where the chunk is in the world.
+ * `homes`, when given, is filled with the homes that can be walked into.
+ */
+export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle, homes?: HomeDoor[]): ChunkMesh {
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
   const sections = new Map<string, Section>();
   const sec = (m: MaterialDef): Section => {
@@ -1024,6 +1045,14 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(leaf, x, y, t, o, -1.5, -0.04, 0.1, 0.16, g + 0.02, g + 3.0);
           box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
         } else {
+          // A plain four-square house on fairly level ground can be walked into.
+          const outline = homes && homely ? simplifyRing(ring) : [];
+          if (homes && isRectangle(outline) && hi - lo < HOME_SLOPE_M) {
+            const side = (i: number): number => Math.hypot(outline[(i + 1) % 4][0] - outline[i][0], outline[(i + 1) % 4][1] - outline[i][1]);
+            if (Math.min(side(0), side(1)) >= HOME_MIN_M && Math.max(side(0), side(1)) <= HOME_MAX_M) {
+              homes.push({ id: b.id, corners: outline, x, y, along: t, out: o, floor: hi + 0.06, height: top - hi, seed: h, wall: wallHex });
+            }
+          }
           box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.5);
           box(sec(painted(MATERIALS.door, style.doors[(h >>> 18) % style.doors.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
           box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
@@ -1117,6 +1146,21 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
   }
 
   return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((a, b) => a.mat.id - b.mat.id || a.mat.color - b.mat.color), metersPerTile: S };
+}
+
+const homesMemo = new WeakMap<Features, Map<string, HomeDoor[]>>();
+/** The homes of a chunk that can be walked into. Kept a while, since a chunk's labels and its houses' insides all ask. */
+export function homesOf(cx: number, cy: number, features: Features, elev: Elevation): HomeDoor[] {
+  let byChunk = homesMemo.get(features);
+  if (!byChunk) homesMemo.set(features, (byChunk = new Map()));
+  const key = `${cx}/${cy}`;
+  let homes = byChunk.get(key);
+  if (!homes) {
+    buildChunkMesh(cx, cy, features, elev, undefined, (homes = []));
+    byChunk.set(key, homes);
+    if (byChunk.size > 64) byChunk.delete(byChunk.keys().next().value!);
+  }
+  return homes;
 }
 
 /** Serialises a chunk mesh to the EWC1 binary layout (docs/PROTOCOL.md). */

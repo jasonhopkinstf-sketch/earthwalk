@@ -386,3 +386,12 @@ export const VEHICLES = {
     ],
   },
 };
+// A taxi is a car in taxi yellow, with a dark band along its doors and a lit sign on its roof.
+VEHICLES.taxi = {
+  coats: [[0xf5c518, GLASS]],
+  parts: [
+    ...VEHICLES.car.parts,
+    ["box", 0x26221f, [0, 0.6, 0], [1.72, 0.13, 2.7]],
+    ["box", CREAM, [0, 1.33, 0.25], [0.62, 0.2, 0.26]],
+  ],
+};
