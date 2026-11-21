@@ -6,7 +6,7 @@
 
 import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
-import { decodeChunk, terrainHeight } from "./chunk.js";
+import { decodeChunk, GRID, terrainHeight } from "./chunk.js";
 import { CHUNK_Z, TILES, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.js";
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -17,6 +17,7 @@ const MAX_IN_FLIGHT = 4;
 const TREE_SECTION = 30; // the server's cone trees; we plant our own from the labels route instead
 const LABEL_RETRY_MS = 15000;
 const LABEL_TRIES = 4;
+const WATER = 7; // the ground that boats sail on and nothing else may cross
 const isBuilding = (id) => id >= 20 && id <= 25;
 
 // Tree parts, shared by every chunk: unit shapes scaled per tree (the same proportions as the Unreal game).
@@ -82,6 +83,14 @@ export class World {
     const { cx, cy, u, v } = this.chunkAt(x, z);
     const chunk = this.chunks.get(`${cx}/${cy}`);
     return chunk ? terrainHeight(chunk.heights, u, v) : null;
+  }
+
+  /** Is this spot open water? Null while that chunk has not arrived. (Streams drawn as a line do not count.) */
+  waterAt(x, z) {
+    const { cx, cy, u, v } = this.chunkAt(x, z);
+    const chunk = this.chunks.get(`${cx}/${cy}`);
+    if (!chunk) return null;
+    return chunk.water[Math.min(GRID - 1, Math.floor(v * GRID)) * GRID + Math.min(GRID - 1, Math.floor(u * GRID))] === 1;
   }
 
   unload(key) {
@@ -160,8 +169,17 @@ export class World {
     const S = this.tileM;
     const group = new THREE.Group();
     group.position.set((x - this.originX) * S, 0, (y - this.originY) * S);
+    const water = new Uint8Array(GRID * GRID); // which cells of the terrain are water, from where its triangles lie
     for (const section of data.sections) {
       if (section.materialId === TREE_SECTION) continue;
+      if (section.materialId === WATER) {
+        const { uvh, indices } = section;
+        for (let t = 0; t + 2 < indices.length; t += 3) {
+          const u = (uvh[indices[t] * 3] + uvh[indices[t + 1] * 3] + uvh[indices[t + 2] * 3]) / 3;
+          const v = (uvh[indices[t] * 3 + 1] + uvh[indices[t + 1] * 3 + 1] + uvh[indices[t + 2] * 3 + 1]) / 3;
+          water[Math.min(GRID - 1, Math.max(0, Math.floor(v * GRID))) * GRID + Math.min(GRID - 1, Math.max(0, Math.floor(u * GRID)))] = 1;
+        }
+      }
       const n = section.uvh.length / 3;
       const pos = new Float32Array(n * 3);
       const nrm = new Float32Array(n * 3);
@@ -187,7 +205,7 @@ export class World {
     }
     group.updateMatrixWorld(true);
     this.root.add(group);
-    this.chunks.set(key, { group, heights: data.heights, x, y });
+    this.chunks.set(key, { group, heights: data.heights, water, x, y });
   }
 
   /** Fetches a chunk's trees from the labels route. It is optional, so failures are retried slowly and quietly. */
@@ -201,6 +219,8 @@ export class World {
       const { items } = await res.json();
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile
       chunk.trees = true;
+      chunk.treeItems = items.filter((it) => it.kind === "tree"); // kept so that trees, and
+      chunk.houses = items.filter((it) => it.kind === "house"); // the houses with a number, can be talked to (talk.js)
       chunk.homes = items.filter((it) => it.kind === "home"); // where herds live; life.js brings them to life
       chunk.routes = items.filter((it) => it.kind === "route"); // the trips cars make, and
       chunk.cars = items.filter((it) => it.kind === "car"); // the cars parked at the kerb; traffic.js drives them

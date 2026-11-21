@@ -96,6 +96,34 @@ If you would rather not use the Dockerfile, choose the Node runtime instead and 
 - Environment variables as above, plus `NODE_VERSION` = `24`,
   `EARTHWALK_TRUST_PROXY` = `1` and `EARTHWALK_CACHE` = `/data`.
 
+## Talking things (optional, the one part that costs money to run)
+
+Everything in the world can be talked to. Out of the box each thing has a name, a character and a
+small stock of lines, and that costs nothing. To have them answer properly, in their own words, the
+server asks Claude, Anthropic's AI, and that is paid for by use:
+
+1. Make an account at https://console.anthropic.com, add some credit, and create an API key.
+2. In Render, open the service's **Environment** page and add `ANTHROPIC_API_KEY` with that key as its
+   value. Never put the key in the repository. Render restarts the server; `/health` then shows
+   `"talking": true`.
+
+| Variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | The key. Without it things use their stock lines and nothing is spent. |
+| `EARTHWALK_TALK_MONTHLY_USD` | The most to spend in a month, in US dollars (default 25). A thirtieth of it may be spent each day; after that things fall back on their stock lines until midnight UTC. The server keeps its own count from what each answer cost, so set a limit in the Anthropic console too. |
+| `EARTHWALK_TALK_MODEL` | Which Claude answers (default `claude-opus-5-5`). `claude-sonnet-5-5` costs about half as much and `claude-haiku-5-5` about a fortieth, for simpler wit. |
+
+Roughly: an answer on the default model costs about one US cent, so the default limit allows about 85
+answers a day; on `claude-haiku-5-5` the same money buys a few thousand. These are estimates; prices
+change, so check Anthropic's pricing page.
+
+What is sent to Anthropic for each answer: the character's description, the name of the area (about a
+kilometre across), the last few lines of that conversation, and what the player typed, attributed to
+the animal they play ("A fox says..."), not to their name. Nothing is sent for a hello, or when the
+key is not set. The characters are told to keep it short, kind and suitable for young children, to
+stay out of real-world politics, and not to ask for personal details; see `systemPrompt` in
+`server/src/talk.ts` to change any of that.
+
 ## Sharing the Windows game
 
 The Unreal game is turned into a normal Windows program by *packaging* it. One person

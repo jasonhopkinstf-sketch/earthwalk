@@ -43,6 +43,10 @@ export class Traffic {
     this.parked = []; // nearest first
     this.trips = [];
     this.trains = [];
+    /** Set by main.js: riding.js, which says what is being ridden (and so not drawn where its timetable has it). */
+    this.riding = null;
+    /** The cars and railway carriages near enough to hop on, as drawn last frame. */
+    this.rideable = [];
     this.states = new Map(); // car id -> { lag, yaw, tooted }
     this.shown = 0;
     this.euler = new THREE.Euler(0, 0, 0, "YXZ");
@@ -113,9 +117,13 @@ export class Traffic {
   /** Every frame, from Life.update: writes the cars into Life's meshes. */
   draw(life, dt, t, players, counts) {
     let shown = 0;
+    const taken = this.riding?.hidden;
+    this.rideable.length = 0;
     for (const car of this.parked) {
+      if (taken?.has(car.id)) continue; // somebody has driven it off
       const y = this.world.groundHeight(car.x, car.z);
       if (y === null) continue;
+      if (car.d < 40) this.rideable.push({ thing: car.id, sp: "car", x: car.x, z: car.z, yaw: car.yaw });
       life.base.compose(this.v.set(car.x, y, car.z), this.q.setFromEuler(this.euler.set(0, car.yaw, 0)), this.s.set(car.size, car.size, car.size));
       life.put(car.rig, car.coat, counts, null, 0, 0, t, 0);
       shown++;
@@ -132,7 +140,8 @@ export class Traffic {
     }
     near.sort((a, b) => a.d - b.d);
     let moving = 0;
-    for (const { car, st, pose } of near) {
+    for (const { car, st, pose, d } of near) {
+      if (taken?.has(car.trip.id)) continue;
       if (pose.moving && ++moving > MAX_TRIPS) continue;
       const want = (-pose.yaw * Math.PI) / 180;
       const fx = Math.sin(-want); // the way it faces, in the scene: x east, z south
@@ -159,6 +168,7 @@ export class Traffic {
       if (y === null) continue;
       // The body swings round to the way it is going, which is what turns it about at each end of a trip.
       st.yaw = st.yaw === null ? want : st.yaw + turn(st.yaw, want) * ease(pose.moving ? 3.5 : 6, dt);
+      if (d < 40) this.rideable.push({ thing: car.trip.id, sp: "car", x: pose.x, z: pose.y, yaw: st.yaw });
       life.base.compose(this.v.set(pose.x, y + (pose.moving ? Math.abs(Math.sin(t * 9 + car.trip.id)) * 0.02 : 0), pose.y), this.q.setFromEuler(this.euler.set(0, st.yaw, 0)), this.s.set(car.size, car.size, car.size));
       life.put(car.rig, car.coat, counts, null, 0, 0, t, 0);
       shown++;
@@ -176,7 +186,9 @@ export class Traffic {
         if (away > TRAIN_SHOW_M) continue;
         const y = this.world.groundHeight(x, z);
         if (y === null) continue;
-        life.base.compose(this.v.set(x, y, z), this.q.setFromEuler(this.euler.set(0, (-headingAt(train, d, 6) * Math.PI) / 180, 0)), this.s.set(1, 1, 1));
+        const yaw = (-headingAt(train, d, 6) * Math.PI) / 180;
+        if (away < 40) this.rideable.push({ thing: train.id, sp: "train", k, x, z, yaw });
+        life.base.compose(this.v.set(x, y, z), this.q.setFromEuler(this.euler.set(0, yaw, 0)), this.s.set(1, 1, 1));
         life.put(rig, coat, counts, null, 0, 0, t, 0);
         shown++;
       }
@@ -191,6 +203,25 @@ export class Traffic {
       st.wasMoving = pose.moving;
     }
     this.shown = shown;
+  }
+
+  /** Draws a car that somebody is driving, or has left standing, where they took it. */
+  putMount(life, m, t, counts) {
+    const { rig, coat, size } = looks(m.thing);
+    life.base.compose(this.v.set(m.x, m.y, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, 0)), this.s.set(size, size, size));
+    life.put(rig, coat, counts, null, 0, 0, t, 0);
+  }
+
+  /** Where carriage `k` of a train is at shared time `t`, for a passenger on its roof; null if this game does not have the train. */
+  carriageAt(id, k, t) {
+    const item = this.trains.find((x) => x.train.id === id);
+    if (!item) return null;
+    const { train } = item;
+    const pose = trainPose(train, t);
+    const d = (pose.along * (train.length - TRAIN_M)) / train.length + CARRIAGE_M / 2 + k * (CARRIAGE_M + COUPLING_M);
+    const [x, z] = pointAt(train, d);
+    const y = this.world.groundHeight(x, z);
+    return y === null ? null : { x, y, z, yaw: (-headingAt(train, d, 6) * Math.PI) / 180 };
   }
 
   /** Every train near the player at shared time `t`: where the middle of it is, in scene metres (for the tests). */
