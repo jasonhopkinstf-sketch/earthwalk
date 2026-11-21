@@ -26,6 +26,7 @@ namespace
 		{ TEXT("deer"), 9.0, 1.05, TEXT("deer"), 0.0, false },
 		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false },
 		{ TEXT("car"), 13.0, 0.95, TEXT("car"), 3.5, false }, // up on the roof, where the view is not all bonnet
+		{ TEXT("taxi"), 13.0, 0.95, TEXT("taxi"), 4.0, false }, // a browser player can call one (/taxi); here it can be shared and talked to
 		{ TEXT("boat"), 2.5, 0.3, TEXT("rowing boat"), 4.0, true },
 		{ TEXT("sailboat"), 5.0, 0.75, TEXT("sailing boat"), 6.0, true },
 		{ TEXT("train"), 0.0, 3.5, TEXT("train"), 8.0, false },
@@ -48,7 +49,7 @@ namespace
 		{ TEXT("rabbit"), TEXT("rabbit"), 1.5, TalkReachM }, { TEXT("deer"), TEXT("deer"), 2.4, TalkReachM }, { TEXT("squirrel"), TEXT("squirrel"), 1.5, TalkReachM },
 		{ TEXT("kangaroo"), TEXT("kangaroo"), 2.2, TalkReachM }, { TEXT("llama"), TEXT("llama"), 2.7, TalkReachM }, { TEXT("camel"), TEXT("camel"), 3.2, TalkReachM },
 		{ TEXT("penguin"), TEXT("penguin"), 1.5, TalkReachM }, { TEXT("tractor"), TEXT("tractor"), 3.1, 6.0 }, { TEXT("boat"), TEXT("rowing boat"), 1.5, TalkReachM },
-		{ TEXT("sailboat"), TEXT("sailing boat"), 4.2, 7.0 }, { TEXT("car"), TEXT("car"), 2.3, 5.0 }, { TEXT("train"), TEXT("train"), 4.8, 9.0 },
+		{ TEXT("sailboat"), TEXT("sailing boat"), 4.2, 7.0 }, { TEXT("car"), TEXT("car"), 2.3, 5.0 }, { TEXT("taxi"), TEXT("taxi"), 2.5, 5.0 }, { TEXT("train"), TEXT("train"), 4.8, 9.0 },
 		{ TEXT("tree"), TEXT("tree"), 4.5, 4.0 }, { TEXT("house"), TEXT("house"), 3.4, 7.0 },
 	};
 	const FCalled* CalledRow(const FString& Sp)
@@ -167,7 +168,7 @@ bool UEarthCompany::GroundFor(const FString& Sp, double X, double Z, double& Out
 	{
 		return false;
 	}
-	if (Sp == TEXT("car"))
+	if (Sp == TEXT("car") || Sp == TEXT("taxi"))
 	{
 		OutY += CarLiftM;
 	}
@@ -772,7 +773,7 @@ void UEarthCompany::SetOff(const FEarthOrder& Order)
 	const double Far = std::hypot(Tx - Px, Tz - Pz);
 	const bool bByRoad = Order.Path.Num() > 1;
 	// A car keeps to roads, so without a way by road it jumps; an animal or a tractor can cut across country.
-	if (bByRoad || (Far <= CrossCountryM && !MineMount->bAfloat && Mine.Sp != TEXT("car")))
+	if (bByRoad || (Far <= CrossCountryM && !MineMount->bAfloat && Mine.Sp != TEXT("car") && Mine.Sp != TEXT("taxi")))
 	{
 		Trip = FTrip();
 		Trip.bOn = true;
@@ -793,6 +794,14 @@ void UEarthCompany::SetOff(const FEarthOrder& Order)
 		else
 		{
 			Trip.Path.Add(FVector2D(Tx, Tz));
+		}
+		// Join the way at its nearest point: whoever boards a taxi before it has pulled up is not driven back to where they called it.
+		for (int32 K = 1; K < Trip.Path.Num(); ++K)
+		{
+			if (std::hypot(Trip.Path[K].X - Px, Trip.Path[K].Y - Pz) < std::hypot(Trip.Path[Trip.I].X - Px, Trip.Path[Trip.I].Y - Pz))
+			{
+				Trip.I = K;
+			}
 		}
 		Notice(FString::Printf(TEXT("%s to %s. Steer (WASD) to take over."), bByRoad ? TEXT("Driving") : TEXT("Riding"), *Order.Name));
 	}
@@ -849,13 +858,21 @@ void UEarthCompany::Steer(double Dt)
 		Notice(TEXT("You have the reins again."));
 		return;
 	}
-	// Held up for a few seconds (a wall, a part of the world that will not load): do the rest in one jump.
-	const double Gone = Trip.bHasLast ? std::hypot(Px - Trip.LastX, Pz - Trip.LastZ) : 1.0;
-	Trip.bHasLast = true;
-	Trip.LastX = Px;
-	Trip.LastZ = Pz;
-	Trip.Held = Gone < 0.5 * Dt ? Trip.Held + Dt : 0.0;
-	if (Trip.Held > 4.0)
+	// Getting no nearer for five seconds (a wall in the way, a part of the world that will not load):
+	// do the rest in one jump. Getting nearer means passing a point of the way, or closing on the next.
+	const FVector2D Ahead = Trip.Path[Trip.I];
+	const double Short = (Trip.Path.Num() - Trip.I) * 1000.0 + std::hypot(Ahead.X - Px, Ahead.Y - Pz);
+	if (!Trip.bHasBest || Short < Trip.Best - 1.5)
+	{
+		Trip.bHasBest = true;
+		Trip.Best = Short;
+		Trip.Held = 0.0;
+	}
+	else
+	{
+		Trip.Held += Dt;
+	}
+	if (Trip.Held > 5.0)
 	{
 		const FTrip Was = Trip;
 		Trip.bOn = false;

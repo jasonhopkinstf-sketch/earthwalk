@@ -7,6 +7,9 @@ public class EarthWalk : ModuleRules
 	public EarthWalk(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+		// Each source file is compiled by itself. Joined together (a "unity" build), small helpers of the same
+		// name in two files clash, and which files are joined changes from one build to the next.
+		bUseUnity = false;
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{

@@ -931,9 +931,16 @@ void AEarthLife::PutMount(const FEarthThing& Mount, double T)
 {
 	FBase Base;
 	FPose Pose;
-	if (Mount.Sp == TEXT("car"))
+	if (Mount.Sp == TEXT("car") || Mount.Sp == TEXT("taxi"))
 	{
-		const FLooks Looks = LooksOf(Mount.Thing);
+		FLooks Looks = LooksOf(Mount.Thing);
+		if (Mount.Sp == TEXT("taxi"))
+		{
+			// Every taxi is the same yellow cab.
+			Looks.Rig = EarthRigs::Find(TEXT("taxi"));
+			Looks.Coat = 0;
+			Looks.Size = 1.0;
+		}
 		if (Looks.Rig)
 		{
 			Base.Position = Engine(Mount.X, Mount.Y, Mount.Z); // whoever put it here has allowed for the road
@@ -993,7 +1000,7 @@ bool AEarthLife::CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double
 void AEarthLife::Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z)
 {
 	const FEarthRig* Rig = EarthRigs::Find(Sp);
-	const TCHAR* Voice = Rig && Rig->Voice ? Rig->Voice : Sp == TEXT("car") ? TEXT("toot") : Sp == TEXT("train") ? TEXT("whistle") : nullptr;
+	const TCHAR* Voice = Rig && Rig->Voice ? Rig->Voice : Sp == TEXT("car") || Sp == TEXT("taxi") ? TEXT("toot") : Sp == TEXT("train") ? TEXT("whistle") : nullptr;
 	double Ground = 0.0;
 	if (Voice && World && World->TerrainHeightAt(X, Z, Ground))
 	{

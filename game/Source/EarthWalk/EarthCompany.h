@@ -167,9 +167,8 @@ private:
 		int32 I = 0;
 		double EndLat = 0.0;
 		double EndLon = 0.0;
-		bool bHasLast = false;
-		double LastX = 0.0;
-		double LastZ = 0.0;
+		bool bHasBest = false; // the nearest the end has been, to tell when the way is blocked
+		double Best = 0.0;
 		double Held = 0.0;
 	};
 	FTrip Trip;
