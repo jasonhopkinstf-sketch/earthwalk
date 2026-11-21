@@ -73,6 +73,9 @@ namespace
 		}
 	}
 
+	// The table is one very long function that runs once. Left to itself the optimiser spends many minutes
+	// on it (it stopped finishing at all at sixty figures) and gains nothing, so it is told to leave it alone.
+#pragma optimize("", off)
 	TMap<FString, FEarthRig> Build()
 	{
 		TMap<FString, FEarthRig> Rigs;
@@ -90,6 +93,7 @@ namespace
 		}
 		return Rigs;
 	}
+#pragma optimize("", on)
 }
 
 const FEarthRig* EarthRigs::Find(const FString& Name)

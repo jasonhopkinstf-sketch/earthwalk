@@ -22,8 +22,8 @@ namespace
 	// figures that still walk where the clock says. (The browser draws 110 out to 220 m.)
 	constexpr double ShowM = 400.0; // homes further off than this are not drawn
 	constexpr double FullM = 120.0;
-	constexpr int32 MaxFull = 60;
-	constexpr int32 MaxStandIns = 200;
+	constexpr int32 MaxFull = 100; // whole, lively figures near the player (the browser draws up to 170 of everything)
+	constexpr int32 MaxStandIns = 300;
 	constexpr int32 MaxBirds = 60;
 	constexpr double HearM = 70.0;
 	constexpr uint32 SaltCoat = 0x434f4154;
@@ -580,7 +580,7 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 		{
 			return EDrawn::Unseen;
 		}
-		Base.Position = Engine(Sx, Ground - (Rig.bSwim ? Rig.Swim * Size : 0.0), Sz);
+		Base.Position = Engine(Sx, Ground - (Rig.bSwim ? Rig.Swim * Size : 0.0) + (Rig.bHover ? (Rig.Hover.X + Rig.Hover.Y) / 2.0 : 0.0), Sz);
 		Base.Rotation = EarthRigs::Turned(0.0, (-C.Yaw * Pi) / 180.0, Rig.Heel);
 		Base.Size = Size;
 		Pose.bStandIn = true;
@@ -635,7 +635,9 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 	const double Aside = std::hypot(StepX, StepZ);
 	const bool bHurrying = Dt > 0.0 && Aside / Dt > 0.25;
 	St->Up += ((bStartled && Rig.TakesOff > 0.0 ? Rig.TakesOff : 0.0) - St->Up) * Ease(bStartled ? 3.0 : 0.9, Dt);
-	const bool bAirborne = St->Up > 0.15;
+	// An insect on the wing never lands: it bobs about at its own height.
+	const double Hover = Rig.bHover ? Rig.Hover.X + (Rig.Hover.Y - Rig.Hover.X) * (0.5 + 0.5 * std::sin(T * 0.8 + Beat * 3.0)) : 0.0;
+	const bool bAirborne = St->Up > 0.15 || Rig.bHover;
 	if (((bStartled && !St->bStartled) || (bGreeting && !St->bGreeted)) && Rig.Alarm && T > St->QuietUntil)
 	{
 		St->QuietUntil = T + 5.0;
@@ -738,7 +740,7 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 			Rideable.Add(Thing);
 		}
 	}
-	Base.Position = Engine(X, Ground + St->Up + (Lift + Bob) * Size, Z);
+	Base.Position = Engine(X, Ground + St->Up + Hover + (Lift + Bob) * Size, Z);
 	Base.Rotation = EarthRigs::Turned(0.0, St->Yaw, Roll);
 	Base.Size = Size;
 	Pose.State = St;

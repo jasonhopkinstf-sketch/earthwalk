@@ -36,6 +36,7 @@ function emit(name, rig, vehicle) {
     out.push(`\tR.Neck = ${vec(rig.neck)};`);
     out.push(`\tR.bPeck = ${!!rig.peck}; R.Hop = ${num(rig.hop ?? 0)}; R.bSwim = ${rig.swim !== undefined}; R.Swim = ${num(rig.swim ?? 0)}; R.Waddle = ${num(rig.waddle ?? 0)};`);
     out.push(`\tR.TakesOff = ${num(rig.takesOff ?? 0)}; R.Curious = ${num(rig.curious ?? 0)}; R.bFly = ${!!rig.fly}; R.bFlock = ${!!rig.flock}; R.Yields = ${num(rig.yields ?? 0)}; R.Heel = ${num(rig.heel ?? 0)};`);
+    if (rig.hover) out.push(`\tR.bHover = true; R.Hover = FVector2D(${num(rig.hover[0])}, ${num(rig.hover[1])});`);
     if (rig.wing) {
       const w = rig.wing;
       out.push(`\tR.bWing = true; R.WingAir = ${vec(w.air)}; R.WingWalk = ${vec(w.walk)}; R.bWingStartled = ${!!w.startled}; R.WingStartled = ${vec(w.startled ?? [0, 0])}; R.WingRate = ${num(w.rate)};`);

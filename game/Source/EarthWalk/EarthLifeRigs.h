@@ -60,6 +60,8 @@ struct FEarthRig
 	double Curious = 0.0;
 	bool bFly = false;
 	bool bFlock = false;
+	bool bHover = false; // an insect on the wing never lands: it bobs about between these two heights, in metres
+	FVector2D Hover = FVector2D::ZeroVector;
 	double Yields = 0.0;
 	double Heel = 0.0;
 	bool bWing = false;

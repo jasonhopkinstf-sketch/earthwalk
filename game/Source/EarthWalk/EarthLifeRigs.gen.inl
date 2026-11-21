@@ -895,6 +895,7 @@
 	R.Neck = { 0.0, 0.0, 0.0 };
 	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
 	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bHover = true; R.Hover = FVector2D(0.5, 1.5);
 	R.bWing = true; R.WingAir = { 0.2, 0.9 }; R.WingWalk = { 0.2, 0.9 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 14.0;
 	R.Coats = { { 0xf0a030, 0x26221f }, { 0x5a8fd8, 0xf4f1ea }, { 0xf4f1ea, 0xf2c230 }, { 0xe86a88, 0x7a4f9a }, { 0xf2c230, 0xd9502e }, { 0x7ac0e8, 0x26221f } };
 	R.Parts = {
@@ -915,6 +916,7 @@
 	R.Neck = { 0.0, 0.0, 0.0 };
 	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
 	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bHover = true; R.Hover = FVector2D(0.4, 1.1);
 	R.bWing = true; R.WingAir = { 0.1, 0.5 }; R.WingWalk = { 0.1, 0.5 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 60.0;
 	R.Coats = { { 0xf2c230, 0x26221f } };
 	R.Parts = {
@@ -934,6 +936,7 @@
 	R.Neck = { 0.0, 0.0, 0.0 };
 	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
 	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bHover = true; R.Hover = FVector2D(0.5, 1.6);
 	R.bWing = true; R.WingAir = { 0.0, 0.35 }; R.WingWalk = { 0.0, 0.35 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 50.0;
 	R.Coats = { { 0x3f8fd0, 0xbfe0ee }, { 0x4caf6a, 0xbfe0ee }, { 0xd9502e, 0xbfe0ee }, { 0x2f8f8a, 0xbfe0ee } };
 	R.Parts = {
