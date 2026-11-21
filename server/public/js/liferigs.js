@@ -341,8 +341,23 @@ export const RIGS = {
   },
 };
 
-/** Cars and vans, driven by traffic.js. Colour "a" is the paint and "b" the glass. */
+/** Cars, vans and railway carriages, driven by traffic.js. Colour "a" is the paint and "b" the glass. */
 export const VEHICLES = {
+  // One carriage of a train, the same at both ends. A train is four of them in one colour.
+  railcar: {
+    coats: [0xc0392b, 0x2e7d4f, 0x2f5fa8, 0xe2a52b, 0xe07a2a, 0x6a4c93].map((c) => [c, GLASS]),
+    parts: [
+      ["box", "a", [0, 2.0, 0], [2.8, 2.5, 13.6]],
+      ["box", CREAM, [0, 1.45, 0], [2.84, 0.35, 13.64]],
+      ["box", "b", [0, 2.55, 0], [2.86, 0.75, 12.2]],
+      ["box", "b", [0, 2.55, 0], [2.2, 0.75, 13.66]],
+      ["box", 0x55595e, [0, 3.36, 0], [2.5, 0.25, 13.0]],
+      ["box", TYRE, [0, 0.45, -4.6], [2.3, 0.7, 2.8]],
+      ["box", TYRE, [0, 0.45, 4.6], [2.3, 0.7, 2.8]],
+      ...pair("sphere", CREAM, [0.9, 1.1, -6.82], [0.18, 0.14, 0.05]),
+      ...pair("sphere", CREAM, [0.9, 1.1, 6.82], [0.18, 0.14, 0.05]),
+    ],
+  },
   car: {
     coats: PAINTS,
     parts: [

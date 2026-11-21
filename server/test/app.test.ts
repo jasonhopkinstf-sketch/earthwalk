@@ -40,6 +40,21 @@ test("without an access code the world is open", async () => {
   }
 });
 
+test("a player can ask where they are, to about a kilometre", async () => {
+  const asked: [number, number][] = [];
+  const s = await start({ accessCode: "otter-42", placeDetail: async (lat, lon) => { asked.push([lat, lon]); return { name: "Montmartre, Paris", country: "France" }; } });
+  try {
+    assert.equal((await fetch(`${s.base}/v1/place?lat=48.88671&lon=2.34312`)).status, 401);
+    const res = await fetch(`${s.base}/v1/place?lat=48.88671&lon=2.34312`, { headers: { Authorization: "Bearer otter-42" } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { name: "Montmartre, Paris", country: "France" });
+    assert.deepEqual(asked, [[48.89, 2.34]], "only the rounded position is looked up");
+    assert.equal((await fetch(`${s.base}/v1/place?lat=abc&lon=2`, { headers: { Authorization: "Bearer otter-42" } })).status, 400);
+  } finally {
+    s.app.close();
+  }
+});
+
 test("with an access code, world data needs it too", async () => {
   const s = await start({ accessCode: "otter-42" });
   try {

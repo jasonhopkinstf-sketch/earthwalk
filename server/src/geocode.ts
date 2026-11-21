@@ -36,7 +36,9 @@ export async function geocode(query: string): Promise<Place | null> {
 // ---------------------------------------------------------------- place names
 
 interface NominatimAddress { [k: string]: string | undefined }
-const reverseCache = new Map<string, string | null>();
+/** Where a position is: a short name ("Montmartre, Paris") and the country, either of which may be unknown. */
+export interface PlaceDetail { name: string | null; country: string | null }
+const reverseCache = new Map<string, PlaceDetail>();
 
 /** A short, human place name from a Nominatim address: "Montmartre, Paris" or "Paris, France". */
 export function shortPlaceName(a: NominatimAddress | undefined): string | null {
@@ -53,15 +55,21 @@ export function shortPlaceName(a: NominatimAddress | undefined): string | null {
  * through the same one-per-second throttle as place search.
  */
 export async function placeName(lat: number, lon: number): Promise<string | null> {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return (await placeDetail(lat, lon)).name;
+}
+
+/** The same lookup, with the country as well: for the header that tells a player where they are. */
+export async function placeDetail(lat: number, lon: number): Promise<PlaceDetail> {
+  const nowhere: PlaceDetail = { name: null, country: null };
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return nowhere;
   const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   if (reverseCache.has(key)) return reverseCache.get(key)!;
-  const name = await throttle.run(async () => {
-    const res = await httpGet(`${NOMINATIM_URL}/reverse?format=jsonv2&zoom=14&lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, 15000);
+  const name = await throttle.run(async (): Promise<PlaceDetail> => {
+    const res = await httpGet(`${NOMINATIM_URL}/reverse?format=jsonv2&zoom=14&accept-language=en&lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, 15000);
     if (!res.ok) throw new Error(`reverse geocoder HTTP ${res.status}`);
     const row = (await res.json()) as { address?: NominatimAddress };
-    return shortPlaceName(row.address);
-  }).catch(() => null);
+    return { name: shortPlaceName(row.address), country: row.address?.country ?? null };
+  }).catch(() => nowhere);
   if (reverseCache.size >= 2000) reverseCache.delete(reverseCache.keys().next().value!);
   reverseCache.set(key, name);
   return name;

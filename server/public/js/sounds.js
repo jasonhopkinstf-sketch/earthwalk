@@ -3,7 +3,7 @@
 
 const MAX_VOICES = 6;
 /** How loud each call is against the others. */
-const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5, toot: 0.5, chug: 0.45 };
+const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5, toot: 0.5, chug: 0.45, whistle: 0.9 };
 
 export class Sounds {
   constructor() {
@@ -50,7 +50,7 @@ export class Sounds {
 
   /**
    * Plays one call at a place in the scene. `pitch` near 1 makes each animal's voice its own.
-   * @param {string} kind  one of the voices below: moo, baa, neigh, cluck, squawk, quack, coo, caw, woof, meow, bray, toot, chug
+   * @param {string} kind  one of the voices below: moo, baa, neigh, cluck, squawk, quack, coo, caw, woof, meow, bray, toot, chug, whistle
    * @returns {boolean} false when sound is off, not yet allowed, or too much is already playing
    */
   play(kind, x, y, z, pitch = 1) {
@@ -237,5 +237,17 @@ const VOICES = {
       });
     }
     return 0.9;
+  },
+  // A train: two long notes together, twice.
+  whistle(ctx, out, t0, p) {
+    for (let i = 0; i < 2; i++) {
+      for (const hz of [587, 740]) {
+        note(ctx, out, t0 + i * 0.75, {
+          type: "triangle", pitch: [[0, hz * p * 0.97], [0.08, hz * p], [0.6, hz * p * 0.99]], level: [[0.04, 0.6], [0.5, 0.55], [0.62, 0]],
+          vibrato: [6, 5], chain: [["lowpass", 2600, 0.7]],
+        });
+      }
+    }
+    return 1.45;
   },
 };

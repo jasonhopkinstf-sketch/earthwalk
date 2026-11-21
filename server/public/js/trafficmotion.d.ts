@@ -5,5 +5,9 @@ export interface CarPose { x: number; y: number; yaw: number; moving: boolean; l
 export const KERB_IN: number;
 export const EASE_M: number;
 export const TURN_M: number;
+export interface TrainPose { along: number; back: boolean; moving: boolean; leg: number }
 export function prepare(trip: TripInput): PreparedTrip;
+export function pointAt(trip: PreparedTrip, d: number): [number, number];
+export function headingAt(trip: PreparedTrip, d: number, reach?: number): number;
+export function trainPose(train: PreparedTrip, t: number): TrainPose;
 export function tripPose(trip: PreparedTrip, t: number): CarPose;

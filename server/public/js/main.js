@@ -195,6 +195,39 @@ function frame(now) {
   renderer.render(scene, camera);
 }
 
+// ---------------------------------------------------------------- where am I?
+// The header names the place the player is in. It asks the server whenever the player has moved to
+// another square about a kilometre across, and shows the coordinates until the answer comes.
+const where = { key: "", name: "", timer: 0 };
+function showWhere(here, travelling = false) {
+  const coords = `${here.lat.toFixed(4)}, ${here.lon.toFixed(4)}`;
+  $("where").hidden = false;
+  $("where-name").textContent = travelling ? "Travelling..." : where.name || coords;
+  $("where-sub").textContent = travelling ? "" : [where.country, where.name ? coords : ""].filter(Boolean).join("  ·  ");
+}
+function lookUpWhere(here) {
+  const key = `${here.lat.toFixed(2)},${here.lon.toFixed(2)}`;
+  if (key === where.key) return;
+  where.key = key;
+  clearTimeout(where.timer);
+  where.timer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/v1/place?lat=${here.lat.toFixed(2)}&lon=${here.lon.toFixed(2)}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
+      const place = res.ok ? await res.json() : {};
+      if (where.key !== key) return; // moved on meanwhile
+      const changed = (place.name ?? "") !== where.name;
+      where.name = place.name ?? "";
+      where.country = place.country ?? "";
+      if (changed && where.name) {
+        // A little flourish, so arriving somewhere is noticed.
+        $("where").classList.remove("arrived");
+        void $("where").offsetWidth;
+        $("where").classList.add("arrived");
+      }
+    } catch { /* the coordinates stay up */ }
+  }, 1200);
+}
+
 let slowTicks = 0;
 function tickSlow() {
   slowTicks++;
@@ -203,7 +236,13 @@ function tickSlow() {
   if (!player.waitingForGround) meetup.sendPosition(here.lat, here.lon, here.alt, player.heading);
   if (slowTicks % 5 === 0) {
     life.sync(player.position);
-    const parts = [`${here.lat.toFixed(5)}, ${here.lon.toFixed(5)}`];
+    if (player.waitingForGround) {
+      where.name = "";
+      where.country = "";
+      where.key = "";
+    } else lookUpWhere(here);
+    showWhere(here, player.waitingForGround);
+    const parts = [];
     if (player.flying) parts.push("flying");
     if (player.waitingForGround) parts.push(world.lastError || "building the world here...");
     parts.push(meetup.joined ? `room "${meetup.me.room}": ${meetup.peers.size + 1} here` : "meetup server: not connected");

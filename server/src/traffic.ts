@@ -222,7 +222,7 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
     const path: [number, number, number][] = [[pts[0][0], pts[0][1], 0]];
     for (let n = 1, t = 0; n <= count; n++) {
       t += ds / ((cap[n - 1] + cap[n]) / 2);
-      path.push([pts[n][0], pts[n][1], Math.round(t * 10) / 10]);
+      path.push([pts[n][0], pts[n][1], Math.round(t * 100) / 100]);
     }
     return { id: sp.seed || 1, w: width, left, dwellA: 60 + ((sp.seed >>> 3) % 180), dwellB: 30 + ((sp.seed >>> 17) % 90), path };
   }

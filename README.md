@@ -196,6 +196,14 @@ and `traffic.js` draws the cars and has them stop and toot for a player in the w
 ploughed fields and boats sail water near a shore; they circle a home like the animals do.
 docs/PROTOCOL.md, "Traffic".
 
+Trains (in the browser so far): `server/src/rail.ts` fetches the railway tracks for a wide square of
+the world, joins them into runs and timetables a train along each, stopping at stations. Every chunk
+on a run sends the same train, and the browser replays it and whistles as it passes.
+docs/PROTOCOL.md, "Trains".
+
+The browser game shows where you are in a header at the top of the screen ("Islington, Greater
+London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.
+
 ## Art assets and the look
 
 The Unreal game is drawn as a barnyard cartoon: flat painted colours, light sorted into a few flat

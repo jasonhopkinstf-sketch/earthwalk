@@ -10,13 +10,17 @@ import { Elevation } from "./elevation.ts";
 import { clipPolyline, featuresForChunk, groundClasses, placeTrees } from "./chunk.ts";
 import { placeHomes, placeMachines, placeWild } from "./life.ts";
 import { placeTraffic } from "./traffic.ts";
+import { trainsFor, type Train } from "./rail.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 5;
+export const LABELS_REV = 6;
+
+/** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
+export const partialLabels = new WeakSet<Buffer>();
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree" | "home" | "car" | "route";
+  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train";
   /** Plate text; absent on trees and homes. */
   text?: string;
   /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
@@ -26,6 +30,7 @@ export interface LabelItem {
   /**
    * Routes (a car's trip): the narrowest road's width in metres, 1 where people drive on the left, the
    * seconds it waits at each end, and the path as u, v, seconds, u, v, seconds... (docs/PROTOCOL.md, "Traffic").
+   * Trains have `da`, `db` and `pts` too ("Trains").
    */
   w?: number;
   left?: number;
@@ -108,7 +113,7 @@ function midpoint(piece: Pt[]): { at: Pt; dir: Dir } {
   return { at: piece[0], dir: [1, 0] };
 }
 
-export function buildLabels(cx: number, cy: number, features: Features, elev: Elevation): LabelItem[] {
+export function buildLabels(cx: number, cy: number, features: Features, elev: Elevation, trains: Train[] = []): LabelItem[] {
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
   const m = (metres: number): number => metres / S;
   const inChunk = (p: Pt): boolean => p[0] >= cx && p[0] < cx + 1 && p[1] >= cy && p[1] < cy + 1;
@@ -264,6 +269,16 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     };
   });
 
+  // ---- trains: the same item goes out with every chunk the run passes through, so its path can be long
+  const railway: LabelItem[] = trains.map((train) => {
+    const u = r5(train.path[0][0] - cx);
+    const v = r5(train.path[0][1] - cy);
+    return {
+      kind: "train", id: train.id, u, v, h: elev.surfaceHeight(Math.min(cx + 1, Math.max(cx, cx + u)), Math.min(cy + 1, Math.max(cy, cy + v))), yaw: 0,
+      da: train.wa, db: train.wb, pts: train.path.flatMap(([x, y, t]) => [r5(x - cx), r5(y - cy), t]),
+    };
+  });
+
   return [
     ...houses.slice(0, HOUSE_CAP).map((h) => h.it),
     ...[...crossings, ...plates].slice(0, STREET_CAP).map((s) => s.it),
@@ -271,13 +286,29 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     ...homes,
     ...cars,
     ...routes,
+    ...railway,
   ];
 }
 
 /** The labels JSON for one chunk, ready to serve. */
-export async function generateLabels(cx: number, cy: number, elev: Elevation, load = loadFeatures): Promise<Buffer> {
+export async function generateLabels(
+  cx: number, cy: number, elev: Elevation, load = loadFeatures,
+  // With the map swapped out (tests), the railways are not fetched either.
+  trains: (cx: number, cy: number) => Promise<Train[]> = load === loadFeatures ? trainsFor : async () => [],
+): Promise<Buffer> {
   const features = await featuresForChunk(cx, cy, load);
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
-  const body: LabelsJson = { x: cx, y: cy, rev: LABELS_REV, items: buildLabels(cx, cy, features, elev) };
-  return Buffer.from(JSON.stringify(body), "utf8");
+  // The railways come from a download of their own. If it fails, everything else is still worth sending.
+  let railway: Train[] = [];
+  let partial = false;
+  try {
+    railway = await trains(cx, cy);
+  } catch (err) {
+    partial = true;
+    console.warn(`labels ${cx}/${cy}: no trains this time: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const body: LabelsJson = { x: cx, y: cy, rev: LABELS_REV, items: buildLabels(cx, cy, features, elev, railway) };
+  const out = Buffer.from(JSON.stringify(body), "utf8");
+  if (partial) partialLabels.add(out);
+  return out;
 }

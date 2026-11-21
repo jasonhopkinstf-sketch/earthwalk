@@ -88,7 +88,12 @@ function overpassQuery(b: BBox): string {
     `);out body;>;out skel qt;`;
 }
 
-async function fromOverpass(b: BBox): Promise<OsmJson> {
+const fromOverpass = (b: BBox): Promise<OsmJson> => overpass(overpassQuery(b));
+
+/** One Overpass query of any kind, taking its turn in the same queue as the map downloads. */
+export const askOverpass = (query: string): Promise<OsmJson> => throttle.run(() => overpass(query));
+
+async function overpass(query: string): Promise<OsmJson> {
   if (Date.now() < overpassDownUntil) throw new Error("overpass recently failed; skipping");
   let lastErr: unknown;
   for (const url of OVERPASS_URLS) {
@@ -96,7 +101,7 @@ async function fromOverpass(b: BBox): Promise<OsmJson> {
       const res = await httpGet(url, 45000, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `data=${encodeURIComponent(overpassQuery(b))}`,
+        body: `data=${encodeURIComponent(query)}`,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return (await res.json()) as OsmJson;

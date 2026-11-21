@@ -9,6 +9,7 @@
 import { hash32 } from "./lifemotion.js";
 
 const SALT_TRIP = 0x54524950;
+const SALT_TRAIN = 0x54524149;
 /** From the edge of the road to the middle of a parked car, in metres. */
 export const KERB_IN = 0.95;
 /** A car takes this many metres to pull out from the kerb into its lane, and to pull in again. */
@@ -19,8 +20,8 @@ export const TURN_M = 3;
 
 const smooth = (g) => g * g * (3 - 2 * g);
 
-/** The point `d` metres along the middle of the road. */
-function pointAt(trip, d) {
+/** The point `d` metres along the middle of the road, or along the track. */
+export function pointAt(trip, d) {
   const p = trip.path;
   let lo = 0;
   let hi = trip.n - 1;
@@ -45,6 +46,40 @@ export function prepare(trip) {
   for (let i = 1; i < n; i++) dist[i] = dist[i - 1] + Math.hypot(trip.path[i * 3] - trip.path[i * 3 - 3], trip.path[i * 3 + 1] - trip.path[i * 3 - 2]);
   const time = trip.path[(n - 1) * 3 + 2];
   return { ...trip, n, dist, time, length: dist[n - 1], period: trip.da + trip.db + 2 * time };
+}
+
+/** Compass heading in degrees of the path `d` metres along it, taken across `reach` metres either side. */
+export function headingAt(trip, d, reach = TURN_M) {
+  const a = pointAt(trip, Math.max(0, d - reach));
+  const b = pointAt(trip, Math.min(trip.length, d + reach));
+  return ((Math.atan2(b[0] - a[0], -(b[1] - a[1])) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Where a train is at shared time `t`: it waits at the start, runs out along its track (standing a
+ * while at each station, where the path has two points in one place), waits at the far end and
+ * runs back. A train is the same at both ends, so it never turns round.
+ * @returns {{ along: number, back: boolean, moving: boolean, leg: number }}
+ *   `along`: metres along the track, from 0 to `train.length`. `back`: heading for the start.
+ */
+export function trainPose(train, t) {
+  const tau = (((t + (hash32(train.id, SALT_TRAIN) / 4294967296) * train.period) % train.period) + train.period) % train.period;
+  let leg = 0;
+  let at = 0;
+  if (tau >= train.da + train.time + train.db) { leg = 3; at = train.time - (tau - train.da - train.time - train.db); }
+  else if (tau >= train.da + train.time) { leg = 2; at = train.time; }
+  else if (tau >= train.da) { leg = 1; at = tau - train.da; }
+  const p = train.path;
+  let lo = 0;
+  let hi = train.n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (p[mid * 3 + 2] <= at) lo = mid; else hi = mid;
+  }
+  const span = p[hi * 3 + 2] - p[lo * 3 + 2];
+  const f = span > 0 ? Math.min(1, Math.max(0, (at - p[lo * 3 + 2]) / span)) : 0;
+  const run = train.dist[hi] - train.dist[lo];
+  return { along: train.dist[lo] + run * f, back: leg === 0 || leg === 3, moving: (leg === 1 || leg === 3) && run > 0, leg };
 }
 
 /**

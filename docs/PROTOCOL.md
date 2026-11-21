@@ -95,8 +95,8 @@ animals to life from it (see "Life" below).
 | Field | Meaning |
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
-| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives), `car` (a parked car) or `route` (a trip a car makes). A client skips kinds it does not know. |
-| `w`, `left`, `da`, `db`, `pts` | Routes only; see "Traffic". Cars and routes also carry an `id`. At most 60 cars and 14 routes per chunk. |
+| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives), `car` (a parked car), `route` (a trip a car makes) or `train`. A client skips kinds it does not know. |
+| `w`, `left`, `da`, `db`, `pts` | Routes; see "Traffic". Trains have `da`, `db` and `pts` too; see "Trains". Cars, routes and trains also carry an `id`. At most 60 cars and 14 routes per chunk. |
 | `sp`, `n`, `r`, `id` | Homes only: the animal (one of those listed under "Life"), how many, the radius in metres of the circle they roam in (for `bird`, of the ring the flock flies), and the home's identity (a whole number from 1 to 4294967295, the same on every visit). Per chunk, at most 40 farm homes with 150 animals, 40 other homes with 120 animals, and one flock. A client skips animals it does not know. |
 | `text`, `text2` | The plate text (absent on trees and homes). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
 | `s`, `r`, `c` | Trees only: height and canopy radius in metres, and `c` = 1 for a conifer. Trees are the same ones the chunk mesh draws as cones (surface id 30), so a client with its own tree models skips that section and plants these instead. At most 1500 per chunk, thinned evenly. |
@@ -233,9 +233,47 @@ body round to its heading gradually, which is what swings the car about at each 
 A car that finds a player in front of it stops and toots; that is each client's own doing, like the
 animals' reactions. It then runs a little late and makes up the time. Cars do not notice each other.
 
+## Trains
+
+A railway runs far beyond the piece of map a chunk is built from, so the server fetches the tracks
+separately for a wide square (a zoom-13 tile, 8 by 8 chunks: `server/src/rail.ts`). Inside a square it
+joins main-line tracks end to end, keeping straight on at points and cutting them at the square's
+edge, and puts one train on each run of 400 m or more (the six longest at most). Tunnels and sidings
+are left out. Every chunk of the square builds its trains from the same tracks, and a `train` item is
+sent with **every chunk its run passes through**, identical but for where its path is measured from.
+A client keeps one of each `id`.
+
+```json
+{"kind": "train", "id": 1671733423, "u": -4.99986, "v": 0.5, "h": 61.2, "yaw": 0, "da": 23, "db": 31,
+ "pts": [-4.99986, 0.5, 0, -4.97, 0.5, 6.67, -4.94, 0.5, 9.43]}
+```
+
+`pts` is the track as `u`, `v`, seconds since setting off, a point every 12 m: `u` and `v` are measured
+from the chunk the item came with and run far outside 0 to 1. Where the train stands at a station
+(14 s, within 80 m of a `railway=station` or `halt`) the path has two points in the same place. The
+times allow for a top pace of 14 m/s, easing off for bends, and gentle starts and stops.
+
+A client replays it like a car's route (`trainPose` in `server/public/js/trafficmotion.js`), with
+`τ = (t + unit(id, 0x54524149) × P) mod P`: waiting `da` seconds at the start, running out, waiting
+`db` at the far end, running back by the same path and times in reverse. A train is the same at both
+ends and never turns round. The browser draws four carriages of 13.6 m, 0.7 m apart, and puts the
+middle of the train at `len / 2 + along × (L − len) / L` metres along the track (`len` the train's
+length, `L` the track's, `along` where the timetable says it is), so the whole train stays on its run.
+
+If the tracks cannot be fetched, the labels are sent without trains and the server does not keep that
+answer, so the next request tries again. A train does not stop for players: it whistles and passes
+through them.
+
 ## Place search: `GET /v1/geocode?q=...`
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.
+
+## Where am I: `GET /v1/place?lat=...&lon=...`
+
+`200 {"name": "Montmartre, Paris", "country": "France"}`, either of which may be `null`. For the header
+that tells a player where they are. The position is rounded to two decimal places (about a kilometre)
+before it is looked up, and answers are remembered, so a client may ask again whenever its own rounded
+position changes. It takes the same access code as the other routes.
 
 ## Sign in with Google
 

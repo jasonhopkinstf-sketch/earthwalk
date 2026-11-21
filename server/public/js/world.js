@@ -204,6 +204,7 @@ export class World {
       chunk.homes = items.filter((it) => it.kind === "home"); // where herds live; life.js brings them to life
       chunk.routes = items.filter((it) => it.kind === "route"); // the trips cars make, and
       chunk.cars = items.filter((it) => it.kind === "car"); // the cars parked at the kerb; traffic.js drives them
+      chunk.trains = items.filter((it) => it.kind === "train"); // and the trains, each sent with every chunk on its run
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);

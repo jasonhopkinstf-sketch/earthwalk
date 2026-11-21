@@ -8,12 +8,17 @@
 import * as THREE from "three";
 import { hash32 } from "./lifemotion.js";
 import { VEHICLES } from "./liferigs.js";
-import { prepare, tripPose } from "./trafficmotion.js";
+import { headingAt, pointAt, prepare, trainPose, tripPose } from "./trafficmotion.js";
 
 const SHOW_M = 220;
 const MAX_PARKED = 40;
 const MAX_TRIPS = 14;
 const SALT_PAINT = 0x5041494e;
+const TRAIN_SHOW_M = 500;
+const CARRIAGES = 4;
+const CARRIAGE_M = 13.6;
+const COUPLING_M = 0.7;
+const TRAIN_M = CARRIAGES * CARRIAGE_M + (CARRIAGES - 1) * COUPLING_M;
 
 const unit = (a, b) => hash32(a, b) / 4294967296;
 const ease = (rate, dt) => 1 - Math.exp(-rate * dt);
@@ -37,6 +42,7 @@ export class Traffic {
     this.byChunk = new Map(); // chunk key -> { chunk, parked, trips }
     this.parked = []; // nearest first
     this.trips = [];
+    this.trains = [];
     this.states = new Map(); // car id -> { lag, yaw, tooted }
     this.shown = 0;
     this.euler = new THREE.Euler(0, 0, 0, "YXZ");
@@ -67,11 +73,22 @@ export class Traffic {
         const trip = prepare({ id: it.id >>> 0, w: Math.min(40, Math.max(2.5, it.w)), left: !!it.left, da: Math.max(1, it.da), db: Math.max(1, it.db), path });
         if (trip.time > 0) trips.push({ trip, wx: chunk.x, wy: chunk.y, ...looks(trip.id), d: 0 });
       }
-      this.byChunk.set(key, { chunk, parked, trips });
+      // A train comes with every chunk on its run. Its path is measured from the chunk that sent it.
+      const trains = [];
+      for (const it of chunk.trains ?? []) {
+        if (![it.id, it.da, it.db].every(Number.isFinite) || !Array.isArray(it.pts) || it.pts.length < 6 || !it.pts.every(Number.isFinite)) continue;
+        const path = it.pts.map((n, i) => (i % 3 === 0 ? ox + n * S : i % 3 === 1 ? oz + n * S : n));
+        const train = prepare({ id: it.id >>> 0, w: 0, left: false, da: Math.max(1, it.da), db: Math.max(1, it.db), path });
+        const rig = VEHICLES.railcar;
+        if (train.time > 0 && train.length > TRAIN_M + 30) trains.push({ train, rig, coat: rig.palette[hash32(train.id, SALT_PAINT) % rig.palette.length] });
+      }
+      this.byChunk.set(key, { chunk, parked, trips, trains });
     }
     this.parked = [];
     this.trips = [];
-    for (const { parked, trips } of this.byChunk.values()) {
+    const trains = new Map(); // one of each, whichever chunk it came with
+    for (const { parked, trips, trains: list } of this.byChunk.values()) {
+      for (const item of list) if (!trains.has(item.train.id)) trains.set(item.train.id, item);
       for (const car of parked) {
         car.d = Math.hypot(car.x - position.x, car.z - position.z);
         if (car.d < SHOW_M) this.parked.push(car);
@@ -82,6 +99,7 @@ export class Traffic {
         if (car.d < SHOW_M + 450) this.trips.push(car);
       }
     }
+    this.trains = [...trains.values()];
     this.parked.sort((a, b) => a.d - b.d);
     this.parked.length = Math.min(this.parked.length, MAX_PARKED);
     if (this.states.size > 300) this.states.clear();
@@ -145,6 +163,42 @@ export class Traffic {
       life.put(car.rig, car.coat, counts, null, 0, 0, t, 0);
       shown++;
     }
+    // ---- trains: four carriages spread along the track, the middle of the train where the timetable puts it
+    for (const { train, rig, coat } of this.trains) {
+      const pose = trainPose(train, t);
+      const middle = TRAIN_M / 2 + (pose.along * (train.length - TRAIN_M)) / train.length;
+      let nearest = Infinity;
+      for (let k = 0; k < CARRIAGES; k++) {
+        const d = middle - TRAIN_M / 2 + CARRIAGE_M / 2 + k * (CARRIAGE_M + COUPLING_M);
+        const [x, z] = pointAt(train, d);
+        const away = Math.hypot(x - me.x, z - me.z);
+        nearest = Math.min(nearest, away);
+        if (away > TRAIN_SHOW_M) continue;
+        const y = this.world.groundHeight(x, z);
+        if (y === null) continue;
+        life.base.compose(this.v.set(x, y, z), this.q.setFromEuler(this.euler.set(0, (-headingAt(train, d, 6) * Math.PI) / 180, 0)), this.s.set(1, 1, 1));
+        life.put(rig, coat, counts, null, 0, 0, t, 0);
+        shown++;
+      }
+      // It whistles as it sets off, and for anyone standing near the line as it passes.
+      let st = this.states.get(`train ${train.id}`); // kept apart from the cars, whose identities are numbers too
+      if (!st) this.states.set(`train ${train.id}`, (st = { wasMoving: pose.moving, whistleAt: 0 }));
+      if (nearest < 250 && t > st.whistleAt && ((pose.moving && !st.wasMoving) || (pose.moving && nearest < 45))) {
+        st.whistleAt = t + 12;
+        const [x, z] = pointAt(train, middle);
+        this.sounds.play("whistle", x, (this.world.groundHeight(x, z) ?? me.y) + 3, z, 0.92 + 0.16 * unit(train.id, 5));
+      }
+      st.wasMoving = pose.moving;
+    }
     this.shown = shown;
+  }
+
+  /** Every train near the player at shared time `t`: where the middle of it is, in scene metres (for the tests). */
+  whereTrains(t) {
+    return this.trains.map(({ train }) => {
+      const pose = trainPose(train, t);
+      const [x, y] = pointAt(train, TRAIN_M / 2 + (pose.along * (train.length - TRAIN_M)) / train.length);
+      return { id: train.id, x, y, ...pose };
+    });
   }
 }

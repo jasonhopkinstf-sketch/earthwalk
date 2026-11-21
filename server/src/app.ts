@@ -8,8 +8,8 @@ import { cacheRead, cacheWrite, InFlight } from "./cache.ts";
 import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
-import { generateLabels, LABELS_REV } from "./labels.ts";
-import { geocode, placeName as reversePlace, type Place } from "./geocode.ts";
+import { generateLabels, LABELS_REV, partialLabels } from "./labels.ts";
+import { geocode, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
 import { Presence } from "./presence.ts";
@@ -48,6 +48,8 @@ export interface AppOptions {
   signIn?: (code: string, nonce: string, redirectUri: string) => Promise<GoogleIdentity>;
   /** Names a position for the people list and `/home`. */
   placeName?: (lat: number, lon: number) => Promise<string | null>;
+  /** Names a position, with its country, for the header that tells a player where they are. Defaults to `placeName` when that is given. */
+  placeDetail?: (lat: number, lon: number) => Promise<PlaceDetail>;
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
@@ -110,6 +112,8 @@ export function createApp(options: AppOptions = {}): App {
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
   const accounts = options.accounts ?? new AccountDirectory(undefined, { accessCode, invited: options.invited });
   const placeName = options.placeName ?? reversePlace;
+  const givenName = options.placeName;
+  const placeDetail = options.placeDetail ?? (givenName ? async (lat: number, lon: number) => ({ name: await givenName(lat, lon), country: null }) : reverseDetail);
   const rooms = new Rooms(options.people ?? accounts, { placeName });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
@@ -257,7 +261,8 @@ export function createApp(options: AppOptions = {}): App {
    * Both kinds share the access check, the zoom/range checks and the per-caller cold-build limit.
    */
   const serveBuilt = async (req: IncomingMessage, res: ServerResponse, url: URL, m: RegExpExecArray,
-    cacheRel: (x: number, y: number) => string, build: (x: number, y: number) => Promise<Buffer>, contentType: string): Promise<void> => {
+    cacheRel: (x: number, y: number) => string, build: (x: number, y: number) => Promise<Buffer>, contentType: string,
+    keep: (built: Buffer) => boolean = () => true): Promise<void> => {
     if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
     const z = Number(m[1]);
     const x = Number(m[2]);
@@ -273,7 +278,7 @@ export function createApp(options: AppOptions = {}): App {
       }
       data = await building.get(rel, async () => {
         const built = await build(x, y);
-        await writeCache(rel, built);
+        if (keep(built)) await writeCache(rel, built); // something built with a piece missing is sent but not kept
         return built;
       });
     }
@@ -296,12 +301,20 @@ export function createApp(options: AppOptions = {}): App {
       const labels = /^\/v1\/labels\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (labels) {
         return serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
-          buildLabels, "application/json; charset=utf-8");
+          buildLabels, "application/json; charset=utf-8", (built) => !partialLabels.has(built));
       }
       if (p === "/v1/geocode") {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
         const place = await findPlace(url.searchParams.get("q") ?? "");
         return place ? json(res, 200, place) : json(res, 404, { error: "place not found" });
+      }
+      if (p === "/v1/place") {
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        const lat = Number(url.searchParams.get("lat"));
+        const lon = Number(url.searchParams.get("lon"));
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) return json(res, 400, { error: "lat and lon are needed" });
+        // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
+        return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
       }
       if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, ...rooms.stats() });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
