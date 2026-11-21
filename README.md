@@ -117,14 +117,14 @@ Chat commands:
 | `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in) |
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
-| `/world photo`, `/world generated` | Unreal only: switch between Google's photographic 3D world and our generated one (see below) |
-| `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for `/world photo` |
+| `/world auto`, `/world photo`, `/world generated` | Unreal only: our world on foot and Google's photographic 3D world from the air, the photographic world everywhere, or ours everywhere (see below) |
+| `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for the photographic world |
 
 Project defaults live in `game/Config/DefaultGame.ini`.
 
 ## The photographic world (experiment)
 
-The Unreal game can show Google's Photorealistic 3D Tiles instead of the generated world. It needs:
+The Unreal game can show Google's Photorealistic 3D Tiles as well as the generated world. It needs:
 
 1. The free **Cesium for Unreal** plugin (2.28 or newer for UE 5.8), installed into the engine from Fab.
    `game/build.cmd` notices it and builds the game with it; without it the game builds and plays as
@@ -133,11 +133,24 @@ The Unreal game can show Google's Photorealistic 3D Tiles instead of the generat
    with `/mapskey <key>` (saved on that PC only), `-EWMapsKey=<key>` on the command line, or
    `GoogleMapTilesKey` in `game/Config/DefaultGame.ini` (that one ships with the game, so do not commit it).
 
-`/world photo` then swaps our chunks for the tiles at the same spot, and `/world generated` swaps back;
-`-EWWorld=photo` starts in the photographic world. The generated world stays the default. Google's
-attribution is drawn on screen by the plugin. Other players still appear, but heights there are measured
-from the ellipsoid rather than sea level, so someone in the other kind of world can appear above or below
-the street. The code is in `game/Source/EarthWalk/EarthPhotoWorld.cpp`.
+With both, there are three kinds of world, chosen with `/world <kind>` or `-EWWorld=<kind>`:
+
+- `auto` (the default once the plugin and a key are there): our generated world on foot, the
+  photographic one from the air. Fly up (F, then Space) and above 60 m over the ground the view changes
+  to Google's tiles; come back below 45 m and ours returns. The tiles start loading out of sight from
+  about 22 m up, and not at all for someone who stays on foot, so walking costs no Google request. The
+  player only ever stands on our world. The heights are `PhotoAboveMeters` and `PhotoBelowMeters`
+  in `game/Config/DefaultGame.ini`.
+- `photo`: the tiles instead of our world, everywhere, walked on.
+- `generated`: ours everywhere, as without the plugin.
+
+Google's attribution is drawn on screen by the plugin whenever tiles are being fetched. Other players
+still appear. Our heights are above sea level and the tiles' above the ellipsoid, some tens of metres
+apart: in `auto` the game measures the gap on the spot and moves the tiles to our heights; in `photo`
+it does not, so someone in the other kind of world can appear above or below the street. Far from the
+last teleport the two drift apart (the tiles follow the Earth's curve and our world is flat), by about
+10 m at 10 km. The code is in `game/Source/EarthWalk/EarthPhotoWorld.cpp` and
+`AEarthWorld::UpdateAerial`.
 
 What to expect (checked on UE 5.8 with Cesium for Unreal 2.31 in November 2026):
 
@@ -146,10 +159,10 @@ What to expect (checked on UE 5.8 with Cesium for Unreal 2.31 in November 2026):
   its finest, not a loading fault.
 - The first visit to a place takes about half a minute to load; after that the plugin's cache
   (`game/cesium-request-cache.sqlite`, not committed) makes it a few seconds.
-- The player lands on the highest surface at that spot, which can be a roof.
+- In `photo` the player lands on the highest surface at that spot, which can be a roof.
 - The tiles carry their own baked sunlight and are lit again by ours, so shade looks blue.
-- Each start of the photographic world is one billable "root" request to Google; walking and flying
-  around afterwards is not billed separately. `-EWPhotoStats` logs the plugin's loading statistics.
+- Each session that shows or loads the tiles is one billable "root" request to Google; walking and
+  flying around afterwards is not billed separately. `-EWPhotoStats` logs the plugin's loading statistics.
 
 ## How it fits together
 

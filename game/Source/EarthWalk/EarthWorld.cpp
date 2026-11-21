@@ -4,8 +4,10 @@
 #include "EarthGeo.h"
 #include "EarthPhotoWorld.h"
 #include "EarthWalkAvatar.h"
+#include "EarthWalkCharacter.h"
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -64,15 +66,20 @@ AEarthWorld* AEarthWorld::Get(const UObject* WorldContext)
 void AEarthWorld::BeginPlay()
 {
 	Super::BeginPlay();
-	// -EWWorld=photo starts in the photographic world (used for comparison screenshots).
-	FString Kind;
-	if (FParse::Value(FCommandLine::Get(), TEXT("-EWWorld="), Kind) && Kind.Equals(TEXT("photo"), ESearchCase::IgnoreCase))
+	// With the plugin and a key, the view from the air is photographic unless told otherwise.
+	// -EWWorld=auto|photo|generated chooses for this run.
+	EEarthWorldKind Wanted = EarthPhoto::IsBuiltIn() && !FEarthWalkConfig::MapsKey().IsEmpty() ? EEarthWorldKind::Auto : EEarthWorldKind::Generated;
+	FString Asked;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-EWWorld="), Asked))
 	{
-		FString Reason;
-		if (!SetPhotoWorld(true, Reason))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("EarthWalk: %s"), *Reason);
-		}
+		Wanted = Asked.Equals(TEXT("photo"), ESearchCase::IgnoreCase) ? EEarthWorldKind::Photo
+			: Asked.Equals(TEXT("auto"), ESearchCase::IgnoreCase) ? EEarthWorldKind::Auto
+			: EEarthWorldKind::Generated;
+	}
+	FString Reason;
+	if (!SetWorldKind(Wanted, Reason))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EarthWalk: %s"), *Reason);
 	}
 	double Lat = 0.0, Lon = 0.0;
 	FEarthWalkConfig::StartLocation(Lat, Lon);
@@ -99,10 +106,12 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 {
 	Lat = FMath::Clamp(Lat, -85.0, 85.0);
 	OriginLat = Lat;
+	OriginLon = Lon;
 	OriginX = EarthGeo::LonToX(Lon);
 	OriginY = EarthGeo::LatToY(Lat);
 	TileCm = EarthGeo::MetersPerTile(Lat) * 100.0;
 	++Generation;
+	SetAerial(false); // a new place starts on the ground, in our own world
 
 	for (const TPair<FIntPoint, TObjectPtr<UProceduralMeshComponent>>& Pair : Chunks)
 	{
@@ -117,13 +126,13 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 	ClearLabels();
 	ChunkTimer = 0.f;
 
-	if (bPhotoWorld)
+	if (WorldKind == EEarthWorldKind::Photo)
 	{
 		// The georeference moves first, so a new tileset starts loading in the right place.
 		EarthPhoto::SetOrigin(GetWorld(), Lat, Lon);
 		if (!PhotoTileset)
 		{
-			PhotoTileset = EarthPhoto::SpawnTileset(GetWorld(), FEarthWalkConfig::MapsKey());
+			PhotoTileset = EarthPhoto::SpawnTileset(GetWorld(), FEarthWalkConfig::MapsKey(), /*bWalkable*/ true);
 		}
 		RestartPhotoWait();
 		// Ask where the ground is here. The answer does not depend on the camera, which at this moment is
@@ -133,19 +142,31 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 		EarthPhoto::SampleGround(GetWorld(), PhotoTileset, Lat, Lon, [WeakThis = TWeakObjectPtr<AEarthWorld>(this), AskedGeneration](bool bFound, double Z)
 		{
 			AEarthWorld* Self = WeakThis.Get();
-			if (Self && Self->bPhotoWorld && Self->Generation == AskedGeneration && bFound)
+			if (Self && Self->IsPhotoWorld() && Self->Generation == AskedGeneration && bFound)
 			{
 				Self->bPhotoGroundKnown = true;
 				Self->PhotoGroundZ = Z;
 			}
 		});
 	}
+	else if (WorldKind == EEarthWorldKind::Auto)
+	{
+		// The gap between sea level and the ellipsoid is different here, so it is measured again.
+		bAerialAligned = false;
+		bAerialSampling = false;
+		AerialRetryAfter = 0.0;
+		AerialAboveSince = 0.0;
+		if (PhotoTileset)
+		{
+			EarthPhoto::SetOrigin(GetWorld(), Lat, Lon);
+		}
+	}
 }
 
 bool AEarthWorld::PhotoGroundAtOrigin(double& OutZ) const
 {
 	OutZ = PhotoGroundZ;
-	return bPhotoWorld && bPhotoGroundKnown;
+	return IsPhotoWorld() && bPhotoGroundKnown;
 }
 
 void AEarthWorld::RestartPhotoWait()
@@ -154,9 +175,9 @@ void AEarthWorld::RestartPhotoWait()
 	bPhotoReady = false;
 }
 
-bool AEarthWorld::SetPhotoWorld(bool bPhoto, FString& OutReason)
+bool AEarthWorld::SetWorldKind(EEarthWorldKind NewKind, FString& OutReason)
 {
-	if (bPhoto)
+	if (NewKind != EEarthWorldKind::Generated)
 	{
 		if (!EarthPhoto::IsBuiltIn())
 		{
@@ -169,12 +190,20 @@ bool AEarthWorld::SetPhotoWorld(bool bPhoto, FString& OutReason)
 			return false;
 		}
 	}
-	else if (PhotoTileset)
+	if (NewKind != WorldKind)
 	{
-		PhotoTileset->Destroy();
-		PhotoTileset = nullptr;
+		// The two photographic kinds want different tilesets (only one is walked on), so each starts afresh.
+		SetAerial(false);
+		if (PhotoTileset)
+		{
+			PhotoTileset->Destroy();
+			PhotoTileset = nullptr;
+		}
+		bAerialSuspended = true;
+		bAerialAligned = false;
+		bAerialSampling = false;
 	}
-	bPhotoWorld = bPhoto;
+	WorldKind = NewKind;
 	bPhotoGroundKnown = false;
 	return true;
 }
@@ -217,7 +246,7 @@ FIntPoint AEarthWorld::ChunkAt(const FVector& Position) const
 
 bool AEarthWorld::HasChunkAt(const FVector& Position) const
 {
-	if (bPhotoWorld)
+	if (WorldKind == EEarthWorldKind::Photo)
 	{
 		// Tiles arrive coarse first and sharpen; wait for most of them so the player lands on the real
 		// street rather than on a rough stand-in, but never wait for ever.
@@ -247,6 +276,7 @@ void AEarthWorld::Tick(float DeltaSeconds)
 	{
 		ChunkTimer = 0.25f;
 		UpdateChunks(Player->GetActorLocation());
+		UpdateAerial(Player);
 	}
 
 	// Tell the room where we are, ten times a second.
@@ -268,7 +298,7 @@ void AEarthWorld::Tick(float DeltaSeconds)
 
 void AEarthWorld::UpdateChunks(const FVector& Around)
 {
-	if (bPhotoWorld)
+	if (WorldKind == EEarthWorldKind::Photo)
 	{
 		return; // the photographic tiles stand in for our own chunks, which SetOrigin has dropped
 	}
@@ -419,6 +449,7 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 					if (AEarthChunkLabels* Actor = GetWorld()->SpawnActor<AEarthChunkLabels>(FVector::ZeroVector, FRotator::ZeroRotator))
 					{
 						Actor->Build(*Items, (*Mesh)->GetComponentLocation(), TileCm, this);
+						Actor->SetActorHiddenInGame(bAerial);
 						Labels.Add(Key, Actor);
 					}
 				}
@@ -758,6 +789,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		Mesh->DestroyComponent();
 		return false;
 	}
+	Mesh->SetVisibility(!bAerial);
 	Chunks.Add(Key, Mesh);
 	return true;
 }
@@ -807,4 +839,203 @@ void AEarthWorld::UpdateAvatars()
 			Avatar->SetTarget(Target, Peer.Yaw);
 		}
 	}
+}
+
+/**
+ * The Auto kind. On foot the player is in our own world and Google is not asked for anything. Flying
+ * up, the tiles start loading out of sight, and above the switching height they take over the view;
+ * coming down, our world comes back before the tiles get close enough to look rough. The player
+ * collides with our world throughout: the tiles are only ever looked at.
+ */
+void AEarthWorld::UpdateAerial(const ACharacter* Player)
+{
+	if (WorldKind != EEarthWorldKind::Auto)
+	{
+		return;
+	}
+	const UEarthWalkSettings* Settings = GetDefault<UEarthWalkSettings>();
+	const double Above = FMath::Max(Settings->PhotoAboveMeters, 20.0);
+	const double Below = FMath::Clamp(Settings->PhotoBelowMeters, 10.0, Above - 5.0);
+	const double Preload = Below * 0.5; // start fetching well before the switch, so it is ready on the way up
+
+	const AEarthWalkCharacter* Walker = Cast<AEarthWalkCharacter>(Player);
+	const bool bFlying = Walker && Walker->IsFlying() && !Walker->IsWaitingForGround();
+
+	// Height over our own ground. The tiles have no collision in this kind, so a trace only finds our world.
+	double Height = 0.0;
+	if (bFlying)
+	{
+		const FVector Feet = Player->GetActorLocation() - FVector(0, 0, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		FHitResult Hit;
+		FCollisionQueryParams Params(FName(TEXT("EarthWalkAerial")), /*bTraceComplex*/ true, Player);
+		if (!GetWorld()->LineTraceSingleByChannel(Hit, Feet, Feet - FVector(0, 0, 1000000.0), ECC_Visibility, Params))
+		{
+			return; // nothing built below yet, so the height is unknown: leave things as they are
+		}
+		Height = (Feet.Z - Hit.ImpactPoint.Z) / 100.0;
+	}
+
+	// The tileset is made on the first climb, so a session that stays on foot costs no Google request.
+	const bool bWanted = bFlying && Height > Preload;
+	if (bWanted && !PhotoTileset)
+	{
+		EarthPhoto::SetOrigin(GetWorld(), OriginLat, OriginLon);
+		PhotoTileset = EarthPhoto::SpawnTileset(GetWorld(), FEarthWalkConfig::MapsKey(), /*bWalkable*/ false);
+		if (PhotoTileset)
+		{
+			PhotoTileset->SetActorHiddenInGame(true);
+			bAerialSuspended = false;
+			bAerialAligned = false;
+			bAerialSampling = false;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: aerial view: fetching Google's tiles at %.0f m up"), Height);
+		}
+	}
+	if (!PhotoTileset)
+	{
+		return;
+	}
+
+	// Back near the ground the tiles stop fetching; what is loaded stays for the next climb.
+	const bool bSuspend = !bWanted && !bAerial;
+	if (bSuspend != bAerialSuspended)
+	{
+		bAerialSuspended = bSuspend;
+		EarthPhoto::SetSuspended(PhotoTileset, bSuspend);
+	}
+	if (!bAerialSuspended && !bAerialAligned && !bAerialSampling)
+	{
+		StartAerialAlignment();
+	}
+
+	const double Now = FPlatformTime::Seconds();
+	if (bAerial)
+	{
+		if (!bFlying || Height < Below)
+		{
+			SetAerial(false);
+		}
+		return;
+	}
+	if (!bFlying || Height <= Above || !bAerialAligned)
+	{
+		AerialAboveSince = 0.0;
+		return;
+	}
+	if (AerialAboveSince <= 0.0)
+	{
+		AerialAboveSince = Now;
+	}
+	// Switch once most of the view has loaded. Someone flying along always has new tiles on the way,
+	// so that can take a while to come true; after a few seconds a view that is still sharpening beats
+	// none. The first second lets the plugin count what this view needs.
+	const double Waited = Now - AerialAboveSince;
+	if ((Waited > 1.0 && EarthPhoto::LoadProgress(PhotoTileset) >= 80.f) || Waited > 8.0)
+	{
+		SetAerial(true);
+	}
+}
+
+/**
+ * Our heights are above sea level and the tiles' are above the ellipsoid, which are some tens of
+ * metres apart, differently everywhere. So the gap is measured here: the tiles' height and ours at a
+ * grid of places round the origin, and the middle one of the differences, which is not thrown by a
+ * place where the tiles have a tree or a tall roof and we have not, or the other way round. (Measured
+ * at Titirangi: 37 m against a true 34 m, with single places up to 15 m out either way.)
+ */
+void AEarthWorld::StartAerialAlignment()
+{
+	if (FPlatformTime::Seconds() < AerialRetryAfter)
+	{
+		return;
+	}
+	TArray<FVector2D> Places;
+	TArray<double> Ours;
+	for (int32 North = -2; North <= 2; ++North)
+	{
+		for (int32 East = -2; East <= 2; ++East)
+		{
+			const FVector At(North * 3000.0, East * 3000.0, 0.0);
+			FHitResult Hit;
+			const FCollisionQueryParams Params(FName(TEXT("EarthWalkAlign")), /*bTraceComplex*/ true);
+			if (!GetWorld()->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 1000000.0), At - FVector(0, 0, 100000.0), ECC_Visibility, Params)
+				|| Hit.GetActor() != this)
+			{
+				continue; // no chunk there yet, or a tree or a person is in the way
+			}
+			double Lat, Lon, Alt;
+			WorldToGeo(At, Lat, Lon, Alt);
+			Places.Add(FVector2D(Lat, Lon));
+			Ours.Add(Hit.ImpactPoint.Z / 100.0);
+		}
+	}
+	if (Places.Num() < 5)
+	{
+		return; // our own world is not built here yet; this is tried again on the next pass
+	}
+	bAerialSampling = true;
+	const int32 AskedGeneration = Generation;
+	EarthPhoto::SampleHeights(PhotoTileset, Places, [WeakThis = TWeakObjectPtr<AEarthWorld>(this), AskedGeneration, Ours](const TArray<double>& Heights, const TArray<bool>& Found)
+	{
+		AEarthWorld* Self = WeakThis.Get();
+		if (!Self || Self->Generation != AskedGeneration || Self->WorldKind != EEarthWorldKind::Auto)
+		{
+			return; // the player has gone somewhere else since; SetOrigin has already reset this
+		}
+		Self->bAerialSampling = false;
+		TArray<double> Gaps;
+		for (int32 i = 0; i < FMath::Min(Ours.Num(), Heights.Num()); ++i)
+		{
+			if (Found.IsValidIndex(i) && Found[i])
+			{
+				Gaps.Add(Heights[i] - Ours[i]);
+			}
+		}
+		if (Gaps.Num() < 5)
+		{
+			Self->AerialRetryAfter = FPlatformTime::Seconds() + 10.0;
+			return;
+		}
+		Gaps.Sort();
+		const double Gap = Gaps[Gaps.Num() / 2];
+		EarthPhoto::SetOrigin(Self->GetWorld(), Self->OriginLat, Self->OriginLon, Gap);
+		Self->bAerialAligned = true;
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: aerial view: the tiles are %.1f m above our heights here (%d of %d places agreed to within %.1f m)"),
+			Gap, Gaps.Num(), Ours.Num(), Gaps.Last() - Gaps[0]);
+	});
+}
+
+/** Shows the tiles and hides our own world, or the other way round. Our world keeps its collision either way. */
+void AEarthWorld::SetAerial(bool bShowPhoto)
+{
+	if (bAerial == bShowPhoto)
+	{
+		return;
+	}
+	bAerial = bShowPhoto;
+	AerialAboveSince = 0.0;
+	for (const TPair<FIntPoint, TObjectPtr<UProceduralMeshComponent>>& Pair : Chunks)
+	{
+		if (Pair.Value)
+		{
+			Pair.Value->SetVisibility(!bAerial);
+		}
+	}
+	for (const TPair<FIntPoint, TObjectPtr<AEarthChunkLabels>>& Pair : Labels)
+	{
+		if (Pair.Value)
+		{
+			Pair.Value->SetActorHiddenInGame(bAerial);
+		}
+	}
+	if (PhotoTileset)
+	{
+		PhotoTileset->SetActorHiddenInGame(!bAerial);
+	}
+	// A blink of black covers the change of scenery.
+	const APlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (Controller && Controller->PlayerCameraManager)
+	{
+		Controller->PlayerCameraManager->StartCameraFade(1.f, 0.f, 0.35f, FLinearColor::Black, false, false);
+	}
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: aerial view: %s"), bAerial ? TEXT("showing Google's tiles") : TEXT("back to our own world"));
 }

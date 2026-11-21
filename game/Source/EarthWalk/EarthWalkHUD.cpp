@@ -135,9 +135,10 @@ public:
 			? FString::Printf(TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors"), *GameVersion())
 			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion());
 	}
-	void SetCredit(bool bPhotoWorld)
+	/** bGoogleLine: the plugin is drawing Google's own credit line, which can start before the tiles are shown. */
+	void SetCredit(bool bPhotoWorld, bool bGoogleLine)
 	{
-		bPhotoCredit = bPhotoWorld;
+		bPhotoCredit = bGoogleLine;
 		Credit->SetText(FText::FromString(CreditText(bPhotoWorld)));
 	}
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
@@ -273,7 +274,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		StatusTimer = 0.5f;
 		Overlay->SetStatus(StatusText());
 		const AEarthWorld* CreditWorld = AEarthWorld::Get(this);
-		Overlay->SetCredit(CreditWorld && CreditWorld->IsPhotoWorld());
+		Overlay->SetCredit(CreditWorld && CreditWorld->IsShowingPhoto(), CreditWorld && CreditWorld->IsPhotoCreditOnScreen());
 	}
 
 	// A signed-in player's home wins over wherever this device started, once per launch.
@@ -357,6 +358,10 @@ FString AEarthWalkHUD::StatusText() const
 		{
 			Text += TEXT("  |  flying");
 		}
+		if (Earth->GetWorldKind() == EEarthWorldKind::Auto && Earth->IsShowingPhoto())
+		{
+			Text += TEXT("  |  photographic view");
+		}
 		if (Character->IsRunning())
 		{
 			Text += TEXT("  |  running");
@@ -408,7 +413,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
-		AddLine(TEXT("/world photo   Google's photographic 3D world (needs /mapskey <key>)        /world generated   back to ours"), NoticeColor);
+		AddLine(TEXT("/world auto   ours on foot, Google's photographic 3D world from the air (needs /mapskey <key>)"), NoticeColor);
+		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
@@ -483,18 +489,22 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			AddLine(FString::Printf(TEXT("You are at %.6f, %.6f, %.0f m above sea level."), Lat, Lon, Alt), NoticeColor);
 		}
 	}
-	else if (Command == TEXT("world") && (Argument.Equals(TEXT("photo"), ESearchCase::IgnoreCase) || Argument.Equals(TEXT("generated"), ESearchCase::IgnoreCase)))
+	else if (Command == TEXT("world") && (Argument.Equals(TEXT("photo"), ESearchCase::IgnoreCase) || Argument.Equals(TEXT("generated"), ESearchCase::IgnoreCase) || Argument.Equals(TEXT("auto"), ESearchCase::IgnoreCase)))
 	{
 		AEarthWorld* Earth = AEarthWorld::Get(this);
 		if (Earth && Character)
 		{
-			const bool bPhoto = Argument.Equals(TEXT("photo"), ESearchCase::IgnoreCase);
+			const EEarthWorldKind Kind = Argument.Equals(TEXT("photo"), ESearchCase::IgnoreCase) ? EEarthWorldKind::Photo
+				: Argument.Equals(TEXT("auto"), ESearchCase::IgnoreCase) ? EEarthWorldKind::Auto
+				: EEarthWorldKind::Generated;
 			double Lat, Lon, Alt;
 			Earth->WorldToGeo(Character->GetActorLocation(), Lat, Lon, Alt);
 			FString Reason;
-			if (Earth->SetPhotoWorld(bPhoto, Reason))
+			if (Earth->SetWorldKind(Kind, Reason))
 			{
-				AddLine(bPhoto ? TEXT("Switching to the photographic world (Google 3D tiles). It sharpens over a few seconds.") : TEXT("Back to the generated world."), NoticeColor);
+				AddLine(Kind == EEarthWorldKind::Photo ? TEXT("Switching to the photographic world (Google 3D tiles). A new place takes up to half a minute.")
+					: Kind == EEarthWorldKind::Auto ? TEXT("Our world on foot, the photographic world from the air: press F and fly up.")
+					: TEXT("Back to the generated world."), NoticeColor);
 				Character->TeleportToGeo(Lat, Lon); // reload the world in place
 			}
 			else
@@ -507,7 +517,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		// Kept in this PC's own settings, never sent to the room and never echoed.
 		FEarthWalkConfig::Save(TEXT("MapsKey"), Argument);
-		AddLine(TEXT("Saved the Google Map Tiles key on this PC. Type /world photo to use it."), NoticeColor);
+		AddLine(TEXT("Saved the Google Map Tiles key on this PC. Type /world auto to use it."), NoticeColor);
 	}
 	else if (Command == TEXT("fly"))
 	{

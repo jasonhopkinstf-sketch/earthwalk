@@ -8,7 +8,20 @@ class AEarthChunkLabels;
 class AEarthWalkAvatar;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
+class ACharacter;
 class UProceduralMeshComponent;
+
+/**
+ * Which world is drawn. Generated is ours, built by the world server. Photo is Google's photographic
+ * tiles instead of ours, walked on. Auto is ours on foot and the tiles from the air: both are loaded,
+ * one is shown, and the player only ever stands on ours. See EarthPhotoWorld.h.
+ */
+enum class EEarthWorldKind : uint8
+{
+	Generated,
+	Photo,
+	Auto,
+};
 
 /**
  * The generated world. Streams chunks from the world server around the local player,
@@ -47,12 +60,24 @@ public:
 	bool HasChunkAt(const FVector& Position) const;
 
 	/**
-	 * Chooses between the generated world (the default) and Google's photographic 3D tiles. Returns
-	 * false with a reason when the photographic world cannot be shown (no plugin, no key). The change
-	 * takes effect at the next SetOrigin, so callers follow it with a teleport to where the player is.
+	 * Chooses the kind of world. Returns false with a reason when a photographic kind cannot be shown
+	 * (no plugin, no key). The change takes effect at the next SetOrigin, so callers follow it with a
+	 * teleport to where the player is.
 	 */
-	bool SetPhotoWorld(bool bPhoto, FString& OutReason);
-	bool IsPhotoWorld() const { return bPhotoWorld; }
+	bool SetWorldKind(EEarthWorldKind NewKind, FString& OutReason);
+	EEarthWorldKind GetWorldKind() const { return WorldKind; }
+
+	/** True in the kind where the tiles are the whole world and are walked on. */
+	bool IsPhotoWorld() const { return WorldKind == EEarthWorldKind::Photo; }
+
+	/** True while Google's tiles are what is on screen, in either photographic kind. */
+	bool IsShowingPhoto() const { return WorldKind == EEarthWorldKind::Photo || bAerial; }
+
+	/**
+	 * True while the plugin may be drawing Google's credit line along the bottom of the screen: from the
+	 * first fetch of tiles, and it stays up after the fetching pauses.
+	 */
+	bool IsPhotoCreditOnScreen() const { return PhotoTileset != nullptr; }
 
 	/**
 	 * In the photographic world: the engine Z of the ground at the origin, where a teleport puts the
@@ -86,6 +111,9 @@ private:
 	void RequestLabels(FIntPoint Key);
 	void ClearLabels();
 	void UpdateAvatars();
+	void UpdateAerial(const ACharacter* Player);
+	void StartAerialAlignment();
+	void SetAerial(bool bShowPhoto);
 	FIntPoint ChunkAt(const FVector& Position) const;
 
 	UPROPERTY()
@@ -106,15 +134,23 @@ private:
 	UPROPERTY()
 	TMap<FString, TObjectPtr<AEarthWalkAvatar>> Avatars;
 
-	/** The Cesium tileset of the photographic world, while it is on (EarthPhotoWorld.h). */
+	/** The Cesium tileset of the photographic kinds, while there is one (EarthPhotoWorld.h). */
 	UPROPERTY()
 	TObjectPtr<AActor> PhotoTileset;
 
-	bool bPhotoWorld = false;
+	EEarthWorldKind WorldKind = EEarthWorldKind::Generated;
 	double PhotoSince = 0.0; // when the photographic world was last pointed at a new place
 	mutable bool bPhotoReady = false; // HasChunkAt has said yes since then
 	bool bPhotoGroundKnown = false;
 	double PhotoGroundZ = 0.0;
+
+	// Auto kind: the view from the air.
+	bool bAerial = false; // the tiles are on screen and our own world is hidden
+	bool bAerialSuspended = true; // the tileset is not fetching (the player is on or near the ground)
+	bool bAerialAligned = false; // the tiles have been moved to our heights for this origin
+	bool bAerialSampling = false;
+	double AerialRetryAfter = 0.0;
+	double AerialAboveSince = 0.0; // when the player last rose above the switching height
 
 	TSet<FIntPoint> Pending;
 	TMap<FIntPoint, double> RetryAfter;
@@ -125,6 +161,7 @@ private:
 	double OriginX = 0.0; // tile coordinates of engine (0, 0)
 	double OriginY = 0.0;
 	double OriginLat = 0.0;
+	double OriginLon = 0.0;
 	double TileCm = 1.0; // engine units per chunk at the origin's latitude
 	int32 Generation = 0; // bumped by SetOrigin so late replies for the old area are ignored
 	float ChunkTimer = 0.f;

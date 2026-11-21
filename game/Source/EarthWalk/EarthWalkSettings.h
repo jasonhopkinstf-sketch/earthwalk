@@ -55,6 +55,17 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "World")
 	FString GoogleMapTilesKey;
 
+	/**
+	 * /world auto: flying higher than this over the ground (in metres) shows Google's photographic
+	 * tiles instead of the generated world, which comes back below PhotoBelowMeters. The gap between
+	 * the two stops the view flickering at the boundary.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "World", meta = (ClampMin = 20.0))
+	double PhotoAboveMeters = 60.0;
+
+	UPROPERTY(Config, EditAnywhere, Category = "World", meta = (ClampMin = 10.0))
+	double PhotoBelowMeters = 45.0;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Player")
 	bool bInvertMouseY = false;
 
