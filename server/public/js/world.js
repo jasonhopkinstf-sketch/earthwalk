@@ -19,6 +19,61 @@ const LABEL_RETRY_MS = 15000;
 const LABEL_TRIES = 4;
 const WATER = 7; // the ground that boats sail on and nothing else may cross
 const isBuilding = (id) => id >= 20 && id <= 25;
+const isWall = (id) => id >= 20 && id <= 23;
+
+/**
+ * Where each corner of a wall is on that wall, so the wall material can draw windows that fit it:
+ * metres along the wall, metres up from the ground, the length of the wall and its height above the
+ * ground (walls go down into the ground a little, and on a slope a long way). The server sends a wall
+ * as four corners and two triangles; gable ends and anything else get zeros, and so no windows.
+ */
+function wallCoords(pos, indices, groundAt) {
+  const wall = new Float32Array((pos.length / 3) * 4);
+  for (let t = 0; t + 5 < indices.length; ) {
+    const a = Math.min(indices[t], indices[t + 1], indices[t + 2]);
+    const second = [indices[t + 3], indices[t + 4], indices[t + 5]];
+    const quad = Math.max(indices[t], indices[t + 1], indices[t + 2]) === a + 2 && Math.min(...second) === a && Math.max(...second) === a + 3;
+    if (!quad) { t += 3; continue; }
+    t += 6;
+    const y = [0, 1, 2, 3].map((k) => pos[(a + k) * 3 + 1]);
+    const foot = Math.min(...y), top = Math.max(...y);
+    if (top - foot < 2.6) continue;
+    const low = [0, 1, 2, 3].filter((k) => y[k] < (foot + top) / 2);
+    if (low.length !== 2) continue;
+    const [k0, k1] = low;
+    const g0 = groundAt(pos[(a + k0) * 3], pos[(a + k0) * 3 + 2]), g1 = groundAt(pos[(a + k1) * 3], pos[(a + k1) * 3 + 2]);
+    const height = top - Math.max(g0, g1);
+    if (height < 2.2) continue;
+    const dx = pos[(a + k1) * 3] - pos[(a + k0) * 3], dz = pos[(a + k1) * 3 + 2] - pos[(a + k0) * 3 + 2];
+    const length = Math.hypot(dx, dz);
+    if (length < 1.8) continue;
+    for (let k = 0; k < 4; k++) {
+      const along = ((pos[(a + k) * 3] - pos[(a + k0) * 3]) * dx + (pos[(a + k) * 3 + 2] - pos[(a + k0) * 3 + 2]) * dz) / length;
+      wall.set([along, y[k] - (g0 + (g1 - g0) * Math.min(1, Math.max(0, along / length))), length, height], (a + k) * 4);
+    }
+  }
+  return wall;
+}
+
+// Windows, drawn by the wall's own material: one to a bay and a row to a storey, spaced to fit the
+// wall so that none is cut off at a corner. White frames, blue glass, a cross of glazing bars.
+const WINDOWS = `
+  if (vWall.z > 1.8 && vWall.w > 2.2) {
+    float bay = vWall.z / max(1.0, floor((vWall.z - 0.5) / 2.7));
+    float x = abs(fract(vWall.x / bay) - 0.5) * bay;
+    float rows = max(1.0, floor((vWall.w + 0.3) / 3.0));
+    float up = vWall.y;
+    float row = floor(up / 3.0);
+    float y = up - row * 3.0;
+    if (row >= 0.0 && row < rows) {
+      float frame = step(x, 0.62) * step(0.88, y) * step(y, 2.42);
+      float glass = step(x, 0.52) * step(0.98, y) * step(y, 2.32);
+      float bars = min(1.0, step(x, 0.04) + step(abs(y - 1.65), 0.04));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.88, 0.8), frame);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.4, 0.62), glass * (1.0 - bars));
+    }
+  }
+`;
 
 // Tree parts, shared by every chunk: unit shapes scaled per tree (the same proportions as the Unreal game).
 const TRUNK = new THREE.CylinderGeometry(0.5, 0.5, 1, 7);
@@ -119,6 +174,25 @@ export class World {
     return m;
   }
 
+  /** The same paint for a wall, with windows in it. */
+  wallMaterial(color) {
+    const key = `wall,${color.join(",")}`;
+    let m = this.materials.get(key);
+    if (!m) {
+      m = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace) });
+      m.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", "#include <common>\nattribute vec4 wall;\nvarying vec4 vWall;")
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWall = wall;");
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", "#include <common>\nvarying vec4 vWall;")
+          .replace("#include <color_fragment>", `#include <color_fragment>\n${WINDOWS}`);
+      };
+      this.materials.set(key, m);
+    }
+    return m;
+  }
+
   /** Call regularly with the player's position: loads what is near, drops what is far. */
   update(position) {
     const { cx, cy } = this.chunkAt(position.x, position.z);
@@ -195,7 +269,9 @@ export class World {
       geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       geometry.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
       geometry.setIndex(new THREE.BufferAttribute(section.indices, 1));
-      const mesh = new THREE.Mesh(geometry, this.material(section.color));
+      const walls = isWall(section.materialId);
+      if (walls) geometry.setAttribute("wall", new THREE.BufferAttribute(wallCoords(pos, section.indices, (px, pz) => terrainHeight(data.heights, px / S, pz / S)), 4));
+      const mesh = new THREE.Mesh(geometry, walls ? this.wallMaterial(section.color) : this.material(section.color));
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
       if (isBuilding(section.materialId)) {

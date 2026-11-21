@@ -13,6 +13,7 @@ import { geocode, placeDetail as reverseDetail, placeName as reversePlace, type 
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
 import { Talker } from "./talk.ts";
+import { Journals, type JournalStore } from "./journal.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 
@@ -53,6 +54,8 @@ export interface AppOptions {
   talker?: Talker;
   /** Names a position, with its country, for the header that tells a player where they are. Defaults to `placeName` when that is given. */
   placeDetail?: (lat: number, lon: number) => Promise<PlaceDetail>;
+  /** Where each player's journal is kept. Without one, journals last only as long as the visit. */
+  journalStore?: JournalStore | null;
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
@@ -64,7 +67,7 @@ export interface AppOptions {
 /** The server version, from package.json, shown by clients so a deploy can be told apart. */
 export const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
-export interface App { server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; close(): void }
+export interface App { server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; journals: Journals; close(): void }
 
 const PENDING_MS = 10 * 60 * 1000; // sign-ins and game links wait at most this long
 const COOKIE_DAYS = 180;
@@ -118,7 +121,8 @@ export function createApp(options: AppOptions = {}): App {
   const givenName = options.placeName;
   const placeDetail = options.placeDetail ?? (givenName ? async (lat: number, lon: number) => ({ name: await givenName(lat, lon), country: null }) : reverseDetail);
   const talker = options.talker ?? new Talker();
-  const rooms = new Rooms(options.people ?? accounts, { placeName, talker });
+  const journals = new Journals({ store: options.journalStore ?? null, placeDetail });
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
@@ -236,10 +240,12 @@ export function createApp(options: AppOptions = {}): App {
       links.delete(link[1].toUpperCase());
       return json(res, 200, { token: ready.token, name: ready.name, avatar: ready.avatar }), true;
     }
-    if (p === "/v1/me" || p === "/v1/people") {
+    if (p === "/v1/me" || p === "/v1/people" || p === "/v1/journal") {
       const me = accounts.byToken(tokenOf(req));
       if (!me) return json(res, 401, { error: "sign in first" }), true;
       res.setHeader("Cache-Control", "no-store");
+      // A journal goes to its owner and nobody else: there is no way to name another person here.
+      if (p === "/v1/journal") return json(res, 200, await journals.viewPerson(me.id)), true;
       if (p === "/v1/me") return json(res, 200, { id: me.id, name: me.name, avatar: me.avatar, email: me.email, home: me.home, created: me.created }), true;
       return json(res, 200, { people: presence.snapshot() }), true;
     }
@@ -337,5 +343,5 @@ export function createApp(options: AppOptions = {}): App {
     rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req));
   });
 
-  return { server, rooms, accounts, presence, close: () => { presence.close(); rooms.close(); server.close(); } };
+  return { server, rooms, accounts, presence, journals, close: () => { presence.close(); rooms.close(); void journals.close(); server.close(); } };
 }

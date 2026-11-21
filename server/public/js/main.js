@@ -7,6 +7,7 @@ import { Meetup } from "./net.js";
 import { Player } from "./player.js";
 import { Riding } from "./riding.js";
 import { Sounds } from "./sounds.js";
+import { Passport } from "./passport.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
@@ -181,6 +182,8 @@ meetup.addEventListener("welcome", (e) => {
   for (const line of history) addLine(line.text, "", line.name);
 });
 meetup.addEventListener("people", (e) => showPeople(e.detail));
+const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup });
+meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""} (P opens your passport)`));
 meetup.addEventListener("home", (e) => { if (e.detail) notice(`Home set to ${e.detail.name}. You will start there next time.`); });
 
 // ---------------------------------------------------------------- the world
@@ -329,9 +332,12 @@ addEventListener("keydown", (e) => {
     say.focus();
   } else if (e.code === "Escape") {
     if (document.activeElement === say) say.blur();
+    passport.close();
     talk.stop(); // and stop talking to whatever it was
   } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
     if (talk.begin()) { e.preventDefault(); say.focus(); } // say hello, then type
+  } else if (e.code === "KeyP" && document.activeElement !== say && !e.repeat) {
+    passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
     riding.key(); // hop on whatever is nearest, or hop off
   }
@@ -370,6 +376,9 @@ async function command(name, arg) {
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
+    notice("P   your passport (or /passport): countries, places, friends, stamps and your level");
+  } else if (name === "passport" || name === "journal") {
+    passport.toggle();
   } else if (name === "goto" && arg) {
     notice(`Looking for "${arg}"...`);
     try {

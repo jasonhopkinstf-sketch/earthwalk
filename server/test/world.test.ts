@@ -5,6 +5,7 @@ import { Elevation, GRID } from "../src/elevation.ts";
 import { CHUNK_Z, latToY, lonToX, metersPerTile, xToLon, yToLat } from "../src/geo.ts";
 import { buildLabels, generateLabels, type LabelsJson } from "../src/labels.ts";
 import { buildingHeight, parseOsm, stitchRings, type Features, type OsmJson } from "../src/osm.ts";
+import { TEMPERATE } from "../src/styles.ts";
 
 const CX = 33185;
 const CY = 22545;
@@ -98,10 +99,11 @@ test("parseOsm classifies features", () => {
   assert.equal(f.addresses[0].street, undefined);
 });
 
+/** These tests are about how any house is built, so they use the style of no place in particular. */
 async function mesh(cx: number, cy: number, f: Features) {
   const elev = hills();
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
-  return { elev, mesh: buildChunkMesh(cx, cy, f, elev) };
+  return { elev, mesh: buildChunkMesh(cx, cy, f, elev, TEMPERATE) };
 }
 
 test("chunk mesh is well formed and faces outward", async () => {

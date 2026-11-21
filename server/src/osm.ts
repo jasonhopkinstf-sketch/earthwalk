@@ -7,6 +7,8 @@ import { httpGet, Throttle } from "./net.ts";
 
 /** OSM data is fetched and cached in tiles at this zoom (2x2 chunks each). */
 export const DATA_Z = 15;
+/** How far past its own edges a data tile is fetched, as a share of its width. */
+export const DATA_MARGIN = 0.08;
 
 export type Pt = [number, number]; // world coordinates (CHUNK_Z tile units)
 
@@ -189,7 +191,7 @@ export function fetchOsmTile(dx: number, dy: number): Promise<OsmJson> {
   return inflight.get(rel, async () => {
     const cached = await cacheRead(rel);
     if (cached) return JSON.parse(cached.toString("utf8")) as OsmJson;
-    const m = 0.08;
+    const m = DATA_MARGIN;
     const b: BBox = {
       w: xToLon(dx - m, DATA_Z), e: xToLon(dx + 1 + m, DATA_Z),
       n: yToLat(dy - m, DATA_Z), s: yToLat(dy + 1 + m, DATA_Z),

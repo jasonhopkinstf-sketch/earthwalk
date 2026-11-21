@@ -82,6 +82,14 @@ no access code at all, anyone can sign up (as anyone can already join).
 and redeploys as long as the disk does. To remove someone, delete their entry from that file
 and restart; their tokens stop working at once because they point at the entry.
 
+**Journals.** Each signed-in person has a journal of where they have been and what they have done,
+in two files under `journal/` in the same cache directory: `<their id>.json`, the summary their
+passport is drawn from, and `<their id>.log`, a line for everything that happened (each arrival, a
+point of their trail every hundred metres, each ride, each conversation with what they typed and what
+was answered). Only its owner can read a journal through the server. Whoever runs the server can read
+the files, so treat them as you would the accounts. To wipe someone's journal, delete their two
+files while they are not in the world. Guests have no journal on disk.
+
 **The Windows game** has no Google login of its own. Type `/login` in the game: it opens your
 browser at the server's sign-in page, and once you have signed in there the game picks up its
 token within a few seconds and remembers it. `/logout` forgets it. The game needs no access

@@ -7,14 +7,15 @@
 // the binary layout and the coordinate conventions.
 
 import earcut from "earcut";
-import { CHUNK_Z, hash32, metersPerTile } from "./geo.ts";
+import { CHUNK_Z, hash32, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { Elevation, GRID } from "./elevation.ts";
-import { type Building, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
+import { type Building, DATA_MARGIN, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
+import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
 
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 8;
+export const GENERATOR_REV = 9;
 export const FLAG_COLLISION = 1;
 
 interface MaterialDef { id: number; color: number; collision: boolean }
@@ -55,26 +56,23 @@ const GROUND_ORDER: GroundClass[] = ["urban", "farm", "grass", "forest", "sand",
 export const groundClassId = (c: GroundClass): number => GROUND_ORDER.indexOf(c) + 1;
 // ---- house paints. A building keeps its own colours, chosen by its id, so a street is a row of
 // different houses. The wall and roof ids say how a surface is drawn (docs/PROTOCOL.md); a section's
-// colour says what paint it has, so one id can come in several sections.
+// colour says what paint it has, so one id can come in several sections. Which paints a place has,
+// and what its roofs are like, comes from its part of the world (styles.ts): painted or boarded
+// houses are wall0, brick and stone ones wall3, and flats, shops and anything large wall1 or wall2.
 
-/** Painted houses (wall0). */
-const HOUSE_PAINTS = [0xf6e8c6, 0xf2cc74, 0xbcd6e6, 0xa9d6a4, 0xf3b9a2, 0xefe9dc, 0xe3a857, 0x9dbbe0, 0xdf9a94];
-/** Brick houses (wall3). */
-const HOUSE_BRICKS = [0xc9503c, 0xb5553c, 0xd07a55];
-/** Shops, offices, flats and anything large: calmer (wall1 painted, wall2 concrete). */
-const BIG_PAINTS = [0xbcd6e6, 0xd7dde3, 0xe9dfc9, 0xcdd8c4, 0xe6cdbb, 0xc9c4d8];
-const ROOF_PAINTS: [typeof MATERIALS.roof0, number][] = [
-  [MATERIALS.roof0, 0x5d6f8c], [MATERIALS.roof1, 0xc75f3f], [MATERIALS.roof0, 0x4f5560],
-  [MATERIALS.roof1, 0x8a5a44], [MATERIALS.roof0, 0x6f8f5a], [MATERIALS.roof1, 0xb5483a],
-];
-const DOOR_PAINTS = [0xb5372e, 0x3f6fb0, 0x3f7f4f, 0xe0a82e, 0x7a4f9a, 0x2f8f8a, 0x7a4a2e];
 const BARN_RED = 0xb8372b;
 const BARN_ROOF = 0x4a4f5c;
+/** Flat roofs where roofs are usually pitched: felt and gravel. */
+const FLAT_ROOFS = [0x7a7f86, 0x6e6a66, 0x8a8f96, 0x9a958c];
 export const BARN_KINDS = /^(barn|farm|farm_auxiliary|stable|cowshed|sty|granary)$/;
 /** Buildings that are small but are not somebody's house: no front door, porch or chimney. */
 export const PLAIN_KINDS = /^(garage|garages|shed|carport|roof|greenhouse|kiosk|hut|industrial|warehouse|retail|commercial|supermarket|service|toilets|transformer_tower)$/;
+/** Buildings people live in, or that the map only calls a building: when large, these follow the local style of flats. */
+const DWELLING_KINDS = /^(|residential|house|detached|semidetached_house|terrace|apartments|bungalow|dormitory|hotel)$/;
 
 const painted = (m: MaterialDef, hex: number): MaterialDef => ({ id: m.id, color: rgb(hex), collision: m.collision });
+/** A roof in a colour: the warm ones (clay, rust) are roof1, the cool and pale ones roof0. */
+const roofIn = (hex: number): MaterialDef => painted((hex >>> 16) > (hex & 0xff) + 40 && ((hex >>> 8) & 0xff) < 0xb0 ? MATERIALS.roof1 : MATERIALS.roof0, hex);
 
 class Section {
   readonly mat: MaterialDef;
@@ -488,8 +486,14 @@ function box(sec: Section, x: number, y: number, t: XY, o: XY, w0: number, w1: n
 /** Where a chimney can stand on a pitched roof: a point on the ridge and the way the ridge runs. */
 interface RidgeSpot { x: number; y: number; z: number; along: XY }
 
-/** How far a pitched roof reaches out past the walls, in metres. */
-const EAVES = 0.4;
+/** What kind of roof a building gets when the map does not say: see `HouseStyle` in styles.ts. */
+interface RoofLook {
+  form: RoofForm;
+  /** Buildings this tall or taller get a flat roof even where roofs are pitched. */
+  maxPitched: number;
+  pitch: number;
+  eaves: number;
+}
 /** Width of the pavement beside a town street, in metres. */
 const PAVEMENT = 1.6;
 
@@ -499,13 +503,50 @@ const PAVEMENT = 1.6;
  * along the middle). Flat on everything else and whenever OSM says flat: big or tall buildings stay
  * flat unless OSM says otherwise.
  */
-function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Section, roof: Section, soffit: Section): RidgeSpot | null {
+function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: number, look: RoofLook, walls: Section, roof: Section, flatRoof: Section, soffit: Section): RidgeSpot | null {
   const shape = b.roof ?? "";
-  const pitched = !/^(flat|skillion)$/.test(shape) &&
-    (/gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape) || (areaM2 < 1500 && b.height < 13));
-  const simple = pitched ? simplifyRing(ring) : [];
-  if (areaM2 < 400 && simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
-    const rise = Math.min(b.height * 0.8, b.roofHeight ?? clamp(0.35 * Math.sqrt(areaM2), 1.8, 5));
+  const EAVES = look.eaves;
+  const flatTag = /^(flat|skillion)$/.test(shape);
+  const tagged = /gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape);
+  const mansard = !flatTag && (shape === "mansard" || (!tagged && look.form === "mansard" && height < 26 && areaM2 < 4000));
+  const pitched = !flatTag && !mansard && (tagged || (look.form === "pitched" && areaM2 < 1500 && height < look.maxPitched));
+  const simple = pitched || mansard ? simplifyRing(ring) : [];
+
+  /** Slopes in from every wall by `d` metres, rising `rise`, with a flat top. Null when the outline is too narrow for it. */
+  const crown = (d: number, rise: number): RidgeSpot | null => {
+    const inner = insetRing(simple, d);
+    if (!inner) return null;
+    for (let i = 0; i < simple.length; i++) {
+      const j = (i + 1) % simple.length;
+      slopeFace(roof, [[simple[i][0], simple[i][1], top], [simple[j][0], simple[j][1], top], [inner[j][0], inner[j][1], top + rise], [inner[i][0], inner[i][1], top + rise]]);
+    }
+    const first = roof.count;
+    for (const [e, n] of inner) roof.vert(e, n, top + rise, 0, 0, 1);
+    const tris = earcut(inner.flat());
+    for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+    // A chimney can stand just inside the longest edge of the flat top.
+    let longest = 0;
+    let spot: RidgeSpot = { x: inner[0][0], y: inner[0][1], z: top + rise, along: [1, 0] };
+    for (let i = 0; i < inner.length; i++) {
+      const p = inner[i], q = inner[(i + 1) % inner.length];
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (len <= longest) continue;
+      longest = len;
+      const u: XY = [(q[0] - p[0]) / len, (q[1] - p[1]) / len];
+      spot = { x: p[0] + (q[0] - p[0]) * 0.35 - u[1] * 0.3, y: p[1] + (q[1] - p[1]) * 0.35 + u[0] * 0.3, z: top + rise, along: u };
+    }
+    return spot;
+  };
+
+  if (mansard && simple.length >= 3 && simple.length <= 24) {
+    // A mansard: steep sides and a flat top, whatever the size of the building.
+    for (const d of [1.5, 1.1, 0.8]) {
+      const spot = crown(d, Math.min(height * 0.5, b.roofHeight ?? d * 1.8));
+      if (spot) return spot;
+    }
+  }
+  if (pitched && areaM2 < 400 && simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
+    const rise = Math.min(height * 0.8, b.roofHeight ?? clamp(0.35 * Math.sqrt(areaM2), 1.8, 5) * look.pitch);
     if (isRectangle(simple)) {
       // Ridge along the longer sides.
       const [p0, p1, p2, p3] = simple;
@@ -555,42 +596,46 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Se
     const edge = Math.hypot(simple[1][0] - simple[0][0], simple[1][1] - simple[0][1]) || 1;
     return { x: mx, y: my, z: top + rise, along: [(simple[1][0] - simple[0][0]) / edge, (simple[1][1] - simple[0][1]) / edge] };
   }
-  if (simple.length >= 4 && simple.length <= 24) {
+  if (pitched && simple.length >= 4 && simple.length <= 24) {
     // Any other outline: slope in from every wall as far as the shape allows, leaving a flat strip on top.
     for (const d of [4.5, 3.5, 2.6, 1.8]) {
-      const inner = insetRing(simple, d);
-      if (!inner) continue;
-      const rise = Math.min(b.height * 0.8, b.roofHeight ?? d * 0.7);
-      for (let i = 0; i < simple.length; i++) {
-        const j = (i + 1) % simple.length;
-        slopeFace(roof, [[simple[i][0], simple[i][1], top], [simple[j][0], simple[j][1], top], [inner[j][0], inner[j][1], top + rise], [inner[i][0], inner[i][1], top + rise]]);
-      }
-      const first = roof.count;
-      for (const [e, n] of inner) roof.vert(e, n, top + rise, 0, 0, 1);
-      const tris = earcut(inner.flat());
-      for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
-      // A chimney can stand just inside the longest edge of the flat strip.
-      let longest = 0;
-      let spot: RidgeSpot | null = null;
-      for (let i = 0; i < inner.length; i++) {
-        const p = inner[i], q = inner[(i + 1) % inner.length];
-        const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
-        if (len <= longest) continue;
-        longest = len;
-        const u: XY = [(q[0] - p[0]) / len, (q[1] - p[1]) / len];
-        spot = { x: p[0] + (q[0] - p[0]) * 0.35 - u[1] * 0.3, y: p[1] + (q[1] - p[1]) * 0.35 + u[0] * 0.3, z: top + rise, along: u };
-      }
-      return spot;
+      const spot = crown(d, Math.min(height * 0.8, b.roofHeight ?? d * 0.7 * look.pitch));
+      if (spot) return spot;
     }
   }
-  const first = roof.count;
-  for (const [e, n] of ring) roof.vert(e, n, top, 0, 0, 1);
+  if (look.form === "flat" && !flatTag && areaM2 >= 12 && areaM2 < 1500) {
+    // Where roofs are flat by custom, the walls carry on up as a low parapet round a roof you could sit on.
+    const outline = simplifyRing(ring);
+    const inner = outline.length >= 3 && outline.length <= 24 ? insetRing(outline, 0.28) : null;
+    if (inner) {
+      const sill = top - 0.4;
+      for (let i = 0; i < outline.length; i++) {
+        const j = (i + 1) % outline.length;
+        face(walls, [[outline[i][0], outline[i][1], top], [outline[j][0], outline[j][1], top], [inner[j][0], inner[j][1], top], [inner[i][0], inner[i][1], top]], [0, 0, 1]);
+        const len = Math.hypot(inner[j][0] - inner[i][0], inner[j][1] - inner[i][1]) || 1;
+        const inward: [number, number, number] = [-(inner[j][1] - inner[i][1]) / len, (inner[j][0] - inner[i][0]) / len, 0];
+        face(walls, [[inner[i][0], inner[i][1], sill], [inner[j][0], inner[j][1], sill], [inner[j][0], inner[j][1], top], [inner[i][0], inner[i][1], top]], inward);
+      }
+      const first = roof.count;
+      for (const [e, n] of inner) roof.vert(e, n, sill, 0, 0, 1);
+      const tris = earcut(inner.flat());
+      for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+      return null;
+    }
+  }
+  // Flat, and where roofs are not flat by custom, in roofing felt and not the colour of tiles.
+  const flat = look.form === "flat" ? roof : flatRoof;
+  const first = flat.count;
+  for (const [e, n] of ring) flat.vert(e, n, top, 0, 0, 1);
   const tris = earcut(ring.flat());
-  for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+  for (let i = 0; i < tris.length; i += 3) flat.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
   return null;
 }
 
-export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation): ChunkMesh {
+/**
+ * `look` is the style of the houses; left out, it is the style of where the chunk is in the world.
+ */
+export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle): ChunkMesh {
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
   const sections = new Map<string, Section>();
   const sec = (m: MaterialDef): Section => {
@@ -811,6 +856,43 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       }
     }
   }
+  // ---- buildings, in the style of this part of the world
+  const style = look ?? houseStyle(yToLat(cy + 0.5), xToLon(cx + 0.5), ground(cx + 0.5, cy + 0.5));
+  // How built-up it is round a building decides whether a home nobody measured is a house standing
+  // apart, one of a street of town houses, or part of a city block. Footprints are counted in a
+  // square round it, over only as much of the square as the map data covers (its data tile and
+  // margin), so the answer does not dip at the edge of the data.
+  const shift = CHUNK_Z - DATA_Z;
+  const dataW = ((cx >> shift) - DATA_MARGIN) * (1 << shift), dataE = ((cx >> shift) + 1 + DATA_MARGIN) * (1 << shift);
+  const dataN = ((cy >> shift) - DATA_MARGIN) * (1 << shift), dataS = ((cy >> shift) + 1 + DATA_MARGIN) * (1 << shift);
+  const footprints: [number, number, number][] = []; // centre, and area in m2 (the largest count as 1500)
+  for (const b of features.buildings) {
+    let fx = 0, fy = 0, a2 = 0;
+    for (let i = 0, j = b.ring.length - 1; i < b.ring.length; j = i++) {
+      fx += b.ring[i][0];
+      fy += b.ring[i][1];
+      a2 += b.ring[j][0] * b.ring[i][1] - b.ring[i][0] * b.ring[j][1];
+    }
+    footprints.push([fx / b.ring.length, fy / b.ring.length, Math.min(1500, (Math.abs(a2) / 2) * S * S)]);
+  }
+  const cover = (wx: number, wy: number, halfM: number): { share: number; count: number } => {
+    const r = halfM / S;
+    const w = Math.max(wx - r, dataW), e = Math.min(wx + r, dataE), n = Math.max(wy - r, dataN), s = Math.min(wy + r, dataS);
+    let area = 0, count = 0;
+    for (const [fx, fy, fa] of footprints) {
+      if (fx < w || fx > e || fy < n || fy > s) continue;
+      area += fa;
+      count++;
+    }
+    return { share: area / Math.max(1, (e - w) * (s - n) * S * S), count };
+  };
+  /** 0 standing apart, 1 in a built-up street, 2 in a city centre. */
+  const crowding = (wx: number, wy: number): number => {
+    const near = cover(wx, wy, 60);
+    if (near.count < 5 || near.share < 0.26) return 0;
+    return near.count >= 6 && near.share >= 0.42 && cover(wx, wy, 220).share >= 0.25 ? 2 : 1;
+  };
+
   for (const b of features.buildings) {
     let mx = 0;
     let my = 0;
@@ -838,19 +920,43 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     const areaM2 = Math.abs(area2) / 2;
     const kind = b.kind ?? "";
     const barn = BARN_KINDS.test(kind);
-    const small = areaM2 < 400 && b.height < 13;
-    const homely = small && areaM2 >= 35 && !barn && !PLAIN_KINDS.test(kind);
-    const wallMat = barn ? painted(MATERIALS.wall0, BARN_RED)
-      : !small ? painted(h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, BIG_PAINTS[(h >>> 4) % BIG_PAINTS.length])
-      : (h >>> 4) % 4 === 0 ? painted(MATERIALS.wall3, HOUSE_BRICKS[(h >>> 6) % HOUSE_BRICKS.length])
-      : painted(MATERIALS.wall0, HOUSE_PAINTS[(h >>> 6) % HOUSE_PAINTS.length]);
-    // A home nobody measured is one or two storeys, not the tall default for any building, and the
-    // smallest are bungalows. Each sits a little differently so a street's eaves do not line up.
-    const storeys = areaM2 < 50 || (h >>> 26) % 5 < 2 ? 1 : 2;
-    const height = homely && b.guessed ? storeys * 3 - 0.15 + ((h >>> 29) % 4) * 0.12 : b.height;
+    const plain = PLAIN_KINDS.test(kind);
+    const dwelling = DWELLING_KINDS.test(kind);
+    const homelyKind = areaM2 >= 35 && !barn && !plain;
+    const tier = homelyKind ? crowding(mx, my) : 0;
+    // A home nobody measured is not the tall default for any building. Standing apart it is one or
+    // two storeys, and the smallest are bungalows. In a built-up street or a city centre it is as
+    // tall as that part of the world builds them, though a narrow one stays lower. Each sits a
+    // little differently so a street's eaves do not line up.
+    let height = b.height;
+    if (b.guessed && homelyKind) {
+      const settle = ((h >>> 29) % 4) * 0.12;
+      if (tier > 0 && dwelling) {
+        const [fewest, most] = tier === 2 ? style.city : style.town;
+        const storeys = Math.max(1, Math.min(2 + Math.floor(Math.sqrt(areaM2) / 3), fewest + ((h >>> 26) % (most - fewest + 1))));
+        const tall = storeys <= 2 ? storeys * 3 - 0.15 + settle : storeys * 3.1 + 0.6 + settle;
+        height = /^(apartments|hotel|dormitory)$/.test(kind) ? Math.max(b.height, tall) : tall;
+      } else if (areaM2 < 400 && b.height < 13) {
+        height = (areaM2 < 50 || (h >>> 26) % 5 < style.bungalows ? 1 : 2) * 3 - 0.15 + settle;
+      }
+    }
+    const small = areaM2 < 400 && height < 13;
+    const homely = small && homelyKind;
+    /** Flats: somewhere people live that is too big or too tall to be a house. */
+    const block = !homely && homelyKind && dwelling;
+    const bricks = (h >>> 4) % 8 < (small ? style.brickShare : style.bigBrickShare) ? style.bricks : [];
+    const wallHex = barn ? BARN_RED
+      : bricks.length ? bricks[(h >>> 7) % bricks.length]
+      : small ? style.paints[(h >>> 6) % style.paints.length]
+      : style.big[(h >>> 4) % style.big.length];
+    const wallMat = painted(barn ? MATERIALS.wall0 : bricks.length ? MATERIALS.wall3 : small ? MATERIALS.wall0 : h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, wallHex);
     const top = Math.max((lo + hi) / 2 + height, hi + 2.4);
-    const roofPaint = ROOF_PAINTS[(h >>> 8) % ROOF_PAINTS.length];
-    const roofMat = barn ? painted(MATERIALS.roof0, BARN_ROOF) : painted(roofPaint[0], roofPaint[1]);
+    const roofMat = barn ? painted(MATERIALS.roof0, BARN_ROOF) : roofIn(style.roofs[(h >>> 8) % style.roofs.length]);
+    // Homes and flats take the roof their part of the world gives them; barns keep their gables, and
+    // everything else (halls, schools, shops) is pitched when low and flat when not, unless roofs are flat here.
+    const roofLook: RoofLook = barn ? { form: "pitched", maxPitched: 13, pitch: 1, eaves: 0.4 }
+      : dwelling || small ? { form: tier === 2 ? style.cityRoof : tier === 1 ? style.townRoof : style.roof, maxPitched: tier > 0 ? 20 : 13, pitch: style.pitch, eaves: style.eaves }
+      : { form: style.roof, maxPitched: 13, pitch: 1, eaves: style.eaves };
     const walls = sec(wallMat);
     for (let i = 0; i < ring.length; i++) {
       const [ae, an] = ring[i];
@@ -868,17 +974,17 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       walls.tri(v0, v1, v2);
       walls.tri(v0, v2, v3);
     }
-    const ridge = addRoof(ring, top, b, areaM2, walls, sec(roofMat), sec(MATERIALS.trim));
+    const ridge = addRoof(ring, top, b, areaM2, height, roofLook, walls, sec(roofMat), sec(painted(MATERIALS.roof0, FLAT_ROOFS[(h >>> 8) % FLAT_ROOFS.length])), sec(MATERIALS.trim));
 
-    // A chimney astride the ridge of most houses.
-    if (ridge && homely && (h >>> 16) % 5 < 4) {
+    // A chimney astride the ridge of most houses, where houses have them, and on some city roofs.
+    if (ridge && (h >>> 16) % 5 < (homely ? style.chimneys : block && tier === 2 ? style.cityChimneys : 0)) {
       const across: XY = [-ridge.along[1], ridge.along[0]];
       box(sec(MATERIALS.chimney), ridge.x, ridge.y, ridge.along, across, -0.38, 0.38, -0.38, 0.38, ridge.z - 0.6, ridge.z + 1.0, true);
       box(sec(painted(MATERIALS.trim, 0x4f5560)), ridge.x, ridge.y, ridge.along, across, -0.46, 0.46, -0.46, 0.46, ridge.z + 1.0, ridge.z + 1.12, true, true);
     }
 
     // A front door on the wall that faces the street, with a step and, on some, a little porch.
-    if ((homely || barn) && top - lo > (barn ? 3.6 : 2.7)) {
+    if ((homely || barn || (block && areaM2 < 700)) && top - lo > (barn ? 3.6 : 2.7)) {
       const wide = barn ? 1.7 : 0.72;
       let best = -1;
       let bestScore = Infinity;
@@ -919,20 +1025,21 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
         } else {
           box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.5);
-          box(sec(painted(MATERIALS.door, DOOR_PAINTS[(h >>> 18) % DOOR_PAINTS.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
+          box(sec(painted(MATERIALS.door, style.doors[(h >>> 18) % style.doors.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
           box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
           box(sec(painted(MATERIALS.trim, 0xcfc8b8)), x, y, t, o, -0.85, 0.85, 0, 0.55, g - 0.4, g + 0.12);
-          if ((h >>> 21) % 2 === 0 && top - g > 3.4) {
+          if (homely && (h >>> 21) % 2 === 0 && top - g > 3.4) {
             // A porch: a small roof over the door on two posts.
             box(sec(roofMat), x, y, t, o, -0.98, 0.98, 0, 1.0, g + 2.62, g + 2.76, false, true);
             box(trim, x, y, t, o, -0.9, -0.8, 0.82, 0.92, g - 0.4, g + 2.62, true);
             box(trim, x, y, t, o, 0.8, 0.9, 0.82, 0.92, g - 0.4, g + 2.62, true);
           }
 
-          // A front garden: a path from the door to the street and, round most gardens, a hedge or a
-          // white fence with a gap for the gate. Only where there is room before the road's edge.
+          // A front garden: a path from the door to the street and, round most gardens, a hedge, a
+          // white fence or a low wall (whichever the place favours) with a gap for the gate. Only
+          // houses have one, and only where there is room before the road's edge.
           const depth = Math.min(bestGap - 0.4, 5.5);
-          if (depth >= 2.2) {
+          if (homely && depth >= 2.2) {
             const at2 = (w: number, d: number): [number, number, number] => {
               const e = x + t[0] * w + o[0] * d, n = y + t[1] * w + o[1] * d;
               return [e, n, ground(cx + e / S, cy - n / S)];
@@ -954,12 +1061,14 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
               prev = now;
             }
 
-            const style = (h >>> 23) % 8; // 0-2 hedge, 3-5 fence, 6-7 open
-            if (style < 6) {
-              const hedge = style < 3;
-              const part = sec(hedge ? MATERIALS.hedge : MATERIALS.fence);
-              const thick = hedge ? 0.28 : 0.04;
-              const tall = hedge ? 1.05 : 0.95;
+            const pick = (h >>> 23) % 8;
+            const [hedges, fences, lowWalls] = style.garden;
+            if (pick < hedges + fences + lowWalls) {
+              const hedge = pick < hedges;
+              const lowWall = pick >= hedges + fences;
+              const part = sec(hedge ? MATERIALS.hedge : lowWall ? painted(MATERIALS.trim, wallHex) : MATERIALS.fence);
+              const thick = hedge ? 0.28 : lowWall ? 0.11 : 0.04;
+              const tall = hedge ? 1.05 : lowWall ? 0.9 : 0.95;
               const w0 = -at - 1.5, w1 = len - at + 1.5;
               // A piece stands only on open ground: not through a neighbour's house, not out in a road.
               const clear = (e: number, n: number): boolean => {
