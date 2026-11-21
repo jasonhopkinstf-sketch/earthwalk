@@ -1408,6 +1408,20 @@ void UEarthCompany::TestAids(double Dt)
 			DoorTestStep = 3;
 			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: after the door: near %d, inside %d, hint \"%s\", feet at %.2f m"), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint, Me->FeetLocation().Z / 100.0);
 		}
+		else if (bDoorTest && DoorTestStep == 3 && TestClock > 16.0)
+		{
+			// And out again, to see the way back works.
+			DoorTestStep = 4;
+			if (FParse::Param(FCommandLine::Get(), TEXT("EWDoorOut")))
+			{
+				UseDoor();
+			}
+		}
+		else if (bDoorTest && DoorTestStep == 4 && TestClock > 18.0)
+		{
+			DoorTestStep = 5;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: later at the door: near %d, inside %d, hint \"%s\", feet at %.2f m"), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint, Me->FeetLocation().Z / 100.0);
+		}
 	}
 	if ((RideKind.IsEmpty() && TalkKind.IsEmpty()) || TestStep > 3 || !Me || !Room || !Life || !Room->IsConnected() || Me->IsWaitingForGround() || !PlayerAt(Px, Pz))
 	{
