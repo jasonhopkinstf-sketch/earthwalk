@@ -274,6 +274,33 @@ If the tracks cannot be fetched, the labels are sent without trains and the serv
 answer, so the next request tries again. A train does not stop for players: it whistles and passes
 through them.
 
+## Inside houses: `GET /v1/interior/16/{x}/{y}/{id}`
+
+Some homes can be walked into: plain four-cornered ones, 5 to 24 m a side, on fairly level ground.
+The labels of a chunk list their front doors as items of kind `door`: `u`, `v` are the door on the
+wall, `h` the height of the floor inside, `yaw` the compass heading out of the door, and `id` the
+building. A client lets a player in by putting them about a metre inside the door at height `h`, and
+out by putting them a little beyond it; the walls are in the way otherwise.
+
+This route gives the inside of home `id` of chunk `x`, `y`: 404 when the chunk has no such home. The
+answer is in the chunk format above, placed in the same chunk coordinates, so it sits inside the
+house's real walls and players inside are where their positions say they are. Its surfaces have ids
+of their own:
+
+| Id | Surface | Collides |
+| --- | --- | --- |
+| 40 | floors, one colour a room | yes |
+| 41 | walls: the lining of the outside walls in each room's paint, and the walls between rooms with their doorways | yes |
+| 42 | the ceiling, 2.6 m up, facing down | no |
+| 43 | furniture | yes |
+| 44 | windows, their frames, and the front door seen from inside | no |
+| 45 | rugs and mats | no |
+
+Walls and ceilings are single sheets, so draw these surfaces from both sides. The rooms come from
+thirty layouts (`LAYOUTS` in `server/src/interior.ts`) stretched to the house; which layout, the
+paints and the furniture all follow from the building's identity, so a house is the same inside
+for everyone. Only the ground floor is built.
+
 ## Place search: `GET /v1/geocode?q=...`
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.

@@ -174,6 +174,59 @@ export class World {
     return m;
   }
 
+  /** Paint seen from both sides: the insides of houses, whose walls are thin sheets. */
+  insideMaterial(color) {
+    const key = `inside,${color.join(",")}`;
+    let m = this.materials.get(key);
+    if (!m) {
+      m = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace), side: THREE.DoubleSide });
+      this.materials.set(key, m);
+    }
+    return m;
+  }
+
+  ceilingMaterial(color) {
+    const key = `ceiling,${color.join(",")}`;
+    let m = this.materials.get(key);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(color[0] * 0.9, color[1] * 0.9, color[2] * 0.9, THREE.SRGBColorSpace), side: THREE.DoubleSide });
+      this.materials.set(key, m);
+    }
+    return m;
+  }
+
+  /** Adds the inside of a house (in the chunk format) to its chunk; it leaves with the chunk. */
+  addInterior(chunk, id, data) {
+    const S = this.tileM;
+    for (const section of data.sections) {
+      const n = section.uvh.length / 3;
+      const pos = new Float32Array(n * 3);
+      const nrm = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        pos[i * 3] = section.uvh[i * 3] * S;
+        pos[i * 3 + 1] = section.uvh[i * 3 + 2];
+        pos[i * 3 + 2] = section.uvh[i * 3 + 1] * S;
+        nrm[i * 3] = section.normals[i * 3];
+        nrm[i * 3 + 1] = section.normals[i * 3 + 2];
+        nrm[i * 3 + 2] = -section.normals[i * 3 + 1];
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+      geometry.setIndex(new THREE.BufferAttribute(section.indices, 1));
+      // A ceiling faces the floor, where no light comes from: it is simply its own colour, a little dimmed.
+      const mesh = new THREE.Mesh(geometry, section.materialId === 42 ? this.ceilingMaterial(section.color) : this.insideMaterial(section.color));
+      mesh.matrixAutoUpdate = false;
+      chunk.group.add(mesh);
+      mesh.updateMatrixWorld(true);
+      if (section.collision) {
+        geometry.computeBoundsTree();
+        this.solids.push(mesh);
+      }
+    }
+    (chunk.interiors ??= new Set()).add(id);
+  }
+
   /** The same paint for a wall, with windows in it. */
   wallMaterial(color) {
     const key = `wall,${color.join(",")}`;
@@ -296,6 +349,7 @@ export class World {
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile
       chunk.trees = true;
       chunk.treeItems = items.filter((it) => it.kind === "tree"); // kept so that trees, and
+      chunk.doors = items.filter((it) => it.kind === "door"); // front doors that open (houses.js)
       chunk.houses = items.filter((it) => it.kind === "house"); // the houses with a number, can be talked to (talk.js)
       chunk.homes = items.filter((it) => it.kind === "home"); // where herds live; life.js brings them to life
       chunk.routes = items.filter((it) => it.kind === "route"); // the trips cars make, and

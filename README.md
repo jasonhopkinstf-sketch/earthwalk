@@ -99,7 +99,7 @@ Controls (Unreal):
 | `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
-| `E` | Browser only, for now: hop on the horse, tractor, boat, car or train beside you; again to hop off |
+| `E` | Browser only, for now: hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
 | `T` | Browser only, for now: talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `P` | Browser only, for now: your passport |
 | `Enter` | Chat and commands |
@@ -209,6 +209,13 @@ Riding (in the browser so far): press E beside a horse, a cow, a tractor, a boat
 passing train to hop on, and E again to hop off. You steer what you ride; a friend can hop on behind
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
+
+Going into houses (in the browser so far): press E at the front door of a plain four-square house
+to go in, and E again just inside it to come out. Inside are rooms laid out from thirty recipes of
+our own (`server/src/interior.ts`), stretched to fit the real house: a hall or living room behind
+the door, then kitchens, bedrooms, bathrooms, studies and playrooms, with doorways, windows and
+furniture. A house is the same inside for everyone, and friends who go in together see each other.
+`server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
 Telling things what to do (in the browser so far): while talking to a thing, say "follow me", "come
 here", "stay", "go home", "do a trick" or "make your noise", and it does. Riding a car, a tractor

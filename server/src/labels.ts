@@ -7,20 +7,20 @@
 
 import { CHUNK_Z, metersPerTile } from "./geo.ts";
 import { Elevation } from "./elevation.ts";
-import { clipPolyline, featuresForChunk, groundClasses, placeTrees } from "./chunk.ts";
+import { clipPolyline, featuresForChunk, groundClasses, homesOf, placeTrees } from "./chunk.ts";
 import { placeHomes, placeMachines, placeWild } from "./life.ts";
 import { placeTraffic } from "./traffic.ts";
 import { trainsFor, type Train } from "./rail.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 6;
+export const LABELS_REV = 7;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train";
+  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "door";
   /** Plate text; absent on trees and homes. */
   text?: string;
   /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
@@ -251,6 +251,12 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     return { kind: "home", sp: home.sp, n: home.n, r: r1(home.r), id: home.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0 };
   });
 
+  // ---- front doors that open: `id` is the building, `h` its floor, `yaw` the way out (docs/PROTOCOL.md, "Inside houses")
+  const doors: LabelItem[] = homesOf(cx, cy, features, elev).map((home) => ({
+    kind: "door", id: home.id, u: r7(home.x / S), v: r7(-home.y / S), h: Math.round(home.floor * 100) / 100,
+    yaw: r1(((Math.atan2(home.out[0], home.out[1]) * 180) / Math.PI + 360) % 360),
+  }));
+
   // ---- cars: the parked ones, and the trips the others make. Clients drive them (docs/PROTOCOL.md, "Traffic").
   const r5 = (v: number): number => Math.round(v * 1e5) / 1e5;
   const traffic = placeTraffic(cx, cy, features);
@@ -284,6 +290,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     ...[...crossings, ...plates].slice(0, STREET_CAP).map((s) => s.it),
     ...trees,
     ...homes,
+    ...doors,
     ...cars,
     ...routes,
     ...railway,
