@@ -81,8 +81,8 @@ House numbers and street names for the same chunk, as JSON. The route is **optio
 client that ignores it still gets the complete world from the chunk meshes. It takes the
 same access code, zoom and rate-limit rules as the chunk route, and the same `x`/`y`
 numbering. Both clients plant their trees from it (and skip mesh section 30); the Unreal
-client also spawns letterboxes and sign posts from it. The browser client brings the
-animals to life from it (see "Life" below).
+client also spawns letterboxes and sign posts from it. Both clients bring the animals,
+cars and trains to life from it (see "Life" below).
 
 ```json
 {"x": 33185, "y": 22545, "rev": 1,

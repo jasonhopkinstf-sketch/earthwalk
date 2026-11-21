@@ -120,7 +120,7 @@ Chat commands:
 | `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in) |
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
-| `/sound on`, `/sound off` | Browser only: the animals' voices |
+| `/sound on`, `/sound off` | The animals' voices, car horns and train whistles |
 | `/world auto`, `/world photo`, `/world generated` | Unreal only: our world on foot and Google's photographic 3D world from the air, the photographic world everywhere, or ours everywhere (see below) |
 | `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for the photographic world |
 
@@ -182,7 +182,7 @@ and accounts (Google sign-in, remembered by a player token, with a home and a ch
 stored as one JSON file under the cache directory. `server/src/presence.ts` joins that with
 the rooms to say who is online and where. The access code doubles as the sign-up gate.
 
-Animals (in the browser so far): `server/src/life.ts` decides where they live and sends that with
+Animals: `server/src/life.ts` decides where they live and sends that with
 the labels: herds on the map's meadows, paddocks and farmyards, ducks on ponds and rivers, pigeons
 in town, a flock overhead, a cat or a dog beside some homes, rabbits, deer and squirrels, and a few
 that belong to one part of the world (kangaroos, llamas, camels, penguins). The server also shares
@@ -192,14 +192,14 @@ like and `life.js` draws them and has them notice players: most look up and step
 over, pigeons fly up. Their voices are made by code (`sounds.js`); there are no recordings.
 docs/PROTOCOL.md, "Life", has the details.
 
-Cars, tractors and boats (in the browser so far): `server/src/traffic.ts` parks cars along streets
+Cars, tractors and boats: `server/src/traffic.ts` parks cars along streets
 where people live and works out every trip a car makes, street by street and second by second, on
 the side of the road the country drives on. `trafficmotion.js` replays a trip from the shared clock
 and `traffic.js` draws the cars and has them stop and toot for a player in the way. Tractors work
 ploughed fields and boats sail water near a shore; they circle a home like the animals do.
 docs/PROTOCOL.md, "Traffic".
 
-Trains (in the browser so far): `server/src/rail.ts` fetches the railway tracks for a wide square of
+Trains: `server/src/rail.ts` fetches the railway tracks for a wide square of
 the world, joins them into runs and timetables a train along each, stopping at stations. Every chunk
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
@@ -216,8 +216,21 @@ everyone nearby. Each thing has a name and a character of its own, the same for 
 all of them are friendly. With an API key on the server they answer through Claude; without one they
 use their own stock of lines. `server/public/js/talk.js`; docs/PROTOCOL.md, "Talking".
 
-The browser game shows where you are in a header at the top of the screen ("Islington, Greater
+Both games show where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.
+
+The Windows game shows the same animals, cars, tractors, boats and trains in the same places as the
+browser, and makes the same sounds. `game/Source/EarthWalk/EarthLifeMotion.cpp` is the movement
+rules of `lifemotion.js` and `trafficmotion.js` again in C++, and must give the same answers:
+`node game/Tools/life-vectors.mjs <file>` prints test numbers from the JavaScript and the game run
+with `-EWLifeTest=<file>` checks itself against them. `EarthLifeRigs.gen.inl` holds every figure,
+written from `liferigs.js` by `node game/Tools/gen-life-rigs.mjs` (run it again when that file
+changes). `EarthLife.cpp` is the counterpart of `life.js` and `traffic.js`: it draws everything
+as four instanced meshes, whole and alive to players within 120 m and as simpler figures out to
+400 m, and puts it all away while the photographic view from the air is up. `EarthSounds.cpp`
+builds the voices of `sounds.js` as waves in code; `-EWSoundDump=<folder>` writes them as .wav
+files to listen to. Not in the Windows game yet: riding and talking to animals (it does not yet
+show what a browser player is riding).
 
 ## Art assets and the look
 
@@ -259,7 +272,9 @@ with `-EWShot=<file.png>` (together with `-EWLat`/`-EWLon`/`-EWCode` as needed).
 `-EWYaw=<compass degrees>` and `-EWPitch=<degrees>` point the player first, `-EWView=0|1|2` picks
 the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in the picture.
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
-8 second wait before the picture. While a screenshot is pending the game ignores the keyboard and
+8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
+cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. While a screenshot is pending the game ignores the keyboard and
 mouse, so typing in another window cannot move the player.
 
 ## Data and attribution
