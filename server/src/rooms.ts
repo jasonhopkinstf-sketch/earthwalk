@@ -54,6 +54,8 @@ interface Member {
   ride: Ride | null;
   talkTimes: number[];
   taxiAt: number;
+  /** The animal that keeps this member company, with an identity of its own (so it can be talked to). */
+  pet: { sp: string; thing: number } | null;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -88,6 +90,9 @@ export interface JournalKeeper {
   rode(key: string, sp: string | null, thing?: number): void;
   talked(key: string, thing: number, sp: string, name: string, said: string, reply: string): void;
   view(key: string): unknown;
+  /** Companions: choosing one of those won (false if it is not theirs), and the one chosen. */
+  setPet?(key: string, sp: string | null): boolean;
+  petOf?(key: string): string | null;
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -236,12 +241,12 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null,
         };
         clearTimeout(helloTimer);
         send({
           t: "welcome", id: me.id, name: me.name, avatar: me.avatar, room: roomName,
-          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}) })),
+          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}), ...(m.pet ? { pet: m.pet } : {}) })),
           left: [...r.left.values()].filter((l) => l.until > Date.now()),
           orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
           taxis: [...r.taxis.values()].filter((x) => !x.aboard && x.until > Date.now()).map((x) => this.publicTaxi(x)),
@@ -253,7 +258,9 @@ export class Rooms {
         this.broadcast(r, { t: "join", id: me.id, name: me.name, avatar: me.avatar });
         r.members.set(me.id, me);
         this.everyone.set(me.id, me);
-        void this.journal?.joined(me.id, me.personId, roomName).catch(() => {});
+        // Once their journal is open, the companion they chose last time comes along.
+        const arrived = me;
+        void this.journal?.joined(me.id, me.personId, roomName).then(() => this.bringPet(r, arrived, this.journal?.petOf?.(arrived.id) ?? null)).catch(() => {});
         this.listener.joined?.(this.publicMember(me, roomName));
         if (this.options.peopleList) send({ t: "people", p: this.options.peopleList() });
         return;
@@ -352,6 +359,11 @@ export class Rooms {
         const called: Taxi = { thing, by: me.id, name: this.talker.greet(thing, "taxi").name, path: cab.pickup, at: Date.now(), until: Date.now() + TAXI_WAIT_MS, dest: cab.dest, aboard: null, remarks: 0, nextRemark: 0 };
         room.taxis.set(thing, called);
         this.broadcast(room, this.publicTaxi(called));
+      } else if (msg.t === "pet" && room) {
+        // Choose a companion from those I have won, or (with no `sp`) send it home.
+        const sp = clean(msg.sp, 16) || null;
+        if (!this.journal?.setPet?.(me.id, sp)) { send({ t: "error", code: "locked", text: "Solve its riddle first" }); return; }
+        this.bringPet(room, me, sp);
       } else if (msg.t === "journal") {
         // My own journal: nobody can ask for anyone else's.
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
@@ -419,6 +431,16 @@ export class Rooms {
     const left: Left = { thing: ride.thing, sp: ride.sp, lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), alt: +m.alt.toFixed(2), yaw: +m.yaw.toFixed(1), until: now + LEFT_MS };
     room.left.set(ride.thing, left);
     this.broadcast(room, { t: "left", ...left });
+  }
+
+  /** Gives a member their companion (or takes it away) and tells the room. Its identity is the member's own, so it is the same somebody on every visit. */
+  private bringPet(room: Room, m: Member, sp: string | null): void {
+    if (!room.members.has(m.id) || (m.pet?.sp ?? null) === sp) return;
+    const seed = parseInt((m.personId ?? m.id).slice(0, 8), 16) | 0;
+    let kind = 0;
+    for (const ch of sp ?? "") kind = (kind * 31 + ch.charCodeAt(0)) | 0;
+    m.pet = sp ? { sp, thing: (hash32(seed, kind) >>> 0) || 1 } : null;
+    this.broadcast(room, { t: "pet", id: m.id, ...(m.pet ?? {}) });
   }
 
   /** What everyone is told of a taxi: where it comes from and when it set off, so each game can draw it arriving. */

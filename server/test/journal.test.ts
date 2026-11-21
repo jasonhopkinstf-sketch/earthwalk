@@ -116,7 +116,7 @@ test("a signed-in person's journal is kept on disk, with a log of everything; a 
 
     assert.deepEqual((await readdir(dir)).sort(), ["abc123.json", "abc123.log"], "one summary and one log, and nothing for the guest");
     const log = (await readFile(path.join(dir, "abc123.log"), "utf8")).trim().split("\n").map((l) => JSON.parse(l) as Msg);
-    assert.deepEqual([...new Set(log.map((l) => l.k))].sort(), ["at", "go", "join", "leave", "place", "stamp", "talk"]);
+    assert.deepEqual([...new Set(log.map((l) => l.k))].sort(), ["at", "go", "join", "leave", "place", "riddle", "stamp", "talk"]);
     const talk = log.find((l) => l.k === "talk")!;
     assert.deepEqual([talk.sp, talk.thing, talk.name, talk.said, talk.reply], ["cow", 42, "Daisy", "what do you eat?", "Grass, mostly."]);
     assert.ok(log.filter((l) => l.k === "at").length >= 8, "a point of the trail about every hundred metres");
@@ -209,5 +209,112 @@ test("GET /v1/journal gives a signed-in person their own journal, and nobody any
     assert.deepEqual([his.totals.friends, his.countries], [0, []], "asking for Ann's by name still gets Ben his own");
   } finally {
     app.close();
+  }
+});
+
+test("riddles unlock with the levels, are solved out in the world, and each one solved wins a companion", async () => {
+  const { journals, news, settle } = keeper();
+  await journals.joined("a", null, "family");
+  journals.moved("a", 48.85, 2.35);
+  await settle();
+  let v = journals.view("a") as JournalView;
+  assert.equal(v.level.n, 2, "arriving somewhere is enough for the second level");
+  assert.deepEqual(v.riddles.map((r) => r.id), ["cow", "tree", "house", "car", "snail", "frog", "bee", "butterfly", "mouse", "hedgehog"], "ten to begin with");
+  assert.ok(v.riddles.every((r) => !r.solved && r.answer === null), "none answered");
+  assert.deepEqual([v.moreRiddles, v.pets, v.pet], [{ count: 6, level: 3 }, [], null]);
+  for (const r of v.riddles) assert.ok(r.text.length > 40 && !new RegExp(`\b${r.id}\b`, "i").test(r.text), `the ${r.id} riddle does not give its answer away`);
+  assert.equal(journals.setPet("a", "cow"), false, "no companion before its riddle is solved");
+
+  // Talking to a crab now does nothing for the crab riddle, which is not unlocked yet.
+  journals.talked("a", 5, "crab", "Pincer", "", "Hello.");
+  // Talking to a cow answers the first riddle.
+  journals.talked("a", 42, "cow", "Daisy", "", "Moo.");
+  v = journals.view("a") as JournalView;
+  assert.deepEqual(v.riddles.find((r) => r.id === "cow"), { id: "cow", text: v.riddles[0].text, solved: true, answer: "a cow" });
+  assert.deepEqual(v.pets, ["cow"]);
+  const told = news.get("a")!.filter((n) => n.kind === "riddle");
+  assert.ok(told.some((n) => n.title === "Riddle solved!" && /It was a cow. Now a cow will keep you company/.test(n.text)), `told so (heard ${told.map((n) => n.title + ": " + n.text).join(" | ")})`);
+  assert.deepEqual([journals.setPet("a", "cow"), journals.petOf("a"), journals.setPet("a", "elephant"), journals.petOf("a")], [true, "cow", false, "cow"]);
+
+  // More friends, a higher level, more riddles; and the crab must be met again now that its riddle is out.
+  for (const [i, sp] of ["snail", "frog", "bee", "mouse", "tree", "house", "car"].entries()) {
+    if ((journals.view("a") as JournalView).level.n >= 3) break;
+    journals.talked("a", 100 + i, sp, "Somebody", "", "Hello.");
+  }
+  v = journals.view("a") as JournalView;
+  assert.ok(v.level.n >= 3 && v.riddles.some((r) => r.id === "crab" && !r.solved), "the crab riddle is out, and not solved by the earlier chat");
+  assert.ok(news.get("a")!.some((n) => n.kind === "riddle" && /new riddles/.test(n.title)), "and the player is told there are new ones");
+  journals.talked("a", 5, "crab", "Pincer", "", "Hello again.");
+  journals.rode("a", "train", 9);
+  v = journals.view("a") as JournalView;
+  assert.ok(v.riddles.find((r) => r.id === "crab")!.solved && v.pets.includes("crab"));
+  assert.ok(v.riddles.find((r) => r.id === "train")!.solved && !v.pets.includes("bird"), "riding the train answers its riddle");
+  assert.equal(v.stamps.find((s) => s.id === "riddles")!.have, v.riddles.filter((r) => r.solved).length);
+  assert.equal(journals.setPet("a", null), true);
+  assert.equal(journals.petOf("a"), null);
+  journals.left("a");
+  await journals.close();
+});
+
+test("in a room: a companion comes when chosen, friends are told, and it is there again next visit", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "ew-pets-"));
+  const accounts = new AccountDirectory();
+  const ann = accounts.signIn({ sub: "g-1", email: "ann@example.com", name: "Ann" })!;
+  const { journals } = keeper(new FileJournalStore(dir));
+  const rooms = new Rooms(accounts, { journal: journals });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const url = `ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`;
+  const join = async (name: string, token?: string) => {
+    const ws = new WebSocket(url);
+    const inbox: Msg[] = [];
+    ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    ws.send(JSON.stringify({ t: "hello", name, room: "family", avatar: "fox", ...(token ? { token } : {}) }));
+    const next = async (t: string): Promise<Msg> => {
+      for (let i = 0; i < 300; i++) {
+        const at = inbox.findIndex((m) => m.t === t);
+        if (at >= 0) return inbox.splice(at, 1)[0];
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`timed out waiting for "${t}"`);
+    };
+    const welcome = await next("welcome");
+    return { ws, inbox, next, id: welcome.id as string, welcome };
+  };
+  try {
+    const mum = await join("Ann", ann.token);
+    const kid = await join("Kid");
+    await new Promise((r) => setTimeout(r, 50));
+    mum.ws.send(JSON.stringify({ t: "pet", sp: "cow" }));
+    assert.equal((await mum.next("error")).code, "locked", "not before the riddle is solved");
+    mum.ws.send(JSON.stringify({ t: "talk", thing: 42, sp: "cow" }));
+    await mum.next("say");
+    assert.equal((await mum.next("stamp")).kind !== undefined, true);
+    mum.ws.send(JSON.stringify({ t: "pet", sp: "cow" }));
+    const seen = await kid.next("pet");
+    assert.deepEqual([seen.id, seen.sp, typeof seen.thing], [mum.id, "cow", "number"]);
+    assert.equal((await mum.next("pet")).thing, seen.thing);
+    const late = await join("Grandad");
+    assert.deepEqual(late.welcome.peers.find((p: Msg) => p.id === mum.id).pet, { sp: "cow", thing: seen.thing }, "a newcomer sees it too");
+
+    // She leaves and comes back another time: the same cow comes along without being asked.
+    mum.ws.close();
+    await new Promise((r) => setTimeout(r, 100));
+    const again = await join("Ann", ann.token);
+    let back: Msg;
+    do back = await kid.next("pet"); while (back.id !== again.id);
+    assert.deepEqual([back.sp, back.thing], ["cow", seen.thing], "the very same cow");
+    again.ws.send(JSON.stringify({ t: "pet" }));
+    do back = await kid.next("pet"); while (back.id !== again.id);
+    assert.equal(back.sp, undefined, "and it goes home when told");
+    for (const c of [again, kid, late]) c.ws.close();
+    await new Promise((r) => setTimeout(r, 150)); // let their journals be written before the folder goes
+  } finally {
+    rooms.close();
+    server.close();
+    await journals.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });

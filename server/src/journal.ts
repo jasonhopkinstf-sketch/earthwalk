@@ -43,6 +43,9 @@ export interface JournalDoc {
   ridden: Record<string, { times: number; metres: number }>;
   /** Stamps earned ("countries:3"), with when. */
   earned: Record<string, number>;
+  /** Riddles solved, with when; and the companion chosen from those they have won, if any. */
+  solved: Record<string, number>;
+  pet: string | null;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -60,9 +63,14 @@ export interface JournalView {
   talkedKinds: string[];
   riddenKinds: string[];
   stamps: StampView[];
+  /** The riddles unlocked so far (`answer` once solved), how many more there are and at what level they come, and the companions won. */
+  riddles: { id: string; text: string; solved: boolean; answer: string | null }[];
+  moreRiddles: { count: number; level: number } | null;
+  pets: string[];
+  pet: string | null;
 }
 /** Something worth telling a player the moment it happens. */
-export interface StampNews { title: string; text: string; kind: "country" | "stamp" | "level" }
+export interface StampNews { title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" }
 
 /** Where journals are kept. */
 export interface JournalStore {
@@ -130,6 +138,51 @@ export function continentOf(lat: number, lon: number): string {
   return "Asia";
 }
 
+/**
+ * A riddle. It is unlocked at a level, and solved by finding its answer in the world: talking to
+ * one (`talk`), riding one (`ride`), or having set foot on enough continents. Only what is done after
+ * it is unlocked counts. The `gift` is an animal that will then follow the player about if they like.
+ */
+export interface Riddle { id: string; level: number; text: string; answer: string; talk?: string; ride?: string; continents?: number; gift: string }
+export const RIDDLES: Riddle[] = [
+  { id: "cow", level: 1, talk: "cow", gift: "cow", answer: "a cow", text: "I wear a patchwork coat in the field, I chew all day, and my favourite word has two o's in it. Find me and say hello." },
+  { id: "tree", level: 1, talk: "tree", gift: "squirrel", answer: "a tree", text: "I have a trunk but no suitcase, a crown but no kingdom, and rings that nobody can see. Who am I?" },
+  { id: "house", level: 1, talk: "house", gift: "cat", answer: "a house", text: "My eyes are windows, my mouth is a door, and I wear a hat of tiles. Come and talk to me." },
+  { id: "car", level: 1, talk: "car", gift: "dog", answer: "a car", text: "I have four round feet and never walk. I sleep by the kerb and say toot. What am I?" },
+  { id: "snail", level: 2, talk: "snail", gift: "snail", answer: "a snail", text: "I carry my house on my back and leave a silver road behind me. I am never in a hurry." },
+  { id: "frog", level: 2, talk: "frog", gift: "frog", answer: "a frog", text: "I began as a wriggling dot with a tail. Now I have legs like springs and live beside the pond." },
+  { id: "bee", level: 2, talk: "bee", gift: "bee", answer: "a bee", text: "I wear stripes, I hum while I work, and I turn flowers into something sweet for your toast." },
+  { id: "butterfly", level: 2, talk: "butterfly", gift: "butterfly", answer: "a butterfly", text: "I used to crawl and munch leaves. Then I slept in a sleeping bag I made myself, and woke up with painted wings." },
+  { id: "mouse", level: 2, talk: "mouse", gift: "mouse", answer: "a mouse", text: "I am small and quick with a tail like a bootlace, and stories say I am fond of cheese. Look beside the houses." },
+  { id: "hedgehog", level: 2, talk: "hedgehog", gift: "hedgehog", answer: "a hedgehog", text: "I wear a coat of a thousand pins, yet I am no pincushion. I snuffle about in gardens." },
+  { id: "train", level: 3, ride: "train", gift: "pigeon", answer: "a train", text: "I am long, I run on two iron ribbons, and I whistle when I set off. Do not just find me: take a ride." },
+  { id: "taxi", level: 3, ride: "taxi", gift: "sparrow", answer: "a taxi", text: "I am yellow, I come when I am called, and I never stop talking. Ride with me somewhere." },
+  { id: "crab", level: 3, talk: "crab", gift: "crab", answer: "a crab", text: "I walk sideways along the sand with my lunch boxes held up in the air." },
+  { id: "donkey", level: 3, talk: "donkey", gift: "donkey", answer: "a donkey", text: "I look like a small grey horse who has borrowed a rabbit's ears, and I sing hee-haw." },
+  { id: "goose", level: 3, talk: "goose", gift: "goose", answer: "a goose", text: "I honk, but I am not a car. I waddle, but I am not a duck. I guard the farmyard." },
+  { id: "fox", level: 3, talk: "fox", gift: "fox", answer: "a fox", text: "I wear a red coat and a white-tipped brush, and in stories I am always the clever one. Look where the wood meets the field." },
+  { id: "beaver", level: 4, talk: "beaver", gift: "beaver", answer: "a beaver", text: "I am a builder with orange teeth and a tail like a paddle. My house has a moat." },
+  { id: "tortoise", level: 4, talk: "tortoise", gift: "tortoise", answer: "a tortoise", text: "Slow and steady, I once won a race against a hare. My roof goes everywhere with me." },
+  { id: "ladybird", level: 4, talk: "ladybird", gift: "ladybird", answer: "a ladybird", text: "I am a little red dome with black dots, and people say I bring good luck." },
+  { id: "flamingo", level: 4, talk: "flamingo", gift: "flamingo", answer: "a flamingo", text: "I am pink from my dinner and I like to stand on one leg. Look for me on a warm shore." },
+  { id: "penguin", level: 4, talk: "penguin", gift: "penguin", answer: "a penguin", text: "I am a bird in a dinner suit. I cannot fly, but I swim like a fish. Go a long way south." },
+  { id: "sailboat", level: 4, ride: "sailboat", gift: "duck", answer: "a sailing boat", text: "I have a white wing but I am no bird, and the wind is my engine. Come aboard." },
+  { id: "zebra", level: 5, talk: "zebra", gift: "zebra", answer: "a zebra", text: "I am a horse who never takes off its striped pyjamas. I live on the great plains of Africa." },
+  { id: "giraffe", level: 5, talk: "giraffe", gift: "giraffe", answer: "a giraffe", text: "I can look into an upstairs window without standing on tiptoe, and I eat from the tops of trees." },
+  { id: "elephant", level: 5, talk: "elephant", gift: "elephant", answer: "an elephant", text: "I have a trunk but it is no tree's, ears like sails, and I never forget." },
+  { id: "lion", level: 5, talk: "lion", gift: "lion", answer: "a lion", text: "I wear a golden scarf of hair and they call me a king, though mostly I nap." },
+  { id: "kangaroo", level: 5, talk: "kangaroo", gift: "kangaroo", answer: "a kangaroo", text: "I go everywhere in jumps and carry my baby in a pocket. Look for me down under." },
+  { id: "camel", level: 5, talk: "camel", gift: "camel", answer: "a camel", text: "They call me the ship of the desert, though I have never seen the sea. I carry a hill on my back." },
+  { id: "panda", level: 6, talk: "panda", gift: "panda", answer: "a panda", text: "I am black and white, round all over, and I eat bamboo for breakfast, lunch and tea." },
+  { id: "koala", level: 6, talk: "koala", gift: "koala", answer: "a koala", text: "I look like a teddy bear, I sleep nearly all day, and my larder is a gum tree." },
+  { id: "reindeer", level: 6, talk: "reindeer", gift: "reindeer", answer: "a reindeer", text: "I wear a branching crown in the far north, and stories say my cousins pull a sleigh." },
+  { id: "llama", level: 6, talk: "llama", gift: "llama", answer: "a llama", text: "I am a woolly cousin of the camel with no hump, high in the mountains of South America." },
+  { id: "capybara", level: 6, talk: "capybara", gift: "capybara", answer: "a capybara", text: "I am the biggest of all the mice's cousins, calm as a cushion, and I love a bath." },
+  { id: "continents", level: 6, continents: 3, gift: "bird", answer: "three continents", text: "I am not a thing but a journey: set foot on three of the world's great lands." },
+];
+/** The riddle's answer, as a thing to keep you company: flying birds are not offered. */
+const giftOf = (r: Riddle): string | null => (r.gift === "bird" ? null : r.gift);
+
 const LEVELS = ["Newcomer", "Rambler", "Wanderer", "Explorer", "Adventurer", "Voyager", "Globetrotter", "Pathfinder", "World walker"];
 /** Points needed to reach level `n` (1 is where everyone starts). */
 const pointsFor = (n: number): number => 10 * (n - 1) * (n - 1);
@@ -145,6 +198,7 @@ const STAMPS: StampRule[] = [
   { id: "friends", title: "Friends made", unit: "friends", steps: [1, 10, 50, 200], count: (d) => d.friendCount, say: (n) => `You have talked to ${one(n, "new friend")}` },
   { id: "kinds", title: "Kinds of friend", unit: "kinds", steps: [3, 8, 15, 25, 40, 55], count: (d) => Object.keys(d.talked).length, say: (n) => `You have talked to ${n} different kinds of thing` },
   { id: "mounts", title: "Things ridden", unit: "kinds", steps: [1, 4, 8, 12, 20], count: (d) => Object.keys(d.ridden).length, say: (n) => `You have ridden ${one(n, "kind of thing", "kinds of thing")}` },
+  { id: "riddles", title: "Riddles solved", unit: "riddles", steps: [1, 5, 10, 20, 30], count: (d) => Object.keys(d.solved).length, say: (n) => `You have solved ${one(n, "riddle")}` },
   { id: "tree", title: "Tree talker", unit: "", steps: [1], count: (d) => (d.talked.tree ? 1 : 0), say: () => "You have talked to a tree" },
   { id: "train", title: "All aboard", unit: "", steps: [1], count: (d) => (d.ridden.train ? 1 : 0), say: () => "You have ridden a train" },
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
@@ -156,7 +210,7 @@ const STAMPS: StampRule[] = [
 /** What a journal adds up to. Countries and new friends count most. */
 export function pointsOf(d: JournalDoc): number {
   return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
-    + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2;
+    + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6;
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -167,11 +221,16 @@ export function levelOf(points: number): { n: number; title: string; points: num
 export function emptyJournal(personId: string | null, now: number): JournalDoc {
   return {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
-    countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {},
+    countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
   };
 }
 
 /** A player's own journal, as they are shown it. */
+/** The companions a player has won: the answers of the riddles they have solved. */
+export function petsOf(d: JournalDoc): string[] {
+  return RIDDLES.filter((r) => d.solved[r.id] && giftOf(r)).map((r) => r.gift);
+}
+
 export function viewOf(d: JournalDoc): JournalView {
   const newest = <T extends { last: number }>(o: Record<string, T>, n: number): T[] => Object.values(o).sort((a, b) => b.last - a.last).slice(0, n);
   return {
@@ -190,6 +249,10 @@ export function viewOf(d: JournalDoc): JournalView {
     friends: newest(d.friends, 12).map((f) => ({ name: f.name, sp: f.sp, times: f.times, last: f.last })),
     talkedKinds: Object.keys(d.talked),
     riddenKinds: Object.keys(d.ridden),
+    riddles: RIDDLES.filter((r) => r.level <= levelOf(pointsOf(d)).n).map((r) => ({ id: r.id, text: r.text, solved: !!d.solved[r.id], answer: d.solved[r.id] ? r.answer : null })),
+    moreRiddles: ((later) => (later.length ? { count: later.filter((r) => r.level === later[0].level).length, level: later[0].level } : null))(RIDDLES.filter((r) => r.level > levelOf(pointsOf(d)).n)),
+    pets: petsOf(d),
+    pet: d.pet && petsOf(d).includes(d.pet) ? d.pet : null,
     stamps: STAMPS.map((s) => {
       const have = s.count(d);
       const done = s.steps.filter((n) => have >= n).length;
@@ -308,7 +371,46 @@ export class Journals {
       }
     }
     const level = levelOf(pointsOf(d));
-    if (level.n > levelBefore) this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}` });
+    if (level.n > levelBefore) {
+      this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}` });
+      const fresh = RIDDLES.filter((r) => r.level > levelBefore && r.level <= level.n).length;
+      if (fresh) this.tell(key, { kind: "riddle", title: fresh === 1 ? "A new riddle" : `${fresh} new riddles`, text: "Open your passport (P) to read them" });
+    }
+  }
+
+  /**
+   * Something the player has just done may be the answer to a riddle they have unlocked: talking to a
+   * kind of thing, riding one, or (with neither) simply having got about.
+   */
+  private attempt(key: string, w: Walker, did: { talk?: string; ride?: string }): void {
+    const level = levelOf(pointsOf(w.open.doc)).n;
+    for (const r of RIDDLES) {
+      const d = w.open.doc;
+      if (r.level > level || d.solved[r.id]) continue;
+      const hit = (r.talk !== undefined && r.talk === did.talk) || (r.ride !== undefined && r.ride === did.ride)
+        || (r.continents !== undefined && Object.keys(d.continents).length >= r.continents);
+      if (!hit) continue;
+      this.note(w.open, "riddle", { id: r.id });
+      this.change(key, w, (doc) => { doc.solved[r.id] = this.now(); });
+      const gift = giftOf(r);
+      this.tell(key, { kind: "riddle", title: "Riddle solved!", text: `It was ${r.answer}.${gift ? ` Now ${/^[aeiou]/.test(gift) ? "an" : "a"} ${gift} will keep you company if you like: see your passport (P).` : ""}` });
+    }
+  }
+
+  /** Chooses a companion from those the player has won (null for none). False when it is not theirs to choose. */
+  setPet(key: string, sp: string | null): boolean {
+    const w = this.walkers.get(key);
+    if (!w || (sp !== null && !petsOf(w.open.doc).includes(sp))) return false;
+    w.open.doc.pet = sp;
+    w.open.doc.updated = this.now();
+    w.open.dirty = true;
+    return true;
+  }
+
+  /** The companion a player has chosen, if they still have it. */
+  petOf(key: string): string | null {
+    const d = this.walkers.get(key)?.open.doc;
+    return d?.pet && petsOf(d).includes(d.pet) ? d.pet : null;
   }
 
   private change(key: string, w: Walker, edit: (d: JournalDoc) => void): void {
@@ -414,6 +516,7 @@ export class Journals {
         }
       });
       if (newCountry) this.tell(key, { kind: "country", title: detail.country!, text: "A new country for your passport" });
+      this.attempt(key, w, {});
     };
     if (!this.placeDetail) return record({ name: null, country: null });
     this.placeDetail(lat, lon).then(record, () => record({ name: null, country: null }));
@@ -430,6 +533,7 @@ export class Journals {
       d.ridden[sp] = d.ridden[sp] ?? { times: 0, metres: 0 };
       d.ridden[sp].times++;
     });
+    this.attempt(key, w, { ride: sp });
   }
 
   /** Talked to something. `said` is what the player typed (nothing for a hello) and `reply` what it answered. */
@@ -450,6 +554,7 @@ export class Journals {
         if (keys.length > FRIEND_CAP) delete d.friends[keys.reduce((a, b) => (d.friends[a].last <= d.friends[b].last ? a : b))];
       }
     });
+    this.attempt(key, w, { talk: sp });
   }
 
   /** The journal of a member who is in the world now. */

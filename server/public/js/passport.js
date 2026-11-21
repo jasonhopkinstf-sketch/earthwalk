@@ -57,7 +57,7 @@ export class Passport {
     this.showing = !!news;
     if (!news) { this.toast.hidden = true; return; }
     this.toast.replaceChildren(
-      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : "New stamp"),
+      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : "New stamp"),
       el("div", "title", news.title), el("div", "text", news.text ?? ""));
     this.toast.className = news.kind ?? "stamp";
     this.toast.hidden = false;
@@ -124,7 +124,29 @@ export class Passport {
     const foot = el("p", "small foot", j.kept
       ? `Yours alone: nobody else can open your passport. Kept since ${when(j.since)} · ${j.totals.visits} visits · ${hours(j.totals.minutes)} in the world.`
       : "You are a guest, so this passport lasts only for this visit. Sign in with Google to keep one.");
-    page.append(close, head, totals, el("h3", "", "Stamps"), stamps, lists, foot);
+    // Riddles: those unlocked so far, each with its answer once it is found.
+    const riddles = el("div", "riddles");
+    for (const r of j.riddles ?? []) {
+      const card = el("div", r.solved ? "riddle solved" : "riddle");
+      card.append(el("div", "text", r.text), el("div", "small", r.solved ? `Solved: it was ${r.answer}.` : "Find the answer in the world, and talk to it or ride it."));
+      riddles.append(card);
+    }
+    if (j.moreRiddles) riddles.append(el("p", "small", `${j.moreRiddles.count} more ${j.moreRiddles.count === 1 ? "riddle" : "riddles"} at level ${j.moreRiddles.level}.`));
+
+    // Companions: the answers of solved riddles, any one of which will follow you about.
+    const pets = el("div", "pets");
+    const choice = (label, sp) => {
+      const b = el("button", (j.pet ?? null) === sp ? "pet on" : "pet", label);
+      b.type = "button";
+      b.addEventListener("click", () => { this.meetup.sendPet(sp); this.meetup.requestJournal(); });
+      pets.append(b);
+    };
+    if ((j.pets ?? []).length) {
+      choice("Nobody", null);
+      for (const sp of j.pets) choice(kind(sp), sp);
+    } else pets.append(el("p", "small", "Solve a riddle and its answer will keep you company."));
+
+    page.append(close, head, totals, el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }
 }

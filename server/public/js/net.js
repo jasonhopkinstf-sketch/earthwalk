@@ -129,6 +129,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "taxi", place });
   }
 
+  /** Chooses the companion that follows me, from those I have won (nothing for none). */
+  sendPet(sp) {
+    this.send(sp ? { t: "pet", sp } : { t: "pet" });
+  }
+
   /** Asks for my own journal; it comes as a "journal" event. */
   requestJournal() {
     this.send({ t: "journal" });
@@ -162,7 +167,7 @@ export class Meetup extends EventTarget {
         this.me = { id: msg.id, name: msg.name, room: msg.room, avatar: msg.avatar, signedIn: !!msg.signedIn, personId: msg.personId ?? null, home: msg.home ?? null };
         this.peers.clear();
         for (const p of msg.peers ?? []) {
-          this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number", ride: p.ride ?? null });
+          this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number", ride: p.ride ?? null, pet: p.pet ?? null });
         }
         this.left = new Map((msg.left ?? []).map((l) => [l.thing, l]));
         this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
@@ -215,6 +220,14 @@ export class Meetup extends EventTarget {
         if (msg.gone) { msg.by = this.taxis.get(msg.thing)?.by; this.taxis.delete(msg.thing); } else if (Array.isArray(msg.path)) this.taxis.set(msg.thing, msg);
         this.emit("taxi", msg);
         break;
+      case "pet": {
+        // Somebody's companion has come along, or gone home.
+        const pet = typeof msg.sp === "string" && typeof msg.thing === "number" ? { sp: msg.sp, thing: msg.thing } : null;
+        if (msg.id === this.me?.id) this.me.pet = pet;
+        else if (this.peers.has(msg.id)) this.peers.get(msg.id).pet = pet;
+        this.emit("pet", { id: msg.id, pet });
+        break;
+      }
       case "journal":
         this.emit("journal", msg.journal ?? null);
         break;
@@ -225,7 +238,7 @@ export class Meetup extends EventTarget {
         if (typeof msg.thing === "number") this.emit("say", msg); // a thing spoke, to me or to someone nearby
         break;
       case "join":
-        this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false, ride: null });
+        this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false, ride: null, pet: null });
         this.emit("notice", `${msg.name} joined. Type /join ${msg.name} to go to them.`);
         break;
       case "leave": {
