@@ -4,6 +4,7 @@
 import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
+import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
 import { TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 
@@ -14,7 +15,12 @@ const MAX_ROOM_SIZE = 32;
 const HISTORY = 30;
 const TICK_MS = 100;
 /** What can be ridden. The clients decide where each of these is; the server only keeps track of who is on what. */
-const RIDEABLE = new Set(["horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer", "tractor", "boat", "sailboat", "car", "train"]);
+const RIDEABLE = new Set(["horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer", "tractor", "boat", "sailboat", "car", "taxi", "train"]);
+/** A taxi waits this long for whoever called it, may be called this often, and says this many things of its own on a ride, about this far apart. */
+const TAXI_WAIT_MS = 5 * 60_000;
+const TAXI_EVERY_MS = 15_000;
+const TAXI_REMARKS = 10;
+const TAXI_REMARK_MS = 24_000;
 /** A driver and up to three passengers. A train takes any number, all passengers. */
 const SEATS = 4;
 /** How long something stays where its rider left it before it goes home, and how many a room remembers. */
@@ -47,6 +53,7 @@ interface Member {
   /** What this member is riding: the thing's identity, what it is, and their seat (0 drives). */
   ride: Ride | null;
   talkTimes: number[];
+  taxiAt: number;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -58,9 +65,13 @@ interface Left { thing: number; sp: string; lat: number; lon: number; alt: numbe
  */
 interface Order { thing: number; sp: string; act: "follow" | "come" | "stay"; by: string; lat: number; lon: number; to?: [number, number]; at: number; until: number }
 interface ChatLine { id: string; name: string; text: string; ts: number }
-interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order> }
+interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi> }
 /** Where a named place is, and the way there by road when there is one. */
 export interface Way { name: string; lat: number; lon: number; path?: [number, number][] }
+/** A taxi somebody called: where it is coming from (`path`, ending beside them), where it will take them, and who is aboard. */
+interface Taxi { thing: number; by: string; name: string; path: [number, number][]; at: number; until: number; dest: Way; aboard: string | null; remarks: number; nextRemark: number }
+/** What `cab` finds for a caller: where they want to go, and the road the taxi comes along. */
+export interface Cab { dest: Way; pickup: [number, number][] }
 
 /** What the rest of the server may know about someone in a room. */
 export interface RoomMember {
@@ -84,7 +95,15 @@ export interface RoomsOptions {
   /** The people list sent in `people` messages; set by the presence tracker. */
   peopleList?: () => unknown[];
   /** Speaks for the things players talk to. Without one, things answer from their stock lines. */
-  talker?: { greet(thing: number, sp: string): Said; reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean): Promise<Said> };
+  talker?: {
+    greet(thing: number, sp: string): Said;
+    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean): Promise<Said>;
+    muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number): Promise<Said>;
+  };
+  /** Finds where a caller wants a taxi to take them, and a road for the taxi to arrive by. */
+  cab?: (lat: number, lon: number, place: string) => Promise<Cab | null>;
+  /** How long after its fare boards a taxi first speaks, and how long between remarks, in milliseconds (shortened in tests). */
+  taxiRemarkMs?: [number, number];
   /** Finds a place a rider has asked to be taken to, near where they are, with the way there by road if it is close. */
   wayTo?: (lat: number, lon: number, place: string, sp: string) => Promise<Way | null>;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
@@ -208,7 +227,7 @@ export class Rooms {
         if (ws.readyState !== ws.OPEN) return;
         roomName = hello.room.toLowerCase();
         let r = this.rooms.get(roomName);
-        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map() }));
+        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map() }));
         if (r.members.size >= MAX_ROOM_SIZE) { send({ t: "error", code: "full", text: "Room is full" }); ws.close(4002, "full"); return; }
         // Names must be unique in a room so "/join <name>" is unambiguous.
         let name = clean(person.displayName, MAX_NAME) || "Guest";
@@ -217,7 +236,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [],
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0,
         };
         clearTimeout(helloTimer);
         send({
@@ -225,6 +244,7 @@ export class Rooms {
           peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}) })),
           left: [...r.left.values()].filter((l) => l.until > Date.now()),
           orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
+          taxis: [...r.taxis.values()].filter((x) => !x.aboard && x.until > Date.now()).map((x) => this.publicTaxi(x)),
           history: r.history,
           signedIn: me.personId !== null,
           ...(me.personId !== null ? { personId: me.personId, home: me.home } : {}),
@@ -265,6 +285,8 @@ export class Rooms {
         const sp = clean(msg.sp, 16);
         if (!finite(msg.thing) || !Number.isInteger(msg.thing) || msg.thing < 1 || msg.thing > 0xffffffff || !RIDEABLE.has(sp)) return;
         const thing = msg.thing;
+        const taxi = sp === "taxi" ? room.taxis.get(thing) : undefined;
+        if (sp === "taxi" && !taxi) { send({ t: "error", code: "taken", text: "That taxi has gone" }); return; }
         const taken = new Set([...room.members.values()].filter((m) => m.ride?.thing === thing && m.ride.sp === sp).map((m) => m.ride!.seat));
         let seat = sp === "train" ? 1 : 0;
         while (sp !== "train" && taken.has(seat)) seat++;
@@ -274,6 +296,14 @@ export class Rooms {
         room.left.delete(thing);
         this.release(room, thing); // whoever rides it is in charge of it now
         this.broadcast(room, { t: "ride", id: me.id, ...me.ride });
+        if (taxi && seat === 0) {
+          // The fare is aboard: off to where they asked to go, with a driver who talks. (Told after the
+          // `ride` above: their game must know it is aboard before it is told where to drive.)
+          taxi.aboard = me.id;
+          taxi.nextRemark = Date.now() + (this.options.taxiRemarkMs?.[0] ?? 9000);
+          const way = taxi.dest;
+          send({ t: "order", thing, sp, act: "goto", name: way.name, lat: +way.lat.toFixed(7), lon: +way.lon.toFixed(7), ...(way.path ? { path: way.path } : {}) });
+        }
       } else if (msg.t === "talk" && room) {
         // Say hello to a thing (no `text`), or say something to it. Everyone nearby hears the answer.
         const sp = clean(msg.sp, 16);
@@ -307,6 +337,21 @@ export class Rooms {
       } else if (msg.t === "time") {
         // The shared clock: the client sends its own stamp and gets it back with our time, so it can allow for the delay.
         send({ t: "time", c: finite(msg.c) ? msg.c : 0, now: Date.now() });
+      } else if (msg.t === "taxi" && room) {
+        // Call a taxi to take me somewhere. One comes along the road, and waits.
+        const place = clean(msg.place, 80);
+        const now = Date.now();
+        if (!place || !me.hasPos) { send({ t: "error", code: "nowhere", text: "Say where to: /taxi the beach" }); return; }
+        if (now - me.taxiAt < TAXI_EVERY_MS || !this.options.cab) { send({ t: "error", code: "slow", text: "No taxi is free just now. Try again in a moment." }); return; }
+        me.taxiAt = now;
+        const cab = await this.options.cab(me.lat, me.lon, place).catch(() => null);
+        if (!room.members.has(me.id)) return;
+        if (!cab) { send({ t: "error", code: "nowhere", text: `No taxi could find "${place}"` }); return; }
+        for (const old of [...room.taxis.values()]) if (old.by === me.id && !old.aboard) this.dismiss(room, old.thing); // one at a time
+        const thing = (hash32(parseInt(me.id, 16) | 0, (now & 0x7fffffff) ^ room.taxis.size) >>> 0) || 1;
+        const called: Taxi = { thing, by: me.id, name: this.talker.greet(thing, "taxi").name, path: cab.pickup, at: Date.now(), until: Date.now() + TAXI_WAIT_MS, dest: cab.dest, aboard: null, remarks: 0, nextRemark: 0 };
+        room.taxis.set(thing, called);
+        this.broadcast(room, this.publicTaxi(called));
       } else if (msg.t === "journal") {
         // My own journal: nobody can ask for anyone else's.
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
@@ -338,6 +383,7 @@ export class Rooms {
       if (!room || !me) return;
       this.dismount(room, me);
       for (const o of [...room.orders.values()]) if (o.by === me.id) this.release(room, o.thing); // their followers go home
+      for (const x of [...room.taxis.values()]) if (x.by === me.id && !x.aboard) this.dismiss(room, x.thing); // and their taxi drives off
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
       room.members.delete(me.id);
@@ -359,6 +405,7 @@ export class Rooms {
     this.journal?.rode(m.id, null);
     this.broadcast(room, { t: "ride", id: m.id });
     if (ride.seat !== 0 || ride.sp === "train") return;
+    if (ride.sp === "taxi") room.taxis.delete(ride.thing); // the ride is over; it stands a minute like anything left, then is gone
     for (const other of room.members.values()) {
       if (other.ride?.thing !== ride.thing || other.ride.sp !== ride.sp) continue;
       other.ride = null;
@@ -372,6 +419,42 @@ export class Rooms {
     const left: Left = { thing: ride.thing, sp: ride.sp, lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), alt: +m.alt.toFixed(2), yaw: +m.yaw.toFixed(1), until: now + LEFT_MS };
     room.left.set(ride.thing, left);
     this.broadcast(room, { t: "left", ...left });
+  }
+
+  /** What everyone is told of a taxi: where it comes from and when it set off, so each game can draw it arriving. */
+  private publicTaxi(x: Taxi): unknown {
+    return { t: "taxi", thing: x.thing, by: x.by, name: x.name, path: x.path, at: x.at, until: x.until, dest: x.dest.name };
+  }
+
+  /** A taxi nobody boarded goes away. */
+  private dismiss(room: Room, thing: number): void {
+    if (room.taxis.delete(thing)) this.broadcast(room, { t: "taxi", thing, gone: true });
+  }
+
+  /** Every few seconds: taxis that waited too long leave, and those with a fare aboard say something now and then. */
+  private taxiRound(): void {
+    const now = Date.now();
+    for (const [roomName, room] of this.rooms) {
+      for (const x of [...room.taxis.values()]) {
+        if (!x.aboard) { if (x.until <= now) this.dismiss(room, x.thing); continue; }
+        const fare = room.members.get(x.aboard);
+        if (!fare || fare.ride?.thing !== x.thing) { room.taxis.delete(x.thing); continue; }
+        if (now < x.nextRemark || x.remarks >= TAXI_REMARKS || !this.talker.muse) continue;
+        const n = x.remarks++;
+        x.nextRemark = now + (this.options.taxiRemarkMs ? this.options.taxiRemarkMs[1] : TAXI_REMARK_MS + (hash32(x.thing, n) % 9000));
+        void (async () => {
+          const place = fare.hasPos && this.options.placeName ? await this.options.placeName(fare.lat, fare.lon).catch(() => null) : null;
+          const said = await this.talker.muse!(roomName, x.thing, "taxi", place, x.dest.name, n);
+          if (fare.ride?.thing !== x.thing) return; // they got out while it was thinking
+          const out = JSON.stringify({ t: "say", thing: x.thing, sp: "taxi", name: said.name, text: said.text, by: fare.id, ...(fare.hasPos ? { lat: +fare.lat.toFixed(7), lon: +fare.lon.toFixed(7) } : {}) });
+          for (const m of room.members.values()) {
+            const near = m === fare || (m.hasPos && fare.hasPos && Math.hypot((m.lat - fare.lat) * 111_320, (m.lon - fare.lon) * 111_320 * Math.cos((fare.lat * Math.PI) / 180)) <= HEARING_M);
+            if (near && m.ws.readyState === m.ws.OPEN) m.ws.send(out);
+          }
+          this.journal?.talked(fare.id, x.thing, "taxi", said.name, "", said.text);
+        })().catch(() => {});
+      }
+    }
   }
 
   /** Lets a thing go back to what it was doing, and tells the room. */
@@ -417,8 +500,11 @@ export class Rooms {
     for (const m of room.members.values()) if (m.ws.readyState === m.ws.OPEN) m.ws.send(text);
   }
 
+  private ticks = 0;
+
   /** Ten times a second, tell each room who moved. */
   private tick(): void {
+    if (++this.ticks % 30 === 0) this.taxiRound();
     for (const room of this.rooms.values()) {
       const moved: [string, number, number, number, number][] = [];
       for (const m of room.members.values()) {

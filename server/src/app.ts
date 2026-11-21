@@ -69,6 +69,8 @@ export interface AppOptions {
   /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
   findNear?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
+  /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
+  taxiRemarkMs?: [number, number];
 }
 
 /** The server version, from package.json, shown by clients so a deploy can be told apart. */
@@ -136,12 +138,26 @@ export function createApp(options: AppOptions = {}): App {
   const wayTo = async (lat: number, lon: number, place: string, sp: string) => {
     const found = await findNear(place, lat, lon);
     if (!found) return null;
-    const driven = sp === "car" || sp === "tractor"
+    const driven = sp === "car" || sp === "tractor" || sp === "taxi"
       ? await Promise.race([routeBetween(lat, lon, found.lat, found.lon).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 12_000).unref())])
       : null;
     return { name: found.name.split(",").slice(0, 2).join(","), lat: found.lat, lon: found.lon, ...(driven ? { path: driven.path } : {}) };
   };
-  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo });
+  /** A taxi for someone at a position who wants to go to a place: the place, and a road for the taxi to come along from a few streets away. */
+  const cab = async (lat: number, lon: number, place: string) => {
+    const dest = await wayTo(lat, lon, place, "taxi");
+    if (!dest) return null;
+    let pickup: [number, number][] = [[lat, lon]]; // failing a road to come by, it simply turns up
+    const gaveUp = Date.now() + 8000;
+    for (const k of [0, 3, 6, 1, 4, 7, 2, 5]) {
+      if (Date.now() > gaveUp) break;
+      const from = [lat + (260 / 111_320) * Math.cos((k * Math.PI) / 4), lon + (260 / (111_320 * Math.cos((lat * Math.PI) / 180))) * Math.sin((k * Math.PI) / 4)];
+      const way = await routeBetween(from[0], from[1], lat, lon).catch(() => null);
+      if (way && way.metres >= 100 && way.metres <= 900) { pickup = way.path; break; }
+    }
+    return { dest, pickup };
+  };
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);

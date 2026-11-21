@@ -210,6 +210,11 @@ passing train to hop on, and E again to hop off. You steer what you ride; a frie
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
+Taxis (in the browser so far): `/taxi the beach` calls one. A yellow cab comes along the road from a
+few streets away and waits; hop on with E and it drives you there, by road when the place is close
+and in one jump when it is not, saying odd and thoughtful things as it goes. Friends can share it.
+`server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
+
 Going into houses (in the browser so far): press E at the front door of a plain four-square house
 to go in, and E again just inside it to come out. Inside are rooms laid out from thirty recipes of
 our own (`server/src/interior.ts`), stretched to fit the real house: a hall or living room behind

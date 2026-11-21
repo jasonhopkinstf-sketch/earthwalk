@@ -19,6 +19,7 @@ export const MOUNTS = {
   deer: { speed: 9, seat: 1.05, name: "deer" },
   tractor: { speed: 5, seat: 1.35, name: "tractor", reach: 4 },
   car: { speed: 13, seat: 0.95, name: "car", reach: 3.5 }, // up on the roof, where the view is not all bonnet
+  taxi: { speed: 13, seat: 0.95, name: "taxi", reach: 4 },
   boat: { speed: 2.5, seat: 0.3, name: "rowing boat", reach: 4, afloat: true },
   sailboat: { speed: 5, seat: 0.75, name: "sailing boat", reach: 6, afloat: true },
   train: { seat: 3.5, name: "train", reach: 8 },
@@ -40,6 +41,7 @@ export class Riding {
     this.hidden = new Set(); // identities drawn here instead of where their timetable has them
     this.mounts = []; // ridden and left things to draw this frame
     this.gaits = new Map(); // how far each has gone, for swinging legs
+    this.extras = []; // others with things to draw in place of the timetable: orders.js, taxi.js
     this.meetup.addEventListener("ride", (e) => this.onRide(e.detail));
     this.meetup.addEventListener("ridefail", () => { this.wanted = null; });
   }
@@ -156,7 +158,7 @@ export class Riding {
       if (y !== null) this.mounts.push({ key: "", thing, sp: left.sp, x: at.x, z: at.z, y, yaw: (-left.yaw * Math.PI) / 180, gait: 0, moving: false });
     }
     if (this.gaits.size > 64) this.gaits.clear();
-    this.extra?.(dt, t); // and everything doing as it was told (orders.js)
+    for (const extra of this.extras) extra(dt, t); // and everything doing as it was told, and taxis on their way
 
     // ---- what would E hop on?
     this.near = null;
@@ -178,7 +180,7 @@ export class Riding {
   /** From Life.update: draws everything in `mounts` through Life's meshes. */
   draw(life, t, counts) {
     for (const m of this.mounts) {
-      if (m.sp === "car") this.traffic.putMount(life, m, t, counts);
+      if (m.sp === "car" || m.sp === "taxi") this.traffic.putMount(life, m, t, counts);
       else life.putMount(m, t, counts);
     }
   }

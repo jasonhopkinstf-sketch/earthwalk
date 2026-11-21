@@ -358,6 +358,7 @@ Client to server:
 | `{"t":"people"}` | Ask for the people list again (it is also pushed whenever it changes). |
 | `{"t":"ride","thing":918398760,"sp":"horse"}` / `{"t":"ride"}` | Hop on something, or (with no `thing`) hop off. See "Riding". |
 | `{"t":"talk","thing":918398760,"sp":"cow"}` / `{"t":"talk","thing":..,"sp":"cow","text":"what do you eat?"}` | Say hello to a thing, or say something to it. See "Talking". |
+| `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
@@ -371,6 +372,7 @@ Server to client:
 | `{"t":"ride","id":"..","thing":918398760,"sp":"horse","seat":0}` / `{"t":"ride","id":".."}` | Someone hopped on something, or off. Sent to the whole room, the rider included: for the rider it is the go-ahead. |
 | `{"t":"left","thing":918398760,"sp":"horse","lat":..,"lon":..,"alt":..,"yaw":..,"until":1700000060000}` | A driver got off: the thing stands there until `until` (server clock, ms), then goes back to where it belongs. |
 | `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
+| `{"t":"taxi","thing":..,"by":"..","name":"Hackney","path":[[lat,lon],..],"at":..,"until":..,"dest":"Goat Island Beach, Leigh"}` / `{"t":"taxi","thing":..,"gone":true}` | A taxi is on its way to whoever called it, or one nobody boarded has driven off. See "Taxis". |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
@@ -430,6 +432,30 @@ What is to be done comes as `order`:
 under orders where the order puts it and not where its timetable would (as they do a ridden thing).
 Two clients work a follower out separately from the same order and the same player positions, so they
 agree to within a step or two, not to the millimetre.
+
+### Taxis
+
+`taxi` with a `place` calls one. The server finds the place (near the caller first), a road for the
+taxi to arrive by from a few streets off, and the way from the caller to the place when it is close
+enough to drive; then it tells the room. A taxi is a thing like any other, of kind `taxi`, with an
+identity made for the occasion and a name: it can be ridden (four seats), talked to, and told to go
+somewhere else.
+
+- `path` is the road it comes along, ending beside where the caller stood. It set off at `at`
+  (server clock) and goes at 9 m/s, so every client draws it in the same place: along `path` by the
+  shared clock, then waiting at the end until `until` (five minutes after the call).
+- When someone hops on (`ride` with `sp` `taxi`; refused with `taken` for a taxi that is not
+  waiting), whoever takes seat 0 is the fare: after the `ride` message they are sent an `order` with
+  `act` `goto` for the place asked for, and their client carries them there as for any "take me to"
+  ("Doing as asked"). Friends who hop on too ride along.
+- While the fare is aboard the taxi says something of its own about every half minute, ten times at
+  most: a `say` with no `q`, heard like any other. With the AI these come from the same character
+  that answers when it is talked to; without it, from a stock of remarks.
+- When the fare gets out the ride is over: the taxi stands where it stopped for a minute, like
+  anything a rider has left, and is then gone. A taxi nobody boards, or whose caller leaves or calls
+  another, goes with `gone`.
+
+`welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
 
 ### Journal
 

@@ -495,3 +495,25 @@
 		{ EEarthShape::Box, 0x55595e, { 0.0, 0.38, -2.27 }, { 1.75, 0.14, 0.08 }, EEarthRole::None, 0.0 },
 	};
 }
+{
+	FEarthRig& R = Add(TEXT("taxi"), true);
+	R.Coats = { { 0xf5c518, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.52, 0.0 }, { 1.7, 0.5, 3.9 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.98, 0.25 }, { 1.5, 0.46, 2.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.54, 0.3, 1.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.3, 0.3, 2.04 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, -1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, 1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x26221f, { 0.0, 0.6, 0.0 }, { 1.72, 0.13, 2.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0xf3ecd9, { 0.0, 1.33, 0.25 }, { 0.62, 0.2, 0.26 }, EEarthRole::None, 0.0 },
+	};
+}

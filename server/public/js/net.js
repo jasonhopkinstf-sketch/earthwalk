@@ -14,6 +14,7 @@ export class Meetup extends EventTarget {
     /** Things left standing where a rider got off: identity -> { thing, sp, lat, lon, alt, yaw, until }. */
     this.left = new Map();
     this.orders = new Map(); // thing -> what it has been told to keep doing (orders.js)
+    this.taxis = new Map(); // thing -> a taxi on its way to whoever called it (taxi.js)
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
     this.clockOffset = 0;
     this.clockTrip = Infinity;
@@ -123,6 +124,11 @@ export class Meetup extends EventTarget {
     this.send(place ? { t: "home", lat: place.lat, lon: place.lon, name: place.name } : { t: "home" });
   }
 
+  /** Calls a taxi to take me to a place. It arrives as a "taxi" event. */
+  sendTaxi(place) {
+    this.send({ t: "taxi", place });
+  }
+
   /** Asks for my own journal; it comes as a "journal" event. */
   requestJournal() {
     this.send({ t: "journal" });
@@ -160,6 +166,7 @@ export class Meetup extends EventTarget {
         }
         this.left = new Map((msg.left ?? []).map((l) => [l.thing, l]));
         this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
+        this.taxis = new Map((msg.taxis ?? []).map((x) => [x.thing, x]));
         if (this.ride) {
           this.ride = null; // a new connection starts on foot
           this.emit("ride", null);
@@ -202,6 +209,11 @@ export class Meetup extends EventTarget {
         if (msg.act === "follow" || msg.act === "come" || msg.act === "stay") this.orders.set(msg.thing, msg);
         else if (msg.act === "home") this.orders.delete(msg.thing);
         this.emit("order", msg);
+        break;
+      case "taxi":
+        if (typeof msg.thing !== "number") break;
+        if (msg.gone) { msg.by = this.taxis.get(msg.thing)?.by; this.taxis.delete(msg.thing); } else if (Array.isArray(msg.path)) this.taxis.set(msg.thing, msg);
+        this.emit("taxi", msg);
         break;
       case "journal":
         this.emit("journal", msg.journal ?? null);
