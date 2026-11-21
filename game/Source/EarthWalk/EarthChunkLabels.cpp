@@ -284,6 +284,11 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			continue;
 		}
 
+		if (Kind == TEXT("home") || Kind == TEXT("car") || Kind == TEXT("route") || Kind == TEXT("train"))
+		{
+			continue; // the living world: AEarthLife takes these from the same reply
+		}
+
 		FString Text;
 		if (!Json.TryGetStringField(TEXT("text"), Text))
 		{

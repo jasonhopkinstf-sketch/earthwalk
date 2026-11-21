@@ -39,6 +39,9 @@ private:
 	void LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found);
 	void ShowPeople();
 	FString StatusText() const;
+	/** The header that names the place the player is in: asks the server when they have moved to another square about a kilometre across. */
+	void UpdateWhere();
+	void LookUpWhere(const FString& Key, double Lat, double Lon);
 
 	TSharedPtr<SEarthWalkOverlay> Overlay;
 	FDelegateHandle ChatHandle;
@@ -47,4 +50,12 @@ private:
 	bool bChatOpen = false;
 	double ChatClosedAt = 0.0;
 	float StatusTimer = 0.f;
+
+	// The header: the square being asked about ("52.03,4.78"), what the server called it, and when to ask.
+	FString WhereKey;
+	FString WhereName;
+	FString WhereCountry;
+	double WhereAskAt = 0.0; // 0: nothing waiting to be asked
+	double WhereLat = 0.0;
+	double WhereLon = 0.0;
 };

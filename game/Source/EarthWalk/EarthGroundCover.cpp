@@ -64,6 +64,25 @@ void AEarthGroundCover::Clear()
 	Squares.Reset();
 }
 
+void AEarthGroundCover::Replant(const FVector2D& Centre, double Radius)
+{
+	for (auto It = Squares.CreateIterator(); It; ++It)
+	{
+		const FVector2D Corner(It.Key().X * SquareCm, It.Key().Y * SquareCm);
+		if (Centre.X > Corner.X - Radius && Centre.X < Corner.X + SquareCm + Radius && Centre.Y > Corner.Y - Radius && Centre.Y < Corner.Y + SquareCm + Radius)
+		{
+			for (const TWeakObjectPtr<UInstancedStaticMeshComponent>& Part : It.Value())
+			{
+				if (Part.IsValid())
+				{
+					Part->DestroyComponent();
+				}
+			}
+			It.RemoveCurrent();
+		}
+	}
+}
+
 void AEarthGroundCover::Update(AEarthWorld* World, const FVector& Around)
 {
 	if (!World)
@@ -314,6 +333,20 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 		// 0 wheat, 1 cabbages, 2 maize, 3 lying fallow.
 		const double Apart = Crop == 0 ? 0.6 : Crop == 1 ? 0.9 : 0.8; // metres between plants along a row
 		UInstancedStaticMeshComponent* Plants = nullptr;
+		// Nothing is sown where a herd roams or a tractor works (the living world's homes).
+		TArray<FVector> Kept;
+		World->HomeCirclesIn(FBox2D(Corner, Corner + FVector2D(SquareCm, SquareCm)), Kept);
+		const auto KeptClear = [&Kept](const FVector2D& Where)
+		{
+			for (const FVector& Circle : Kept)
+			{
+				if (FMath::Square(Where.X - Circle.X) + FMath::Square(Where.Y - Circle.Y) < Circle.Z * Circle.Z)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
 		double MinAcross = TNumericLimits<double>::Max(), MaxAcross = -MinAcross, MinAlong = MinAcross, MaxAlong = -MinAcross;
 		for (const FVector2D& Unit : { FVector2D(0, 0), FVector2D(1, 0), FVector2D(0, 1), FVector2D(1, 1) })
 		{
@@ -334,7 +367,7 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 				}
 				const float Size = Random.FRandRange(0.85f, 1.15f);
 				FVector Base;
-				if (CoverOf(At) != EarthCover::Farm || !Ground(At, Base))
+				if (CoverOf(At) != EarthCover::Farm || KeptClear(At) || !Ground(At, Base))
 				{
 					continue;
 				}
@@ -351,7 +384,7 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 		const FVector2D At = Spot();
 		const float Turn = Random.FRandRange(0.f, 360.f);
 		FVector Base;
-		if (Crop == 0 && Random.FRand() < 0.3f && CoverOf(At) == EarthCover::Farm && Ground(At, Base))
+		if (Crop == 0 && Random.FRand() < 0.3f && CoverOf(At) == EarthCover::Farm && !KeptClear(At) && Ground(At, Base))
 		{
 			UInstancedStaticMeshComponent* Bales = AddPart(Parts, CylinderMesh, World->MaterialForFoliage(StrawColor, 0.f));
 			Bales->AddInstance(FTransform(FRotator(90.0, Turn, 0.0), Base + FVector(0, 0, 65.0), FVector(1.3, 1.3, 1.2)), true);

@@ -66,6 +66,17 @@ public:
 	void Disconnect();
 
 	bool IsConnected() const { return bJoined; }
+
+	/**
+	 * The shared clock, in seconds since 1970: the server's time, as near as we can tell. Everyone in
+	 * the world agrees on it to within a few hundredths of a second, which is what keeps the animals,
+	 * cars and trains in step between games. Before the server has answered it is this PC's own clock.
+	 */
+	double Now() const { return LocalNow() + ClockOffsetMs / 1000.0; }
+	/** This PC's clock in seconds since 1970, running smoothly (it never jumps while the game runs). */
+	static double LocalNow();
+	/** True once the server has told us the time. */
+	bool HasSharedClock() const { return bClockSet; }
 	const FString& GetMyName() const { return MyName; }
 	const FString& GetRoom() const { return RoomName; }
 	const TMap<FString, FEarthPeer>& GetPeers() const { return Peers; }
@@ -108,6 +119,9 @@ private:
 	void SendJson(const TSharedRef<class FJsonObject>& Object);
 	void PollLink();
 	void StopLogin();
+	void SyncClock();
+	void StopClock();
+	void AskTime();
 
 	TSharedPtr<IWebSocket> Socket;
 	TMap<FString, FEarthPeer> Peers;
@@ -123,6 +137,14 @@ private:
 	bool bFirstWelcome = true;
 	bool bHomePending = false;
 	FTSTicker::FDelegateHandle RetryHandle;
+
+	// Server time minus this PC's time, in milliseconds, and the round trip of the measurement behind it.
+	double ClockOffsetMs = 0.0;
+	double ClockTripMs = TNumericLimits<double>::Max();
+	bool bClockSet = false;
+	int32 ClockAsks = 0;
+	double ClockStartedAt = 0.0;
+	FTSTicker::FDelegateHandle ClockHandle;
 
 	FString LinkCode;
 	double LinkStartedAt = 0.0;

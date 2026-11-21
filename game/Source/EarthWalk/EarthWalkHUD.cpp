@@ -1,5 +1,7 @@
 #include "EarthWalkHUD.h"
 
+#include "EarthLife.h"
+#include "EarthSounds.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
@@ -18,9 +20,11 @@
 #include "Interfaces/IHttpResponse.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -43,6 +47,11 @@ namespace
 
 	const FLinearColor NoticeColor(0.75f, 0.9f, 1.f);
 	const FLinearColor ErrorColor(1.f, 0.6f, 0.5f);
+	// The header's panel (the browser's --panel), and the blue it flashes on arriving somewhere new.
+	const FLinearColor PanelColor(FColor(18, 22, 28, 199));
+	const FLinearColor ArrivedColor(FColor(47, 111, 176, 235));
+	constexpr double ArrivedSeconds = 1.6;
+	constexpr double WhereDelaySeconds = 1.2; // wait this long in a new square before asking its name
 	constexpr int32 MaxLines = 80;
 }
 
@@ -61,6 +70,37 @@ public:
 		ChildSlot
 		[
 			SNew(SOverlay)
+			// Where am I: the name of the place, large, with the country and coordinates beneath.
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, 10.f, 0.f, 0.f)
+			[
+				SAssignNew(Where, SBorder)
+				.BorderImage(&WhereBrush)
+				.BorderBackgroundColor(TAttribute<FSlateColor>::CreateLambda([this]() { return FSlateColor(FMath::Lerp(ArrivedColor, PanelColor, FMath::Clamp(Arrived(), 0.f, 1.f))); }))
+				.Padding(FMargin(22.f, 8.f, 22.f, 9.f))
+				.Visibility(EVisibility::Collapsed)
+				.RenderTransformPivot(FVector2D(0.5, 0.0))
+				[
+					SNew(SBox).MaxDesiredWidth(640.f)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+						[
+							SAssignNew(WhereName, STextBlock)
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 24))
+							.ColorAndOpacity(FLinearColor::White)
+							.WrapTextAt(596.f) // a long name runs to a second line rather than across the whole screen
+							.Justification(ETextJustify::Center)
+						]
+						+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.f, 2.f, 0.f, 0.f)
+						[
+							SAssignNew(WhereSub, STextBlock)
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
+							.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.8f))
+							.Justification(ETextJustify::Center)
+						]
+					]
+				]
+			]
 			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f)
 			[
 				SAssignNew(Status, STextBlock)
@@ -127,6 +167,26 @@ public:
 
 	void SetStatus(const FString& Text) { Status->SetText(FText::FromString(Text)); }
 
+	/** The header: the name of the place, and what goes beneath it. */
+	void SetWhere(const FString& Name, const FString& Sub)
+	{
+		Where->SetVisibility(EVisibility::HitTestInvisible);
+		WhereName->SetText(FText::FromString(Name));
+		WhereSub->SetText(FText::FromString(Sub));
+		WhereSub->SetVisibility(Sub.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+	}
+	/** Starts the header's flourish: it swells and flashes blue for a moment. */
+	void Arrive() { ArrivedAt = FPlatformTime::Seconds(); }
+
+	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
+	{
+		SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+		// The flourish: the header starts a quarter larger and settles.
+		const float Settled = FMath::Clamp(Arrived(), 0.f, 1.f);
+		const float Scale = 1.f + 0.25f * (1.f - Settled) * (1.f - Settled);
+		Where->SetRenderTransform(Scale > 1.001f ? TOptional<FSlateRenderTransform>(FSlateRenderTransform(Scale)) : TOptional<FSlateRenderTransform>());
+	}
+
 	/** The credit line names whoever's data is on screen. In the photographic world the Cesium plugin adds Google's logo and per-tile credits itself. */
 	static FString CreditText(bool bPhotoWorld)
 	{
@@ -166,7 +226,15 @@ private:
 		Hud->CloseChat();
 	}
 
+	/** 0 at the moment of arriving somewhere new, 1 once the flourish is over. */
+	float Arrived() const { return ArrivedAt > 0.0 ? static_cast<float>((FPlatformTime::Seconds() - ArrivedAt) / ArrivedSeconds) : 1.f; }
+
 	TWeakObjectPtr<AEarthWalkHUD> Owner;
+	FSlateRoundedBoxBrush WhereBrush = FSlateRoundedBoxBrush(FLinearColor::White, 12.f);
+	TSharedPtr<SBorder> Where;
+	TSharedPtr<STextBlock> WhereName;
+	TSharedPtr<STextBlock> WhereSub;
+	double ArrivedAt = 0.0;
 	TSharedPtr<STextBlock> Status;
 	TSharedPtr<STextBlock> Credit;
 	bool bPhotoCredit = false;
@@ -275,6 +343,12 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		Overlay->SetStatus(StatusText());
 		const AEarthWorld* CreditWorld = AEarthWorld::Get(this);
 		Overlay->SetCredit(CreditWorld && CreditWorld->IsShowingPhoto(), CreditWorld && CreditWorld->IsPhotoCreditOnScreen());
+		UpdateWhere();
+	}
+	if (WhereAskAt > 0.0 && FPlatformTime::Seconds() >= WhereAskAt)
+	{
+		WhereAskAt = 0.0;
+		LookUpWhere(WhereKey, WhereLat, WhereLon);
 	}
 
 	// A signed-in player's home wins over wherever this device started, once per launch.
@@ -339,6 +413,89 @@ void AEarthWalkHUD::CloseChat()
 		}
 		ApplyGameInputMode(PC);
 	}
+}
+
+void AEarthWalkHUD::UpdateWhere()
+{
+	const APlayerController* PC = GetOwningPlayerController();
+	const AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	if (!Earth || !Character || !Overlay.IsValid())
+	{
+		return;
+	}
+	if (Character->IsWaitingForGround())
+	{
+		// On the way somewhere: the old name no longer holds, and the new one is asked for on landing.
+		WhereName.Reset();
+		WhereCountry.Reset();
+		WhereKey.Reset();
+		WhereAskAt = 0.0;
+		Overlay->SetWhere(TEXT("Travelling..."), FString());
+		return;
+	}
+	double Lat, Lon, Alt;
+	Earth->WorldToGeo(Character->GetActorLocation(), Lat, Lon, Alt);
+	// The server names squares about a kilometre across, so ask again only on entering another one.
+	const FString Key = FString::Printf(TEXT("%.2f,%.2f"), Lat, Lon);
+	if (Key != WhereKey)
+	{
+		WhereKey = Key;
+		WhereLat = Lat;
+		WhereLon = Lon;
+		WhereAskAt = FPlatformTime::Seconds() + WhereDelaySeconds;
+	}
+	// Until the answer comes, and where the place has no name, the coordinates stand in for it.
+	const FString Coords = FString::Printf(TEXT("%.4f, %.4f"), Lat, Lon);
+	TArray<FString> Under;
+	if (!WhereCountry.IsEmpty())
+	{
+		Under.Add(WhereCountry);
+	}
+	if (!WhereName.IsEmpty())
+	{
+		Under.Add(Coords);
+	}
+	Overlay->SetWhere(WhereName.IsEmpty() ? Coords : WhereName, FString::Join(Under, TEXT("  ·  ")));
+}
+
+void AEarthWalkHUD::LookUpWhere(const FString& Key, double Lat, double Lon)
+{
+	const FString Url = FString::Printf(TEXT("%s/v1/place?lat=%.2f&lon=%.2f"), *FEarthWalkConfig::ServerUrl(), Lat, Lon);
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(Url);
+	Request->SetVerb(TEXT("GET"));
+	Request->SetTimeout(30.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		if (WhereKey != Key)
+		{
+			return; // moved on meanwhile
+		}
+		// Anything but a good answer (an older server has no such route) leaves the coordinates up.
+		FString Name, Country;
+		TSharedPtr<FJsonObject> Json;
+		if (bConnected && Response.IsValid() && Response->GetResponseCode() == 200
+			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), Json) && Json.IsValid())
+		{
+			Json->TryGetStringField(TEXT("name"), Name);
+			Json->TryGetStringField(TEXT("country"), Country);
+		}
+		const bool bChanged = Name != WhereName;
+		WhereName = Name;
+		WhereCountry = Country;
+		UE_LOG(LogTemp, Log, TEXT("EarthWalk: where: %s is \"%s\", %s"), *Key, *Name, *Country);
+		UpdateWhere();
+		if (bChanged && !Name.IsEmpty() && Overlay.IsValid())
+		{
+			Overlay->Arrive(); // a little flourish, so arriving somewhere is noticed
+		}
+	});
+	Request->ProcessRequest();
 }
 
 FString AEarthWalkHUD::StatusText() const
@@ -413,6 +570,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
+		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
 		AddLine(TEXT("/world auto   ours on foot, Google's photographic 3D world from the air (needs /mapskey <key>)"), NoticeColor);
 		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
@@ -518,6 +676,22 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		// Kept in this PC's own settings, never sent to the room and never echoed.
 		FEarthWalkConfig::Save(TEXT("MapsKey"), Argument);
 		AddLine(TEXT("Saved the Google Map Tiles key on this PC. Type /world auto to use it."), NoticeColor);
+	}
+	else if (Command == TEXT("sound"))
+	{
+		const AEarthWorld* Earth = AEarthWorld::Get(this);
+		UEarthSounds* Sounds = Earth && Earth->GetLife() ? Earth->GetLife()->GetSounds() : nullptr;
+		if (Sounds && (Argument.Equals(TEXT("on"), ESearchCase::IgnoreCase) || Argument.Equals(TEXT("off"), ESearchCase::IgnoreCase)))
+		{
+			const bool bOn = Argument.Equals(TEXT("on"), ESearchCase::IgnoreCase);
+			Sounds->SetEnabled(bOn);
+			FEarthWalkConfig::Save(TEXT("Sound"), bOn ? TEXT("on") : TEXT("off"));
+			AddLine(bOn ? TEXT("Sound is on: animals call, cars toot and trains whistle.") : TEXT("Sound is off."), NoticeColor);
+		}
+		else if (Sounds)
+		{
+			AddLine(FString::Printf(TEXT("Sound is %s. Type /sound on or /sound off."), Sounds->IsEnabled() ? TEXT("on") : TEXT("off")), NoticeColor);
+		}
 	}
 	else if (Command == TEXT("fly"))
 	{
