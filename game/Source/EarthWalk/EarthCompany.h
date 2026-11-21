@@ -39,6 +39,8 @@ public:
 
 	/** The E key: hop off, or hop on whatever is nearest; at a front door with nothing to ride, go in or out. */
 	void KeyRide();
+	/** Where the nearest house that can be gone into is, in words ("115 m to the north-east"); empty when none is loaded near here. */
+	FString NearestHouse() const;
 	/** Calls a taxi to take the player to a place (/taxi the beach). */
 	void CallTaxi(const FString& Place);
 	bool IsRiding() const { return Mine.bOn; }

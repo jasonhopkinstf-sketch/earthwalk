@@ -284,9 +284,20 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			continue;
 		}
 
-		if (Kind == TEXT("home") || Kind == TEXT("car") || Kind == TEXT("route") || Kind == TEXT("train") || Kind == TEXT("door"))
+		if (Kind == TEXT("door"))
 		{
-			continue; // the living world (AEarthLife) and the doors that open (AEarthWorld) take these from the same reply
+			// A front door that opens (AEarthWorld keeps where it is). Most doors do not, so this one gets a
+			// yellow board over it that says so, to be seen from the street: At is the door on its wall at the
+			// height of the floor inside, and Facing is the way out.
+			const FVector Board = At + Facing.RotateVector(FVector(14.0, 0.0, 292.0));
+			AddBox(Board, Facing, FVector(6.0, 96.0, 32.0), World->MaterialFor(0xf5c518ff));
+			AddText(TEXT("COME IN"), Board + Facing.RotateVector(FVector(3.8, 0.0, 0.0)), Facing, 17.f, FColor(38, 34, 31));
+			++Count;
+			continue;
+		}
+		if (Kind == TEXT("home") || Kind == TEXT("car") || Kind == TEXT("route") || Kind == TEXT("train"))
+		{
+			continue; // the living world: AEarthLife takes these from the same reply
 		}
 
 		FString Text;

@@ -1,6 +1,6 @@
 {
   "name": "earthwalk-server",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "private": true,
   "type": "module",
   "description": "EarthWalk world server: generates world chunks from open map data and hosts meetup rooms",

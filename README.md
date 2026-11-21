@@ -223,7 +223,8 @@ the grass, frogs and herons by the water, crabs and gulls on the sand, and the b
 part of the world, from zebras and elephants to pandas, bison and reindeer. Each has a name and a
 character to talk to, the larger ones can be ridden, and all of them can be told what to do.
 
-Going into houses: press E at the front door of a plain four-square house
+Going into houses (in the Windows game the doors that open have a yellow COME IN sign over them,
+and `/house` says where the nearest is, because most houses do not open): press E at the front door of a plain four-square house
 to go in, and E again just inside it to come out. Inside are rooms laid out from thirty recipes of
 our own (`server/src/interior.ts`), stretched to fit the real house: a hall or living room behind
 the door, then kitchens, bedrooms, bathrooms, studies and playrooms, with doorways, windows and

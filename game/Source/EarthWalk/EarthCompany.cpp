@@ -1267,6 +1267,54 @@ void UEarthCompany::DoorFrame(double Dt)
 		}
 	}
 	DoorHint = bDoorNear ? FString(bDoorInside ? TEXT("E: go out") : TEXT("E: go in")) : FString();
+	if (!bDoorNear && Me && World.IsValid() && !Me->IsWaitingForGround() && !Me->GetMount() && !Me->IsCarried() && PlayerAt(Px, Pz))
+	{
+		// Not at a door, but beside a house that opens: most do not, so say which way its door is.
+		TArray<FEarthDoor> Close;
+		World->DoorsNear(Px, Pz, 14.0, Close);
+		const double FeetM = Me->FeetLocation().Z / 100.0;
+		for (const FEarthDoor& Candidate : Close)
+		{
+			const double Out = (Candidate.Yaw * UE_DOUBLE_PI) / 180.0;
+			const bool bOutside = (Px - Candidate.X) * std::sin(Out) + (Pz - Candidate.Z) * -std::cos(Out) > -0.5 || FMath::Abs(FeetM - Candidate.H) > 1.5;
+			if (bOutside && std::hypot(Candidate.X - Px, Candidate.Z - Pz) < 14.0)
+			{
+				DoorHint = TEXT("You can go into this house: walk up to the door with the yellow COME IN sign");
+				break;
+			}
+		}
+	}
+}
+
+FString UEarthCompany::NearestHouse() const
+{
+	double Px = 0.0, Pz = 0.0;
+	if (!World.IsValid() || !PlayerAt(Px, Pz))
+	{
+		return FString();
+	}
+	TArray<FEarthDoor> Loaded;
+	World->DoorsNear(Px, Pz, 3000.0, Loaded);
+	const FEarthDoor* Best = nullptr;
+	double BestD = TNumericLimits<double>::Max();
+	for (const FEarthDoor& Candidate : Loaded)
+	{
+		const double D = std::hypot(Candidate.X - Px, Candidate.Z - Pz);
+		if (D < BestD)
+		{
+			BestD = D;
+			Best = &Candidate;
+		}
+	}
+	if (!Best)
+	{
+		return FString();
+	}
+	// East and south of the player, as a compass point.
+	static const TCHAR* const Points[] = { TEXT("north"), TEXT("north-east"), TEXT("east"), TEXT("south-east"), TEXT("south"), TEXT("south-west"), TEXT("west"), TEXT("north-west") };
+	const double Bearing = std::atan2(Best->X - Px, -(Best->Z - Pz)) * 180.0 / UE_DOUBLE_PI;
+	const int32 Point = ((FMath::RoundToInt32(Bearing / 45.0) % 8) + 8) % 8;
+	return FString::Printf(TEXT("%d m to the %s"), FMath::RoundToInt32(BestD), Points[Point]);
 }
 
 /** The E key at a door. */
@@ -1385,7 +1433,14 @@ void UEarthCompany::TestAids(double Dt)
 			if (Best)
 			{
 				const double Out = (Best->Yaw * UE_DOUBLE_PI) / 180.0;
-				const double X = Best->X + std::sin(Out) * 1.2, Z = Best->Z - std::cos(Out) * 1.2;
+				// -EWDoorLook stands back in the street and looks at the door, for a picture of its sign.
+				const bool bLook = FParse::Param(FCommandLine::Get(), TEXT("EWDoorLook"));
+				const double Back = bLook ? 8.0 : 1.2;
+				const double X = Best->X + std::sin(Out) * Back, Z = Best->Z - std::cos(Out) * Back;
+				if (APlayerController* PC = Cast<APlayerController>(Me->GetController()))
+				{
+					PC->SetControlRotation(FRotator(bLook ? 8.0 : 0.0, Best->Yaw + 180.0, 0.0));
+				}
 				double Ground = Best->H;
 				World->TerrainHeightAt(X, Z, Ground);
 				Me->PlaceFeetAt(SceneToEngine(X, Ground + 0.3, Z));
@@ -1401,7 +1456,10 @@ void UEarthCompany::TestAids(double Dt)
 		{
 			DoorTestStep = 2;
 			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: at the door: near %d, inside %d, hint \"%s\""), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint);
-			UseDoor();
+			if (!FParse::Param(FCommandLine::Get(), TEXT("EWDoorLook")))
+			{
+				UseDoor();
+			}
 		}
 		else if (bDoorTest && DoorTestStep == 2 && TestClock > 9.0)
 		{
