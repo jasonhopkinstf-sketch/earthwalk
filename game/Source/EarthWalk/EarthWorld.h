@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Templates/Function.h"
 #include "EarthWorld.generated.h"
 
 class AEarthChunkLabels;
@@ -19,6 +20,17 @@ class UProceduralMeshComponent;
  * tiles instead of ours, walked on. Auto is ours on foot and the tiles from the air: both are loaded,
  * one is shown, and the player only ever stands on ours. See EarthPhotoWorld.h.
  */
+/** A front door that opens (a labels item of kind "door"; docs/PROTOCOL.md, "Inside houses"). */
+struct FEarthDoor
+{
+	FIntPoint Chunk = FIntPoint::ZeroValue;
+	int64 Id = 0;     // the building
+	double X = 0.0;   // metres east of the world's origin
+	double Z = 0.0;   // metres south of it
+	double H = 0.0;   // the height of the floor inside, metres above sea level
+	double Yaw = 0.0; // the compass heading out of the door, in degrees
+};
+
 /** What covers a square metre of ground, as far as planting tufts and flowers on it goes (AEarthWorld::CoverAt). */
 namespace EarthCover
 {
@@ -121,6 +133,13 @@ public:
 	 */
 	bool WaterAt(double EastM, double SouthM, bool& bOutWet) const;
 	AEarthLife* GetLife() const { return Life; }
+	/** The front doors that open within reach of a spot (metres east and south of the origin). */
+	void DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const;
+	/**
+	 * Makes the inside of a house ready to walk into: fetched from the server and built the first time
+	 * somebody goes in, and kept with its chunk after that. Done is told whether it is, and why not.
+	 */
+	void OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done);
 	/** Riding, talking and telling things what to do (EarthCompany.h). */
 	UEarthCompany* GetCompany() const { return Company; }
 	/** The figure of someone else in the room, by their id; null when this game is not showing them. */
@@ -148,6 +167,8 @@ private:
 	void UpdateChunks(const FVector& Around);
 	void RequestChunk(FIntPoint Key);
 	bool BuildChunk(FIntPoint Key, const TArray<uint8>& Data);
+	bool BuildInterior(FIntPoint Key, int64 Id, const TArray<uint8>& Data);
+	void ForgetInteriors(FIntPoint Key);
 	void UpdateLabels(FIntPoint Center);
 	void RequestLabels(FIntPoint Key);
 	void ClearLabels();
@@ -184,6 +205,11 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UEarthCompany> Company;
+
+	/** The insides of houses somebody has gone into, by "chunk x/chunk y/building". They leave with their chunk. */
+	UPROPERTY()
+	TMap<FString, TObjectPtr<UProceduralMeshComponent>> Interiors;
+	TMap<FIntPoint, TArray<FEarthDoor>> Doors;
 
 	/** Per chunk, which cells of the terrain (TerrainGrid a side) are water, row by row from the north-west corner. */
 	TMap<FIntPoint, TArray<uint8>> WaterMaps;

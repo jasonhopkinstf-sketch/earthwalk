@@ -152,6 +152,14 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 	CoverMaps.Reset();
 	HeightMaps.Reset();
 	WaterMaps.Reset();
+	for (const TPair<FString, TObjectPtr<UProceduralMeshComponent>>& Pair : Interiors)
+	{
+		if (Pair.Value)
+		{
+			Pair.Value->DestroyComponent();
+		}
+	}
+	Interiors.Reset();
 	if (GroundCover)
 	{
 		GroundCover->Clear();
@@ -255,6 +263,7 @@ void AEarthWorld::ClearLabels()
 	Labels.Reset();
 	PendingLabels.Reset();
 	LabelRetryAfter.Reset();
+	Doors.Reset();
 	if (Life)
 	{
 		Life->Clear();
@@ -345,6 +354,202 @@ bool AEarthWorld::WaterAt(double EastM, double SouthM, bool& bOutWet) const
 	const int32 X = FMath::Min(TerrainGrid - 1, FMath::FloorToInt32((U - Key.X) * TerrainGrid));
 	const int32 Y = FMath::Min(TerrainGrid - 1, FMath::FloorToInt32((V - Key.Y) * TerrainGrid));
 	bOutWet = (*Water)[Y * TerrainGrid + X] == 1;
+	return true;
+}
+
+void AEarthWorld::DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const
+{
+	for (const TPair<FIntPoint, TArray<FEarthDoor>>& Pair : Doors)
+	{
+		for (const FEarthDoor& Door : Pair.Value)
+		{
+			if (FMath::Abs(Door.X - EastM) <= ReachM && FMath::Abs(Door.Z - SouthM) <= ReachM && Chunks.Contains(Door.Chunk))
+			{
+				Out.Add(Door);
+			}
+		}
+	}
+}
+
+namespace
+{
+	FString InteriorName(FIntPoint Key, int64 Id)
+	{
+		return FString::Printf(TEXT("%d/%d/%lld"), Key.X, Key.Y, Id);
+	}
+}
+
+void AEarthWorld::ForgetInteriors(FIntPoint Key)
+{
+	const FString Prefix = FString::Printf(TEXT("%d/%d/"), Key.X, Key.Y);
+	for (auto It = Interiors.CreateIterator(); It; ++It)
+	{
+		if (It.Key().StartsWith(Prefix))
+		{
+			if (It.Value())
+			{
+				It.Value()->DestroyComponent();
+			}
+			It.RemoveCurrent();
+		}
+	}
+}
+
+void AEarthWorld::OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done)
+{
+	if (Interiors.Contains(InteriorName(Door.Chunk, Door.Id)))
+	{
+		Done(true, FString());
+		return;
+	}
+	const int32 WrappedX = ((Door.Chunk.X % 65536) + 65536) % 65536;
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(FString::Printf(TEXT("%s/v1/interior/%d/%d/%d/%lld"), *FEarthWalkConfig::ServerUrl(), EarthGeo::ChunkZoom, WrappedX, Door.Chunk.Y, Door.Id));
+	Request->SetVerb(TEXT("GET"));
+	Request->SetTimeout(30.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
+	const int32 RequestGeneration = Generation;
+	const FIntPoint Key = Door.Chunk;
+	const int64 Id = Door.Id;
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, Id, RequestGeneration, Done](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		if (RequestGeneration != Generation || !Chunks.Contains(Key))
+		{
+			Done(false, FString()); // the player has gone somewhere else meanwhile
+			return;
+		}
+		const bool bGot = bConnected && Response.IsValid() && Response->GetResponseCode() == 200;
+		if (bGot && (Interiors.Contains(InteriorName(Key, Id)) || BuildInterior(Key, Id, Response->GetContent())))
+		{
+			Done(true, FString());
+			return;
+		}
+		Done(false, Response.IsValid() && Response->GetResponseCode() == 404 ? FString(TEXT("This door is stuck.")) : FString(TEXT("The door would not open just now. Try again in a moment.")));
+	});
+	Request->ProcessRequest();
+}
+
+/**
+ * Builds the inside of a house from the server's answer, which is in the chunk format and in the
+ * chunk's own coordinates, so it sits inside the house's real walls. Walls, floors and furniture are
+ * single sheets, so each is given a second face looking the other way.
+ */
+bool AEarthWorld::BuildInterior(FIntPoint Key, int64 Id, const TArray<uint8>& Data)
+{
+	const uint8* Bytes = Data.GetData();
+	const int64 Size = Data.Num();
+	const auto U32 = [Bytes](int64 Offset)
+	{
+		uint32 Value;
+		FMemory::Memcpy(&Value, Bytes + Offset, sizeof(Value));
+		return Value;
+	};
+	if (Size < 24 || U32(0) != ChunkMagic || U32(4) != ChunkVersion || U32(20) > 256)
+	{
+		return false;
+	}
+	const uint32 SectionCount = U32(20);
+
+	UProceduralMeshComponent* Mesh = NewObject<UProceduralMeshComponent>(this);
+	Mesh->bUseAsyncCooking = false; // the floor has to be there the moment the player steps in
+	Mesh->SetMobility(EComponentMobility::Movable);
+	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Mesh->SetCollisionObjectType(ECC_WorldStatic);
+	Mesh->SetCollisionResponseToAllChannels(ECR_Block);
+	Mesh->SetupAttachment(RootComponent);
+	Mesh->SetRelativeLocation(FVector(-(Key.Y - OriginY) * TileCm, (Key.X - OriginX) * TileCm, 0.0));
+	Mesh->RegisterComponent();
+
+	const bool bFlip = GetDefault<UEarthWalkSettings>()->bFlipTriangleWinding;
+	const TArray<FVector2D> NoUVs;
+	const TArray<FLinearColor> NoColors;
+	const TArray<FProcMeshTangent> NoTangents;
+	int64 Offset = 24;
+	bool bOk = true;
+	for (uint32 Section = 0; Section < SectionCount && bOk; ++Section)
+	{
+		if (Offset + 20 > Size)
+		{
+			bOk = false;
+			break;
+		}
+		const uint32 SurfaceId = U32(Offset);
+		const uint32 Color = U32(Offset + 4);
+		const uint32 Flags = U32(Offset + 8);
+		const int64 NumVerts = U32(Offset + 12);
+		const int64 NumIndices = U32(Offset + 16);
+		Offset += 20;
+		if (NumVerts > 1000000 || NumIndices > 3000000 || NumIndices % 3 != 0 || Offset + NumVerts * 24 + NumIndices * 4 > Size)
+		{
+			bOk = false;
+			break;
+		}
+		TArray<float> Floats;
+		Floats.SetNumUninitialized(NumVerts * 6);
+		FMemory::Memcpy(Floats.GetData(), Bytes + Offset, NumVerts * 24);
+		Offset += NumVerts * 24;
+		const float* Pos = Floats.GetData();
+		const float* Nrm = Pos + NumVerts * 3;
+		TArray<FVector> Vertices;
+		TArray<FVector> Normals;
+		Vertices.Reserve(NumVerts * 2);
+		Normals.Reserve(NumVerts * 2);
+		for (int64 i = 0; i < NumVerts; ++i)
+		{
+			// File: u (east, 0..1), v (south, 0..1), height in metres; normals east, north, up.
+			Vertices.Add(FVector(-Pos[i * 3 + 1] * TileCm, Pos[i * 3] * TileCm, Pos[i * 3 + 2] * 100.0));
+			Normals.Add(FVector(Nrm[i * 3 + 1], Nrm[i * 3], Nrm[i * 3 + 2]));
+		}
+		TArray<int32> Triangles;
+		Triangles.SetNumUninitialized(NumIndices);
+		FMemory::Memcpy(Triangles.GetData(), Bytes + Offset, NumIndices * 4);
+		Offset += NumIndices * 4;
+		for (int64 i = 0; i < NumIndices; ++i)
+		{
+			if (Triangles[i] < 0 || Triangles[i] >= NumVerts)
+			{
+				bOk = false;
+				break;
+			}
+		}
+		if (!bOk)
+		{
+			break;
+		}
+		if (bFlip)
+		{
+			for (int64 i = 0; i + 2 < NumIndices; i += 3)
+			{
+				Swap(Triangles[i + 1], Triangles[i + 2]);
+			}
+		}
+		// The second face: the same corners the other way round, looking the other way.
+		for (int64 i = 0; i < NumVerts; ++i)
+		{
+			Vertices.Add(FVector(Vertices[i]));
+			Normals.Add(-FVector(Normals[i]));
+		}
+		Triangles.Reserve(NumIndices * 2);
+		for (int64 i = 0; i + 2 < NumIndices; i += 3)
+		{
+			const int32 A = Triangles[i], B = Triangles[i + 1], C = Triangles[i + 2];
+			Triangles.Add(static_cast<int32>(A + NumVerts));
+			Triangles.Add(static_cast<int32>(C + NumVerts));
+			Triangles.Add(static_cast<int32>(B + NumVerts));
+		}
+		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, NoUVs, NoUVs, NoUVs, NoUVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
+		Mesh->SetMaterial(Section, MaterialForSurface(SurfaceId, Color));
+	}
+	if (!bOk)
+	{
+		Mesh->DestroyComponent();
+		return false;
+	}
+	Mesh->SetVisibility(!bAerial);
+	Interiors.Add(InteriorName(Key, Id), Mesh);
 	return true;
 }
 
@@ -467,6 +672,7 @@ void AEarthWorld::UpdateChunks(const FVector& Around)
 			CoverMaps.Remove(It.Key());
 			HeightMaps.Remove(It.Key());
 			WaterMaps.Remove(It.Key());
+			ForgetInteriors(It.Key());
 			It.RemoveCurrent();
 		}
 	}
@@ -607,6 +813,26 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 						Actor->Build(*Items, (*Mesh)->GetComponentLocation(), TileCm, this);
 						Actor->SetActorHiddenInGame(bAerial);
 						Labels.Add(Key, Actor);
+					// Front doors that open: E beside one goes in (UEarthCompany).
+						TArray<FEarthDoor>& ChunkDoors = Doors.FindOrAdd(Key);
+						ChunkDoors.Reset();
+						for (const TSharedPtr<FJsonValue>& Value : *Items)
+						{
+							const TSharedPtr<FJsonObject>* Item = nullptr;
+							FString Kind;
+							double U = 0.0, V = 0.0, Id = 0.0;
+							FEarthDoor Door;
+							if (Value.IsValid() && Value->TryGetObject(Item) && (*Item)->TryGetStringField(TEXT("kind"), Kind) && Kind == TEXT("door")
+								&& (*Item)->TryGetNumberField(TEXT("u"), U) && (*Item)->TryGetNumberField(TEXT("v"), V) && (*Item)->TryGetNumberField(TEXT("h"), Door.H)
+								&& (*Item)->TryGetNumberField(TEXT("yaw"), Door.Yaw) && (*Item)->TryGetNumberField(TEXT("id"), Id))
+							{
+								Door.Chunk = Key;
+								Door.Id = static_cast<int64>(Id);
+								Door.X = (Key.X - OriginX + U) * TileCm / 100.0;
+								Door.Z = (Key.Y - OriginY + V) * TileCm / 100.0;
+								ChunkDoors.Add(Door);
+							}
+						}
 						if (Life)
 						{
 							// The same reply says where the animals live and what the cars and trains do.
@@ -732,6 +958,13 @@ namespace
 			// Gardens
 			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f } }, // hedges
 			{ 33, { TEXT("M_EarthTop"), 0xf6f3ea, 6.f, 0.f, 0.f, 0.f } }, // picket fences
+			// Inside houses: floors, walls, ceilings, furniture, windows and frames, rugs, each in the server's colour
+			{ 40, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 41, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 42, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 43, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 44, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 45, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 		};
 		return Styles.Find(SurfaceId);
 	}

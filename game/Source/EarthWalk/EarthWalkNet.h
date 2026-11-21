@@ -47,6 +47,18 @@ struct FEarthOrder
 	TArray<FVector2D> Path; // goto: the way there by road, as latitude and longitude
 };
 
+/** A taxi on its way to whoever called it, or waiting for them (docs/PROTOCOL.md, "Taxis"). */
+struct FEarthTaxi
+{
+	uint32 Thing = 0;
+	FString By;   // the member who called it
+	FString Name; // the taxi's own name
+	FString Dest; // where it was asked to go
+	TArray<FVector2D> Path; // the road it comes along, as latitude and longitude, ending beside the caller
+	double At = 0.0;    // when it set off, server clock in milliseconds
+	double Until = 0.0; // when it gives up waiting
+};
+
 /** A thing spoke: to me, or to somebody near me. */
 struct FEarthSay
 {
@@ -106,6 +118,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthRide, const FEarthRide& /*Mine*/);
 DECLARE_MULTICAST_DELEGATE(FOnEarthRideFail);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthSay, const FEarthSay& /*Said*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthOrder, const FEarthOrder& /*Order*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
 
@@ -164,6 +177,10 @@ public:
 	void SendTalk(uint32 Thing, const FString& Sp, const FString& Text = FString(), bool bHasAt = false, double Lat = 0.0, double Lon = 0.0);
 	/** Asks for my own journal; it comes through OnJournal. */
 	void RequestJournal();
+	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
+	void SendTaxi(const FString& Place);
+	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
+	TMap<uint32, FEarthTaxi>& GetTaxis() { return Taxis; }
 
 	/** What I am riding, once the server has said so. Each peer has a Ride of its own. */
 	const FEarthRide& GetMyRide() const { return MyRide; }
@@ -194,6 +211,7 @@ public:
 	FOnEarthRideFail OnRideFail;
 	FOnEarthSay OnSay;
 	FOnEarthOrder OnOrder;
+	FOnEarthTaxi OnTaxi;
 	FOnEarthJournal OnJournal;
 	FOnEarthStamp OnStamp;
 
@@ -213,6 +231,7 @@ private:
 	FEarthRide MyRide;
 	TMap<uint32, FEarthLeft> Left;
 	TMap<uint32, FEarthOrder> Orders;
+	TMap<uint32, FEarthTaxi> Taxis;
 	FEarthHome Home;
 	FString MyId;
 	FString MyName;

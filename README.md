@@ -99,7 +99,7 @@ Controls (Unreal):
 | `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
-| `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. In the browser, at a front door: go in, or out |
+| `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `P` | Your passport (`/passport` does the same) |
 | `Enter` | Chat and commands |
@@ -122,6 +122,8 @@ Chat commands:
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
 | `/sound on`, `/sound off` | The animals' voices, car horns and train whistles |
+| `/taxi <place>` | Call a taxi; it drives to you, and `E` beside it gets you a ride there |
+| `/passport` | Your passport (the `P` key) |
 | `/world auto`, `/world photo`, `/world generated` | Unreal only: our world on foot and Google's photographic 3D world from the air, the photographic world everywhere, or ours everywhere (see below) |
 | `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for the photographic world |
 
@@ -210,7 +212,7 @@ passing train to hop on, and E again to hop off. You steer what you ride; a frie
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
-Taxis (in the browser so far): `/taxi the beach` calls one. A yellow cab comes along the road from a
+Taxis: `/taxi the beach` calls one. A yellow cab comes along the road from a
 few streets away and waits; hop on with E and it drives you there, by road when the place is close
 and in one jump when it is not, saying odd and thoughtful things as it goes. Friends can share it.
 `server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
@@ -221,7 +223,7 @@ the grass, frogs and herons by the water, crabs and gulls on the sand, and the b
 part of the world, from zebras and elephants to pandas, bison and reindeer. Each has a name and a
 character to talk to, the larger ones can be ridden, and all of them can be told what to do.
 
-Going into houses (in the browser so far): press E at the front door of a plain four-square house
+Going into houses: press E at the front door of a plain four-square house
 to go in, and E again just inside it to come out. Inside are rooms laid out from thirty recipes of
 our own (`server/src/interior.ts`), stretched to fit the real house: a hall or living room behind
 the door, then kitchens, bedrooms, bathrooms, studies and playrooms, with doorways, windows and
@@ -275,7 +277,11 @@ Riding, talking, telling things what to do and the passport are in the Windows g
 what can be ridden); the player's own movement on a mount is in `EarthWalkCharacter.cpp`, the
 speech bubbles, the line that says what E and T would do, and the passport are in
 `EarthWalkHUD.cpp`, and the messages are read in `EarthWalkNet.cpp`. A player in one game can ride
-along behind a player in the other.
+along behind a player in the other. Taxis are in `EarthCompany.cpp` too (it draws one on its way
+to whoever called it, by the shared clock). Going into houses is there and in `EarthWorld.cpp`:
+the labels give the doors, and `OpenHouse` fetches the inside of a house the first time somebody
+goes in and builds it inside the house's own walls, each sheet with a second face. Not in the
+Windows game yet: the passport's riddles and the companions they win.
 
 ## Art assets and the look
 
@@ -337,7 +343,9 @@ cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs 
 is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRide=<kind>`
 hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
 `-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
-says that to it, and `-EWPassport` opens the passport. While a screenshot is pending the game ignores the keyboard and
+says that to it, and `-EWPassport` opens the passport. `-EWDoor` walks to the nearest front door that opens and goes
+in, and `-EWTaxi=<place_with_underscores>` calls a taxi (with `-EWRide=taxi` the game hops on when
+it has pulled up). While a screenshot is pending the game ignores the keyboard and
 mouse, so typing in another window cannot move the player.
 
 ## Data and attribution

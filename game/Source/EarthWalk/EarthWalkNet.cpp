@@ -287,6 +287,19 @@ void UEarthWalkNet::RequestJournal()
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendTaxi(const FString& Place)
+{
+	if (!bJoined)
+	{
+		OnNotice.Broadcast(TEXT("Not connected to the meetup server, so no taxi can come yet."));
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("taxi"));
+	Message->SetStringField(TEXT("place"), Place.Left(120));
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendChat(const FString& Text)
 {
 	if (!bJoined)
@@ -580,6 +593,29 @@ namespace
 		return true;
 	}
 
+	bool ReadTaxi(const FJsonObject& Json, FEarthTaxi& Out)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+		if (!ReadThing(Json, Out.Thing) || !Json.TryGetArrayField(TEXT("path"), Path))
+		{
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& Point : *Path)
+		{
+			double Lat = 0.0, Lon = 0.0;
+			if (ReadLatLon(Point, Lat, Lon))
+			{
+				Out.Path.Add(FVector2D(Lat, Lon));
+			}
+		}
+		Json.TryGetStringField(TEXT("by"), Out.By);
+		Json.TryGetStringField(TEXT("name"), Out.Name);
+		Json.TryGetStringField(TEXT("dest"), Out.Dest);
+		Json.TryGetNumberField(TEXT("at"), Out.At);
+		Json.TryGetNumberField(TEXT("until"), Out.Until);
+		return Out.Path.Num() > 0;
+	}
+
 	bool StaysInForce(const FEarthOrder& Order)
 	{
 		return Order.Act == TEXT("follow") || Order.Act == TEXT("come") || Order.Act == TEXT("stay");
@@ -695,6 +731,25 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			Json->TryGetStringField(TEXT("q"), Said.Asked);
 			Said.bHasAt = Json->TryGetNumberField(TEXT("lat"), Said.Lat) && Json->TryGetNumberField(TEXT("lon"), Said.Lon);
 			OnSay.Broadcast(Said);
+		}
+	}
+	else if (Type == TEXT("taxi"))
+	{
+		// A taxi is on its way to whoever called it, or one nobody boarded has driven off.
+		bool bGone = false;
+		FEarthTaxi Taxi;
+		if (Json->TryGetBoolField(TEXT("gone"), bGone) && bGone)
+		{
+			if (ReadThing(*Json, Taxi.Thing))
+			{
+				Taxis.RemoveAndCopyValue(Taxi.Thing, Taxi);
+				OnTaxi.Broadcast(Taxi, true);
+			}
+		}
+		else if (ReadTaxi(*Json, Taxi))
+		{
+			Taxis.Add(Taxi.Thing, Taxi);
+			OnTaxi.Broadcast(Taxi, false);
 		}
 	}
 	else if (Type == TEXT("journal"))
@@ -866,6 +921,19 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 				if (Row.IsValid() && Row->TryGetObject(Object) && ReadOrder(**Object, Order) && StaysInForce(Order))
 				{
 					Orders.Add(Order.Thing, Order);
+				}
+			}
+		}
+		Taxis.Reset();
+		if (Json->TryGetArrayField(TEXT("taxis"), Rows))
+		{
+			for (const TSharedPtr<FJsonValue>& Row : *Rows)
+			{
+				const TSharedPtr<FJsonObject>* Object = nullptr;
+				FEarthTaxi Taxi;
+				if (Row.IsValid() && Row->TryGetObject(Object) && ReadTaxi(**Object, Taxi))
+				{
+					Taxis.Add(Taxi.Thing, Taxi);
 				}
 			}
 		}

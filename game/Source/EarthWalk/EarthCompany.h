@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "EarthMounts.h"
 #include "EarthWalkNet.h"
+#include "EarthWorld.h"
 #include "UObject/Object.h"
 #include "EarthCompany.generated.h"
 
@@ -36,8 +37,10 @@ public:
 	/** Every frame, before the animals and cars are drawn. T is the shared clock in seconds. */
 	void Frame(AEarthWalkCharacter* InPlayer, double Dt, double T);
 
-	/** The E key: hop off, or hop on whatever is nearest. */
+	/** The E key: hop off, or hop on whatever is nearest; at a front door with nothing to ride, go in or out. */
 	void KeyRide();
+	/** Calls a taxi to take the player to a place (/taxi the beach). */
+	void CallTaxi(const FString& Place);
 	bool IsRiding() const { return Mine.bOn; }
 
 	/** The T key: say hello to whatever is nearest. True if there was something to talk to. */
@@ -89,6 +92,12 @@ private:
 	bool WhereIs(const FString& MemberId, double& OutX, double& OutZ) const;
 	bool Find(uint32 Thing, const FString& Sp, FEarthThing& Out) const;
 	void Stand(uint32 Thing, const FString& Sp, double X, double Z, double Yaw, double Gait, bool bMoving, double Lift, double Spin);
+
+	// ---- taxis (taxi.js) and going into houses (houses.js)
+	void OnTaxi(const FEarthTaxi& Taxi, bool bGone);
+	void TaxiFrame(double T);
+	void DoorFrame(double Dt);
+	void UseDoor();
 
 	// ---- shared
 	void Notice(const FString& Text) const;
@@ -175,6 +184,20 @@ private:
 	bool bRemount = false;
 	uint32 RemountThing = 0;
 	FString RemountSp;
+
+	// Taxis somebody has boarded (riding draws those), and the ones whose arrival I have been told of.
+	TSet<uint32> TaxisUsed;
+	TSet<uint32> TaxisTold;
+
+	// The door E would use, and which side of it I am on.
+	bool bDoorNear = false;
+	bool bDoorInside = false;
+	bool bDoorBusy = false;
+	FEarthDoor Door;
+	double SinceDoorScan = 0.0;
+	FString DoorHint;
+	int32 DoorTestStep = 0;
+	bool bTaxiCalled = false;
 
 	// -EWRide=<kind>, -EWTalk=<kind>, -EWSay=<words>: hop on, greet and speak to the nearest such thing unasked, for pictures and tests.
 	double TestClock = 0.0;

@@ -1169,6 +1169,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
 		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
 		AddLine(TEXT("P   your passport (or /passport): countries, places, friends, stamps and your level"), NoticeColor);
+		AddLine(TEXT("E   at the front door of a house: go in, and E again just inside it to come out"), NoticeColor);
+		AddLine(TEXT("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
 	{
@@ -1291,6 +1293,17 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("passport") || Command == TEXT("journal"))
 	{
 		TogglePassport();
+	}
+	else if (Command == TEXT("taxi"))
+	{
+		if (Argument.IsEmpty())
+		{
+			AddLine(TEXT("Say where to, like this: /taxi the beach"), NoticeColor);
+		}
+		else if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallTaxi(Argument);
+		}
 	}
 	else if (Command == TEXT("fly"))
 	{

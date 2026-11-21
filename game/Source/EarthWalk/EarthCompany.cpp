@@ -183,6 +183,7 @@ void UEarthCompany::Setup(AEarthWorld* InWorld)
 		Room->OnRideFail.AddUObject(this, &UEarthCompany::OnRideFail);
 		Room->OnSay.AddUObject(this, &UEarthCompany::OnSay);
 		Room->OnOrder.AddUObject(this, &UEarthCompany::OnOrder);
+		Room->OnTaxi.AddUObject(this, &UEarthCompany::OnTaxi);
 	}
 }
 
@@ -236,6 +237,12 @@ void UEarthCompany::KeyRide()
 	if (Mine.bOn)
 	{
 		Off();
+		return;
+	}
+	// A door within reach, and nothing to ride: go in or out.
+	if (bDoorNear && !bNear)
+	{
+		UseDoor();
 		return;
 	}
 	UEarthWalkNet* Room = Net.Get();
@@ -489,6 +496,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 		Gaits.Reset();
 	}
 	OrdersFrame(Dt, T); // and everything doing as it was told
+	TaxiFrame(T); // and taxis on their way to whoever called them
 
 	// ---- what would E hop on?
 	bNear = false;
@@ -1104,6 +1112,219 @@ void UEarthCompany::OrdersFrame(double Dt, double T)
 }
 
 // ------------------------------------------------------------------------------------------------
+// Taxis
+// ------------------------------------------------------------------------------------------------
+
+void UEarthCompany::CallTaxi(const FString& Place)
+{
+	if (UEarthWalkNet* Room = Net.Get())
+	{
+		Notice(FString::Printf(TEXT("Calling a taxi to take you to %s..."), *Place));
+		Room->SendTaxi(Place);
+	}
+}
+
+void UEarthCompany::OnTaxi(const FEarthTaxi& Taxi, bool bGone)
+{
+	const bool bMine = Net.IsValid() && Taxi.By == Net->GetMyId();
+	if (bGone)
+	{
+		if (bMine)
+		{
+			Notice(TEXT("Your taxi gave up waiting and drove off."));
+		}
+		return;
+	}
+	Names.Add(Taxi.Thing, Taxi.Name);
+	if (bMine)
+	{
+		Notice(FString::Printf(TEXT("%s the taxi is on its way, to take you to %s. Hop on (E) when it gets here."), *Taxi.Name, *Taxi.Dest));
+	}
+}
+
+/**
+ * Draws each taxi on its way to whoever called it. The server says where it set off from and when,
+ * so every game draws it arriving in the same place; once somebody is aboard it is a ridden thing
+ * like any other.
+ */
+void UEarthCompany::TaxiFrame(double T)
+{
+	UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	constexpr double TaxiPace = 9.0; // metres a second
+	const double NowMs = T * 1000.0;
+	for (auto It = Room->GetTaxis().CreateIterator(); It; ++It)
+	{
+		const uint32 Thing = It.Key();
+		const FEarthTaxi& Taxi = It.Value();
+		if (Hidden.Contains(Thing))
+		{
+			TaxisUsed.Add(Thing); // somebody is aboard, or it stands where they got off
+		}
+		if (Taxi.Until <= NowMs)
+		{
+			It.RemoveCurrent();
+			continue;
+		}
+		if (TaxisUsed.Contains(Thing) || Taxi.Path.Num() == 0)
+		{
+			continue;
+		}
+		// Its road in metres, for the world as it is now, and how far along it the clock puts it.
+		TArray<FVector2D> Points;
+		TArray<double> UpTo;
+		Points.Reserve(Taxi.Path.Num());
+		for (const FVector2D& Point : Taxi.Path)
+		{
+			double X = 0.0, Z = 0.0;
+			GeoToScene(Point.X, Point.Y, X, Z);
+			UpTo.Add(Points.Num() ? UpTo.Last() + std::hypot(X - Points.Last().X, Z - Points.Last().Y) : 0.0);
+			Points.Add(FVector2D(X, Z));
+		}
+		const double Total = UpTo.Last();
+		const double Gone = FMath::Min(Total, FMath::Max(0.0, ((NowMs - Taxi.At) / 1000.0) * TaxiPace));
+		int32 I = 1;
+		while (I < Points.Num() - 1 && UpTo[I] < Gone)
+		{
+			++I;
+		}
+		const FVector2D A = Points[FMath::Max(0, I - 1)];
+		const FVector2D B = Points[FMath::Min(I, Points.Num() - 1)];
+		const double Span = Points.Num() > 1 ? UpTo[FMath::Min(I, Points.Num() - 1)] - UpTo[I - 1] : 0.0;
+		const double F = Span > 0.0 ? (Gone - UpTo[I - 1]) / Span : 1.0;
+		const double X = A.X + (B.X - A.X) * F, Z = A.Y + (B.Y - A.Y) * F;
+		const bool bArrived = Gone >= Total;
+		if (bArrived && Taxi.By == Room->GetMyId() && !TaxisTold.Contains(Thing))
+		{
+			TaxisTold.Add(Thing);
+			Notice(FString::Printf(TEXT("%s the taxi is here. Press E beside it to hop on."), *Taxi.Name));
+		}
+		Hidden.Add(Thing);
+		double Y = 0.0;
+		if (!GroundFor(TEXT("taxi"), X, Z, Y))
+		{
+			continue;
+		}
+		FEarthThing Mount;
+		Mount.Thing = Thing;
+		Mount.Sp = TEXT("taxi");
+		Mount.X = X;
+		Mount.Y = Y;
+		Mount.Z = Z;
+		Mount.Yaw = A.Equals(B) ? 0.0 : std::atan2(-(B.X - A.X), -(B.Y - A.Y));
+		Mount.Gait = Gone;
+		Mount.bMoving = !bArrived;
+		Mount.bOutOfPlace = true;
+		Mounts.Add(Mount);
+	}
+}
+
+// ------------------------------------------------------------------------------------------------
+// Going into houses
+// ------------------------------------------------------------------------------------------------
+
+/** Which door, if any, is within reach? */
+void UEarthCompany::DoorFrame(double Dt)
+{
+	constexpr double ReachOutM = 2.2; // how near a door you must stand, outside it and inside it
+	constexpr double ReachInM = 1.7;
+	if ((SinceDoorScan += Dt) < 0.15)
+	{
+		return;
+	}
+	SinceDoorScan = 0.0;
+	const AEarthWalkCharacter* Me = Player.Get();
+	bDoorNear = false;
+	double Px = 0.0, Pz = 0.0;
+	if (Me && World.IsValid() && !Me->IsWaitingForGround() && !Me->GetMount() && !Me->IsCarried() && PlayerAt(Px, Pz))
+	{
+		const double FeetM = Me->FeetLocation().Z / 100.0;
+		TArray<FEarthDoor> DoorsHere;
+		World->DoorsNear(Px, Pz, ReachOutM, DoorsHere);
+		double BestD = TNumericLimits<double>::Max();
+		for (const FEarthDoor& Candidate : DoorsHere)
+		{
+			const double D = std::hypot(Candidate.X - Px, Candidate.Z - Pz);
+			if (D >= BestD || D > ReachOutM)
+			{
+				continue;
+			}
+			// The way out, as a compass heading: east and south of the door.
+			const double Out = (Candidate.Yaw * UE_DOUBLE_PI) / 180.0;
+			const double Side = (Px - Candidate.X) * std::sin(Out) + (Pz - Candidate.Z) * -std::cos(Out);
+			const bool bInside = Side < 0.0;
+			if (bInside && (D > ReachInM || FMath::Abs(FeetM - Candidate.H) > 1.5))
+			{
+				continue;
+			}
+			BestD = D;
+			Door = Candidate;
+			bDoorInside = bInside;
+			bDoorNear = true;
+		}
+	}
+	DoorHint = bDoorNear ? FString(bDoorInside ? TEXT("E: go out") : TEXT("E: go in")) : FString();
+}
+
+/** The E key at a door. */
+void UEarthCompany::UseDoor()
+{
+	AEarthWalkCharacter* Me = Player.Get();
+	AEarthWorld* Earth = World.Get();
+	if (!bDoorNear || bDoorBusy || !Me || !Earth)
+	{
+		return;
+	}
+	const double Out = (Door.Yaw * UE_DOUBLE_PI) / 180.0;
+	const double Ox = std::sin(Out), Oz = -std::cos(Out);
+	if (bDoorInside)
+	{
+		const double X = Door.X + Ox * 1.4, Z = Door.Z + Oz * 1.4;
+		double Ground = Door.H;
+		Earth->TerrainHeightAt(X, Z, Ground);
+		Me->PlaceFeetAt(SceneToEngine(X, Ground + 0.3, Z));
+		return;
+	}
+	bDoorBusy = true;
+	const FEarthDoor Going = Door;
+	const TWeakObjectPtr<UEarthCompany> Weak(this);
+	Earth->OpenHouse(Going, [Weak, Going, Ox, Oz](bool bOpen, const FString& Why)
+	{
+		UEarthCompany* Self = Weak.Get();
+		AEarthWalkCharacter* Walker = Self ? Self->Player.Get() : nullptr;
+		if (!Self)
+		{
+			return;
+		}
+		Self->bDoorBusy = false;
+		if (!bOpen)
+		{
+			if (!Why.IsEmpty())
+			{
+				Self->Notice(Why);
+			}
+			return;
+		}
+		if (!Walker)
+		{
+			return;
+		}
+		Walker->SetFlying(false);
+		Walker->PlaceFeetAt(SceneToEngine(Going.X - Ox * 0.9, Going.H + 0.05, Going.Z - Oz * 0.9));
+		if (APlayerController* PC = Cast<APlayerController>(Walker->GetController()))
+		{
+			FRotator Look = PC->GetControlRotation();
+			Look.Yaw = Going.Yaw + 180.0; // facing in
+			Look.Pitch = 0.0;
+			PC->SetControlRotation(Look);
+		}
+	});
+}
+
+// ------------------------------------------------------------------------------------------------
 
 void UEarthCompany::Frame(AEarthWalkCharacter* InPlayer, double Dt, double T)
 {
@@ -1117,7 +1338,9 @@ void UEarthCompany::Frame(AEarthWalkCharacter* InPlayer, double Dt, double T)
 	RidingFrame(Dt, T);
 	TalkFrame(Dt);
 	Life->SetOutOfPlace(Hidden, Mounts);
-	Hint = RideHint.IsEmpty() ? TalkHint : TalkHint.IsEmpty() ? RideHint : RideHint + TEXT("      ") + TalkHint;
+	DoorFrame(Dt);
+	const FString& First = RideHint.IsEmpty() ? DoorHint : RideHint;
+	Hint = First.IsEmpty() ? TalkHint : TalkHint.IsEmpty() ? First : First + TEXT("      ") + TalkHint;
 	TestAids(Dt);
 }
 
@@ -1135,11 +1358,61 @@ void UEarthCompany::TestAids(double Dt)
 	UEarthWalkNet* Room = Net.Get();
 	AEarthLife* Life = World.IsValid() ? World->GetLife() : nullptr;
 	double Px = 0.0, Pz = 0.0;
+	// -EWDoor: a few seconds after landing, stand at the nearest front door that opens; a moment later, go in.
+	static const bool bDoorTest = FParse::Param(FCommandLine::Get(), TEXT("EWDoor"));
+	static const FString TaxiPlace = []() { FString Text; FParse::Value(FCommandLine::Get(), TEXT("-EWTaxi="), Text); return Text.Replace(TEXT("_"), TEXT(" ")); }();
+	if (Me && Room && Room->IsConnected() && !Me->IsWaitingForGround() && PlayerAt(Px, Pz))
+	{
+		TestClock += Dt;
+		if (!TaxiPlace.IsEmpty() && !bTaxiCalled && TestClock > 2.0)
+		{
+			bTaxiCalled = true;
+			CallTaxi(TaxiPlace);
+		}
+		if (bDoorTest && DoorTestStep == 0 && TestClock > 4.0)
+		{
+			DoorTestStep = 1;
+			TArray<FEarthDoor> DoorsHere;
+			World->DoorsNear(Px, Pz, 400.0, DoorsHere);
+			const FEarthDoor* Best = nullptr;
+			for (const FEarthDoor& Candidate : DoorsHere)
+			{
+				if (!Best || std::hypot(Candidate.X - Px, Candidate.Z - Pz) < std::hypot(Best->X - Px, Best->Z - Pz))
+				{
+					Best = &Candidate;
+				}
+			}
+			if (Best)
+			{
+				const double Out = (Best->Yaw * UE_DOUBLE_PI) / 180.0;
+				const double X = Best->X + std::sin(Out) * 1.2, Z = Best->Z - std::cos(Out) * 1.2;
+				double Ground = Best->H;
+				World->TerrainHeightAt(X, Z, Ground);
+				Me->PlaceFeetAt(SceneToEngine(X, Ground + 0.3, Z));
+				SinceDoorScan = 1.0;
+				UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: standing at the door of building %lld, one of %d doors near"), Best->Id, DoorsHere.Num());
+			}
+			else
+			{
+				UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: no front door that opens near here"));
+			}
+		}
+		else if (bDoorTest && DoorTestStep == 1 && TestClock > 6.0)
+		{
+			DoorTestStep = 2;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: at the door: near %d, inside %d, hint \"%s\""), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint);
+			UseDoor();
+		}
+		else if (bDoorTest && DoorTestStep == 2 && TestClock > 9.0)
+		{
+			DoorTestStep = 3;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: after the door: near %d, inside %d, hint \"%s\", feet at %.2f m"), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint, Me->FeetLocation().Z / 100.0);
+		}
+	}
 	if ((RideKind.IsEmpty() && TalkKind.IsEmpty()) || TestStep > 3 || !Me || !Room || !Life || !Room->IsConnected() || Me->IsWaitingForGround() || !PlayerAt(Px, Pz))
 	{
 		return;
 	}
-	TestClock += Dt;
 	const auto Nearest = [&](const FString& Kind, FEarthThing& Out)
 	{
 		double Best = TNumericLimits<double>::Max();
@@ -1158,6 +1431,15 @@ void UEarthCompany::TestAids(double Dt)
 		}
 		return Best < TNumericLimits<double>::Max();
 	};
+	FEarthThing Waiting;
+	if (TestStep == 0 && RideKind == TEXT("taxi") && TestClock < 150.0 && !(Nearest(RideKind, Waiting) && !Waiting.bMoving))
+	{
+		return; // the taxi has not pulled up yet
+	}
+	if (TestStep == 0 && RideKind == TEXT("taxi"))
+	{
+		TestClock = 4.5; // the rest of the timetable starts when the taxi is here
+	}
 	if (TestStep == 0 && TestClock > 4.0)
 	{
 		TestStep = 1;

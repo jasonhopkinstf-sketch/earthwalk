@@ -284,9 +284,9 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			continue;
 		}
 
-		if (Kind == TEXT("home") || Kind == TEXT("car") || Kind == TEXT("route") || Kind == TEXT("train"))
+		if (Kind == TEXT("home") || Kind == TEXT("car") || Kind == TEXT("route") || Kind == TEXT("train") || Kind == TEXT("door"))
 		{
-			continue; // the living world: AEarthLife takes these from the same reply
+			continue; // the living world (AEarthLife) and the doors that open (AEarthWorld) take these from the same reply
 		}
 
 		FString Text;
