@@ -229,6 +229,64 @@ void UEarthWalkNet::SendPosition(double Lat, double Lon, double Alt, double Yaw)
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendRide(uint32 Thing, const FString& Sp)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("ride"));
+	Message->SetNumberField(TEXT("thing"), static_cast<double>(Thing));
+	Message->SetStringField(TEXT("sp"), Sp);
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendDismount()
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("ride"));
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendTalk(uint32 Thing, const FString& Sp, const FString& Text, bool bHasAt, double Lat, double Lon)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("talk"));
+	Message->SetNumberField(TEXT("thing"), static_cast<double>(Thing));
+	Message->SetStringField(TEXT("sp"), Sp);
+	if (!Text.IsEmpty())
+	{
+		Message->SetStringField(TEXT("text"), Text.Left(200));
+	}
+	if (bHasAt)
+	{
+		Message->SetNumberField(TEXT("lat"), FMath::RoundToDouble(Lat * 1e7) / 1e7);
+		Message->SetNumberField(TEXT("lon"), FMath::RoundToDouble(Lon * 1e7) / 1e7);
+	}
+	SendJson(Message);
+}
+
+void UEarthWalkNet::RequestJournal()
+{
+	if (!bJoined)
+	{
+		OnNotice.Broadcast(TEXT("Not connected to the meetup server, so there is no passport to open yet."));
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("journal"));
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendChat(const FString& Text)
 {
 	if (!bJoined)
@@ -446,6 +504,88 @@ static FEarthHome ReadHome(const TSharedPtr<FJsonObject>& From)
 	return Out;
 }
 
+namespace
+{
+	/** An identity is a whole number up to 2^32, which a JSON number holds exactly. */
+	bool ReadThing(const FJsonObject& Json, uint32& Out)
+	{
+		double Value = 0.0;
+		if (!Json.TryGetNumberField(TEXT("thing"), Value) || !FMath::IsFinite(Value) || Value < 0.0 || Value > 4294967295.0)
+		{
+			return false;
+		}
+		Out = static_cast<uint32>(static_cast<int64>(Value));
+		return true;
+	}
+
+	FEarthRide ReadRide(const FJsonObject& Json)
+	{
+		FEarthRide Ride;
+		double Seat = 0.0;
+		if (ReadThing(Json, Ride.Thing) && Json.TryGetStringField(TEXT("sp"), Ride.Sp))
+		{
+			Ride.bOn = true;
+			Ride.Seat = Json.TryGetNumberField(TEXT("seat"), Seat) ? FMath::Clamp(FMath::RoundToInt32(Seat), 0, 3) : 0;
+		}
+		return Ride;
+	}
+
+	bool ReadLeft(const FJsonObject& Json, FEarthLeft& Out)
+	{
+		if (!ReadThing(Json, Out.Thing) || !Json.TryGetStringField(TEXT("sp"), Out.Sp)
+			|| !Json.TryGetNumberField(TEXT("lat"), Out.Lat) || !Json.TryGetNumberField(TEXT("lon"), Out.Lon) || !Json.TryGetNumberField(TEXT("until"), Out.Until))
+		{
+			return false;
+		}
+		Json.TryGetNumberField(TEXT("alt"), Out.Alt);
+		Json.TryGetNumberField(TEXT("yaw"), Out.Yaw);
+		return true;
+	}
+
+	bool ReadLatLon(const TSharedPtr<FJsonValue>& Value, double& Lat, double& Lon)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Pair = nullptr;
+		return Value.IsValid() && Value->TryGetArray(Pair) && Pair->Num() >= 2 && (*Pair)[0].IsValid() && (*Pair)[1].IsValid()
+			&& (*Pair)[0]->TryGetNumber(Lat) && (*Pair)[1]->TryGetNumber(Lon) && FMath::IsFinite(Lat) && FMath::IsFinite(Lon);
+	}
+
+	bool ReadOrder(const FJsonObject& Json, FEarthOrder& Out)
+	{
+		if (!ReadThing(Json, Out.Thing) || !Json.TryGetStringField(TEXT("sp"), Out.Sp) || !Json.TryGetStringField(TEXT("act"), Out.Act))
+		{
+			return false;
+		}
+		Json.TryGetStringField(TEXT("by"), Out.By);
+		Json.TryGetStringField(TEXT("name"), Out.Name);
+		Out.bHasAt = Json.TryGetNumberField(TEXT("lat"), Out.Lat) && Json.TryGetNumberField(TEXT("lon"), Out.Lon);
+		Json.TryGetNumberField(TEXT("at"), Out.At);
+		Json.TryGetNumberField(TEXT("until"), Out.Until);
+		const TArray<TSharedPtr<FJsonValue>>* To = nullptr;
+		if (Json.TryGetArrayField(TEXT("to"), To) && To->Num() >= 2 && (*To)[0].IsValid() && (*To)[1].IsValid())
+		{
+			Out.bHasTo = (*To)[0]->TryGetNumber(Out.ToLat) && (*To)[1]->TryGetNumber(Out.ToLon);
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Path = nullptr;
+		if (Json.TryGetArrayField(TEXT("path"), Path))
+		{
+			for (const TSharedPtr<FJsonValue>& Point : *Path)
+			{
+				double Lat = 0.0, Lon = 0.0;
+				if (ReadLatLon(Point, Lat, Lon))
+				{
+					Out.Path.Add(FVector2D(Lat, Lon));
+				}
+			}
+		}
+		return true;
+	}
+
+	bool StaysInForce(const FEarthOrder& Order)
+	{
+		return Order.Act == TEXT("follow") || Order.Act == TEXT("come") || Order.Act == TEXT("stay");
+	}
+}
+
 void UEarthWalkNet::HandleMessage(const FString& Message)
 {
 	TSharedPtr<FJsonObject> Json;
@@ -501,6 +641,76 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 	else if (Type == TEXT("chat"))
 	{
 		OnChat.Broadcast(Json->GetStringField(TEXT("name")), Json->GetStringField(TEXT("text")));
+	}
+	else if (Type == TEXT("ride"))
+	{
+		// Someone hopped on something, or (no thing) off. For me it is the go-ahead.
+		const FString Id = Json->GetStringField(TEXT("id"));
+		const FEarthRide Ride = ReadRide(*Json);
+		if (Ride.bOn)
+		{
+			Left.Remove(Ride.Thing);
+		}
+		if (Id == MyId)
+		{
+			MyRide = Ride;
+			OnRide.Broadcast(MyRide);
+		}
+		else if (FEarthPeer* Peer = Peers.Find(Id))
+		{
+			Peer->Ride = Ride;
+		}
+	}
+	else if (Type == TEXT("left"))
+	{
+		FEarthLeft Thing;
+		if (ReadLeft(*Json, Thing))
+		{
+			Left.Add(Thing.Thing, Thing);
+		}
+	}
+	else if (Type == TEXT("order"))
+	{
+		FEarthOrder Order;
+		if (ReadOrder(*Json, Order))
+		{
+			if (StaysInForce(Order))
+			{
+				Orders.Add(Order.Thing, Order);
+			}
+			else if (Order.Act == TEXT("home"))
+			{
+				Orders.Remove(Order.Thing);
+			}
+			OnOrder.Broadcast(Order);
+		}
+	}
+	else if (Type == TEXT("say"))
+	{
+		FEarthSay Said;
+		if (ReadThing(*Json, Said.Thing) && Json->TryGetStringField(TEXT("sp"), Said.Sp) && Json->TryGetStringField(TEXT("name"), Said.Name)
+			&& Json->TryGetStringField(TEXT("text"), Said.Text))
+		{
+			Json->TryGetStringField(TEXT("by"), Said.By);
+			Json->TryGetStringField(TEXT("q"), Said.Asked);
+			Said.bHasAt = Json->TryGetNumberField(TEXT("lat"), Said.Lat) && Json->TryGetNumberField(TEXT("lon"), Said.Lon);
+			OnSay.Broadcast(Said);
+		}
+	}
+	else if (Type == TEXT("journal"))
+	{
+		const TSharedPtr<FJsonObject>* Journal = nullptr;
+		OnJournal.Broadcast(Json->TryGetObjectField(TEXT("journal"), Journal) ? *Journal : TSharedPtr<FJsonObject>());
+	}
+	else if (Type == TEXT("stamp"))
+	{
+		FString Kind, Title, Text;
+		Json->TryGetStringField(TEXT("kind"), Kind);
+		Json->TryGetStringField(TEXT("text"), Text);
+		if (Json->TryGetStringField(TEXT("title"), Title))
+		{
+			OnStamp.Broadcast(Kind, Title, Text);
+		}
 	}
 	else if (Type == TEXT("join"))
 	{
@@ -619,6 +829,11 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 					Peer.Name = (*Object)->GetStringField(TEXT("name"));
 					(*Object)->TryGetStringField(TEXT("avatar"), Peer.Avatar);
 					ReadPeerPosition(*Object, Peer);
+					const TSharedPtr<FJsonObject>* Riding = nullptr;
+					if ((*Object)->TryGetObjectField(TEXT("ride"), Riding))
+					{
+						Peer.Ride = ReadRide(**Riding);
+					}
 					Names.Add(Peer.Name);
 					Peers.Add((*Object)->GetStringField(TEXT("id")), Peer);
 				}
@@ -626,6 +841,39 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		}
 		OnNotice.Broadcast(FString::Printf(TEXT("You are %s%s in room \"%s\". %s"), *MyName, bSignedIn ? TEXT(" (signed in)") : TEXT(""), *RoomName,
 			Names.Num() ? *FString::Printf(TEXT("Here now: %s."), *FString::Join(Names, TEXT(", "))) : TEXT("Nobody else is here yet.")));
+
+		// What is standing where a rider left it, and what has been told to follow, come or stay.
+		Left.Reset();
+		Orders.Reset();
+		if (Json->TryGetArrayField(TEXT("left"), Rows))
+		{
+			for (const TSharedPtr<FJsonValue>& Row : *Rows)
+			{
+				const TSharedPtr<FJsonObject>* Object = nullptr;
+				FEarthLeft Thing;
+				if (Row.IsValid() && Row->TryGetObject(Object) && ReadLeft(**Object, Thing))
+				{
+					Left.Add(Thing.Thing, Thing);
+				}
+			}
+		}
+		if (Json->TryGetArrayField(TEXT("orders"), Rows))
+		{
+			for (const TSharedPtr<FJsonValue>& Row : *Rows)
+			{
+				const TSharedPtr<FJsonObject>* Object = nullptr;
+				FEarthOrder Order;
+				if (Row.IsValid() && Row->TryGetObject(Object) && ReadOrder(**Object, Order) && StaysInForce(Order))
+				{
+					Orders.Add(Order.Thing, Order);
+				}
+			}
+		}
+		if (MyRide.bOn)
+		{
+			MyRide = FEarthRide(); // a new connection starts on foot
+			OnRide.Broadcast(MyRide);
+		}
 
 		if (Json->TryGetArrayField(TEXT("history"), Rows))
 		{
@@ -647,6 +895,10 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		if (Code == TEXT("denied") || Code == TEXT("full"))
 		{
 			bDenied = true; // do not hammer the server with retries
+		}
+		if (Code == TEXT("taken"))
+		{
+			OnRideFail.Broadcast();
 		}
 		OnNotice.Broadcast(FString::Printf(TEXT("Server: %s"), *Json->GetStringField(TEXT("text"))));
 	}

@@ -1,6 +1,7 @@
 #include "EarthWorld.h"
 
 #include "EarthChunkLabels.h"
+#include "EarthCompany.h"
 #include "EarthGeo.h"
 #include "EarthGroundCover.h"
 #include "EarthLife.h"
@@ -89,6 +90,8 @@ void AEarthWorld::BeginPlay()
 	}
 	GroundCover = GetWorld()->SpawnActor<AEarthGroundCover>();
 	Life = GetWorld()->SpawnActor<AEarthLife>();
+	Company = NewObject<UEarthCompany>(this);
+	Company->Setup(this);
 	FString Sound;
 	if (Life && Life->GetSounds() && FEarthWalkConfig::HasOverride(TEXT("Sound"), Sound) && Sound.Equals(TEXT("off"), ESearchCase::IgnoreCase))
 	{
@@ -148,6 +151,7 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 	Chunks.Reset();
 	CoverMaps.Reset();
 	HeightMaps.Reset();
+	WaterMaps.Reset();
 	if (GroundCover)
 	{
 		GroundCover->Clear();
@@ -328,6 +332,28 @@ bool AEarthWorld::TerrainHeightAt(double EastM, double SouthM, double& OutMeters
 	return true;
 }
 
+bool AEarthWorld::WaterAt(double EastM, double SouthM, bool& bOutWet) const
+{
+	const double U = OriginX + EastM * 100.0 / TileCm;
+	const double V = OriginY + SouthM * 100.0 / TileCm;
+	const FIntPoint Key(FMath::FloorToInt32(U), FMath::FloorToInt32(V));
+	const TArray<uint8>* Water = WaterMaps.Find(Key);
+	if (!Water)
+	{
+		return false;
+	}
+	const int32 X = FMath::Min(TerrainGrid - 1, FMath::FloorToInt32((U - Key.X) * TerrainGrid));
+	const int32 Y = FMath::Min(TerrainGrid - 1, FMath::FloorToInt32((V - Key.Y) * TerrainGrid));
+	bOutWet = (*Water)[Y * TerrainGrid + X] == 1;
+	return true;
+}
+
+AEarthWalkAvatar* AEarthWorld::FindAvatar(const FString& Id) const
+{
+	const TObjectPtr<AEarthWalkAvatar>* Found = Avatars.Find(Id);
+	return Found ? Found->Get() : nullptr;
+}
+
 void AEarthWorld::HomeCirclesIn(const FBox2D& Area, TArray<FVector>& OutCentreAndRadius) const
 {
 	if (Life)
@@ -381,7 +407,9 @@ void AEarthWorld::Tick(float DeltaSeconds)
 		SendTimer = 0.1f;
 		if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 		{
-			const FVector Feet = Player->GetActorLocation() - FVector(0, 0, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+			// On a mount, the room is told where the seat is, so the figure others see sits on top of it.
+			const AEarthWalkCharacter* Rider = Cast<AEarthWalkCharacter>(Player);
+			const FVector Feet = Player->GetActorLocation() - FVector(0, 0, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - (Rider ? Rider->SeatLiftCm() : 0.0));
 			double Lat, Lon, Alt;
 			WorldToGeo(Feet, Lat, Lon, Alt);
 			Net->SendPosition(Lat, Lon, Alt, Controller->GetControlRotation().Yaw);
@@ -407,7 +435,13 @@ void AEarthWorld::Tick(float DeltaSeconds)
 		const FVector Ears = Controller->PlayerCameraManager ? Controller->PlayerCameraManager->GetCameraLocation() : Player->GetActorLocation();
 		// -EWTimeShift=<seconds> moves this game's clock, for taking a picture of a moment that is not now (a train passing).
 		static const double TimeShift = []() { double Shift = 0.0; FParse::Value(FCommandLine::Get(), TEXT("-EWTimeShift="), Shift); return Shift; }();
-		Life->Update(this, DeltaSeconds, (Clock ? Clock->Now() : UEarthWalkNet::LocalNow()) + TimeShift, Everyone, Ears);
+		const double SharedTime = (Clock ? Clock->Now() : UEarthWalkNet::LocalNow()) + TimeShift;
+		// Riding, talking and things doing as they were told come first: they say what is not where its timetable has it.
+		if (Company)
+		{
+			Company->Frame(Cast<AEarthWalkCharacter>(Controller->GetPawn()), FMath::Min(0.25, static_cast<double>(DeltaSeconds)), SharedTime);
+		}
+		Life->Update(this, DeltaSeconds, SharedTime, Everyone, Ears);
 	}
 }
 
@@ -432,6 +466,7 @@ void AEarthWorld::UpdateChunks(const FVector& Around)
 			}
 			CoverMaps.Remove(It.Key());
 			HeightMaps.Remove(It.Key());
+			WaterMaps.Remove(It.Key());
 			It.RemoveCurrent();
 		}
 	}
@@ -820,6 +855,9 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 	// The bare terrain, for standing animals and cars on: every ground vertex sits on a lattice point.
 	TArray<float> Heights;
 	Heights.SetNumZeroed((TerrainGrid + 1) * (TerrainGrid + 1));
+	// Which cells of the terrain are water, from where its triangles lie: boats keep to it, and nothing else may be ridden across.
+	TArray<uint8> Water;
+	Water.SetNumZeroed(TerrainGrid * TerrainGrid);
 
 	int64 Offset = 24;
 	bool bOk = true;
@@ -901,6 +939,19 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 			for (int64 i = 0; i + 2 < NumIndices; i += 3)
 			{
 				Swap(Triangles[i + 1], Triangles[i + 2]);
+			}
+		}
+		if (SurfaceId == 7)
+		{
+			// Open water (WATER in server/public/js/world.js): mark the cell under the middle of each triangle.
+			for (int64 i = 0; i + 2 < NumIndices; i += 3)
+			{
+				const float* A = Pos + Triangles[i] * 3;
+				const float* B = Pos + Triangles[i + 1] * 3;
+				const float* C = Pos + Triangles[i + 2] * 3;
+				const int32 X = FMath::Clamp(FMath::FloorToInt32((A[0] + B[0] + C[0]) / 3.f * TerrainGrid), 0, TerrainGrid - 1);
+				const int32 Y = FMath::Clamp(FMath::FloorToInt32((A[1] + B[1] + C[1]) / 3.f * TerrainGrid), 0, TerrainGrid - 1);
+				Water[Y * TerrainGrid + X] = 1;
 			}
 		}
 
@@ -1060,6 +1111,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 	}
 	CoverMaps.Add(Key, MoveTemp(Cover));
 	HeightMaps.Add(Key, MoveTemp(Heights));
+	WaterMaps.Add(Key, MoveTemp(Water));
 	Mesh->SetVisibility(!bAerial);
 	Chunks.Add(Key, Mesh);
 	return true;

@@ -6,9 +6,12 @@
 #include "EarthWalkHUD.generated.h"
 
 class SEarthWalkOverlay;
+class UEarthCompany;
 
 /**
- * On-screen overlay: a status line, the chat log and the chat/command box.
+ * On-screen overlay: a status line, the chat log and the chat/command box, the header that names the
+ * place, what E and T would do just now, the speech bubbles of things that have spoken, and the
+ * passport (P).
  *
  * Anything typed that starts with "/" is a command (see /help); everything else is chat.
  */
@@ -42,11 +45,25 @@ private:
 	/** The header that names the place the player is in: asks the server when they have moved to another square about a kilometre across. */
 	void UpdateWhere();
 	void LookUpWhere(const FString& Key, double Lat, double Lon);
+	/** Riding, talking and telling things what to do; null until the world has made it. */
+	UEarthCompany* Company() const;
+	/** E, T, P and Esc, the line that says what E and T would do, and the speech bubbles. */
+	void UpdateCompany(APlayerController* PC);
+	/** The passport: the player's own journal, as the server keeps it. P opens and closes it. */
+	void TogglePassport();
+	void ClosePassport();
 
 	TSharedPtr<SEarthWalkOverlay> Overlay;
 	FDelegateHandle ChatHandle;
 	FDelegateHandle NoticeHandle;
 	FDelegateHandle WelcomeHandle;
+	FDelegateHandle JournalHandle;
+	FDelegateHandle StampHandle;
+	bool bCompanyBound = false;
+	bool bPassportOpen = false;
+	bool bPassportTested = false;
+	double StartedAt = 0.0;
+	FString TalkingToShown;
 	bool bChatOpen = false;
 	double ChatClosedAt = 0.0;
 	float StatusTimer = 0.f;

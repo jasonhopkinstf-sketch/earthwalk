@@ -1,6 +1,7 @@
 #include "EarthWalkCharacter.h"
 
 #include "EarthAnimalFigure.h"
+#include "EarthMounts.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkSettings.h"
 #include "EarthWorld.h"
@@ -26,6 +27,8 @@ namespace
 	constexpr float TurnDegreesPerSecond = 120.f; // arrow keys
 	constexpr float TiltDegreesPerSecond = 80.f;
 	constexpr float ZoomStep = 1.15f; // per wheel notch
+	constexpr double EyeAboveCentreCm = 64.0; // where the camera's arm hangs when on foot
+	constexpr double RidingEyeCm = 85.0; // eyes above the seat (RIDING_EYE in server/public/js/player.js)
 }
 
 AEarthWalkCharacter::AEarthWalkCharacter()
@@ -138,6 +141,134 @@ void AEarthWalkCharacter::ApplyView()
 	}
 }
 
+FVector AEarthWalkCharacter::FeetLocation() const
+{
+	return GetActorLocation() - FVector(0.0, 0.0, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+}
+
+void AEarthWalkCharacter::PlaceFeetAt(const FVector& Feet)
+{
+	SetActorLocation(Feet + FVector(0.0, 0.0, GetCapsuleComponent()->GetScaledCapsuleHalfHeight()), false, nullptr, ETeleportType::TeleportPhysics);
+	GetCharacterMovement()->StopMovementImmediately();
+	bHasGoodSpot = false;
+}
+
+double AEarthWalkCharacter::SeatLiftCm() const
+{
+	return Mount ? Mount->Seat * 100.0 : 0.0;
+}
+
+/** Raises the figure and the eyes to the seat, or puts them back. */
+void AEarthWalkCharacter::ApplySeat()
+{
+	const double HalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	const double Lift = SeatLiftCm();
+	Figure->SetRelativeLocation(FVector(0.0, 0.0, -HalfHeight + Lift));
+	Boom->SetRelativeLocation(FVector(0.0, 0.0, Mount || bCarried ? -HalfHeight + Lift + RidingEyeCm : EyeAboveCentreCm));
+}
+
+void AEarthWalkCharacter::SetMount(const FEarthMount* InMount)
+{
+	Mount = InMount;
+	bHasGoodSpot = false;
+	bAutopilot = false;
+	if (Mount)
+	{
+		bFlying = false;
+		if (!bWaitingForGround)
+		{
+			GetCharacterMovement()->SetMovementMode(MOVE_Falling); // onto its back; walking again once the ground is felt
+		}
+	}
+	else
+	{
+		GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	}
+	ApplySeat();
+}
+
+void AEarthWalkCharacter::SetCarried(bool bInCarried)
+{
+	if (bCarried == bInCarried)
+	{
+		return;
+	}
+	bCarried = bInCarried;
+	if (bCarried)
+	{
+		bFlying = false;
+	}
+	if (!bWaitingForGround)
+	{
+		GetCharacterMovement()->StopMovementImmediately();
+		GetCharacterMovement()->SetMovementMode(bCarried ? MOVE_None : MOVE_Falling);
+	}
+	ApplySeat();
+}
+
+void AEarthWalkCharacter::SetAutopilot(const FVector2D& NorthEast, double Pace)
+{
+	bAutopilot = true;
+	AutoNorthEast = NorthEast;
+	AutoPace = Pace;
+}
+
+/** Moving while on a mount: at its pace, where the player steers or where it is taking them. */
+void AEarthWalkCharacter::RideTick(float DeltaSeconds, APlayerController* PC)
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const auto Down = [this, PC](const FKey& Key) { return !bHandsOff && !bTyping && PC->IsInputKeyDown(Key); };
+	const float Forward = (Down(EKeys::W) ? 1.f : 0.f) - (Down(EKeys::S) ? 1.f : 0.f);
+	const float Right = (Down(EKeys::D) ? 1.f : 0.f) - (Down(EKeys::A) ? 1.f : 0.f);
+	bSteering = Forward != 0.f || Right != 0.f;
+	// Being taken somewhere: the mount finds its own way until the rider steers.
+	const bool bAuto = !bSteering && bAutopilot;
+
+	// A boat keeps to the water, and everything else keeps off it. (Being driven along a road, a bridge
+	// is a bridge, whatever lies under it.)
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	const FVector Here = GetActorLocation();
+	bool bWet = false;
+	if (Earth && !bAuto && bHasGoodSpot && Earth->WaterAt(Here.Y / 100.0, -Here.X / 100.0, bWet) && bWet != Mount->bAfloat)
+	{
+		SetActorLocation(GoodSpot, false, nullptr, ETeleportType::TeleportPhysics);
+		Movement->StopMovementImmediately();
+	}
+	else
+	{
+		GoodSpot = Here;
+		bHasGoodSpot = true;
+	}
+
+	if (!bHandsOff && !bTyping && PC->WasInputKeyJustPressed(EKeys::Two))
+	{
+		bRunToggled = !bRunToggled;
+	}
+	if (!bHandsOff && !bTyping && PC->WasInputKeyJustPressed(EKeys::One))
+	{
+		bRunToggled = false;
+	}
+	bRunningNow = Down(EKeys::LeftShift) || Down(EKeys::RightShift) || bRunToggled;
+	Movement->MaxWalkSpeed = static_cast<float>(Mount->Speed * 100.0 * (bAuto ? AutoPace : bRunningNow ? 1.0 : 0.55));
+	if (bAuto)
+	{
+		AddMovementInput(FVector(AutoNorthEast.X, AutoNorthEast.Y, 0.0), 1.f);
+	}
+	else
+	{
+		const FRotator Look = PC->GetControlRotation();
+		if (Forward != 0.f)
+		{
+			AddMovementInput(FRotator(0.0, Look.Yaw, 0.0).Vector(), Forward);
+		}
+		if (Right != 0.f)
+		{
+			AddMovementInput(FRotationMatrix(FRotator(0.0, Look.Yaw, 0.0)).GetUnitAxis(EAxis::Y), Right);
+		}
+	}
+	StopJumping();
+}
+
 void AEarthWalkCharacter::WaitForGround()
 {
 	bWaitingForGround = true;
@@ -207,6 +338,10 @@ void AEarthWalkCharacter::TeleportToGeo(double Lat, double Lon)
 
 void AEarthWalkCharacter::SetFlying(bool bFly)
 {
+	if (bFly && (Mount || bCarried))
+	{
+		return; // not while riding
+	}
 	bFlying = bFly;
 	if (!bWaitingForGround)
 	{
@@ -277,7 +412,8 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	{
 		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, ArmTarget, DeltaSeconds, 10.f);
 	}
-	Figure->Animate(DeltaSeconds, bWaitingForGround ? 0.f : static_cast<float>(GetVelocity().Size2D()), bFlying && !bWaitingForGround);
+	// Sitting on something, the legs are still: it is the mount that walks.
+	Figure->Animate(DeltaSeconds, bWaitingForGround || Mount || bCarried ? 0.f : static_cast<float>(GetVelocity().Size2D()), bFlying && !bWaitingForGround);
 
 	if (bWaitingForGround)
 	{
@@ -327,6 +463,18 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		}
 	}
 
+	bSteering = false;
+	if (bCarried)
+	{
+		bRunningNow = false;
+		return; // put where the train, or the friend who is steering, has got to
+	}
+	if (Mount)
+	{
+		RideTick(DeltaSeconds, PC);
+		return;
+	}
+
 	if (bTyping)
 	{
 		return;
@@ -356,6 +504,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 
 	const float Forward = (Down(EKeys::W) || bAutoWalk ? 1.f : 0.f) - (Down(EKeys::S) ? 1.f : 0.f);
 	const float Right = (Down(EKeys::D) ? 1.f : 0.f) - (Down(EKeys::A) ? 1.f : 0.f);
+	bSteering = Forward != 0.f || Right != 0.f;
 	const FRotator Look = PC->GetControlRotation();
 	const FRotator Heading(bFlying ? Look.Pitch : 0.0, Look.Yaw, 0.0);
 	if (Forward != 0.f)

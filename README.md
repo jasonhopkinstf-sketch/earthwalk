@@ -99,9 +99,9 @@ Controls (Unreal):
 | `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
-| `E` | Browser only, for now: hop on the horse, tractor, boat, car or train beside you; again to hop off |
-| `T` | Browser only, for now: talk to the animal, car, train, tree or house beside you; `Esc` stops |
-| `P` | Browser only, for now: your passport |
+| `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off |
+| `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
+| `P` | Your passport (`/passport` does the same) |
 | `Enter` | Chat and commands |
 
 In the editor, click the game viewport once so it has the keyboard; `Shift+F1` gives the
@@ -205,26 +205,26 @@ the world, joins them into runs and timetables a train along each, stopping at s
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
 
-Riding (in the browser so far): press E beside a horse, a cow, a tractor, a boat, a parked car or a
+Riding: press E beside a horse, a cow, a tractor, a boat, a parked car or a
 passing train to hop on, and E again to hop off. You steer what you ride; a friend can hop on behind
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
-Telling things what to do (in the browser so far): while talking to a thing, say "follow me", "come
+Telling things what to do: while talking to a thing, say "follow me", "come
 here", "stay", "go home", "do a trick" or "make your noise", and it does. Riding a car, a tractor
 or an animal, say "take me to the beach": a car drives itself there along the roads when the place
 is close (`server/src/route.ts` finds the way), an animal cuts across country, and anywhere far is
 one jump. Steering takes the reins back. Friends see all of it. `server/public/js/orders.js`;
 docs/PROTOCOL.md, "Doing as asked".
 
-A passport (in the browser so far): press P. The server keeps a journal for every player of where
+A passport: press P. The server keeps a journal for every player of where
 they have been, what they have ridden and whom they have talked to, and the passport shows it: a
 level that rises with all of it, countries, continents, places, friends, and stamps that pop up as
 they are earned (a first country, five kilometres on foot, a ride on a train, a chat with a tree).
 A journal is its owner's alone, and a signed-in person's carries on from visit to visit
 (`server/src/journal.ts`, `server/public/js/passport.js`; docs/PROTOCOL.md, "Journal").
 
-Talking (in the browser so far): press T beside an animal, a car, a train, a tree or a house and it
+Talking: press T beside an animal, a car, a train, a tree or a house and it
 introduces itself; what you type then goes to it, and its answer appears in a speech bubble for
 everyone nearby. Each thing has a name and a character of its own, the same for everyone
 (`server/src/talk.ts`): some are cheerful, some grumble, some are campaigning for more puddles, and
@@ -244,8 +244,14 @@ changes). `EarthLife.cpp` is the counterpart of `life.js` and `traffic.js`: it d
 as four instanced meshes, whole and alive to players within 120 m and as simpler figures out to
 400 m, and puts it all away while the photographic view from the air is up. `EarthSounds.cpp`
 builds the voices of `sounds.js` as waves in code; `-EWSoundDump=<folder>` writes them as .wav
-files to listen to. Not in the Windows game yet: riding and talking to animals (it does not yet
-show what a browser player is riding).
+files to listen to.
+
+Riding, talking, telling things what to do and the passport are in the Windows game as well.
+`EarthCompany.cpp` is `riding.js`, `talk.js` and `orders.js` again in C++ (`EarthMounts.h` holds
+what can be ridden); the player's own movement on a mount is in `EarthWalkCharacter.cpp`, the
+speech bubbles, the line that says what E and T would do, and the passport are in
+`EarthWalkHUD.cpp`, and the messages are read in `EarthWalkNet.cpp`. A player in one game can ride
+along behind a player in the other.
 
 ## Art assets and the look
 
@@ -304,7 +310,10 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
-is at that moment, to compare with the browser's `earthwalk.life.where(time)`. While a screenshot is pending the game ignores the keyboard and
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRide=<kind>`
+hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
+`-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
+says that to it, and `-EWPassport` opens the passport. While a screenshot is pending the game ignores the keyboard and
 mouse, so typing in another window cannot move the player.
 
 ## Data and attribution

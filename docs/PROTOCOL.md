@@ -377,7 +377,7 @@ the same somebody for everyone, on every visit. Clients learn a thing's `name` w
   the last six exchanges with that thing in that room (kept ten minutes, in memory only), and what
   was typed, attributed to the player's animal ("A fox says: ..."), never to their name.
 
-The browser's key is T; while talking to a thing, what is typed goes to it instead of to the room.
+The key is T in both games; while talking to a thing, what is typed goes to it instead of to the room.
 
 ### Doing as asked
 

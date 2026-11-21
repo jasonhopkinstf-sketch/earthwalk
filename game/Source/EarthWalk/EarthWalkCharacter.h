@@ -7,6 +7,7 @@
 class UCameraComponent;
 class UEarthAnimalFigure;
 class USpringArmComponent;
+struct FEarthMount;
 
 /** Where the camera sits. */
 enum class EEarthView : uint8
@@ -24,7 +25,8 @@ enum class EEarthView : uint8
  *   V              camera view          Mouse wheel         closer / further (third person)
  *   Space          jump (walking) / rise (flying)
  *   F              toggle flying        C                   descend (flying)
- *   Enter          chat and commands
+ *   E              hop on or off        T                   talk to what is nearest
+ *   P              passport             Enter               chat and commands
  */
 UCLASS()
 class AEarthWalkCharacter : public ACharacter
@@ -55,11 +57,37 @@ public:
 	/** While true (chat box open), movement and look keys are ignored. */
 	bool bTyping = false;
 
+	// ---- riding (UEarthCompany decides what; this is how the player moves while on it)
+
+	/**
+	 * On something that goes where the player steers it: it moves at the mount's pace (all of it with
+	 * Shift, a little over half without), a boat keeps to water and everything else keeps off it, and
+	 * the player's figure and eyes are raised to the seat. Null puts the player back on foot.
+	 */
+	void SetMount(const FEarthMount* InMount);
+	const FEarthMount* GetMount() const { return Mount; }
+	/** Carried by a train or by the friend who is steering: the player is put where that has got to, every frame. */
+	void SetCarried(bool bInCarried);
+	bool IsCarried() const { return bCarried; }
+	/** How far above the ground under the player the seat is, in engine units: what other players are told, so the figure they see sits on top. */
+	double SeatLiftCm() const;
+	/** Being taken somewhere: the way to go (north and east, one unit long) and how much of the mount's pace to use. Cleared and set again each frame. */
+	void SetAutopilot(const FVector2D& NorthEast, double Pace);
+	void ClearAutopilot() { bAutopilot = false; }
+	/** True while the player holds W, A, S or D. */
+	bool IsSteering() const { return bSteering; }
+	/** Where the soles of the player's feet are. */
+	FVector FeetLocation() const;
+	/** Puts the player's feet at a place, at once. */
+	void PlaceFeetAt(const FVector& Feet);
+
 private:
 	void WaitForGround();
 	bool TryLand();
 	void ParkAtPhotoGround();
 	void ApplyView();
+	void ApplySeat();
+	void RideTick(float DeltaSeconds, APlayerController* PC);
 
 	UPROPERTY()
 	TObjectPtr<USpringArmComponent> Boom;
@@ -80,6 +108,15 @@ private:
 	bool bParkedAtPhotoGround = false;
 	bool bRunToggled = false;
 	bool bRunningNow = false;
+
+	const FEarthMount* Mount = nullptr;
+	bool bCarried = false;
+	bool bSteering = false;
+	bool bAutopilot = false;
+	FVector2D AutoNorthEast = FVector2D::ZeroVector;
+	double AutoPace = 0.0;
+	bool bHasGoodSpot = false; // the last place the mount was allowed to be: off the water, or on it for a boat
+	FVector GoodSpot = FVector::ZeroVector;
 
 	/**
 	 * Developer aids: -EWShot=<file.png> saves a screenshot a few seconds after landing, then quits;

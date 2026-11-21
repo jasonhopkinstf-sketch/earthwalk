@@ -10,7 +10,7 @@
 namespace
 {
 	constexpr double SquareCm = 1600.0; // a square of ground is 16 m across
-	constexpr int32 Reach = 3; // squares planted in every direction from the player's own: about 55 m
+	constexpr int32 PlantReach = 3; // squares planted in every direction from the player's own: about 55 m
 	constexpr int32 PlantedPerUpdate = 6;
 	constexpr int32 TuftsPerSquare = 44;
 	constexpr int32 FlowerPatchesPerSquare = 5;
@@ -95,7 +95,7 @@ void AEarthGroundCover::Update(AEarthWorld* World, const FVector& Around)
 	for (auto It = Squares.CreateIterator(); It; ++It)
 	{
 		const FIntPoint Away = It.Key() - Here;
-		if (FMath::Max(FMath::Abs(Away.X), FMath::Abs(Away.Y)) > Reach + 1)
+		if (FMath::Max(FMath::Abs(Away.X), FMath::Abs(Away.Y)) > PlantReach + 1)
 		{
 			for (const TWeakObjectPtr<UInstancedStaticMeshComponent>& Part : It.Value())
 			{
@@ -110,7 +110,7 @@ void AEarthGroundCover::Update(AEarthWorld* World, const FVector& Around)
 
 	// Plant the nearest unplanted squares first.
 	int32 Planted = 0;
-	for (int32 Ring = 0; Ring <= Reach && Planted < PlantedPerUpdate; ++Ring)
+	for (int32 Ring = 0; Ring <= PlantReach && Planted < PlantedPerUpdate; ++Ring)
 	{
 		for (int32 DX = -Ring; DX <= Ring && Planted < PlantedPerUpdate; ++DX)
 		{

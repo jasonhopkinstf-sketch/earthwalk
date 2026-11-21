@@ -1,5 +1,6 @@
 #include "EarthWalkHUD.h"
 
+#include "EarthCompany.h"
 #include "EarthLife.h"
 #include "EarthSounds.h"
 #include "EarthWalkCharacter.h"
@@ -15,7 +16,9 @@
 #include "GenericPlatform/GenericPlatformHttp.h"
 #include "HttpModule.h"
 #include "InputCoreTypes.h"
+#include "Misc/CommandLine.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Misc/Parse.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Serialization/JsonReader.h"
@@ -27,7 +30,10 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SWrapBox.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SCanvas.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
@@ -53,6 +59,65 @@ namespace
 	constexpr double ArrivedSeconds = 1.6;
 	constexpr double WhereDelaySeconds = 1.2; // wait this long in a new square before asking its name
 	constexpr int32 MaxLines = 80;
+	// What a thing said: a little warmer than the notices, so a conversation can be followed in the log.
+	const FLinearColor ThingColor(1.f, 0.9f, 0.62f);
+	// Speech bubbles: cream paper, dark ink, the speaker's name in brown (the browser's bubble).
+	const FLinearColor BubblePaper(FColor(255, 253, 244, 245));
+	const FLinearColor BubbleInk(FColor(38, 34, 31));
+	const FLinearColor BubbleName(FColor(138, 79, 45));
+	// The passport.
+	const FLinearColor PassportPanel(FColor(18, 22, 28, 240));
+	const FLinearColor CardColor(FColor(255, 255, 255, 20));
+	const FLinearColor CardDoneColor(FColor(214, 168, 62, 70));
+	const FLinearColor GoldColor(FColor(240, 200, 96));
+	const FLinearColor DimColor(1.f, 1.f, 1.f, 0.62f);
+	constexpr double ToastSeconds = 4.2;
+
+	/** 12 or 12.3: a count as the server sent it, without a tail of noughts. */
+	FString ShortCount(double Value)
+	{
+		return FMath::IsNearlyEqual(Value, FMath::RoundToDouble(Value), 0.001) ? FString::Printf(TEXT("%d"), FMath::RoundToInt32(Value)) : FString::Printf(TEXT("%.1f"), Value);
+	}
+	FString DateOf(double Ms)
+	{
+		return FDateTime::FromUnixTimestamp(static_cast<int64>(Ms / 1000.0)).ToFormattedString(TEXT("%e %b %Y"));
+	}
+	double JsonNum(const TSharedPtr<FJsonObject>& Json, const TCHAR* Field)
+	{
+		double Value = 0.0;
+		if (Json.IsValid())
+		{
+			Json->TryGetNumberField(Field, Value);
+		}
+		return Value;
+	}
+	FString JsonStr(const TSharedPtr<FJsonObject>& Json, const TCHAR* Field)
+	{
+		FString Value;
+		if (Json.IsValid())
+		{
+			Json->TryGetStringField(Field, Value);
+		}
+		return Value;
+	}
+	/** "3 countries", "1 country": the stamps count in their own units. */
+	FString CountedIn(double N, const FString& Unit)
+	{
+		if (Unit.IsEmpty())
+		{
+			return ShortCount(N);
+		}
+		static const TMap<FString, FString> One = {
+			{ TEXT("countries"), TEXT("country") }, { TEXT("continents"), TEXT("continent") }, { TEXT("places"), TEXT("place") },
+			{ TEXT("friends"), TEXT("friend") }, { TEXT("kinds"), TEXT("kind") },
+		};
+		const FString* Single = One.Find(Unit);
+		return FString::Printf(TEXT("%s %s"), *ShortCount(N), N == 1.0 && Single ? **Single : *Unit);
+	}
+	TSharedRef<STextBlock> TextLine(const FString& Text, const TCHAR* Face, int32 Size, const FLinearColor& Color)
+	{
+		return SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(Face, Size)).ColorAndOpacity(Color).Text(FText::FromString(Text));
+	}
 }
 
 /** The Slate widgets. Built in code so the project needs no editor-made assets. */
@@ -98,6 +163,60 @@ public:
 							.ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.8f))
 							.Justification(ETextJustify::Center)
 						]
+					]
+				]
+			]
+			// What things have said, each above the thing that said it.
+			+ SOverlay::Slot()
+			[
+				SAssignNew(BubbleCanvas, SCanvas).Visibility(EVisibility::HitTestInvisible)
+			]
+			// What E and T would do just now.
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 58.f)
+			[
+				SAssignNew(Hint, STextBlock)
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 15))
+				.ColorAndOpacity(FLinearColor::White)
+				.ShadowOffset(FVector2D(1.0, 1.0))
+				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f))
+				.Visibility(EVisibility::Collapsed)
+			]
+			// A stamp just earned, for a few seconds.
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, 96.f, 0.f, 0.f)
+			[
+				SAssignNew(Toast, SBorder)
+				.BorderImage(&ToastBrush)
+				.BorderBackgroundColor(FLinearColor::White)
+				.Padding(FMargin(20.f, 10.f))
+				.Visibility(EVisibility::Collapsed)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						SAssignNew(ToastLabel, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 11)).ColorAndOpacity(BubbleName)
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						SAssignNew(ToastTitle, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 20)).ColorAndOpacity(BubbleInk)
+					]
+					+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+					[
+						SAssignNew(ToastText, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 12)).ColorAndOpacity(BubbleInk)
+					]
+				]
+			]
+			// The passport, in the middle of the screen while it is open.
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+			[
+				SAssignNew(Passport, SBorder)
+				.BorderImage(&WhereBrush)
+				.BorderBackgroundColor(PassportPanel)
+				.Padding(FMargin(26.f, 20.f))
+				.Visibility(EVisibility::Collapsed)
+				[
+					SNew(SBox).WidthOverride(800.f).MaxDesiredHeight(610.f)
+					[
+						SAssignNew(PassportBody, SScrollBox)
 					]
 				]
 			]
@@ -167,6 +286,291 @@ public:
 
 	void SetStatus(const FString& Text) { Status->SetText(FText::FromString(Text)); }
 
+	void SetHint(const FString& Text)
+	{
+		Hint->SetVisibility(Text.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+		Hint->SetText(FText::FromString(Text));
+	}
+	void SetInputHint(const FString& Text) { Input->SetHintText(FText::FromString(Text)); }
+
+	/** The speech bubbles: one above each thing that has just spoken, the same size however far off it is. */
+	void SetBubbles(const TArray<UEarthCompany::FBubble>& Bubbles, const APlayerController* PC)
+	{
+		bool bSame = Bubbles.Num() == Shown.Num();
+		for (int32 i = 0; bSame && i < Bubbles.Num(); ++i)
+		{
+			bSame = Bubbles[i].Thing == Shown[i].Thing && Bubbles[i].Until == Shown[i].Until;
+		}
+		if (!bSame)
+		{
+			BubbleCanvas->ClearChildren();
+			Shown.Reset();
+			for (const UEarthCompany::FBubble& Bubble : Bubbles)
+			{
+				FShownBubble Entry;
+				Entry.Thing = Bubble.Thing;
+				Entry.Until = Bubble.Until;
+				Entry.Where = Bubble.Where;
+				Entry.At = MakeShared<FVector2D>(-10000.0, -10000.0);
+				const TSharedRef<SWidget> Card = SNew(SBorder)
+					.BorderImage(&BubbleBrush)
+					.BorderBackgroundColor(FLinearColor::White)
+					.Padding(FMargin(14.f, 8.f, 14.f, 10.f))
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()
+						[
+							TextLine(Bubble.Name, TEXT("Bold"), 13, BubbleName)
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 2.f, 0.f, 0.f)
+						[
+							SNew(STextBlock)
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 14))
+							.ColorAndOpacity(BubbleInk)
+							.WrapTextAt(300.f)
+							.Text(FText::FromString(Bubble.Text))
+						]
+					];
+				Entry.Widget = Card;
+				const TSharedPtr<FVector2D> At = Entry.At;
+				const TWeakPtr<SWidget> Weak = Card;
+				BubbleCanvas->AddSlot()
+					.Position(TAttribute<FVector2D>::CreateLambda([At]() { return *At; }))
+					.Size(TAttribute<FVector2D>::CreateLambda([Weak]() { const TSharedPtr<SWidget> Pinned = Weak.Pin(); return Pinned.IsValid() ? FVector2D(Pinned->GetDesiredSize()) : FVector2D::ZeroVector; }))
+					.HAlign(HAlign_Center)
+					.VAlign(VAlign_Bottom)
+					[
+						Card
+					];
+				Shown.Add(Entry);
+			}
+		}
+		const double Now = FPlatformTime::Seconds();
+		for (FShownBubble& Entry : Shown)
+		{
+			FVector2D Screen;
+			const bool bOnScreen = PC && PC->ProjectWorldLocationToScreen(Entry.Where, Screen, false);
+			Entry.Widget->SetVisibility(bOnScreen ? EVisibility::HitTestInvisible : EVisibility::Collapsed);
+			if (bOnScreen)
+			{
+				*Entry.At = Screen / LayoutScale;
+			}
+			Entry.Widget->SetRenderOpacity(static_cast<float>(FMath::Clamp((Entry.Until - Now) / 0.6, 0.0, 1.0)));
+		}
+	}
+
+	/** A stamp just earned: shown for a few seconds, one at a time. */
+	void QueueToast(const FString& Kind, const FString& Title, const FString& Text)
+	{
+		Toasts.Add({ Kind == TEXT("country") ? TEXT("NEW COUNTRY") : Kind == TEXT("level") ? TEXT("LEVEL UP") : TEXT("NEW STAMP"), Title, Text });
+	}
+
+	void ShowPassport(bool bShow)
+	{
+		Passport->SetVisibility(bShow ? EVisibility::HitTestInvisible : EVisibility::Collapsed);
+		if (bShow)
+		{
+			PassportBody->ClearChildren();
+			PassportBody->AddSlot()[TextLine(TEXT("Opening your passport..."), TEXT("Regular"), 14, FLinearColor::White)];
+		}
+	}
+	void ScrollPassport(float By) { PassportBody->SetScrollOffset(FMath::Max(0.f, PassportBody->GetScrollOffset() + By)); }
+
+	/** Fills the passport from the journal the server sent (docs/PROTOCOL.md, "Journal"); null when the server keeps none. */
+	void SetPassport(const TSharedPtr<FJsonObject>& Journal)
+	{
+		PassportBody->ClearChildren();
+		if (!Journal.IsValid())
+		{
+			PassportBody->AddSlot()[TextLine(TEXT("Passport"), TEXT("Bold"), 22, FLinearColor::White)];
+			PassportBody->AddSlot()[TextLine(TEXT("This server is not keeping journals."), TEXT("Regular"), 13, DimColor)];
+			return;
+		}
+		const auto Object = [&Journal](const TCHAR* Field)
+		{
+			const TSharedPtr<FJsonObject>* Found = nullptr;
+			return Journal->TryGetObjectField(Field, Found) ? *Found : TSharedPtr<FJsonObject>();
+		};
+		const auto Rows = [&Journal](const TCHAR* Field)
+		{
+			TArray<TSharedPtr<FJsonObject>> Out;
+			const TArray<TSharedPtr<FJsonValue>>* Found = nullptr;
+			if (Journal->TryGetArrayField(Field, Found))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Found)
+				{
+					const TSharedPtr<FJsonObject>* Row = nullptr;
+					if (Value.IsValid() && Value->TryGetObject(Row))
+					{
+						Out.Add(*Row);
+					}
+				}
+			}
+			return Out;
+		};
+
+		// ---- the level, and how far to the next
+		const TSharedPtr<FJsonObject> Level = Object(TEXT("level"));
+		const double Points = JsonNum(Level, TEXT("points")), From = JsonNum(Level, TEXT("from")), Next = JsonNum(Level, TEXT("next"));
+		const int32 LevelN = FMath::RoundToInt32(JsonNum(Level, TEXT("n")));
+		PassportBody->AddSlot()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.f)
+			[
+				TextLine(FString::Printf(TEXT("LEVEL %d"), LevelN), TEXT("Bold"), 12, GoldColor)
+			]
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				TextLine(TEXT("P or Esc to close  ·  PgUp and PgDn to scroll"), TEXT("Regular"), 10, DimColor)
+			]
+		];
+		PassportBody->AddSlot()[TextLine(JsonStr(Level, TEXT("title")), TEXT("Bold"), 26, FLinearColor::White)];
+		PassportBody->AddSlot().Padding(0.f, 6.f, 0.f, 4.f)
+		[
+			SNew(SBox).HeightOverride(10.f)
+			[
+				SNew(SProgressBar).Percent(static_cast<float>(FMath::Clamp((Points - From) / FMath::Max(1.0, Next - From), 0.0, 1.0))).FillColorAndOpacity(GoldColor)
+			]
+		];
+		PassportBody->AddSlot()[TextLine(FString::Printf(TEXT("%s points  ·  %s more to level %d"), *ShortCount(Points), *ShortCount(Next - Points), LevelN + 1), TEXT("Regular"), 11, DimColor)];
+
+		// ---- the totals
+		const TSharedPtr<FJsonObject> Totals = Object(TEXT("totals"));
+		const TSharedRef<SHorizontalBox> TotalsRow = SNew(SHorizontalBox);
+		const auto Total = [&TotalsRow](double N, const TCHAR* What)
+		{
+			TotalsRow->AddSlot().FillWidth(1.f)
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[TextLine(ShortCount(N), TEXT("Bold"), 22, FLinearColor::White)]
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[TextLine(What, TEXT("Regular"), 11, DimColor)]
+			];
+		};
+		const double Countries = JsonNum(Totals, TEXT("countries")), Continents = JsonNum(Totals, TEXT("continents")), Places = JsonNum(Totals, TEXT("places")), Friends = JsonNum(Totals, TEXT("friends"));
+		Total(Countries, Countries == 1.0 ? TEXT("country") : TEXT("countries"));
+		Total(Continents, Continents == 1.0 ? TEXT("continent") : TEXT("continents"));
+		Total(Places, Places == 1.0 ? TEXT("place") : TEXT("places"));
+		Total(JsonNum(Totals, TEXT("km")), TEXT("km on foot"));
+		Total(JsonNum(Totals, TEXT("kmRidden")), TEXT("km ridden"));
+		Total(Friends, Friends == 1.0 ? TEXT("friend made") : TEXT("friends made"));
+		PassportBody->AddSlot().Padding(0.f, 14.f, 0.f, 10.f)[TotalsRow];
+
+		// ---- the stamps
+		PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 4.f)[TextLine(TEXT("Stamps"), TEXT("Bold"), 14, FLinearColor::White)];
+		const TSharedRef<SWrapBox> Stamps = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+		for (const TSharedPtr<FJsonObject>& Stamp : Rows(TEXT("stamps")))
+		{
+			TArray<double> Steps;
+			const TArray<TSharedPtr<FJsonValue>>* StepValues = nullptr;
+			if (Stamp->TryGetArrayField(TEXT("steps"), StepValues))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *StepValues)
+				{
+					Steps.Add(Value.IsValid() ? Value->AsNumber() : 0.0);
+				}
+			}
+			const int32 Done = FMath::RoundToInt32(JsonNum(Stamp, TEXT("done")));
+			const bool bSingle = Steps.Num() == 1;
+			double NextAt = 0.0;
+			const bool bMore = Stamp->TryGetNumberField(TEXT("next"), NextAt);
+			const TSharedRef<SHorizontalBox> Pips = SNew(SHorizontalBox);
+			for (int32 i = 0; !bSingle && i < Steps.Num(); ++i)
+			{
+				Pips->AddSlot().AutoWidth().Padding(0.f, 0.f, 8.f, 0.f)[TextLine(ShortCount(Steps[i]), TEXT("Bold"), 10, i < Done ? GoldColor : FLinearColor(1.f, 1.f, 1.f, 0.35f))];
+			}
+			Stamps->AddSlot()
+			[
+				SNew(SBox).WidthOverride(188.f)
+				[
+					SNew(SBorder)
+					.BorderImage(&CardBrush)
+					.BorderBackgroundColor(Done > 0 ? CardDoneColor : CardColor)
+					.Padding(FMargin(10.f, 7.f))
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()[TextLine(JsonStr(Stamp, TEXT("title")), TEXT("Bold"), 12, FLinearColor::White)]
+						+ SVerticalBox::Slot().AutoHeight()[TextLine(bSingle ? FString(Done > 0 ? TEXT("Done") : TEXT("Not yet")) : CountedIn(JsonNum(Stamp, TEXT("have")), JsonStr(Stamp, TEXT("unit"))), TEXT("Regular"), 12, FLinearColor::White)]
+						+ SVerticalBox::Slot().AutoHeight()[TextLine(bSingle ? FString() : bMore ? FString::Printf(TEXT("Next stamp at %s"), *ShortCount(NextAt)) : FString(TEXT("All stamps earned")), TEXT("Regular"), 10, DimColor)]
+						+ SVerticalBox::Slot().AutoHeight()[Pips]
+					]
+				]
+			];
+		}
+		PassportBody->AddSlot()[Stamps];
+
+		// ---- where, who and what
+		const auto List = [](const TCHAR* Title, const TArray<TPair<FString, FString>>& Lines, const TCHAR* Empty)
+		{
+			const TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
+			Box->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 2.f)[TextLine(Title, TEXT("Bold"), 13, FLinearColor::White)];
+			if (Lines.Num() == 0)
+			{
+				Box->AddSlot().AutoHeight()[SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 11)).ColorAndOpacity(DimColor).WrapTextAt(360.f).Text(FText::FromString(Empty))];
+			}
+			for (const TPair<FString, FString>& Line : Lines)
+			{
+				Box->AddSlot().AutoHeight()
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().FillWidth(1.f)[TextLine(Line.Key, TEXT("Regular"), 12, FLinearColor::White)]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(8.f, 0.f, 0.f, 0.f)[TextLine(Line.Value, TEXT("Regular"), 11, DimColor)]
+				];
+			}
+			return Box;
+		};
+		TArray<TPair<FString, FString>> CountryLines, PlaceLines, FriendLines, RiddenLines;
+		for (const TSharedPtr<FJsonObject>& Row : Rows(TEXT("countries")))
+		{
+			CountryLines.Add({ JsonStr(Row, TEXT("name")), DateOf(JsonNum(Row, TEXT("first"))) });
+		}
+		for (const TSharedPtr<FJsonObject>& Row : Rows(TEXT("places")))
+		{
+			PlaceLines.Add({ JsonStr(Row, TEXT("name")), JsonStr(Row, TEXT("country")) });
+		}
+		for (const TSharedPtr<FJsonObject>& Row : Rows(TEXT("friends")))
+		{
+			const FString Sp = JsonStr(Row, TEXT("sp"));
+			const TCHAR* Kind = EarthMounts::Called(Sp);
+			const double Times = JsonNum(Row, TEXT("times"));
+			FriendLines.Add({ FString::Printf(TEXT("%s the %s"), *JsonStr(Row, TEXT("name")), Kind ? Kind : *Sp), Times > 1.0 ? FString::Printf(TEXT("%s chats"), *ShortCount(Times)) : FString() });
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Ridden = nullptr;
+		if (Journal->TryGetArrayField(TEXT("riddenKinds"), Ridden))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Ridden)
+			{
+				const FString Sp = Value.IsValid() ? Value->AsString() : FString();
+				const TCHAR* Kind = EarthMounts::Called(Sp);
+				RiddenLines.Add({ Kind ? FString(Kind) : Sp, FString() });
+			}
+		}
+		PassportBody->AddSlot().Padding(0.f, 14.f, 0.f, 0.f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.f).Padding(0.f, 0.f, 16.f, 0.f)[List(TEXT("Countries"), CountryLines, TEXT("Walk somewhere and it will be stamped here."))]
+			+ SHorizontalBox::Slot().FillWidth(1.f)[List(TEXT("Lately"), PlaceLines, TEXT("Nowhere yet."))]
+		];
+		PassportBody->AddSlot().Padding(0.f, 12.f, 0.f, 0.f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.f).Padding(0.f, 0.f, 16.f, 0.f)[List(TEXT("Friends"), FriendLines, TEXT("Press T beside an animal, a tree or a car to make one."))]
+			+ SHorizontalBox::Slot().FillWidth(1.f)[List(TEXT("Ridden"), RiddenLines, TEXT("Press E beside a horse, a car or a train."))]
+		];
+
+		bool bKept = false;
+		Journal->TryGetBoolField(TEXT("kept"), bKept);
+		const double Minutes = JsonNum(Totals, TEXT("minutes"));
+		const FString Foot = bKept
+			? FString::Printf(TEXT("Yours alone: nobody else can open your passport. Kept since %s  ·  %s visits  ·  %s in the world."), *DateOf(JsonNum(Journal, TEXT("since"))),
+				*ShortCount(JsonNum(Totals, TEXT("visits"))), Minutes < 90.0 ? *FString::Printf(TEXT("%s min"), *ShortCount(Minutes)) : *FString::Printf(TEXT("%.1f h"), Minutes / 60.0))
+			: FString(TEXT("You are a guest, so this passport lasts only for this visit. Type /login to sign in with Google and keep one."));
+		PassportBody->AddSlot().Padding(0.f, 14.f, 0.f, 0.f)
+		[
+			SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(DimColor).WrapTextAt(780.f).Text(FText::FromString(Foot))
+		];
+	}
+
 	/** The header: the name of the place, and what goes beneath it. */
 	void SetWhere(const FString& Name, const FString& Sub)
 	{
@@ -182,6 +586,26 @@ public:
 	{
 		SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 		// The flourish: the header starts a quarter larger and settles.
+		LayoutScale = AllottedGeometry.Scale > 0.f ? AllottedGeometry.Scale : 1.f;
+		// Stamps just earned take their turn, one at a time.
+		const double Now = FPlatformTime::Seconds();
+		if (Now > ToastUntil)
+		{
+			if (Toasts.Num() > 0)
+			{
+				ToastLabel->SetText(FText::FromString(Toasts[0].Label));
+				ToastTitle->SetText(FText::FromString(Toasts[0].Title));
+				ToastText->SetText(FText::FromString(Toasts[0].Text));
+				ToastText->SetVisibility(Toasts[0].Text.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+				Toast->SetVisibility(EVisibility::HitTestInvisible);
+				Toasts.RemoveAt(0);
+				ToastUntil = Now + ToastSeconds;
+			}
+			else
+			{
+				Toast->SetVisibility(EVisibility::Collapsed);
+			}
+		}
 		const float Settled = FMath::Clamp(Arrived(), 0.f, 1.f);
 		const float Scale = 1.f + 0.25f * (1.f - Settled) * (1.f - Settled);
 		Where->SetRenderTransform(Scale > 1.001f ? TOptional<FSlateRenderTransform>(FSlateRenderTransform(Scale)) : TOptional<FSlateRenderTransform>());
@@ -241,6 +665,38 @@ private:
 	TSharedPtr<SScrollBox> Log;
 	TSharedPtr<SEditableTextBox> Input;
 	TArray<TSharedRef<SWidget>> Lines;
+
+	TSharedPtr<STextBlock> Hint;
+	struct FShownBubble
+	{
+		uint32 Thing = 0;
+		double Until = 0.0;
+		FVector Where = FVector::ZeroVector;
+		TSharedPtr<SWidget> Widget;
+		TSharedPtr<FVector2D> At; // where on screen, for the canvas to read
+	};
+	TArray<FShownBubble> Shown;
+	TSharedPtr<SCanvas> BubbleCanvas;
+	FSlateRoundedBoxBrush BubbleBrush = FSlateRoundedBoxBrush(BubblePaper, 14.f, BubbleInk, 2.5f);
+	float LayoutScale = 1.f;
+
+	struct FToast
+	{
+		FString Label;
+		FString Title;
+		FString Text;
+	};
+	TArray<FToast> Toasts;
+	double ToastUntil = 0.0;
+	TSharedPtr<SBorder> Toast;
+	TSharedPtr<STextBlock> ToastLabel;
+	TSharedPtr<STextBlock> ToastTitle;
+	TSharedPtr<STextBlock> ToastText;
+	FSlateRoundedBoxBrush ToastBrush = FSlateRoundedBoxBrush(BubblePaper, 14.f, GoldColor, 3.f);
+
+	TSharedPtr<SBorder> Passport;
+	TSharedPtr<SScrollBox> PassportBody;
+	FSlateRoundedBoxBrush CardBrush = FSlateRoundedBoxBrush(FLinearColor::White, 8.f);
 };
 
 void AEarthWalkHUD::BeginPlay()
@@ -264,6 +720,28 @@ void AEarthWalkHUD::BeginPlay()
 		{
 			AddLine(Text, NoticeColor);
 		});
+		JournalHandle = Net->OnJournal.AddWeakLambda(this, [this](const TSharedPtr<FJsonObject>& Journal)
+		{
+			if (bPassportOpen && Overlay.IsValid())
+			{
+				Overlay->SetPassport(Journal);
+			}
+		});
+		StampHandle = Net->OnStamp.AddWeakLambda(this, [this](const FString& Kind, const FString& Title, const FString& Text)
+		{
+			AddLine(FString::Printf(TEXT("%s: %s. %s"), Kind == TEXT("country") ? TEXT("New country") : Kind == TEXT("level") ? TEXT("Level up") : TEXT("New stamp"), *Title, *Text), ThingColor);
+			if (Overlay.IsValid())
+			{
+				Overlay->QueueToast(Kind, Title, Text);
+			}
+			if (bPassportOpen)
+			{
+				if (UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+				{
+					Room->RequestJournal();
+				}
+			}
+		});
 		WelcomeHandle = Net->OnWelcome.AddWeakLambda(this, [this]()
 		{
 			// A signed-in player's animal comes from the account; show it.
@@ -276,7 +754,9 @@ void AEarthWalkHUD::BeginPlay()
 	}
 
 	ApplyGameInputMode(GetOwningPlayerController());
+	StartedAt = FPlatformTime::Seconds();
 	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly, Enter to chat. Try /goto Sydney Opera House."), NoticeColor);
+	AddLine(TEXT("Walk up to an animal, a car or a train: E hops on, T talks to it (trees and houses too). P opens your passport."), NoticeColor);
 }
 
 void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
@@ -305,6 +785,8 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		Net->OnChat.Remove(ChatHandle);
 		Net->OnNotice.Remove(NoticeHandle);
 		Net->OnWelcome.Remove(WelcomeHandle);
+		Net->OnJournal.Remove(JournalHandle);
+		Net->OnStamp.Remove(StampHandle);
 	}
 	if (Overlay.IsValid() && GEngine && GEngine->GameViewport)
 	{
@@ -335,6 +817,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	{
 		OpenChat();
 	}
+	UpdateCompany(PC);
 
 	StatusTimer -= DeltaSeconds;
 	if (StatusTimer <= 0.f)
@@ -369,6 +852,109 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 				Character->TeleportToGeo(HomeLat, HomeLon);
 			}
 		}
+	}
+}
+
+UEarthCompany* AEarthWalkHUD::Company() const
+{
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	return Earth ? Earth->GetCompany() : nullptr;
+}
+
+void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
+{
+	UEarthCompany* Friends = Company();
+	if (!Friends)
+	{
+		return;
+	}
+	if (!bCompanyBound)
+	{
+		bCompanyBound = true;
+		// What somebody asked a thing, and what it answered, go in the log as well as in its bubble.
+		Friends->OnLine.AddWeakLambda(this, [this](const FString& Who, const FString& Text, bool bFromThing)
+		{
+			AddLine(FString::Printf(TEXT("%s: %s"), *Who, *Text), bFromThing ? ThingColor : FLinearColor::White);
+		});
+	}
+	if (!bChatOpen)
+	{
+		if (PC->WasInputKeyJustPressed(EKeys::E))
+		{
+			Friends->KeyRide(); // hop on whatever is nearest, or hop off
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::T))
+		{
+			if (Friends->KeyTalk())
+			{
+				Overlay->SetInputHint(FString::Printf(TEXT("Say something to %s..."), *Friends->TalkingTo()));
+				OpenChat(); // say hello, then type
+			}
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::P))
+		{
+			TogglePassport(); // where I have been and what I have done
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			ClosePassport();
+			Friends->StopTalking(); // and stop talking to whatever it was
+		}
+		if (bPassportOpen)
+		{
+			const float Scroll = (PC->WasInputKeyJustPressed(EKeys::PageDown) || PC->WasInputKeyJustPressed(EKeys::MouseScrollDown) ? 160.f : 0.f)
+				- (PC->WasInputKeyJustPressed(EKeys::PageUp) || PC->WasInputKeyJustPressed(EKeys::MouseScrollUp) ? 160.f : 0.f);
+			if (Scroll != 0.f)
+			{
+				Overlay->ScrollPassport(Scroll);
+			}
+		}
+	}
+	// What is typed goes to the thing being talked to, and the box says so.
+	const FString TalkingTo = Friends->IsTalking() ? Friends->TalkingTo() : FString();
+	if (TalkingTo != TalkingToShown)
+	{
+		TalkingToShown = TalkingTo;
+		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
+	}
+	Overlay->SetHint(Friends->GetHint());
+	Overlay->SetBubbles(Friends->GetBubbles(), PC);
+
+	// -EWPassport opens the passport by itself a few seconds in, for pictures.
+	if (!bPassportTested && FPlatformTime::Seconds() - StartedAt > 12.0)
+	{
+		bPassportTested = true;
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWPassport")))
+		{
+			TogglePassport();
+		}
+	}
+}
+
+void AEarthWalkHUD::TogglePassport()
+{
+	if (bPassportOpen)
+	{
+		ClosePassport();
+		return;
+	}
+	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	if (!Net || !Net->IsConnected() || !Overlay.IsValid())
+	{
+		AddLine(TEXT("Not connected to the meetup server, so there is no passport to open yet."), ErrorColor);
+		return;
+	}
+	bPassportOpen = true;
+	Overlay->ShowPassport(true);
+	Net->RequestJournal();
+}
+
+void AEarthWalkHUD::ClosePassport()
+{
+	bPassportOpen = false;
+	if (Overlay.IsValid())
+	{
+		Overlay->ShowPassport(false);
 	}
 }
 
@@ -541,7 +1127,12 @@ void AEarthWalkHUD::Submit(const FString& Text)
 {
 	if (!Text.StartsWith(TEXT("/")))
 	{
-		if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+		UEarthCompany* Friends = Company();
+		if (Friends && Friends->IsTalking())
+		{
+			Friends->Say(Text); // to the cow, not to the room
+		}
+		else if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 		{
 			Net->SendChat(Text);
 		}
@@ -574,6 +1165,10 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/world auto   ours on foot, Google's photographic 3D world from the air (needs /mapskey <key>)"), NoticeColor);
 		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
+		AddLine(TEXT("E   hop on what is nearest (horse, cow, sheep, camel, llama, kangaroo, deer, tractor, car, boat, train), or hop off"), NoticeColor);
+		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
+		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
+		AddLine(TEXT("P   your passport (or /passport): countries, places, friends, stamps and your level"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
 	{
@@ -692,6 +1287,10 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		{
 			AddLine(FString::Printf(TEXT("Sound is %s. Type /sound on or /sound off."), Sounds->IsEnabled() ? TEXT("on") : TEXT("off")), NoticeColor);
 		}
+	}
+	else if (Command == TEXT("passport") || Command == TEXT("journal"))
+	{
+		TogglePassport();
 	}
 	else if (Command == TEXT("fly"))
 	{

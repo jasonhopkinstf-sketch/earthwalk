@@ -152,9 +152,24 @@ void AEarthLife::AddChunk(FIntPoint Key, const TArray<TSharedPtr<FJsonValue>>& I
 		const FJsonObject& Json = **Item;
 		FString Kind;
 		double Id = 0.0, U = 0.0, V = 0.0;
-		if (!Json.TryGetStringField(TEXT("kind"), Kind) || !Number(Json, TEXT("id"), Id) || !Number(Json, TEXT("u"), U) || !Number(Json, TEXT("v"), V))
+		if (!Json.TryGetStringField(TEXT("kind"), Kind) || !Number(Json, TEXT("u"), U) || !Number(Json, TEXT("v"), V))
 		{
-			continue; // trees, letterboxes and signs have no identity: AEarthChunkLabels draws those
+			continue;
+		}
+		if (Kind == TEXT("tree") || Kind == TEXT("house"))
+		{
+			// AEarthChunkLabels draws these; here they are kept so that they can be talked to.
+			FFixed Fixed;
+			Fixed.bHouse = Kind == TEXT("house");
+			Fixed.X = Ox + U * S;
+			Fixed.Z = Oz + V * S;
+			Fixed.Thing = EarthMounts::FixedThing(Fixed.bHouse, Key.X + U, Key.Y + V);
+			Chunk.Fixed.Add(Fixed);
+			continue;
+		}
+		if (!Number(Json, TEXT("id"), Id))
+		{
+			continue; // letterboxes and signs have no identity
 		}
 		const uint32 Identity = static_cast<uint32>(static_cast<int64>(Id));
 
@@ -412,6 +427,8 @@ void AEarthLife::Update(const AEarthWorld* World, float DeltaSeconds, double Sha
 		Colours[i].Reset();
 	}
 
+	Nearby.Reset();
+	Rideable.Reset();
 	const int64 Slot = static_cast<int64>(std::floor(T / EarthLife::CallSlot));
 	int32 Full = 0, StandIns = 0, Birds = 0;
 	for (const FHerd* Herd : Herds)
@@ -433,6 +450,10 @@ void AEarthLife::Update(const AEarthWorld* World, float DeltaSeconds, double Sha
 	}
 	const int32 Animals = Full + StandIns + Birds;
 	DrawTraffic(World, Dt, T, Players, PlayersCm[0].Z / 100.0);
+	for (const FEarthThing& Mount : Mounts)
+	{
+		PutMount(Mount, T);
+	}
 	Flush();
 	Shown = Animals;
 	LastTime = T;
@@ -513,6 +534,10 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 	// A machine that stopped for somebody is running late; it makes the time up afterwards.
 	const FState* Late = Rig.Yields > 0.0 ? States.Find(EarthLife::MemberId(Home.Id, K)) : nullptr;
 	const EarthLife::FCreature C = EarthLife::CreatureAt(Home, K, T - (Late ? Late->Lag : 0.0));
+	if (Taken.Contains(C.Id))
+	{
+		return EDrawn::Unseen; // somebody is riding it, or has left it somewhere, or told it what to do
+	}
 	const double Sx = Herd.X + C.X;
 	const double Sz = Herd.Z + C.Y;
 	const double Beat = (C.Id % 628) / 100.0; // so no two animals nod, wag or flap in step
@@ -698,6 +723,21 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 		Flap = Wing.X + Wing.Y * std::sin(Rig.WingRate != 0.0 ? T * Rig.WingRate + Beat : Stride);
 	}
 
+	if (Herd.D < 60.0)
+	{
+		FEarthThing Thing;
+		Thing.Thing = C.Id;
+		Thing.Sp = Rig.Name;
+		Thing.X = X;
+		Thing.Z = Z;
+		Thing.Yaw = St->Yaw;
+		Nearby.Add(Thing);
+		if (EarthMounts::Find(Rig.Name))
+		{
+			Thing.Reach = FMath::Max(3.0, Rig.Flee + 2.5); // near enough, even as it shies away
+			Rideable.Add(Thing);
+		}
+	}
 	Base.Position = Engine(X, Ground + St->Up + (Lift + Bob) * Size, Z);
 	Base.Rotation = EarthRigs::Turned(0.0, St->Yaw, Roll);
 	Base.Size = Size;
@@ -714,12 +754,27 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 {
 	const FPose AtRest;
 	const FVector2D Me = Players[0];
+	const auto CanRide = [this](uint32 Id, const TCHAR* Sp, double X, double Z, double Yaw, int32 K)
+	{
+		FEarthThing Thing;
+		Thing.Thing = Id;
+		Thing.Sp = Sp;
+		Thing.X = X;
+		Thing.Z = Z;
+		Thing.Yaw = Yaw;
+		Thing.K = K;
+		Rideable.Add(Thing);
+	};
 	for (const FParked* Car : Parked)
 	{
 		double Y = 0.0;
-		if (!World->TerrainHeightAt(Car->X, Car->Z, Y))
+		if (Taken.Contains(Car->Id) || !World->TerrainHeightAt(Car->X, Car->Z, Y))
 		{
-			continue;
+			continue; // somebody has driven it off, or its ground has not arrived
+		}
+		if (Car->D < 40.0)
+		{
+			CanRide(Car->Id, TEXT("car"), Car->X, Car->Z, (-Car->Yaw * Pi) / 180.0, 0);
 		}
 		const FEarthRig& Rig = *Car->Looks.Rig;
 		FBase Base;
@@ -739,6 +794,10 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 	TArray<FNear> Near;
 	for (const FCar* Car : Trips)
 	{
+		if (Taken.Contains(Car->Trip.Id))
+		{
+			continue;
+		}
 		const FCarState& St = CarStates.FindOrAdd(Car->Trip.Id);
 		const EarthLife::FTripPose Pose = EarthLife::TripPose(Car->Trip, T - St.Lag);
 		const double D = std::hypot(Pose.X - Me.X, Pose.Y - Me.Y);
@@ -802,6 +861,10 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 		// The body swings round to the way it is going, which is what turns it about at each end of a trip.
 		St.Yaw = !St.bYawSet ? Want : St.Yaw + TurnTo(St.Yaw, Want) * Ease(Pose.bMoving ? 3.5 : 6.0, Dt);
 		St.bYawSet = true;
+		if (Entry.D < 40.0)
+		{
+			CanRide(Id, TEXT("car"), Pose.X, Pose.Y, St.Yaw, 0);
+		}
 		const FEarthRig& Rig = *Entry.Car->Looks.Rig;
 		FBase Base;
 		Base.Position = Engine(Pose.X, Y + RoadLiftM + (Pose.bMoving ? FMath::Abs(std::sin(T * 9.0 + Id)) * 0.02 : 0.0), Pose.Y);
@@ -828,9 +891,14 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 			{
 				continue;
 			}
+			const double CarriageYaw = (-EarthLife::HeadingAt(Trip, D, 6.0) * Pi) / 180.0;
+			if (Away < 40.0)
+			{
+				CanRide(Trip.Id, TEXT("train"), At.X, At.Y, CarriageYaw, K);
+			}
 			FBase Base;
 			Base.Position = Engine(At.X, Y + RailLiftM, At.Y);
-			Base.Rotation = EarthRigs::Turned(0.0, (-EarthLife::HeadingAt(Trip, D, 6.0) * Pi) / 180.0, 0.0);
+			Base.Rotation = EarthRigs::Turned(0.0, CarriageYaw, 0.0);
 			Put(*Train->Rig, Train->Rig->PaletteA[Train->Coat], Train->Rig->PaletteB[Train->Coat], Base, AtRest, T);
 		}
 		// It whistles as it sets off, and for anyone standing near the line as it passes.
@@ -852,6 +920,104 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 			}
 		}
 		St.bWasMoving = Pose.bMoving;
+	}
+}
+
+/**
+ * Draws a thing where somebody took it. It looks just as it did at home: its coat and size come
+ * from its identity.
+ */
+void AEarthLife::PutMount(const FEarthThing& Mount, double T)
+{
+	FBase Base;
+	FPose Pose;
+	if (Mount.Sp == TEXT("car"))
+	{
+		const FLooks Looks = LooksOf(Mount.Thing);
+		if (Looks.Rig)
+		{
+			Base.Position = Engine(Mount.X, Mount.Y, Mount.Z); // whoever put it here has allowed for the road
+			Base.Rotation = EarthRigs::Turned(0.0, Mount.Yaw, 0.0);
+			Base.Size = Looks.Size;
+			Put(*Looks.Rig, Looks.Rig->PaletteA[Looks.Coat], Looks.Rig->PaletteB[Looks.Coat], Base, Pose, T);
+		}
+		return;
+	}
+	const FEarthRig* Rig = EarthRigs::Find(Mount.Sp);
+	if (!Rig || Rig->Coats.Num() == 0)
+	{
+		return;
+	}
+	const double Beat = (Mount.Thing % 628) / 100.0;
+	const double Size = 0.9 + 0.2 * EarthLife::Unit(Mount.Thing, SaltCoat + 1);
+	const int32 Coat = EarthLife::Hash32(Mount.Thing, SaltCoat) % Rig->Coats.Num();
+	const double Stride = (Mount.Gait / Rig->Stride) * Pi * 2.0;
+	const double Walk = Mount.bMoving ? 1.0 : 0.0;
+	const double Lift = Rig->Hop > 0.0 ? FMath::Abs(std::sin(Stride / 2.0)) * Rig->Hop * Walk : FMath::Abs(std::sin(Stride)) * 0.03 * Walk;
+	const double Bob = Rig->bSwim ? std::sin(T * 1.7 + Beat) * 0.012 - Rig->Swim : 0.0;
+	Base.Position = Engine(Mount.X, Mount.Y + (Lift + Bob) * Size, Mount.Z);
+	Base.Rotation = EarthRigs::Turned(0.0, Mount.Yaw, Rig->Heel);
+	Base.Size = Size;
+	Pose.Beat = Beat;
+	Pose.Swing = std::sin(Stride) * 0.55 * Walk;
+	Pose.bTogether = Rig->Hop > 0.0;
+	Put(*Rig, Rig->PaletteA[Coat], Rig->PaletteB[Coat], Base, Pose, T);
+}
+
+bool AEarthLife::CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double T, FEarthThing& Out) const
+{
+	for (const FTrain* Train : Trains)
+	{
+		if (Train->Trip.Id != Id)
+		{
+			continue;
+		}
+		const EarthLife::FTrip& Trip = Train->Trip;
+		const EarthLife::FTrainPose Pose = EarthLife::TrainPose(Trip, T);
+		const double D = (Pose.Along * (Trip.Length - TrainM)) / Trip.Length + CarriageM / 2.0 + K * (CarriageM + CouplingM);
+		const FVector2D At = EarthLife::PointAt(Trip, D);
+		double Y = 0.0;
+		if (!World || !World->TerrainHeightAt(At.X, At.Y, Y))
+		{
+			return false;
+		}
+		Out.X = At.X;
+		Out.Y = Y + RailLiftM;
+		Out.Z = At.Y;
+		Out.Yaw = (-EarthLife::HeadingAt(Trip, D, 6.0) * Pi) / 180.0;
+		return true;
+	}
+	return false;
+}
+
+void AEarthLife::Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z)
+{
+	const FEarthRig* Rig = EarthRigs::Find(Sp);
+	const TCHAR* Voice = Rig && Rig->Voice ? Rig->Voice : Sp == TEXT("car") ? TEXT("toot") : Sp == TEXT("train") ? TEXT("whistle") : nullptr;
+	double Ground = 0.0;
+	if (Voice && World && World->TerrainHeightAt(X, Z, Ground))
+	{
+		Call(Voice, Thing, X, Ground, Z);
+	}
+}
+
+void AEarthLife::FixedNear(double X, double Z, TArray<FEarthThing>& Out) const
+{
+	for (const TPair<FIntPoint, FChunk>& Pair : Chunks)
+	{
+		for (const FFixed& Fixed : Pair.Value.Fixed)
+		{
+			if (FMath::Abs(Fixed.X - X) > 8.0 || FMath::Abs(Fixed.Z - Z) > 8.0)
+			{
+				continue;
+			}
+			FEarthThing Thing;
+			Thing.Thing = Fixed.Thing;
+			Thing.Sp = Fixed.bHouse ? TEXT("house") : TEXT("tree");
+			Thing.X = Fixed.X;
+			Thing.Z = Fixed.Z;
+			Out.Add(Thing);
+		}
 	}
 }
 

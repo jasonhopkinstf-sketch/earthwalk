@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "EarthLifeMotion.h"
 #include "EarthLifeRigs.h"
+#include "EarthMounts.h"
 #include "GameFramework/Actor.h"
 #include "EarthLife.generated.h"
 
@@ -55,6 +56,21 @@ public:
 	/** The same, for the homes that came with one chunk: the ground round them is replanted when they arrive. */
 	void HomeCircles(FIntPoint Key, TArray<FVector>& OutCentreAndRadius) const;
 
+	/** The animals within sixty metres as last drawn, for talking to; and everything near enough to think of riding. */
+	const TArray<FEarthThing>& GetNearby() const { return Nearby; }
+	const TArray<FEarthThing>& GetRideable() const { return Rideable; }
+	/**
+	 * Before Update: the identities that are not where their timetable has them (ridden, left standing
+	 * or told what to do), and where to draw each of those instead.
+	 */
+	void SetOutOfPlace(const TSet<uint32>& InHidden, const TArray<FEarthThing>& InMounts) { Taken = InHidden; Mounts = InMounts; }
+	/** Where carriage K of a train is at shared time T, for a passenger on its roof (X, Y, Z and Yaw of Out); false if this game does not have the train. */
+	bool CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double T, FEarthThing& Out) const;
+	/** A thing that is being talked to speaks up in its own voice as well, if it has one. */
+	void Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z);
+	/** The trees and houses within eight metres of a spot (metres east and south of the origin): they can be talked to. */
+	void FixedNear(double X, double Z, TArray<FEarthThing>& Out) const;
+
 	UEarthSounds* GetSounds() const { return Sounds; }
 	int32 NumShown() const { return Shown; }
 
@@ -94,8 +110,17 @@ private:
 		const FEarthRig* Rig = nullptr;
 		int32 Coat = 0;
 	};
+	/** A tree or a house: it stands still, and can be talked to. */
+	struct FFixed
+	{
+		bool bHouse = false;
+		double X = 0.0;
+		double Z = 0.0;
+		uint32 Thing = 0;
+	};
 	struct FChunk
 	{
+		TArray<FFixed> Fixed;
 		TArray<FHerd> Herds;
 		TArray<FParked> Parked;
 		TArray<FCar> Trips;
@@ -155,6 +180,8 @@ private:
 	enum class EDrawn : uint8 { Unseen, Whole, Simple, Flying };
 	EDrawn DrawAnimal(const AEarthWorld* World, const FHerd& Herd, int32 K, double Dt, double T, int64 Slot, const TArray<FVector2D>& Players, bool bMayBeWhole, bool bMayBeSimple);
 	void DrawTraffic(const AEarthWorld* World, double Dt, double T, const TArray<FVector2D>& Players, double MyHeight);
+	/** Draws an animal, a tractor, a boat or a car that somebody is riding, has left standing or has told what to do, where they took it. */
+	void PutMount(const FEarthThing& Mount, double T);
 	void Put(const FEarthRig& Rig, const FLinearColor& CoatA, const FLinearColor& CoatB, const FBase& Base, const FPose& Pose, double T);
 	void Call(const TCHAR* Kind, uint32 Id, double X, double Y, double Z);
 	/** -EWLifeWhere=<shared time>: logs where every animal, car and train near the player is at that moment, by latitude and longitude. */
@@ -182,6 +209,11 @@ private:
 	TMap<uint32, FState> States;
 	TMap<uint32, FCarState> CarStates;
 	TMap<uint32, FTrainState> TrainStates;
+
+	TArray<FEarthThing> Nearby;
+	TArray<FEarthThing> Rideable;
+	TSet<uint32> Taken;
+	TArray<FEarthThing> Mounts;
 
 	/** This frame's shapes, per kind of shape: where each goes, and its colour (three numbers each). */
 	TArray<FTransform> Transforms[4];

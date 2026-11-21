@@ -7,9 +7,64 @@
 
 class IWebSocket;
 
+/** What someone is riding: the thing's identity, what kind it is, and which seat (0 steers). */
+struct FEarthRide
+{
+	bool bOn = false;
+	uint32 Thing = 0;
+	FString Sp;
+	int32 Seat = 0;
+};
+
+/** A thing standing where its driver got off, until the server's clock reaches Until (milliseconds). */
+struct FEarthLeft
+{
+	uint32 Thing = 0;
+	FString Sp;
+	double Lat = 0.0;
+	double Lon = 0.0;
+	double Alt = 0.0;
+	double Yaw = 0.0;
+	double Until = 0.0;
+};
+
+/** Something a thing was told to do, and agreed to (docs/PROTOCOL.md, "Doing as asked"). */
+struct FEarthOrder
+{
+	uint32 Thing = 0;
+	FString Sp;
+	FString Act; // follow, come, stay, home, trick, noise, goto
+	FString By;  // the member who asked
+	bool bHasAt = false;
+	double Lat = 0.0;
+	double Lon = 0.0;
+	bool bHasTo = false;
+	double ToLat = 0.0;
+	double ToLon = 0.0;
+	double At = 0.0;    // when it was told, server clock in milliseconds: tells one order from the next
+	double Until = 0.0; // when it lapses
+	FString Name;       // goto: the place
+	TArray<FVector2D> Path; // goto: the way there by road, as latitude and longitude
+};
+
+/** A thing spoke: to me, or to somebody near me. */
+struct FEarthSay
+{
+	uint32 Thing = 0;
+	FString Sp;
+	FString Name;
+	FString Text;
+	FString By;
+	FString Asked; // what it was asked; empty for a hello
+	bool bHasAt = false;
+	double Lat = 0.0;
+	double Lon = 0.0;
+};
+
 /** Someone else in the same room. */
 struct FEarthPeer
 {
+	FEarthRide Ride;
 	FString Name;
 	FString Avatar; // which animal they chose
 	double Lat = 0.0;
@@ -47,6 +102,12 @@ struct FEarthHome
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthChat, const FString& /*Name*/, const FString& /*Text*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthNotice, const FString& /*Text*/);
 DECLARE_MULTICAST_DELEGATE(FOnEarthWelcome);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthRide, const FEarthRide& /*Mine*/);
+DECLARE_MULTICAST_DELEGATE(FOnEarthRideFail);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthSay, const FEarthSay& /*Said*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthOrder, const FEarthOrder& /*Order*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
 
 /**
  * Connection to the world server's meetup room: who is here, where they are, and chat.
@@ -78,6 +139,7 @@ public:
 	/** True once the server has told us the time. */
 	bool HasSharedClock() const { return bClockSet; }
 	const FString& GetMyName() const { return MyName; }
+	const FString& GetMyId() const { return MyId; }
 	const FString& GetRoom() const { return RoomName; }
 	const TMap<FString, FEarthPeer>& GetPeers() const { return Peers; }
 
@@ -93,6 +155,22 @@ public:
 	/** Sets my home to a place. */
 	void SendHome(double Lat, double Lon, const FString& Name);
 	void RequestPeople();
+
+	/** Asks to hop on something; the go-ahead comes back through OnRide. */
+	void SendRide(uint32 Thing, const FString& Sp);
+	/** Says I have hopped off. */
+	void SendDismount();
+	/** Says hello to a thing (no text), or says something to it; its answer comes through OnSay. Lat/Lon are where I see it. */
+	void SendTalk(uint32 Thing, const FString& Sp, const FString& Text = FString(), bool bHasAt = false, double Lat = 0.0, double Lon = 0.0);
+	/** Asks for my own journal; it comes through OnJournal. */
+	void RequestJournal();
+
+	/** What I am riding, once the server has said so. Each peer has a Ride of its own. */
+	const FEarthRide& GetMyRide() const { return MyRide; }
+	/** Things left standing where a rider got off, by identity. The caller removes the ones whose time is up. */
+	TMap<uint32, FEarthLeft>& GetLeft() { return Left; }
+	/** The follow, come and stay orders in force, by the thing's identity. The caller removes the ones whose time is up. */
+	TMap<uint32, FEarthOrder>& GetOrders() { return Orders; }
 
 	/**
 	 * Sign in with Google: opens the system browser at the server's link page and polls the
@@ -112,6 +190,12 @@ public:
 	FOnEarthChat OnChat;
 	FOnEarthNotice OnNotice;
 	FOnEarthWelcome OnWelcome;
+	FOnEarthRide OnRide;
+	FOnEarthRideFail OnRideFail;
+	FOnEarthSay OnSay;
+	FOnEarthOrder OnOrder;
+	FOnEarthJournal OnJournal;
+	FOnEarthStamp OnStamp;
 
 private:
 	void HandleMessage(const FString& Message);
@@ -126,6 +210,9 @@ private:
 	TSharedPtr<IWebSocket> Socket;
 	TMap<FString, FEarthPeer> Peers;
 	TArray<FEarthPerson> People;
+	FEarthRide MyRide;
+	TMap<uint32, FEarthLeft> Left;
+	TMap<uint32, FEarthOrder> Orders;
 	FEarthHome Home;
 	FString MyId;
 	FString MyName;

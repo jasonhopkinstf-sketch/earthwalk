@@ -8,6 +8,7 @@ class AEarthChunkLabels;
 class AEarthGroundCover;
 class AEarthLife;
 class AEarthWalkAvatar;
+class UEarthCompany;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class ACharacter;
@@ -114,7 +115,16 @@ public:
 	/** Where herds roam and tractors work near a square of ground (AEarthLife::HomeCirclesIn): crops keep off. */
 	void HomeCirclesIn(const FBox2D& Area, TArray<FVector>& OutCentreAndRadius) const;
 
+	/**
+	 * Is this spot open water (the ground boats sail on)? False while that chunk has not arrived;
+	 * otherwise bOutWet says. A cell is about ten metres, as in the browser game.
+	 */
+	bool WaterAt(double EastM, double SouthM, bool& bOutWet) const;
 	AEarthLife* GetLife() const { return Life; }
+	/** Riding, talking and telling things what to do (EarthCompany.h). */
+	UEarthCompany* GetCompany() const { return Company; }
+	/** The figure of someone else in the room, by their id; null when this game is not showing them. */
+	AEarthWalkAvatar* FindAvatar(const FString& Id) const;
 
 	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
 	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
@@ -171,6 +181,12 @@ private:
 	/** Animals, cars and trains (EarthLife.h). */
 	UPROPERTY()
 	TObjectPtr<AEarthLife> Life;
+
+	UPROPERTY()
+	TObjectPtr<UEarthCompany> Company;
+
+	/** Per chunk, which cells of the terrain (TerrainGrid a side) are water, row by row from the north-west corner. */
+	TMap<FIntPoint, TArray<uint8>> WaterMaps;
 
 	/** Per chunk, CoverCells x CoverCells of EarthCover, row by row from the north-west corner. */
 	TMap<FIntPoint, TArray<uint8>> CoverMaps;
