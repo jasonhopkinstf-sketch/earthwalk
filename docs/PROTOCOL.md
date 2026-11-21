@@ -68,12 +68,22 @@ repeats). 20 painted house walls, 21 large painted walls, 22 large concrete wall
 house walls; 24 and 25 roofs; 26 doors (no collision); 27 woodwork such as door frames, steps,
 porch posts, chimney caps and the undersides of eaves (no collision); 28 chimneys (no
 collision). A client that does not know an id can draw it in its colour. Homes (small buildings
-that are not garages, sheds or shops) get a door on the wall facing the nearest road.
+that are not garages, sheds or shops) get a door on the wall facing the nearest road, and so do
+smaller blocks of flats.
+
+What the paints are, how many houses are brick (23) and not painted (20), whether roofs are
+pitched, flat behind a parapet (the parapet is wall, the roof inside it roof) or mansard, and how
+tall an unmeasured building stands, all depend on where in the world the chunk is and on how
+closely built the ground round the building is (`server/src/styles.ts`, and `crowding` in
+`server/src/chunk.ts`). None of that changes the format: clients go on drawing ids in the colours
+they are sent. A wall is always sent as four corners and two triangles, lower edge first, which a
+client may rely on to fit windows to it (the browser does; gable ends are single triangles).
 
 Streets and gardens: 14 pavements, laid beside roads where the ground is residential or paved
 or buildings stand within about 40 m, a little lower than the road so that crossing roads cover
 them; 15 road markings; 32 hedges and 33 fences round front gardens, whose paths are ordinary
-path sections (11). None of these collide.
+path sections (11). Where gardens have low walls, those are woodwork (27) in the colour of the
+house. None of these collide.
 
 ## Labels: `GET /v1/labels/16/{x}/{y}`
 
