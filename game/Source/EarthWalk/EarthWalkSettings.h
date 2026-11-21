@@ -66,6 +66,21 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "World", meta = (ClampMin = 10.0))
 	double PhotoBelowMeters = 45.0;
 
+	/**
+	 * The drawn look: light sorted into flat levels and ink outlines over the whole picture
+	 * (M_EarthInk). Off shows the same painted world lit plainly.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Look")
+	bool bInkOutlines = true;
+
+	/**
+	 * Other values for M_EarthInk's settings, by name (InkWidth, InkStrength, Band1, Level0 and so
+	 * on; the list is in EarthWalkAssetsCommandlet.cpp), for trying a look without rebuilding the art.
+	 * -EWInk=Name:value,Name:value on the command line does the same for one run.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Look")
+	TMap<FString, float> InkTuning;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Player")
 	bool bInvertMouseY = false;
 

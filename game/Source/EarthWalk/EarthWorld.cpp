@@ -66,9 +66,9 @@ AEarthWorld* AEarthWorld::Get(const UObject* WorldContext)
 void AEarthWorld::BeginPlay()
 {
 	Super::BeginPlay();
-	// With the plugin and a key, the view from the air is photographic unless told otherwise.
+	// Our own world unless asked: the photographic kinds are an opt-in (/world auto, /world photo).
 	// -EWWorld=auto|photo|generated chooses for this run.
-	EEarthWorldKind Wanted = EarthPhoto::IsBuiltIn() && !FEarthWalkConfig::MapsKey().IsEmpty() ? EEarthWorldKind::Auto : EEarthWorldKind::Generated;
+	EEarthWorldKind Wanted = EEarthWorldKind::Generated;
 	FString Asked;
 	if (FParse::Value(FCommandLine::Get(), TEXT("-EWWorld="), Asked))
 	{
@@ -510,43 +510,46 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 
 namespace
 {
-	/** How each server surface id is drawn: which master material, which texture, and how strongly the server's colour tints it. */
+	/**
+	 * How each server surface id is drawn: which master material, in what colour, with which drawn
+	 * pattern. The colours are the barnyard palette (bright, warm, a picture-book farm) and replace the
+	 * server's own, which the browser still uses.
+	 */
 	struct FSurfaceStyle
 	{
 		const TCHAR* Master; // asset name under /Game/EarthWalk/Materials
-		const TCHAR* Texture; // name under /Game/EarthWalk/Textures (T_<name>_D and _N), or null
-		float RepeatMeters;
-		float TintAmount; // 0 = texture's own colour, 1 = fully tinted by the server's colour
-		float Roughness;
-		float Windows;
+		uint32 Color; // 0xRRGGBB
+		float Pattern; // M_EarthTop: 0 plain, 1 roof tiles, 2 furrows, 3 paving slabs, 4 grass strokes
+		float Windows; // M_EarthWall
+		float Bricks; // M_EarthWall: patches of drawn brick
 	};
 
 	const FSurfaceStyle* StyleFor(uint32 SurfaceId)
 	{
 		static const TMap<uint32, FSurfaceStyle> Styles = {
 			// Ground cover (server/src/chunk.ts MATERIALS)
-			{ 0, { TEXT("M_EarthTop"), TEXT("grass"), 4.f, 0.7f, 0.9f, 0.f } }, // unclassified land: rough grass
-			{ 1, { TEXT("M_EarthTop"), TEXT("grass"), 4.f, 0.75f, 0.9f, 0.f } },
-			{ 2, { TEXT("M_EarthTop"), TEXT("forest"), 4.f, 0.4f, 0.95f, 0.f } },
-			{ 3, { TEXT("M_EarthTop"), TEXT("soil"), 5.f, 0.4f, 0.9f, 0.f } },
-			{ 4, { TEXT("M_EarthTop"), TEXT("sand"), 4.f, 0.4f, 0.8f, 0.f } },
-			{ 5, { TEXT("M_EarthTop"), TEXT("grass"), 4.f, 0.5f, 0.9f, 0.f } }, // residential land: lawns
-			{ 6, { TEXT("M_EarthTop"), TEXT("paving"), 2.f, 0.5f, 0.7f, 0.f } },
-			{ 7, { TEXT("M_EarthWater"), nullptr, 0.f, 1.f, 0.f, 0.f } },
-			{ 8, { TEXT("M_EarthTop"), TEXT("rock"), 5.f, 0.4f, 0.9f, 0.f } },
+			{ 0, { TEXT("M_EarthTop"), 0x7fc04f, 4.f, 0.f, 0.f } }, // unclassified land: meadow
+			{ 1, { TEXT("M_EarthTop"), 0x63b944, 4.f, 0.f, 0.f } }, // parks and grass
+			{ 2, { TEXT("M_EarthTop"), 0x4e9a3e, 0.f, 0.f, 0.f } }, // forest floor
+			{ 3, { TEXT("M_EarthTop"), 0xe6c85a, 2.f, 0.f, 0.f } }, // farmland: wheat gold, furrowed
+			{ 4, { TEXT("M_EarthTop"), 0xf3e2a6, 0.f, 0.f, 0.f } }, // sand
+			{ 5, { TEXT("M_EarthTop"), 0x88c653, 4.f, 0.f, 0.f } }, // residential land: lawns
+			{ 6, { TEXT("M_EarthTop"), 0xcbc4b4, 3.f, 0.f, 0.f } }, // paved
+			{ 7, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f } },
+			{ 8, { TEXT("M_EarthTop"), 0xa59c90, 0.f, 0.f, 0.f } }, // rock
 			// Roads
-			{ 10, { TEXT("M_EarthTop"), TEXT("asphalt"), 3.f, 0.3f, 0.85f, 0.f } },
-			{ 11, { TEXT("M_EarthTop"), TEXT("gravel"), 2.f, 0.6f, 0.9f, 0.f } },
-			{ 12, { TEXT("M_EarthTop"), TEXT("gravel"), 2.f, 0.7f, 0.9f, 0.f } },
-			{ 13, { TEXT("M_EarthWater"), nullptr, 0.f, 1.f, 0.f, 0.f } },
+			{ 10, { TEXT("M_EarthTop"), 0x7f838c, 0.f, 0.f, 0.f } },
+			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f } }, // paths
+			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f } }, // railway
+			{ 13, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f } }, // streams
 			// Building walls, with windows
-			{ 20, { TEXT("M_EarthWall"), TEXT("plaster"), 3.f, 0.8f, 0.85f, 1.f } },
-			{ 21, { TEXT("M_EarthWall"), TEXT("brick"), 2.5f, 0.25f, 0.8f, 1.f } },
-			{ 22, { TEXT("M_EarthWall"), TEXT("concrete"), 3.f, 0.6f, 0.75f, 1.f } },
-			{ 23, { TEXT("M_EarthWall"), TEXT("brick"), 2.5f, 0.45f, 0.8f, 1.f } },
+			{ 20, { TEXT("M_EarthWall"), 0xf6e8c6, 0.f, 1.f, 0.f } }, // cream
+			{ 21, { TEXT("M_EarthWall"), 0xf2cc74, 0.f, 1.f, 0.f } }, // butter yellow
+			{ 22, { TEXT("M_EarthWall"), 0xbcd6e6, 0.f, 1.f, 0.f } }, // pale blue
+			{ 23, { TEXT("M_EarthWall"), 0xc9503c, 0.f, 1.f, 1.f } }, // barn red
 			// Roofs
-			{ 24, { TEXT("M_EarthTop"), TEXT("roof_grey"), 2.f, 0.5f, 0.7f, 0.f } },
-			{ 25, { TEXT("M_EarthTop"), TEXT("roof_clay"), 2.f, 0.3f, 0.75f, 0.f } },
+			{ 24, { TEXT("M_EarthTop"), 0x5d6f8c, 1.f, 0.f, 0.f } }, // slate
+			{ 25, { TEXT("M_EarthTop"), 0xc75f3f, 1.f, 0.f, 0.f } }, // terracotta
 		};
 		return Styles.Find(SurfaceId);
 	}
@@ -574,23 +577,11 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Master, this);
 	if (Material)
 	{
-		const FColor Color((Rgba >> 24) & 0xff, (Rgba >> 16) & 0xff, (Rgba >> 8) & 0xff, 255);
+		const FColor Color((Style->Color >> 16) & 0xff, (Style->Color >> 8) & 0xff, Style->Color & 0xff, 255);
 		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
-		if (Style->Texture)
-		{
-			if (UTexture* Albedo = LoadArt<UTexture>(TEXT("Textures"), FString::Printf(TEXT("T_%s_D"), Style->Texture)))
-			{
-				Material->SetTextureParameterValue(TEXT("Albedo"), Albedo);
-			}
-			if (UTexture* Normal = LoadArt<UTexture>(TEXT("Textures"), FString::Printf(TEXT("T_%s_N"), Style->Texture)))
-			{
-				Material->SetTextureParameterValue(TEXT("NormalMap"), Normal);
-			}
-			Material->SetScalarParameterValue(TEXT("Repeat"), Style->RepeatMeters);
-			Material->SetScalarParameterValue(TEXT("TintAmount"), Style->TintAmount);
-			Material->SetScalarParameterValue(TEXT("Roughness"), Style->Roughness);
-			Material->SetScalarParameterValue(TEXT("Windows"), Style->Windows);
-		}
+		Material->SetScalarParameterValue(TEXT("Pattern"), Style->Pattern);
+		Material->SetScalarParameterValue(TEXT("Windows"), Style->Windows);
+		Material->SetScalarParameterValue(TEXT("Bricks"), Style->Bricks);
 	}
 	SurfaceMaterials.Add(Key, Material);
 	return Material;

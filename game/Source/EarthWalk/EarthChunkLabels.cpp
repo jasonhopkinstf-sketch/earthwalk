@@ -15,9 +15,10 @@ namespace
 	constexpr uint32 PostColor = 0x6b6b6bff;
 	constexpr uint32 LetterboxColor = 0xe8e4d8ff;
 	constexpr uint32 PlateColor = 0x0f4d2aff;
-	constexpr uint32 BarkColor = 0x5a3d2aff;
-	constexpr uint32 LeafColor = 0x3f8a2fff;
-	constexpr uint32 NeedleColor = 0x2f6b2fff;
+	// Brighter than life, to sit with the barnyard palette of the ground and houses (EarthWorld.cpp).
+	constexpr uint32 BarkColor = 0x8a5a3aff;
+	constexpr uint32 LeafColor = 0x4fae3cff;
+	constexpr uint32 NeedleColor = 0x2f8f52ff;
 	// Letterboxes are about three times life size, so the number reads from across the street.
 	constexpr double LetterboxPostHeight = 150.0; // cm
 	const FVector LetterboxSize(54.0, 90.0, 66.0); // depth (towards the street), width, height in cm

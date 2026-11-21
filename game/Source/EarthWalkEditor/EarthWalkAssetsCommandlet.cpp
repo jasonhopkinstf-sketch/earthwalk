@@ -7,10 +7,13 @@
 #include "IAssetTools.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Engine/BlendableInterface.h"
+#include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionPerInstanceRandom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionSceneTexture.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureObjectParameter.h"
 #include "Materials/MaterialExpressionTime.h"
@@ -35,55 +38,163 @@ namespace
 		TEXT("roof_clay"), TEXT("roof_grey"), TEXT("rock"), TEXT("gravel"), TEXT("soil"), TEXT("dirt"), TEXT("paving"),
 	};
 
-	/** Ground, roads and roofs: the texture is projected straight down and tinted by the server's colour. */
+	// The look is a drawn cartoon: flat painted colours, matt, with a little brushwork, and patterns
+	// that say "tiles" or "bricks" rather than photographs of them. M_EarthInk then bands the light and
+	// draws the outlines. The textures above are still imported but no longer used by these materials.
+
+	/** Ground, roads and roofs: the colour, a little uneven as if brushed on, with a drawn pattern for some surfaces. */
 	const TCHAR* const TopCode = TEXT(R"HLSL(
 float3 n = normalize(Normal);
-float2 uv = WorldPos.xy / (100.0 * Repeat);
-float3 tex = Texture2DSample(Albedo, AlbedoSampler, uv).rgb;
-float2 nxy = Texture2DSample(NormalMap, NormalMapSampler, uv).rg * 2.0 - 1.0;
-float3 nm = float3(nxy, sqrt(saturate(1.0 - dot(nxy, nxy)))); // two-channel normal map, rebuild z
-float3 T = normalize(cross(float3(0.0, 1.0, 0.0), n));
-float3 B = normalize(cross(n, T));
-WorldNormal = normalize(nm.x * T + nm.y * B + nm.z * n);
-Rough = Roughness;
-return saturate(tex * lerp(1.0, Tint * 2.0, TintAmount));
+float2 p = WorldPos.xy / 100.0; // metres
+float h = WorldPos.z / 100.0;
+float detail = 1.0 - saturate((length(WorldPos - CamPos) - 7000.0) / 11000.0); // drawn marks fade out with distance
+float blot = sin(p.x * 0.11 + 1.7 * sin(p.y * 0.07)) * sin(p.y * 0.13 + 1.3 * sin(p.x * 0.09));
+float daub = sin(p.x * 0.9 + p.y * 0.5) * sin(p.y * 1.1 - p.x * 0.4);
+float3 c = Tint * (1.0 + 0.13 * blot + 0.05 * daub * detail);
+float mark = 0.0;
+if (Pattern > 0.5 && Pattern < 1.5)
+{
+	// Roof: rows of tiles across the slope with staggered joins, and nothing on a flat roof.
+	float pitch = saturate((1.0 - n.z) * 30.0);
+	float rows = h / 0.32;
+	float2 d = normalize(n.xy + float2(1e-4, 0.0));
+	float along = dot(p, float2(d.y, -d.x));
+	float join = frac(along / 0.7 + 0.5 * floor(rows));
+	mark = max(frac(rows) < 0.16 ? 1.0 : 0.0, join < 0.06 ? 0.7 : 0.0) * pitch;
+}
+else if (Pattern > 1.5 && Pattern < 2.5)
+{
+	// Farmland: furrows.
+	mark = frac((p.x * 0.8 + p.y * 0.6) / 1.8) < 0.22 ? 0.55 : 0.0;
+}
+else if (Pattern > 2.5 && Pattern < 3.5)
+{
+	// Paving: slabs.
+	float2 g = frac(p / 1.3);
+	mark = (g.x < 0.045 || g.y < 0.045) ? 0.6 : 0.0;
+}
+else if (Pattern > 3.5)
+{
+	// Grass: a scatter of strokes, one or two to a stride, each a little tilted.
+	float2 cell = floor(p / 1.5);
+	float rnd = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453);
+	float2 g = frac(p / 1.5) - 0.5 - (float2(rnd, frac(rnd * 7.31)) - 0.5) * 0.5;
+	float lean = (rnd - 0.5) * 0.8;
+	mark = (rnd > 0.4 && abs(g.x - g.y * lean) < 0.035 && abs(g.y) < 0.2) ? 0.8 : 0.0;
+}
+c *= 1.0 - 0.3 * mark * detail;
+WorldNormal = n;
+Rough = 0.92;
+return saturate(c);
 )HLSL");
 
-	/** Building walls: the texture runs along the wall and up it; a grid of windows is drawn on top. */
+	/** Building walls: painted, with patches of brick drawn in where the wall is brick, and cartoon windows. */
 	const TCHAR* const WallCode = TEXT(R"HLSL(
 float3 n = normalize(Normal);
 float2 t2 = normalize(float2(n.y, -n.x) + float2(1e-4, 0.0));
 float along = dot(WorldPos.xy, t2) / 100.0;
 float height = WorldPos.z / 100.0;
-float2 uv = float2(along, -height) / Repeat;
-float3 tex = Texture2DSample(Albedo, AlbedoSampler, uv).rgb;
-float2 nxy = Texture2DSample(NormalMap, NormalMapSampler, uv).rg * 2.0 - 1.0;
-float3 nm = float3(nxy, sqrt(saturate(1.0 - dot(nxy, nxy)))); // two-channel normal map, rebuild z
-float3 T = float3(t2, 0.0);
-float3 B = float3(0.0, 0.0, -1.0);
-float3 wn = normalize(nm.x * T + nm.y * B + nm.z * n);
+float detail = 1.0 - saturate((length(WorldPos - CamPos) - 5000.0) / 8000.0);
+float blot = sin(along * 0.35 + 1.4 * sin(height * 0.5)) * sin(height * 0.6 + along * 0.2);
+float3 wall = Tint * (1.0 + 0.06 * blot);
+// Brick the way a cartoon says it: a few patches of courses, not every brick.
+float course = height / 0.3;
+float2 b = frac(float2(along / 0.62 + 0.5 * floor(course), course));
+float mortar = (b.x < 0.07 || b.y < 0.14) ? 1.0 : 0.0;
+float clump = smoothstep(0.30, 0.55, sin(along * 0.45 + 2.0) * sin(height * 0.7 + along * 0.13 + 1.0));
+wall *= 1.0 - 0.22 * mortar * clump * Bricks * detail;
 // RowShift.x is where the building's ground floor sits within a 3 m storey (AEarthWorld::BuildChunk),
 // so window rows count up from the ground floor rather than from sea level.
 float2 f = frac(float2(along / 2.4, height / 3.0 - RowShift.x));
 float win = (f.x > 0.28 && f.x < 0.72 && f.y > 0.30 && f.y < 0.78) ? 1.0 : 0.0;
-float frame = (f.x > 0.24 && f.x < 0.76 && f.y > 0.26 && f.y < 0.82) ? 1.0 : 0.0;
-float3 wall = saturate(tex * 1.3 * lerp(1.0, Tint * 2.0, TintAmount));
-float3 glass = float3(0.09, 0.12, 0.16) * (0.7 + 0.6 * nm.z);
-float3 c = lerp(wall, float3(0.85, 0.85, 0.82), frame * Windows);
+float frame = (f.x > 0.235 && f.x < 0.765 && f.y > 0.255 && f.y < 0.825) ? 1.0 : 0.0;
+float sill = (f.x > 0.20 && f.x < 0.80 && f.y > 0.215 && f.y < 0.255) ? 1.0 : 0.0;
+float bars = (abs(f.x - 0.5) < 0.011 || abs(f.y - 0.56) < 0.009) ? 1.0 : 0.0;
+// The pane: sky blue, lighter towards the top, with two slanting streaks of shine.
+float2 pane = (f - float2(0.28, 0.30)) / float2(0.44, 0.48);
+float slant = pane.x + pane.y;
+float shine = (abs(slant - 0.72) < 0.07 || abs(slant - 0.93) < 0.025) ? 1.0 : 0.0;
+float3 glass = lerp(float3(0.30, 0.56, 0.80), float3(0.52, 0.76, 0.93), pane.y);
+glass = lerp(glass, float3(0.93, 0.97, 1.0), shine * 0.75 * detail);
+float3 trim = float3(0.97, 0.96, 0.92);
+float3 c = lerp(wall, trim * 0.9, sill * Windows);
+c = lerp(c, trim, frame * Windows);
 c = lerp(c, glass, win * Windows);
-Rough = lerp(Roughness, 0.12, win * Windows);
-WorldNormal = lerp(wn, n, win * Windows);
-return c;
+c = lerp(c, trim, bars * win * Windows * detail);
+WorldNormal = n;
+Rough = 0.9;
+return saturate(c);
 )HLSL");
 
-	/** Water: the server's colour with gentle moving ripples. */
+	/** Water: the colour, with drawn glints that drift. */
 	const TCHAR* const WaterCode = TEXT(R"HLSL(
 float2 p = WorldPos.xy / 100.0;
 float a = sin(p.x * 0.9 + Time * 0.8) + sin((p.x + p.y) * 0.5 + Time * 0.6);
 float b = sin(p.y * 1.1 - Time * 0.7) + sin((p.x - p.y) * 0.4 + Time * 0.5);
-WorldNormal = normalize(float3(a * 0.02, b * 0.02, 1.0));
-Rough = 0.08;
-return Tint;
+float glint = smoothstep(0.60, 0.66, (a + b) * 0.25) * (1.0 - saturate((length(WorldPos - CamPos) - 6000.0) / 9000.0));
+float swell = 1.0 + 0.05 * sin(p.x * 0.13 + p.y * 0.09 + Time * 0.3);
+WorldNormal = float3(0.0, 0.0, 1.0);
+Rough = 0.7;
+return saturate(lerp(Tint * swell, float3(0.95, 0.98, 1.0), glint * 0.7));
+)HLSL");
+
+	/**
+	 * The ink: a post-process over the whole picture. It sorts the light on every lit surface into
+	 * three flat levels (shade, light, full sun), keeping the colour of the light, and draws a dark line
+	 * wherever the depth, the facing or the painted colour changes sharply. Both fade out with
+	 * distance, where the ordinary picture with its haze reads better than lines would.
+	 *
+	 * Scene colour arrives multiplied by the exposure the engine has chosen, and what is returned is
+	 * multiplied by it again, so it is divided out first. The second difference of 1/depth is zero
+	 * across any flat surface however steeply it is seen, so the ground does not grow lines near the horizon.
+	 */
+	const TCHAR* const InkCode = TEXT(R"HLSL(
+const float3 Luma = float3(0.299, 0.587, 0.114);
+float3 scene = SceneTextureFetch(PPI_PostProcessInput0, float2(0.0, 0.0)).rgb * View.OneOverPreExposure;
+float depth = SceneTextureFetch(PPI_SceneDepth, float2(0.0, 0.0)).r;
+float3 base = SceneTextureFetch(PPI_BaseColor, float2(0.0, 0.0)).rgb;
+float3 facing = SceneTextureFetch(PPI_WorldNormal, float2(0.0, 0.0)).xyz;
+float isLit = SceneTextureFetch(PPI_ShadingModelID, float2(0.0, 0.0)).r > 0.5 ? 1.0 : 0.0;
+float haze = saturate((depth - FadeStart) / max(FadeEnd - FadeStart, 1.0));
+
+// Light in three levels.
+float lumScene = dot(scene, Luma);
+float lumBase = max(dot(base, Luma), 0.02);
+float light = lumScene / lumBase;
+float t1 = smoothstep(Band1 * (1.0 - Soft), Band1 * (1.0 + Soft), light);
+float t2 = smoothstep(Band2 * (1.0 - Soft), Band2 * (1.0 + Soft), light);
+float level = lerp(lerp(Level0, Level1, t1), Level2, t2);
+float3 toon = scene * (level / max(light, 1e-3));
+float3 c = lerp(scene, toon, isLit * (1.0 - haze * ToonFade));
+
+// Lines.
+float w = max(1.0, InkWidth * View.ViewSizeAndInvSize.y / 720.0);
+float invDepth = 1.0 / max(depth, 1.0);
+float nearest = depth;
+float edge = 0.0;
+for (int axis = 0; axis < 2; ++axis)
+{
+	float2 o = axis == 0 ? float2(w, 0.0) : float2(0.0, w);
+	float d1 = SceneTextureFetch(PPI_SceneDepth, o).r;
+	float d2 = SceneTextureFetch(PPI_SceneDepth, -o).r;
+	nearest = min(nearest, min(d1, d2));
+	float bend = abs((1.0 / max(d1, 1.0) + 1.0 / max(d2, 1.0)) * 0.5 / invDepth - 1.0);
+	edge = max(edge, smoothstep(DepthEdge, DepthEdge * 2.5, bend));
+	float3 n1 = SceneTextureFetch(PPI_WorldNormal, o).xyz;
+	float3 n2 = SceneTextureFetch(PPI_WorldNormal, -o).xyz;
+	if (dot(facing, facing) > 0.25 && dot(n1, n1) > 0.25 && dot(n2, n2) > 0.25)
+	{
+		float turn = 1.0 - min(dot(facing, n1), dot(facing, n2));
+		edge = max(edge, smoothstep(NormalEdge, NormalEdge + 0.25, turn));
+	}
+	float3 b1 = SceneTextureFetch(PPI_BaseColor, o).rgb;
+	float3 b2 = SceneTextureFetch(PPI_BaseColor, -o).rgb;
+	float paint = max(length(b1 - base), length(b2 - base));
+	edge = max(edge, PaintInk * smoothstep(PaintEdge, PaintEdge * 1.6, paint) * isLit);
+}
+float nearFar = saturate((nearest - FadeStart) / max(FadeEnd - FadeStart, 1.0));
+float ink = edge * InkStrength * lerp(1.0, InkFar, nearFar);
+return lerp(c, c * float3(0.10, 0.075, 0.085), saturate(ink));
 )HLSL");
 
 	/** Tree canopies and trunks (instanced): the tint, varied per tree, with ruffled normals for leaves. */
@@ -242,7 +353,7 @@ return saturate(c);
 		SaveAsset(Material);
 	}
 
-	void BuildTexturedMaterial(IAssetTools& Tools, const FString& Name, const TCHAR* Code, UTexture* Albedo, UTexture* NormalMap, bool bWindows)
+	void BuildPaintedMaterial(IAssetTools& Tools, const FString& Name, const TCHAR* Code, bool bWall)
 	{
 		UMaterial* Material = FreshMaterial(Tools, Name);
 		if (!Material)
@@ -250,11 +361,16 @@ return saturate(c);
 			UE_LOG(LogEarthWalkAssets, Error, TEXT("Could not create material %s"), *Name);
 			return;
 		}
-		TArray<FName> Inputs = { TEXT("WorldPos"), TEXT("Normal"), TEXT("Tint"), TEXT("Albedo"), TEXT("NormalMap"), TEXT("Repeat"), TEXT("TintAmount"), TEXT("Roughness") };
-		if (bWindows)
+		TArray<FName> Inputs = { TEXT("WorldPos"), TEXT("Normal"), TEXT("CamPos"), TEXT("Tint") };
+		if (bWall)
 		{
 			Inputs.Add(TEXT("Windows"));
+			Inputs.Add(TEXT("Bricks"));
 			Inputs.Add(TEXT("RowShift"));
+		}
+		else
+		{
+			Inputs.Add(TEXT("Pattern"));
 		}
 		UMaterialExpressionCustom* Custom = CustomNode(Material, Code, Inputs);
 
@@ -262,20 +378,89 @@ return saturate(c);
 		Tint->ParameterName = TEXT("Color");
 		Tint->DefaultValue = FLinearColor::White;
 
-		Connect(Node<UMaterialExpressionWorldPosition>(Material, -900, -300), Custom, TEXT("WorldPos"));
-		Connect(Node<UMaterialExpressionVertexNormalWS>(Material, -900, -150), Custom, TEXT("Normal"));
+		Connect(Node<UMaterialExpressionWorldPosition>(Material, -900, -450), Custom, TEXT("WorldPos"));
+		Connect(Node<UMaterialExpressionVertexNormalWS>(Material, -900, -300), Custom, TEXT("Normal"));
+		Connect(Node<UMaterialExpressionCameraPositionWS>(Material, -900, -150), Custom, TEXT("CamPos"));
 		Connect(Tint, Custom, TEXT("Tint"));
-		Connect(TextureObject(Material, TEXT("Albedo"), Albedo, 150), Custom, TEXT("Albedo"));
-		Connect(TextureObject(Material, TEXT("NormalMap"), NormalMap, 300), Custom, TEXT("NormalMap"));
-		Connect(Scalar(Material, TEXT("Repeat"), 3.f, 450), Custom, TEXT("Repeat"));
-		Connect(Scalar(Material, TEXT("TintAmount"), 0.5f, 550), Custom, TEXT("TintAmount"));
-		Connect(Scalar(Material, TEXT("Roughness"), 0.85f, 650), Custom, TEXT("Roughness"));
-		if (bWindows)
+		if (bWall)
 		{
-			Connect(Scalar(Material, TEXT("Windows"), 1.f, 750), Custom, TEXT("Windows"));
-			Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 850), Custom, TEXT("RowShift"));
+			Connect(Scalar(Material, TEXT("Windows"), 1.f, 150), Custom, TEXT("Windows"));
+			Connect(Scalar(Material, TEXT("Bricks"), 0.f, 250), Custom, TEXT("Bricks"));
+			Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 350), Custom, TEXT("RowShift"));
+		}
+		else
+		{
+			Connect(Scalar(Material, TEXT("Pattern"), 0.f, 150), Custom, TEXT("Pattern"));
 		}
 		FinishMaterial(Material, Custom);
+	}
+
+	/** The outline and flat-light pass (InkCode), applied to the whole view by AEarthWalkGameMode. */
+	void BuildInkMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthInk"));
+		if (!Material)
+		{
+			return;
+		}
+		Material->MaterialDomain = MD_PostProcess;
+		// Before the engine's anti-aliasing, so the lines are smoothed with everything else, and before
+		// the tone curve, so the flat levels of light are still light and not screen colours.
+		Material->BlendableLocation = BL_SceneColorAfterDOF;
+
+		UMaterialExpressionCustom* Custom = Node<UMaterialExpressionCustom>(Material, -300, 0);
+		Custom->Code = InkCode;
+		Custom->Description = TEXT("EarthWalk ink");
+		Custom->OutputType = CMOT_Float3;
+		Custom->Inputs.Reset();
+
+		// The code reads the scene itself; these nodes only tell the material which parts of it are needed.
+		struct FUse { const TCHAR* Key; ESceneTextureId Value; };
+		struct FSetting { const TCHAR* Key; float Value; };
+		const FUse Scene[] = {
+			{ TEXT("UseColour"), PPI_PostProcessInput0 }, { TEXT("UseDepth"), PPI_SceneDepth }, { TEXT("UseBase"), PPI_BaseColor },
+			{ TEXT("UseNormal"), PPI_WorldNormal }, { TEXT("UseModel"), PPI_ShadingModelID },
+		};
+		// Defaults found by eye at Titirangi and Queens Wharf; AEarthWalkGameMode can override any of them
+		// from the InkTuning setting without rebuilding this asset.
+		const FSetting Settings[] = {
+			{ TEXT("InkWidth"), 1.3f }, { TEXT("InkStrength"), 0.9f }, { TEXT("InkFar"), 0.25f },
+			{ TEXT("DepthEdge"), 0.02f }, { TEXT("NormalEdge"), 0.35f }, { TEXT("PaintEdge"), 0.2f }, { TEXT("PaintInk"), 0.6f },
+			{ TEXT("Band1"), 0.9f }, { TEXT("Band2"), 2.2f }, { TEXT("Soft"), 0.06f },
+			{ TEXT("Level0"), 0.68f }, { TEXT("Level1"), 1.4f }, { TEXT("Level2"), 1.65f },
+			{ TEXT("FadeStart"), 12000.f }, { TEXT("FadeEnd"), 60000.f }, { TEXT("ToonFade"), 1.f },
+		};
+		for (const FUse& Use : Scene)
+		{
+			FCustomInput Input;
+			Input.InputName = Use.Key;
+			Custom->Inputs.Add(Input);
+		}
+		for (const FSetting& Setting : Settings)
+		{
+			FCustomInput Input;
+			Input.InputName = Setting.Key;
+			Custom->Inputs.Add(Input);
+		}
+		Custom->RebuildOutputs();
+
+		int32 Y = -600;
+		for (const FUse& Use : Scene)
+		{
+			UMaterialExpressionSceneTexture* Texture = Node<UMaterialExpressionSceneTexture>(Material, -900, Y += 120);
+			Texture->SceneTextureId = Use.Value;
+			if (!UMaterialEditingLibrary::ConnectMaterialExpressions(Texture, TEXT("Color"), Custom, Use.Key))
+			{
+				UE_LOG(LogEarthWalkAssets, Error, TEXT("Could not connect %s"), Use.Key);
+			}
+		}
+		for (const FSetting& Setting : Settings)
+		{
+			Connect(Scalar(Material, Setting.Key, Setting.Value, Y += 90), Custom, Setting.Key);
+		}
+		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT(""), MP_EmissiveColor);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		SaveAsset(Material);
 	}
 
 	void BuildFoliageMaterial(IAssetTools& Tools)
@@ -309,11 +494,12 @@ return saturate(c);
 		{
 			return;
 		}
-		UMaterialExpressionCustom* Custom = CustomNode(Material, WaterCode, { TEXT("WorldPos"), TEXT("Tint"), TEXT("Time") });
+		UMaterialExpressionCustom* Custom = CustomNode(Material, WaterCode, { TEXT("WorldPos"), TEXT("CamPos"), TEXT("Tint"), TEXT("Time") });
 		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
 		Tint->ParameterName = TEXT("Color");
 		Tint->DefaultValue = FLinearColor(0.25f, 0.5f, 0.71f);
 		Connect(Node<UMaterialExpressionWorldPosition>(Material, -900, -300), Custom, TEXT("WorldPos"));
+		Connect(Node<UMaterialExpressionCameraPositionWS>(Material, -900, -150), Custom, TEXT("CamPos"));
 		Connect(Tint, Custom, TEXT("Tint"));
 		Connect(Node<UMaterialExpressionTime>(Material, -900, 150), Custom, TEXT("Time"));
 		FinishMaterial(Material, Custom);
@@ -358,11 +544,12 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	BuildTexturedMaterial(Tools, TEXT("M_EarthTop"), TopCode, Textures.FindRef(TEXT("T_grass_D")), Textures.FindRef(TEXT("T_grass_N")), false);
-	BuildTexturedMaterial(Tools, TEXT("M_EarthWall"), WallCode, Textures.FindRef(TEXT("T_plaster_D")), Textures.FindRef(TEXT("T_plaster_N")), true);
+	BuildPaintedMaterial(Tools, TEXT("M_EarthTop"), TopCode, false);
+	BuildPaintedMaterial(Tools, TEXT("M_EarthWall"), WallCode, true);
+	BuildInkMaterial(Tools);
 	BuildWaterMaterial(Tools);
 	BuildFoliageMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: %d textures, 4 materials under /Game/EarthWalk"), Textures.Num());
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: %d textures, 5 materials under /Game/EarthWalk"), Textures.Num());
 	return 0;
 }

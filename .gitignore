@@ -21,6 +21,8 @@ game/Textures/
 game/assets-log.txt
 # Tile cache of the Cesium plugin (photographic world); its request URLs hold the Google key
 game/cesium-request-cache.sqlite*
+# Written by the Cesium plugin when it is installed; nothing of ours
+game/Content/CesiumSettings/
 
 # Claude Code worktrees and local settings
 .claude/
