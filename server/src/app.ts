@@ -12,6 +12,7 @@ import { generateLabels, LABELS_REV, partialLabels } from "./labels.ts";
 import { geocode, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
+import { Talker } from "./talk.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 
@@ -48,6 +49,8 @@ export interface AppOptions {
   signIn?: (code: string, nonce: string, redirectUri: string) => Promise<GoogleIdentity>;
   /** Names a position for the people list and `/home`. */
   placeName?: (lat: number, lon: number) => Promise<string | null>;
+  /** Speaks for the things players talk to. Defaults to one that uses Claude when ANTHROPIC_API_KEY is set, and stock lines otherwise. */
+  talker?: Talker;
   /** Names a position, with its country, for the header that tells a player where they are. Defaults to `placeName` when that is given. */
   placeDetail?: (lat: number, lon: number) => Promise<PlaceDetail>;
   /** Replaceable for tests. */
@@ -114,7 +117,8 @@ export function createApp(options: AppOptions = {}): App {
   const placeName = options.placeName ?? reversePlace;
   const givenName = options.placeName;
   const placeDetail = options.placeDetail ?? (givenName ? async (lat: number, lon: number) => ({ name: await givenName(lat, lon), country: null }) : reverseDetail);
-  const rooms = new Rooms(options.people ?? accounts, { placeName });
+  const talker = options.talker ?? new Talker();
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
@@ -316,7 +320,7 @@ export function createApp(options: AppOptions = {}): App {
         // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
       }
-      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, ...rooms.stats() });
+      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, ...rooms.stats() });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
       if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);

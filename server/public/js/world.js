@@ -219,6 +219,8 @@ export class World {
       const { items } = await res.json();
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile
       chunk.trees = true;
+      chunk.treeItems = items.filter((it) => it.kind === "tree"); // kept so that trees, and
+      chunk.houses = items.filter((it) => it.kind === "house"); // the houses with a number, can be talked to (talk.js)
       chunk.homes = items.filter((it) => it.kind === "home"); // where herds live; life.js brings them to life
       chunk.routes = items.filter((it) => it.kind === "route"); // the trips cars make, and
       chunk.cars = items.filter((it) => it.kind === "car"); // the cars parked at the kerb; traffic.js drives them

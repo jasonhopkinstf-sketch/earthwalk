@@ -70,6 +70,8 @@ export class Life {
     this.riding = null;
     /** The animals, tractors and boats near enough to hop on, as drawn last frame. */
     this.rideable = [];
+    /** Everything on the ground near enough to talk to, as drawn last frame. */
+    this.nearby = [];
     this.byChunk = new Map(); // chunk key -> { chunk, herds }
     this.herds = []; // nearest first
     this.states = new Map(); // animal id -> how it is reacting to players
@@ -142,6 +144,7 @@ export class Life {
     const counts = { sphere: 0, cyl: 0, cone: 0, box: 0 };
     const slot = Math.floor(t / CALL_SLOT);
     this.rideable.length = 0;
+    this.nearby.length = 0;
     let shown = 0;
     for (const herd of this.herds) {
       if (shown >= MAX_SHOWN) break;
@@ -281,6 +284,7 @@ export class Life {
       flap = mid + amp * Math.sin(rig.wing.rate ? t * rig.wing.rate + beat : stride);
     }
 
+    if (herd.d < 60) this.nearby.push({ thing: c.id, sp: herd.home.sp, x, z });
     if (herd.d < 60 && this.riding?.rides(herd.home.sp)) this.rideable.push({ thing: c.id, sp: herd.home.sp, x, z, yaw: st.yaw, reach: Math.max(3, rig.flee + 2.5) }); // near enough, even as it shies away
     this.base.compose(this.v.set(x, ground + st.up + (lift + bob) * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, roll)), this.s.set(size, size, size));
     this.put(rig, coat, counts, st, flap, swing, t, beat, greeting ? 4 : 1, !!rig.hop);
@@ -333,6 +337,12 @@ export class Life {
     const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;
     this.base.compose(this.v.set(m.x, m.y + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, rig.heel ?? 0)), this.s.set(size, size, size));
     this.put(rig, coat, counts, MOUNT_POSE, 0, Math.sin(stride) * 0.55 * walk, t, beat, 1, !!rig.hop);
+  }
+
+  /** A thing that is being talked to speaks up in its own voice as well, if it has one. */
+  speak(sp, thing, x, z) {
+    const voice = RIGS[sp]?.voice ?? { car: "toot", train: "whistle" }[sp];
+    if (voice) this.call(voice, thing, x, z);
   }
 
   /** Each animal has its own voice: a little higher or lower than its neighbours. */

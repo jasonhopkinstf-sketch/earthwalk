@@ -5,6 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Home, PeopleDirectory } from "./people.ts";
+import { TALKABLE, Talker, type Said } from "./talk.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -19,6 +20,10 @@ const SEATS = 4;
 /** How long something stays where its rider left it before it goes home, and how many a room remembers. */
 const LEFT_MS = 60_000;
 const LEFT_CAP = 100;
+/** A thing's words reach everyone within this many metres of whoever spoke to it. */
+const HEARING_M = 80;
+/** Talking to things: at most this many times a minute each, and not faster than one every 1.2 s. */
+const TALKS_A_MINUTE = 12;
 /** Name of the browser's sign-in cookie; the token in it stands in for `hello.token`. */
 export const TOKEN_COOKIE = "ew_token";
 
@@ -37,6 +42,7 @@ interface Member {
   home: Home | null;
   /** What this member is riding: the thing's identity, what it is, and their seat (0 drives). */
   ride: Ride | null;
+  talkTimes: number[];
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -55,6 +61,8 @@ export interface RoomsOptions {
   placeName?: (lat: number, lon: number) => Promise<string | null>;
   /** The people list sent in `people` messages; set by the presence tracker. */
   peopleList?: () => unknown[];
+  /** Speaks for the things players talk to. Without one, things answer from their stock lines. */
+  talker?: { greet(thing: number, sp: string): Said; reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null): Promise<Said> };
 }
 
 const clean = (s: unknown, max: number): string =>
@@ -79,10 +87,12 @@ export class Rooms {
   private readonly options: RoomsOptions;
   private listener: RoomsListener = {};
   private peopleTimer: NodeJS.Timeout | null = null;
+  private readonly talker: NonNullable<RoomsOptions["talker"]>;
 
   constructor(people: PeopleDirectory, options: RoomsOptions = {}) {
     this.people = people;
     this.options = options;
+    this.talker = options.talker ?? new Talker({ ask: null, spendFile: null });
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => this.onConnection(ws, req));
     this.timer = setInterval(() => this.tick(), TICK_MS);
@@ -173,7 +183,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [],
         };
         clearTimeout(helloTimer);
         send({
@@ -224,6 +234,30 @@ export class Rooms {
         me.ride = { thing, sp, seat };
         room.left.delete(thing);
         this.broadcast(room, { t: "ride", id: me.id, ...me.ride });
+      } else if (msg.t === "talk" && room) {
+        // Say hello to a thing (no `text`), or say something to it. Everyone nearby hears the answer.
+        const sp = clean(msg.sp, 16);
+        if (!finite(msg.thing) || !Number.isInteger(msg.thing) || msg.thing < 1 || msg.thing > 0xffffffff || !TALKABLE.has(sp)) return;
+        const now = Date.now();
+        me.talkTimes = me.talkTimes.filter((t) => now - t < 60_000);
+        if (me.talkTimes.length >= TALKS_A_MINUTE || now - (me.talkTimes[me.talkTimes.length - 1] ?? 0) < 1200) {
+          send({ t: "error", code: "slow", text: "Give them a moment to answer" });
+          return;
+        }
+        me.talkTimes.push(now);
+        const thing = msg.thing;
+        const text = clean(msg.text, 200);
+        let said: Said;
+        if (text) {
+          const place = me.hasPos && this.options.placeName ? await this.options.placeName(me.lat, me.lon).catch(() => null) : null;
+          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place);
+        } else said = this.talker.greet(thing, sp);
+        if (!room.members.has(me.id)) return; // left while it was thinking
+        const out = JSON.stringify({ t: "say", thing, sp, name: said.name, text: said.text, by: me.id, ...(text ? { q: text } : {}), ...(me.hasPos ? { lat: +me.lat.toFixed(7), lon: +me.lon.toFixed(7) } : {}) });
+        for (const m of room.members.values()) {
+          const near = m === me || (m.hasPos && me.hasPos && Math.hypot((m.lat - me.lat) * 111_320, (m.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) <= HEARING_M);
+          if (near && m.ws.readyState === m.ws.OPEN) m.ws.send(out);
+        }
       } else if (msg.t === "time") {
         // The shared clock: the client sends its own stamp and gets it back with our time, so it can allow for the delay.
         send({ t: "time", c: finite(msg.c) ? msg.c : 0, now: Date.now() });

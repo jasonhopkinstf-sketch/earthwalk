@@ -110,6 +110,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "ride" });
   }
 
+  /** Says hello to a thing (no text), or says something to it. Its answer comes as a "say" event. */
+  sendTalk(thing, sp, text) {
+    this.send(text ? { t: "talk", thing, sp, text } : { t: "talk", thing, sp });
+  }
+
   /** Sets my home: to the given place, or (with no arguments) to where I am standing now. */
   sendHome(place) {
     if (!this.joined) return this.emit("notice", "Not connected to the meetup server.");
@@ -182,6 +187,9 @@ export class Meetup extends EventTarget {
       }
       case "left":
         if (typeof msg.thing === "number") this.left.set(msg.thing, msg);
+        break;
+      case "say":
+        if (typeof msg.thing === "number") this.emit("say", msg); // a thing spoke, to me or to someone nearby
         break;
       case "join":
         this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false, ride: null });

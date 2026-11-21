@@ -56,6 +56,7 @@ settings (environment variables):
 | `EARTHWALK_CONTACT` | Contact shown to the OpenStreetMap services in the User-Agent, as their usage policies ask |
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
+| `ANTHROPIC_API_KEY`, `EARTHWALK_TALK_MONTHLY_USD`, `EARTHWALK_TALK_MODEL` | Optional and paid: let the things players talk to answer through Claude, under a monthly limit (see [docs/HOSTING.md](docs/HOSTING.md)) |
 
 For family in other homes to join, the server has to be reachable from the internet.
 See [docs/HOSTING.md](docs/HOSTING.md) for putting it on a cloud host and inviting people.
@@ -99,6 +100,7 @@ Controls (Unreal):
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
 | `E` | Browser only, for now: hop on the horse, tractor, boat, car or train beside you; again to hop off |
+| `T` | Browser only, for now: talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `Enter` | Chat and commands |
 
 In the editor, click the game viewport once so it has the keyboard; `Shift+F1` gives the
@@ -206,6 +208,13 @@ Riding (in the browser so far): press E beside a horse, a cow, a tractor, a boat
 passing train to hop on, and E again to hop off. You steer what you ride; a friend can hop on behind
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
+
+Talking (in the browser so far): press T beside an animal, a car, a train, a tree or a house and it
+introduces itself; what you type then goes to it, and its answer appears in a speech bubble for
+everyone nearby. Each thing has a name and a character of its own, the same for everyone
+(`server/src/talk.ts`): some are cheerful, some grumble, some are campaigning for more puddles, and
+all of them are friendly. With an API key on the server they answer through Claude; without one they
+use their own stock of lines. `server/public/js/talk.js`; docs/PROTOCOL.md, "Talking".
 
 The browser game shows where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.

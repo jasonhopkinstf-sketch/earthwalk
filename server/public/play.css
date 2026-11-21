@@ -21,6 +21,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #chat { position: fixed; left: 12px; bottom: 12px; width: min(520px, calc(100vw - 24px)); }
 #log { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, .7); overflow-wrap: anywhere; }
 #log .notice { color: #bfe6ff; }
+#log .thing { color: #ffe9a8; }
 #log .error { color: #ffb3a1; }
 #log b { font-weight: 600; }
 #say { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .25); background: var(--panel); color: #fff; font: inherit; }

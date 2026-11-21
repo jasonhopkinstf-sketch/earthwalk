@@ -7,6 +7,7 @@ import { Meetup } from "./net.js";
 import { Player } from "./player.js";
 import { Riding } from "./riding.js";
 import { Sounds } from "./sounds.js";
+import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
@@ -44,10 +45,23 @@ const sounds = new Sounds();
 sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
 const life = new Life(scene, world, sounds, traffic);
+// What the E and T keys would do just now, shown together at the bottom of the screen.
+const hints = { ride: "", talk: "" };
+function showHints() {
+  const text = [hints.ride, hints.talk].filter(Boolean).join("   ·   ");
+  $("ride").hidden = !text;
+  $("ride").textContent = text;
+}
 const riding = new Riding({
   world, player, meetup, avatars, life, traffic,
   say: (text) => notice(text),
-  hint: (text) => { $("ride").hidden = !text; $("ride").textContent = text; },
+  hint: (text) => { if (hints.ride !== text) { hints.ride = text; showHints(); } },
+});
+const talk = new Talk({
+  scene, world, player, meetup, life, traffic, riding,
+  hint: (text) => { if (hints.talk !== text) { hints.talk = text; showHints(); } },
+  line: (text, kind, name) => addLine(text, kind, name),
+  changed: () => { $("say").placeholder = talk.to ? `Say something to ${talk.title(talk.to)}...` : "Press Enter to chat. Type /help for commands."; },
 });
 life.riding = riding;
 traffic.riding = riding;
@@ -198,6 +212,7 @@ function frame(now) {
   player.update(dt);
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
+  talk.frame(dt);
   everyone.length = 1;
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
@@ -312,8 +327,11 @@ addEventListener("keydown", (e) => {
   if (e.code === "Enter" && document.activeElement !== say) {
     e.preventDefault();
     say.focus();
-  } else if (e.code === "Escape" && document.activeElement === say) {
-    say.blur();
+  } else if (e.code === "Escape") {
+    if (document.activeElement === say) say.blur();
+    talk.stop(); // and stop talking to whatever it was
+  } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
+    if (talk.begin()) { e.preventDefault(); say.focus(); } // say hello, then type
   } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
     riding.key(); // hop on whatever is nearest, or hop off
   }
@@ -329,6 +347,8 @@ say.addEventListener("keydown", (e) => {
   if (text.startsWith("/")) {
     const space = text.indexOf(" ");
     command(text.slice(1, space < 0 ? undefined : space).toLowerCase(), space < 0 ? "" : text.slice(space + 1).trim());
+  } else if (talk.to) {
+    talk.say(text); // to the cow, not to the room
   } else {
     meetup.sendChat(text);
   }
@@ -349,6 +369,7 @@ async function command(name, arg) {
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
+    notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
   } else if (name === "goto" && arg) {
     notice(`Looking for "${arg}"...`);
     try {
@@ -439,4 +460,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, sounds, command, isStarted: () => started };
