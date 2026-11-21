@@ -1,17 +1,19 @@
-// Farm animals in the browser: cows, sheep, horses and chickens that graze and wander where the
-// server says a herd lives. Where each one is comes from lifemotion.js and the shared clock, so
-// everyone in a room sees the same animal in the same place. What happens when a player comes close
-// (a look, a step aside, a squawk) is worked out here, from the player positions we already have.
+// Animals in the browser: farm animals, ducks, birds, pets and wild creatures, wherever the server
+// says one lives. Where each is comes from lifemotion.js and the shared clock, so everyone in a room
+// sees the same animal in the same place. What happens when a player comes close (a look, a step
+// aside, a dog trotting over, pigeons taking off) is worked out here, from the player positions we
+// already have. What each animal looks like is in liferigs.js.
 //
 // All animals are drawn with four instanced meshes (one per basic shape), whatever their number.
 
 import * as THREE from "three";
 import { xToLon, yToLat } from "./geo.js";
 import { CALL_SLOT, callTime, creatureAt, hash32, memberId, SPECIES } from "./lifemotion.js";
+import { RIGS } from "./liferigs.js";
 
-const SHOW_M = 220; // herds further off than this are not drawn
+const SHOW_M = 220; // homes further off than this are not drawn
 const HEAR_M = 70;
-const MAX_SHOWN = 90;
+const MAX_SHOWN = 110;
 const CAPACITY = 2048; // shapes per kind of shape
 const SALT_COAT = 0x434f4154;
 
@@ -21,98 +23,8 @@ const SHAPES = {
   cone: new THREE.ConeGeometry(1, 1, 8),
   box: new THREE.BoxGeometry(1, 1, 1),
 };
-const PINK = 0xe8b4a8;
-const DARK = 0x26221f;
-const CREAM = 0xf3ecd9;
 
-/**
- * The figures, built from basic shapes like the players' animals. Each stands with its feet at
- * y = 0, facing north (-z), sizes in metres. A part is [shape, colour, position, size, role, tilt].
- * Size is the three radii of a sphere; radius, height, radius of a cylinder or cone; and the width,
- * height and depth of a box. Colour "a" is the animal's coat and "b" its second colour. Roles move:
- * head (about `neck`, and `drop` metres lower while grazing), leg0..3 and tail.
- */
-const RIGS = {
-  cow: {
-    voice: "moo", alarm: "moo", alert: 7, flee: 2.4, stride: 1.5, graze: 1.1, drop: 0.35, neck: [0, 1.05, -0.7],
-    coats: [[0xf4efe6, 0x2b2623], [0x8a4f2d, 0xf4efe6], [0x2b2623, 0xf4efe6], [0xc79a62, 0xf4efe6], [0xf4efe6, 0x8a4f2d]],
-    parts: [
-      ["sphere", "a", [0, 0.95, 0], [0.42, 0.42, 0.85]],
-      ["sphere", "b", [0.2, 1.1, 0.25], [0.3, 0.26, 0.36]],
-      ["sphere", "b", [-0.22, 0.98, -0.3], [0.27, 0.3, 0.3]],
-      ["sphere", PINK, [0, 0.56, 0.4], [0.15, 0.11, 0.17]],
-      ["sphere", "a", [0, 1.2, -1.0], [0.24, 0.26, 0.32], "head"],
-      ["sphere", PINK, [0, 1.1, -1.27], [0.19, 0.15, 0.16], "head"],
-      ["sphere", DARK, [0.13, 1.28, -1.25], [0.035, 0.045, 0.03], "head"],
-      ["sphere", DARK, [-0.13, 1.28, -1.25], [0.035, 0.045, 0.03], "head"],
-      ["sphere", "b", [0.3, 1.3, -0.9], [0.12, 0.05, 0.07], "head"],
-      ["sphere", "b", [-0.3, 1.3, -0.9], [0.12, 0.05, 0.07], "head"],
-      ["cone", CREAM, [0.17, 1.5, -0.92], [0.04, 0.16, 0.04], "head"],
-      ["cone", CREAM, [-0.17, 1.5, -0.92], [0.04, 0.16, 0.04], "head"],
-      ["cyl", "a", [-0.24, 0.43, -0.55], [0.085, 0.86, 0.085], "leg0"],
-      ["cyl", "a", [0.24, 0.43, -0.55], [0.085, 0.86, 0.085], "leg1"],
-      ["cyl", "a", [-0.24, 0.43, 0.55], [0.085, 0.86, 0.085], "leg2"],
-      ["cyl", "a", [0.24, 0.43, 0.55], [0.085, 0.86, 0.085], "leg3"],
-      ["cyl", "b", [0, 0.82, 0.86], [0.025, 0.5, 0.025], "tail"],
-    ],
-  },
-  sheep: {
-    voice: "baa", alarm: "baa", alert: 9, flee: 4, stride: 0.8, graze: 0.9, drop: 0.3, neck: [0, 0.7, -0.4],
-    coats: [[0xf1ead8, 0x3a3430], [0xe9e2cf, 0x3a3430], [0xf4f0e4, 0xe6dcc6], [0xdcd3bd, 0x4a403a], [0xf1ead8, 0x3a3430], [0xe9e2cf, 0x4a403a], [0xf4f0e4, 0x3a3430], [0xf1ead8, 0xe6dcc6], [0xe9e2cf, 0x3a3430], [0x3d3632, 0x2a2522]],
-    parts: [
-      ["sphere", "a", [0, 0.62, 0], [0.36, 0.34, 0.5]],
-      ["sphere", "a", [0.12, 0.82, 0.2], [0.26, 0.24, 0.26]],
-      ["sphere", "a", [-0.14, 0.8, -0.15], [0.26, 0.24, 0.27]],
-      ["sphere", "a", [0, 0.7, 0.42], [0.27, 0.26, 0.2]],
-      ["sphere", "b", [0, 0.78, -0.6], [0.14, 0.16, 0.2], "head"],
-      ["sphere", "a", [0, 0.92, -0.5], [0.14, 0.09, 0.13], "head"],
-      ["sphere", "b", [0.17, 0.84, -0.55], [0.09, 0.035, 0.05], "head"],
-      ["sphere", "b", [-0.17, 0.84, -0.55], [0.09, 0.035, 0.05], "head"],
-      ["cyl", "b", [-0.16, 0.24, -0.3], [0.045, 0.48, 0.045], "leg0"],
-      ["cyl", "b", [0.16, 0.24, -0.3], [0.045, 0.48, 0.045], "leg1"],
-      ["cyl", "b", [-0.16, 0.24, 0.3], [0.045, 0.48, 0.045], "leg2"],
-      ["cyl", "b", [0.16, 0.24, 0.3], [0.045, 0.48, 0.045], "leg3"],
-      ["sphere", "a", [0, 0.66, 0.56], [0.07, 0.07, 0.07], "tail"],
-    ],
-  },
-  horse: {
-    voice: "neigh", alarm: "neigh", alert: 8, flee: 3, stride: 2.1, graze: 1.5, drop: 0.5, neck: [0, 1.45, -0.68],
-    coats: [[0x8a4b2a, 0x2b211c], [0x5e3a22, 0x1f1a17], [0xb8b4ac, 0x6d6a66], [0x2e2a28, 0x191615], [0xd9b06a, 0xf1e6cc], [0x8a4b2a, 0xf1e6cc]],
-    parts: [
-      ["sphere", "a", [0, 1.25, 0], [0.38, 0.42, 0.9]],
-      ["cyl", "a", [0, 1.62, -0.92], [0.2, 0.62, 0.22], "head", -0.95],
-      ["sphere", "a", [0, 1.82, -1.42], [0.16, 0.19, 0.36], "head", -0.75],
-      ["box", "b", [0, 1.74, -0.8], [0.06, 0.62, 0.14], "head", -0.95],
-      ["sphere", DARK, [0.13, 1.92, -1.38], [0.03, 0.04, 0.03], "head"],
-      ["sphere", DARK, [-0.13, 1.92, -1.38], [0.03, 0.04, 0.03], "head"],
-      ["cone", "a", [0.09, 2.06, -1.2], [0.045, 0.14, 0.045], "head"],
-      ["cone", "a", [-0.09, 2.06, -1.2], [0.045, 0.14, 0.045], "head"],
-      ["cyl", "a", [-0.21, 0.55, -0.6], [0.08, 1.1, 0.08], "leg0"],
-      ["cyl", "a", [0.21, 0.55, -0.6], [0.08, 1.1, 0.08], "leg1"],
-      ["cyl", "a", [-0.21, 0.55, 0.6], [0.08, 1.1, 0.08], "leg2"],
-      ["cyl", "a", [0.21, 0.55, 0.6], [0.08, 1.1, 0.08], "leg3"],
-      ["cyl", "b", [0, 1.05, 0.98], [0.07, 0.75, 0.07], "tail", 0.3],
-    ],
-  },
-  chicken: {
-    voice: "cluck", alarm: "squawk", alert: 5, flee: 3, stride: 0.22, graze: 1.1, drop: 0.15, neck: [0, 0.3, -0.08], peck: true,
-    coats: [[0xf6f1e4, 0xf6f1e4], [0xb5622e, 0x7a3d1c], [0x2b2b2b, 0x1c1c1c], [0xcfc8ba, 0x8f8a80], [0xb5622e, 0x2b2b2b]],
-    parts: [
-      ["sphere", "a", [0, 0.24, 0], [0.13, 0.13, 0.17]],
-      ["cone", "b", [0, 0.36, 0.17], [0.07, 0.17, 0.07], "tail", 0.7],
-      ["sphere", "a", [0, 0.42, -0.13], [0.07, 0.075, 0.07], "head"],
-      ["sphere", 0xd23a2e, [0, 0.5, -0.13], [0.02, 0.04, 0.05], "head"],
-      ["sphere", 0xd23a2e, [0, 0.36, -0.18], [0.02, 0.03, 0.02], "head"],
-      ["cone", 0xe8a23a, [0, 0.42, -0.22], [0.025, 0.07, 0.025], "head", -Math.PI / 2],
-      ["sphere", DARK, [0.05, 0.44, -0.17], [0.012, 0.014, 0.012], "head"],
-      ["sphere", DARK, [-0.05, 0.44, -0.17], [0.012, 0.014, 0.012], "head"],
-      ["cyl", 0xe8a23a, [-0.05, 0.07, 0], [0.012, 0.14, 0.012], "leg0"],
-      ["cyl", 0xe8a23a, [0.05, 0.07, 0], [0.012, 0.14, 0.012], "leg1"],
-    ],
-  },
-};
-
-// Turn the readable tables above into matrices once.
+// Turn the readable tables of liferigs.js into matrices once.
 for (const rig of Object.values(RIGS)) {
   const o = new THREE.Object3D();
   rig.built = rig.parts.map(([shape, colour, at, size, role = "", tilt = 0]) => {
@@ -120,8 +32,14 @@ for (const rig of Object.values(RIGS)) {
     o.rotation.set(tilt, 0, 0);
     o.scale.set(size[0], size[1], size[2]);
     o.updateMatrix();
-    // A leg swings from its top, a tail hangs from its top, a head turns about the neck.
-    const pivot = role === "head" ? rig.neck : role ? [at[0], at[1] + (shape === "sphere" ? 0 : size[1] / 2), at[2]] : null;
+    const half = shape === "sphere" ? size[1] : size[1] / 2;
+    let pivot = null;
+    if (role === "head") pivot = rig.neck; // a head turns about the neck
+    else if (role === "tailup") pivot = [at[0], at[1] - half, at[2]]; // a raised tail stands on its base
+    else if (role.startsWith("wing")) {
+      // A spread wing flaps from its inner end; a folded one, or a flipper, from its top.
+      pivot = size[0] > size[1] ? [at[0] - Math.sign(at[0]) * size[0], at[1], at[2]] : [at[0], at[1] + half, at[2]];
+    } else if (role) pivot = [at[0], at[1] + (shape === "sphere" ? 0 : half), at[2]]; // legs and tails hang from their tops
     return { shape, colour: typeof colour === "number" ? new THREE.Color(colour) : colour, rest: o.matrix.clone(), role, pivot: pivot && new THREE.Vector3(...pivot) };
   });
   rig.palette = rig.coats.map(([a, b]) => ({ a: new THREE.Color(a), b: new THREE.Color(b) }));
@@ -166,7 +84,7 @@ export class Life {
     this.s = new THREE.Vector3();
   }
 
-  /** Call a couple of times a second: picks up herds from chunks that have arrived and drops those that left. */
+  /** Call a couple of times a second: picks up homes from chunks that have arrived and drops those that left. */
   sync(position) {
     const world = this.world;
     const S = world.tileM;
@@ -175,9 +93,9 @@ export class Life {
       if (!chunk.homes || this.byChunk.has(key)) continue;
       const herds = [];
       for (const it of chunk.homes) {
-        if (!RIGS[it.sp] || ![it.id, it.n, it.r, it.u, it.v].every(Number.isFinite)) continue;
-        const home = { id: it.id >>> 0, sp: it.sp, n: Math.min(12, Math.max(1, Math.round(it.n))), r: Math.min(40, Math.max(1, it.r)) };
-        herds.push({ home, wx: chunk.x + it.u, wy: chunk.y + it.v, x: (chunk.x + it.u - world.originX) * S, z: (chunk.y + it.v - world.originY) * S, d: 0 });
+        if (!RIGS[it.sp] || !SPECIES[it.sp] || ![it.id, it.n, it.r, it.u, it.v, it.h].every(Number.isFinite)) continue;
+        const home = { id: it.id >>> 0, sp: it.sp, n: Math.min(12, Math.max(1, Math.round(it.n))), r: Math.min(80, Math.max(1, it.r)) };
+        herds.push({ home, h: it.h, wx: chunk.x + it.u, wy: chunk.y + it.v, x: (chunk.x + it.u - world.originX) * S, z: (chunk.y + it.v - world.originY) * S, d: 0 });
       }
       this.byChunk.set(key, { chunk, herds });
     }
@@ -192,14 +110,14 @@ export class Life {
     if (this.states.size > 600) this.states.clear(); // far-off animals are forgotten; they are calm again by the time we return
   }
 
-  /** Every animal of the herds near the player at shared time `t`, by latitude and longitude (for the tests). */
+  /** Every animal of the homes near the player at shared time `t`, by latitude and longitude (for the tests). */
   where(t) {
     const S = this.world.tileM;
     const out = [];
     for (const h of this.herds) {
       for (let k = 0; k < h.home.n; k++) {
         const c = creatureAt(h.home, k, t);
-        out.push({ id: c.id, sp: h.home.sp, lat: yToLat(h.wy + c.y / S), lon: xToLon(h.wx + c.x / S), moving: c.moving });
+        out.push({ id: c.id, sp: h.home.sp, lat: yToLat(h.wy + c.y / S), lon: xToLon(h.wx + c.x / S), alt: c.alt, moving: c.moving });
       }
     }
     return out;
@@ -234,8 +152,26 @@ export class Life {
     const c = creatureAt(herd.home, k, t);
     const sx = herd.x + c.x;
     const sz = herd.z + c.y;
+    const beat = (c.id % 628) / 100; // so no two animals nod, wag or flap in step
+    const size = 0.9 + 0.2 * unit(c.id, SALT_COAT + 1);
+    const coat = rig.palette[hash32(rig.flock ? herd.home.id : c.id, SALT_COAT) % rig.palette.length];
+
+    // ---- its voice: at moments everyone agrees on
+    if (rig.voice && herd.d < HEAR_M + (rig.fly ? herd.home.r : 0)) {
+      const at = callTime(c.id, herd.home.sp, slot);
+      if (at !== null && at > this.lastTime && at <= t && t - this.lastTime < 1) this.call(rig.voice, c.id, sx, sz, herd.h + c.alt);
+    }
+
+    // ---- a flock overhead takes no notice of anyone
+    if (rig.fly) {
+      const [mid, amp] = rig.wing.air;
+      this.base.compose(this.v.set(sx, herd.h + c.alt, sz), this.q.setFromEuler(this.euler.set(0, (-c.yaw * Math.PI) / 180, 0)), this.s.set(size, size, size));
+      this.put(rig, coat, counts, null, mid + amp * Math.sin(t * rig.wing.rate + beat), 0, t, beat);
+      return true;
+    }
+
     let st = this.states.get(c.id);
-    if (!st) this.states.set(c.id, (st = { ox: 0, oz: 0, yaw: (-c.yaw * Math.PI) / 180, walk: 0, head: 0, look: 0, gait: 0, fleeing: false, quietUntil: 0 }));
+    if (!st) this.states.set(c.id, (st = { ox: 0, oz: 0, up: 0, yaw: (-c.yaw * Math.PI) / 180, walk: 0, head: 0, look: 0, gait: 0, startled: false, greeted: false, quietUntil: 0 }));
 
     // ---- who is near? Measured from where the animal should be, so stepping aside does not make it dither.
     let near = null;
@@ -244,45 +180,49 @@ export class Life {
       const d = Math.hypot(p.x - sx, p.z - sz);
       if (d < nearD) { nearD = d; near = p; }
     }
-    const fleeing = nearD < rig.flee;
+    const startled = rig.flee > 0 && nearD < rig.flee;
+    const greeting = !!rig.curious && nearD < rig.alert;
     let wantX = 0;
     let wantZ = 0;
-    if (fleeing) {
+    if (startled) {
+      // Step aside, straight away from whoever it is.
       const away = Math.min(3, rig.flee - nearD + 0.8) / Math.max(nearD, 0.01);
       wantX = (sx - near.x) * away;
       wantZ = (sz - near.z) * away;
+    } else if (greeting) {
+      // Trot over to say hello, stopping a little short.
+      const toward = Math.min(rig.curious, Math.max(0, nearD - 1.2)) / Math.max(nearD, 0.01);
+      wantX = (near.x - sx) * toward;
+      wantZ = (near.z - sz) * toward;
     }
-    const pull = ease(fleeing ? 5 : 0.8, dt);
+    const pull = ease(startled ? 5 : greeting ? 2 : 0.8, dt);
     const stepX = (wantX - st.ox) * pull;
     const stepZ = (wantZ - st.oz) * pull;
     st.ox += stepX;
     st.oz += stepZ;
     const aside = Math.hypot(stepX, stepZ);
     const hurrying = dt > 0 && aside / dt > 0.25;
-    if (fleeing && !st.fleeing && t > st.quietUntil) {
+    st.up += ((startled && rig.takesOff ? rig.takesOff : 0) - st.up) * ease(startled ? 3 : 0.9, dt);
+    const airborne = st.up > 0.15;
+    if (((startled && !st.startled) || (greeting && !st.greeted)) && rig.alarm && t > st.quietUntil) {
       st.quietUntil = t + 5;
       this.call(rig.alarm, c.id, sx, sz);
     }
-    st.fleeing = fleeing;
+    st.startled = startled;
+    st.greeted = greeting;
 
     const x = sx + st.ox;
     const z = sz + st.oz;
-    const y = this.world.groundHeight(x, z);
-    if (y === null) return false;
-
-    // ---- its voice: at moments everyone agrees on
-    if (herd.d < HEAR_M) {
-      const at = callTime(c.id, herd.home.sp, slot);
-      if (at !== null && at > this.lastTime && at <= t && t - this.lastTime < 1) this.call(rig.voice, c.id, x, z, y);
-    }
+    const ground = this.world.groundHeight(x, z);
+    if (ground === null) return false;
 
     // ---- pose
     const moving = c.moving || hurrying;
     st.walk += ((moving ? 1 : 0) - st.walk) * ease(8, dt);
     st.gait += aside;
-    const wantYaw = hurrying ? Math.atan2(-stepX, -stepZ) : (-c.yaw * Math.PI) / 180;
-    st.yaw += turn(st.yaw, wantYaw) * ease(hurrying ? 10 : 4, dt);
-    const alert = nearD < rig.alert && !moving;
+    const facing = greeting && !hurrying && !c.moving ? Math.atan2(-(near.x - x), -(near.z - z)) : hurrying ? Math.atan2(-stepX, -stepZ) : (-c.yaw * Math.PI) / 180;
+    st.yaw += turn(st.yaw, facing) * ease(hurrying ? 10 : 4, dt);
+    const alert = rig.alert > 0 && nearD < rig.alert && !moving;
     let pitch = 0;
     let look = 0;
     if (alert) {
@@ -292,29 +232,45 @@ export class Life {
       const lx = dx * Math.cos(st.yaw) - dz * Math.sin(st.yaw);
       const lz = dx * Math.sin(st.yaw) + dz * Math.cos(st.yaw);
       look = Math.min(1.1, Math.max(-1.1, Math.atan2(-lx, -lz)));
-    } else if (c.graze && !moving) {
-      const tick = t * (rig.peck ? 5 : 4) + (c.id % 628) / 100;
+    } else if (c.graze && !moving && !airborne) {
+      const tick = t * (rig.peck ? 5 : 4) + beat;
       pitch = rig.peck ? -rig.graze * Math.max(0, Math.sin(tick)) ** 3 : -rig.graze + Math.sin(tick) * 0.06;
     }
     st.head += (pitch - st.head) * ease(rig.peck ? 14 : 2.5, dt);
     st.look += (look - st.look) * ease(4, dt);
     const stride = ((c.gait + st.gait) / rig.stride) * Math.PI * 2;
-    const swing = Math.sin(stride) * 0.55 * st.walk;
-    const size = 0.9 + 0.2 * unit(c.id, SALT_COAT + 1);
-    const coat = rig.palette[hash32(c.id, SALT_COAT) % rig.palette.length];
+    const swing = airborne ? 0 : Math.sin(stride) * 0.55 * st.walk;
+    const lift = rig.hop ? Math.abs(Math.sin(stride / 2)) * rig.hop * st.walk : Math.abs(Math.sin(stride)) * 0.03 * st.walk;
+    const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;
+    const roll = rig.waddle ? Math.sin(stride) * rig.waddle * st.walk : 0;
+    let flap = 0;
+    if (rig.wing) {
+      const [mid, amp] = airborne ? rig.wing.air : startled && rig.wing.startled ? rig.wing.startled : moving ? rig.wing.walk : [0, 0];
+      flap = mid + amp * Math.sin(rig.wing.rate ? t * rig.wing.rate + beat : stride);
+    }
 
-    this.base.compose(this.v.set(x, y + Math.abs(Math.sin(stride)) * 0.03 * st.walk * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, 0)), this.s.set(size, size, size));
+    this.base.compose(this.v.set(x, ground + st.up + (lift + bob) * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, roll)), this.s.set(size, size, size));
+    this.put(rig, coat, counts, st, flap, swing, t, beat, greeting ? 4 : 1, !!rig.hop);
+    return true;
+  }
+
+  /** Writes one animal's shapes: each part where its role puts it, in the animal's colours. `this.base` places the animal. */
+  put(rig, coat, counts, st, flap, swing, t, beat, wag = 1, together = false) {
     for (const part of rig.built) {
       const mesh = this.meshes[part.shape];
       const i = counts[part.shape];
       if (i >= CAPACITY) continue;
       counts[part.shape] = i + 1;
       if (part.role) {
-        if (part.role === "head") this.euler.set(st.head, st.look, 0);
-        else if (part.role === "tail") this.euler.set(0, 0, Math.sin(t * 2.2 + (c.id % 628) / 100) * 0.25);
-        else this.euler.set(part.role === "leg0" || part.role === "leg3" ? swing : -swing, 0, 0);
+        let drop = 0;
+        if (part.role === "head") {
+          this.euler.set(st.head, st.look, 0);
+          drop = rig.graze ? rig.drop * Math.min(1, Math.max(0, -st.head / rig.graze)) : 0;
+        } else if (part.role === "tail" || part.role === "tailup") this.euler.set(0, 0, Math.sin(t * 2.2 * wag + beat) * (wag > 1 ? 0.5 : 0.25));
+        else if (part.role === "wing0") this.euler.set(0, 0, -flap);
+        else if (part.role === "wing1") this.euler.set(0, 0, flap);
+        else this.euler.set(together || part.role === "leg0" || part.role === "leg3" ? swing : -swing, 0, 0);
         // Turn the part about its pivot: move the pivot to the origin, rotate, move it back.
-        const drop = part.role === "head" ? rig.drop * Math.min(1, Math.max(0, -st.head / rig.graze)) : 0;
         this.rot.makeRotationFromEuler(this.euler);
         this.tmp.makeTranslation(part.pivot.x, part.pivot.y - drop, part.pivot.z).multiply(this.rot);
         this.rot.makeTranslation(-part.pivot.x, -part.pivot.y, -part.pivot.z);
@@ -325,7 +281,6 @@ export class Life {
       mesh.setMatrixAt(i, this.tmp);
       mesh.setColorAt(i, part.colour === "a" ? coat.a : part.colour === "b" ? coat.b : part.colour);
     }
-    return true;
   }
 
   /** Each animal has its own voice: a little higher or lower than its neighbours. */

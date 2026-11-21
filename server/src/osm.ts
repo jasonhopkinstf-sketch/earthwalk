@@ -27,7 +27,7 @@ export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[]; na
 /** A house number mapped as a standalone point rather than on a building. */
 export interface AddressPoint { id: number; at: Pt; housenumber: string; street?: string }
 /** Ground cover. A point is inside if it is within an odd number of rings, so inner rings are holes (islands in a lake). */
-export interface Area { id: number; cls: GroundClass; rings: Pt[][] }
+export interface Area { id: number; cls: GroundClass; rings: Pt[][]; /** Water that is part of the sea (a bay). */ salt?: boolean }
 export interface TreePoint { id: number; at: Pt }
 /** What a field is used for, where the map says more than its ground cover does. Used to decide where animals live. */
 export type FieldKind = "meadow" | "paddock" | "farmyard" | "farmland";
@@ -391,7 +391,7 @@ export function parseOsm(json: OsmJson): Features {
       // Negative, distinct ids keep relation pieces from colliding with way ids.
       rings.forEach((ring, n) => addBuilding(-(el.id * 8 + (n % 8)), tags, ring));
     } else if (rings.length) {
-      if (cls) out.areas.push({ id: -el.id, cls, rings });
+      if (cls) out.areas.push({ id: -el.id, cls, rings, ...(tags.natural === "bay" ? { salt: true } : {}) });
       if (field) fields.push({ id: -el.id, ...field, rings });
     }
   }
@@ -421,7 +421,7 @@ export function parseOsm(json: OsmJson): Features {
     if (!ring) continue;
     const cls = groundClassOf(tags);
     if (isBuilding(tags)) addBuilding(w.id, tags, ring);
-    else if (cls) out.areas.push({ id: w.id, cls, rings: [ring] });
+    else if (cls) out.areas.push({ id: w.id, cls, rings: [ring], ...(tags.natural === "bay" ? { salt: true } : {}) });
     if (field) fields.push({ id: w.id, ...field, rings: [ring] });
   }
   return out;
