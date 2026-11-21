@@ -98,7 +98,9 @@ function sameCode(given: string, expected: string): boolean {
 
 export function createApp(options: AppOptions = {}): App {
   const accessCode = options.accessCode ?? "";
-  const limit = options.coldBuildLimit ?? 150;
+  // A trip somewhere new builds about 50 things (25 chunks and their labels), so this is eight trips in
+  // the window. The shared services are protected by the one-at-a-time map download, not by this.
+  const limit = options.coldBuildLimit ?? 400;
   const windowMs = options.coldBuildWindowMs ?? 5 * 60 * 1000;
   const readCache = options.readCache ?? cacheRead;
   const writeCache = options.writeCache ?? cacheWrite;

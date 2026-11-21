@@ -12,25 +12,43 @@ export async function httpGet(url: string, timeoutMs = 30000, init: RequestInit 
   });
 }
 
-/** Runs async jobs one at a time with a minimum gap, to stay polite to shared public APIs. */
+/**
+ * Runs async jobs one at a time with a minimum gap, to stay polite to shared public APIs.
+ *
+ * With `newestFirst`, the job asked for last runs next. That is for work a player may have walked
+ * away from: someone who travels to three far places in a minute leaves map downloads queued for the
+ * first two, each of which can take most of a minute, and the place they are actually standing in
+ * must not wait behind them (the game gives up on a chunk after 90 seconds).
+ */
 export class Throttle {
-  private tail: Promise<unknown> = Promise.resolve();
+  private readonly waiting: (() => void)[] = [];
+  private busy = false;
   private last = 0;
   private readonly gapMs: number;
-  constructor(gapMs: number) {
+  private readonly newestFirst: boolean;
+  constructor(gapMs: number, newestFirst = false) {
     this.gapMs = gapMs;
+    this.newestFirst = newestFirst;
   }
   run<T>(job: () => Promise<T>): Promise<T> {
-    const next = this.tail.then(async () => {
-      const wait = this.last + this.gapMs - Date.now();
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      try {
-        return await job();
-      } finally {
-        this.last = Date.now();
-      }
+    return new Promise<T>((resolve, reject) => {
+      this.waiting.push(() => {
+        job().then(resolve, reject).finally(() => {
+          this.last = Date.now();
+          this.busy = false;
+          this.next();
+        });
+      });
+      this.next();
     });
-    this.tail = next.catch(() => undefined);
-    return next;
+  }
+  private next(): void {
+    if (this.busy) return;
+    const start = this.newestFirst ? this.waiting.pop() : this.waiting.shift();
+    if (!start) return;
+    this.busy = true;
+    const wait = this.last + this.gapMs - Date.now();
+    if (wait > 0) setTimeout(start, wait);
+    else start();
   }
 }
