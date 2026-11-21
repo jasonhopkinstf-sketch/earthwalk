@@ -101,6 +101,7 @@ Controls (Unreal):
 | `F` | Toggle flying (`C` descends) |
 | `E` | Browser only, for now: hop on the horse, tractor, boat, car or train beside you; again to hop off |
 | `T` | Browser only, for now: talk to the animal, car, train, tree or house beside you; `Esc` stops |
+| `P` | Browser only, for now: your passport |
 | `Enter` | Chat and commands |
 
 In the editor, click the game viewport once so it has the keyboard; `Shift+F1` gives the
@@ -208,6 +209,13 @@ Riding (in the browser so far): press E beside a horse, a cow, a tractor, a boat
 passing train to hop on, and E again to hop off. You steer what you ride; a friend can hop on behind
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
+
+A passport (in the browser so far): press P. The server keeps a journal for every player of where
+they have been, what they have ridden and whom they have talked to, and the passport shows it: a
+level that rises with all of it, countries, continents, places, friends, and stamps that pop up as
+they are earned (a first country, five kilometres on foot, a ride on a train, a chat with a tree).
+A journal is its owner's alone, and a signed-in person's carries on from visit to visit
+(`server/src/journal.ts`, `server/public/js/passport.js`; docs/PROTOCOL.md, "Journal").
 
 Talking (in the browser so far): press T beside an animal, a car, a train, a tree or a house and it
 introduces itself; what you type then goes to it, and its answer appears in a speech bubble for

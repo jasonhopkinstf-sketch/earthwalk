@@ -121,6 +121,11 @@ export class Meetup extends EventTarget {
     this.send(place ? { t: "home", lat: place.lat, lon: place.lon, name: place.name } : { t: "home" });
   }
 
+  /** Asks for my own journal; it comes as a "journal" event. */
+  requestJournal() {
+    this.send({ t: "journal" });
+  }
+
   requestPeople() {
     this.send({ t: "people" });
   }
@@ -187,6 +192,12 @@ export class Meetup extends EventTarget {
       }
       case "left":
         if (typeof msg.thing === "number") this.left.set(msg.thing, msg);
+        break;
+      case "journal":
+        this.emit("journal", msg.journal ?? null);
+        break;
+      case "stamp":
+        this.emit("stamp", msg); // I earned something
         break;
       case "say":
         if (typeof msg.thing === "number") this.emit("say", msg); // a thing spoke, to me or to someone nearby

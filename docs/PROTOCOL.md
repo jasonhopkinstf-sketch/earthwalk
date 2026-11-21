@@ -285,6 +285,11 @@ that tells a player where they are. The position is rounded to two decimal place
 before it is looked up, and answers are remembered, so a client may ask again whenever its own rounded
 position changes. It takes the same access code as the other routes.
 
+## My journal: `GET /v1/journal`
+
+The journal (see "Journal" under Meetups) of whoever the request's player token belongs to, whether or
+not they are in the world. 401 without a token. There is no way to ask for another person's.
+
 ## Sign in with Google
 
 Offered only when the server has `EARTHWALK_GOOGLE_CLIENT_ID` and `_SECRET` (see
@@ -326,6 +331,7 @@ Client to server:
 | `{"t":"people"}` | Ask for the people list again (it is also pushed whenever it changes). |
 | `{"t":"ride","thing":918398760,"sp":"horse"}` / `{"t":"ride"}` | Hop on something, or (with no `thing`) hop off. See "Riding". |
 | `{"t":"talk","thing":918398760,"sp":"cow"}` / `{"t":"talk","thing":..,"sp":"cow","text":"what do you eat?"}` | Say hello to a thing, or say something to it. See "Talking". |
+| `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
 
 Server to client:
@@ -336,6 +342,8 @@ Server to client:
 | `{"t":"time","c":1234.5,"now":1700000000000}` | The answer to `time`: the server's clock in milliseconds since 1970. Shared time is `now` plus half the round trip; a client keeps the answer with the shortest round trip and asks again now and then. `welcome` carries `now` too, as a first estimate. Clients that ignore both still work; they just have no animals in step with everyone else. |
 | `{"t":"ride","id":"..","thing":918398760,"sp":"horse","seat":0}` / `{"t":"ride","id":".."}` | Someone hopped on something, or off. Sent to the whole room, the rider included: for the rider it is the go-ahead. |
 | `{"t":"left","thing":918398760,"sp":"horse","lat":..,"lon":..,"alt":..,"yaw":..,"until":1700000060000}` | A driver got off: the thing stands there until `until` (server clock, ms), then goes back to where it belongs. |
+| `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
+| `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
 | `{"t":"peers","p":[[id,lat,lon,alt,yaw],...]}` | People who moved since the last update (10 per second). |
@@ -368,6 +376,35 @@ the same somebody for everyone, on every visit. Clients learn a thing's `name` w
   was typed, attributed to the player's animal ("A fox says: ..."), never to their name.
 
 The browser's key is T; while talking to a thing, what is typed goes to it instead of to the room.
+
+### Journal
+
+The server keeps a journal for every player from what it already sees: positions, `ride` and `talk`.
+Clients send nothing extra. A signed-in person's journal is kept on the server's disk and carries on
+from visit to visit; a guest's lasts for the visit. A journal is its owner's alone: it is sent only in
+answer to `journal` on that player's own connection, or from `GET /v1/journal` with that person's
+token, and no request can name somebody else.
+
+The journal object:
+
+| Field | Meaning |
+| --- | --- |
+| `kept` | `true` when it is stored (signed in), `false` for a guest |
+| `since` | when it was started, milliseconds since 1970 |
+| `level` | `{ n, title, points, from, next }`: the level, its name, the points so far, and the points at which this level began and the next begins |
+| `totals` | `{ km, kmRidden, minutes, visits, countries, continents, places, friends }` |
+| `countries` | `[{ name, first }]` in the order first visited |
+| `continents` | names |
+| `places` | the twelve most recent, `[{ name, country, last, times }]`; a place is about a kilometre across |
+| `friends` | the twelve most recent things talked to, `[{ name, sp, times, last }]` |
+| `talkedKinds`, `riddenKinds` | the kinds (`sp`) of thing talked to and ridden |
+| `stamps` | `[{ id, title, have, steps, done, next, unit }]`: something counted (`have`), the numbers at which it is stamped (`steps`), how many of those are reached (`done`) and the next one (`next`, or `null`) |
+
+How it is counted: distance is added whenever a player has moved 15 m, as ridden while they are on
+something and as walked otherwise; a step of more than 400 m is a journey by `/goto` and adds none.
+A place is the position rounded to two decimals, named by the same lookup as `GET /v1/place`, at
+most one lookup every four seconds a player. Continents come from rough boxes (`continentOf` in
+`server/src/journal.ts`).
 
 ### Riding
 
