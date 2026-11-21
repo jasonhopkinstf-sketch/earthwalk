@@ -117,6 +117,7 @@ Chat commands:
 | `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in) |
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
+| `/sound on`, `/sound off` | Browser only: the animals' voices |
 | `/world auto`, `/world photo`, `/world generated` | Unreal only: our world on foot and Google's photographic 3D world from the air, the photographic world everywhere, or ours everywhere (see below) |
 | `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for the photographic world |
 
@@ -175,6 +176,13 @@ the game only uploads the meshes it receives.
 and accounts (Google sign-in, remembered by a player token, with a home and a chosen animal),
 stored as one JSON file under the cache directory. `server/src/presence.ts` joins that with
 the rooms to say who is online and where. The access code doubles as the sign-up gate.
+
+Farm animals (in the browser so far): `server/src/life.ts` decides where herds live, from the
+map's meadows, paddocks and farmyards, and sends them with the labels. The server also shares its
+clock. `server/public/js/lifemotion.js` is the one rule for where each cow, sheep, horse and
+chicken is at a moment, so everyone in a room sees the same animal in the same place, and
+`life.js` draws them and has them look at, and step aside for, players. Their voices are made by
+code (`sounds.js`); there are no recordings. docs/PROTOCOL.md, "Life", has the details.
 
 ## Art assets and the look
 
