@@ -297,6 +297,8 @@ export function createApp(options: AppOptions = {}): App {
   };
 
   const server = createServer(async (req, res) => {
+    // Everything that can fail is awaited inside this try: a promise returned without await would
+    // slip past the catch, and a rejection nobody handles ends the whole server for everyone.
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       const p = url.pathname;
@@ -305,12 +307,12 @@ export function createApp(options: AppOptions = {}): App {
 
       const chunk = /^\/v1\/chunk\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (chunk) {
-        return serveBuilt(req, res, url, chunk, (x, y) => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`,
+        return await serveBuilt(req, res, url, chunk, (x, y) => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`,
           buildChunk, "application/octet-stream");
       }
       const labels = /^\/v1\/labels\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (labels) {
-        return serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
+        return await serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
           buildLabels, "application/json; charset=utf-8", (built) => !partialLabels.has(built));
       }
       if (p === "/v1/geocode") {
@@ -327,10 +329,10 @@ export function createApp(options: AppOptions = {}): App {
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
       }
       if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, ...rooms.stats() });
-      if (p === "/") return sendFile(res, PUBLIC, "play.html");
+      if (p === "/") return await sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
-      if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);
-      return sendFile(res, PUBLIC, p.slice(1));
+      if (vendor && VENDOR[vendor[1]]) return await sendFile(res, VENDOR[vendor[1]], vendor[2]);
+      return await sendFile(res, PUBLIC, p.slice(1));
     } catch (err) {
       console.error(`${req.url}: ${err instanceof Error ? err.message : String(err)}`);
       if (!res.headersSent) json(res, 502, { error: "could not build this part of the world right now" });

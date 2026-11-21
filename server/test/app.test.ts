@@ -117,3 +117,27 @@ test("files outside the public folder are not served", async () => {
     s.app.close();
   }
 });
+
+test("a part of the world that cannot be built is answered with an error, and the server carries on", async () => {
+  const stray: unknown[] = [];
+  const note = (err: unknown): void => { stray.push(err); };
+  process.on("unhandledRejection", note);
+  const s = await start({
+    buildChunk: async (x) => { if (x === 7) throw new Error("no OSM source answered"); return Buffer.from("chunk"); },
+    buildLabels: async (x) => { if (x === 7) throw new Error("no OSM source answered"); return Buffer.from("{}"); },
+  });
+  try {
+    const chunk = await fetch(`${s.base}/v1/chunk/16/7/2`);
+    assert.equal(chunk.status, 502);
+    const labels = await fetch(`${s.base}/v1/labels/16/7/2`);
+    assert.equal(labels.status, 502);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(stray, [], "a failed build must not escape the request it belongs to");
+    // The next request is served as if nothing had happened, and the failed one can be tried again.
+    assert.equal((await fetch(`${s.base}/v1/chunk/16/1/2`)).status, 200);
+    assert.equal((await fetch(`${s.base}/v1/chunk/16/7/2`)).status, 502);
+  } finally {
+    process.off("unhandledRejection", note);
+    s.app.close();
+  }
+});
