@@ -129,6 +129,8 @@ The Unreal game can show Google's Photorealistic 3D Tiles as well as the generat
 1. The free **Cesium for Unreal** plugin (2.28 or newer for UE 5.8), installed into the engine from Fab.
    `game/build.cmd` notices it and builds the game with it; without it the game builds and plays as
    before and `/world photo` says the plugin is missing.
+   The standalone game made by `game\package.cmd` for the family installer always leaves the plugin
+   out, so the photographic world is only in the game started from the editor build on a PC that has it.
 2. A Google Cloud API key with the **Map Tiles API** enabled (billing must be on). Give it to the game
    with `/mapskey <key>` (saved on that PC only), `-EWMapsKey=<key>` on the command line, or
    `GoogleMapTilesKey` in `game/Config/DefaultGame.ini` (that one ships with the game, so do not commit it).

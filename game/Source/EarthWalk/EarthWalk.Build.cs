@@ -24,7 +24,9 @@ public class EarthWalk : ModuleRules
 			Path.Combine(EngineDirectory, "Plugins", "Marketplace"),
 			Target.ProjectFile != null ? Path.Combine(Target.ProjectFile.Directory.FullName, "Plugins") : null,
 		};
-		bool bCesium = PluginRoots.Any(Root => Root != null && Directory.Exists(Root) &&
+		// Only in the editor build, which is also what runs the game on the PC that has the plugin
+		// (UnrealEditor -game). The standalone game target turns the plugin off (EarthWalk.Target.cs).
+		bool bCesium = Target.Type == TargetType.Editor && PluginRoots.Any(Root => Root != null && Directory.Exists(Root) &&
 			Directory.EnumerateFiles(Root, "CesiumForUnreal.uplugin", SearchOption.AllDirectories).Any());
 		if (bCesium)
 		{
