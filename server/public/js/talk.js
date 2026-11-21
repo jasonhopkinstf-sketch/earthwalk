@@ -100,7 +100,7 @@ export class Talk {
 
   /** Something typed while talking to a thing goes to it. */
   say(text) {
-    if (this.to) this.meetup.sendTalk(this.to.thing, this.to.sp, text);
+    if (this.to) this.meetup.sendTalk(this.to.thing, this.to.sp, text, this.world.sceneToGeo({ x: this.to.x, y: 0, z: this.to.z }));
   }
 
   stop() {

@@ -13,6 +13,7 @@ export class Meetup extends EventTarget {
     this.ride = null;
     /** Things left standing where a rider got off: identity -> { thing, sp, lat, lon, alt, yaw, until }. */
     this.left = new Map();
+    this.orders = new Map(); // thing -> what it has been told to keep doing (orders.js)
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
     this.clockOffset = 0;
     this.clockTrip = Infinity;
@@ -111,8 +112,9 @@ export class Meetup extends EventTarget {
   }
 
   /** Says hello to a thing (no text), or says something to it. Its answer comes as a "say" event. */
-  sendTalk(thing, sp, text) {
-    this.send(text ? { t: "talk", thing, sp, text } : { t: "talk", thing, sp });
+  sendTalk(thing, sp, text, at) {
+    // `at` is where I see the thing, in case it is asked to do something from there.
+    this.send({ t: "talk", thing, sp, ...(text ? { text } : {}), ...(at ? { lat: +at.lat.toFixed(7), lon: +at.lon.toFixed(7) } : {}) });
   }
 
   /** Sets my home: to the given place, or (with no arguments) to where I am standing now. */
@@ -157,6 +159,7 @@ export class Meetup extends EventTarget {
           this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number", ride: p.ride ?? null });
         }
         this.left = new Map((msg.left ?? []).map((l) => [l.thing, l]));
+        this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
         if (this.ride) {
           this.ride = null; // a new connection starts on foot
           this.emit("ride", null);
@@ -192,6 +195,13 @@ export class Meetup extends EventTarget {
       }
       case "left":
         if (typeof msg.thing === "number") this.left.set(msg.thing, msg);
+        break;
+      case "order":
+        // A thing was told to do something: to keep doing (follow, come, stay), to stop (home), or just the once.
+        if (typeof msg.thing !== "number") break;
+        if (msg.act === "follow" || msg.act === "come" || msg.act === "stay") this.orders.set(msg.thing, msg);
+        else if (msg.act === "home") this.orders.delete(msg.thing);
+        this.emit("order", msg);
         break;
       case "journal":
         this.emit("journal", msg.journal ?? null);

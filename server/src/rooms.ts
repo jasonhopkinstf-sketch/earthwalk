@@ -5,7 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Home, PeopleDirectory } from "./people.ts";
-import { TALKABLE, Talker, type Said } from "./talk.ts";
+import { TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -24,6 +24,10 @@ const LEFT_CAP = 100;
 const HEARING_M = 80;
 /** Talking to things: at most this many times a minute each, and not faster than one every 1.2 s. */
 const TALKS_A_MINUTE = 12;
+/** How long a thing goes on doing as it was told, how many orders a room keeps, and how many one player may have out at once. */
+const ORDER_MS = 10 * 60_000;
+const ORDER_CAP = 60;
+const ORDERS_EACH = 6;
 /** Name of the browser's sign-in cookie; the token in it stands in for `hello.token`. */
 export const TOKEN_COOKIE = "ew_token";
 
@@ -47,8 +51,16 @@ interface Member {
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
 interface Left { thing: number; sp: string; lat: number; lon: number; alt: number; yaw: number; until: number }
+/**
+ * Something a thing has been told to do and is still doing: follow whoever told it (`by`), go over to
+ * where they stood (`to`), or stay where it is. `lat`/`lon` are where it was when told, by the word of
+ * the player who told it. Clients work out the rest (docs/PROTOCOL.md, "Doing as asked").
+ */
+interface Order { thing: number; sp: string; act: "follow" | "come" | "stay"; by: string; lat: number; lon: number; to?: [number, number]; at: number; until: number }
 interface ChatLine { id: string; name: string; text: string; ts: number }
-interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left> }
+interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order> }
+/** Where a named place is, and the way there by road when there is one. */
+export interface Way { name: string; lat: number; lon: number; path?: [number, number][] }
 
 /** What the rest of the server may know about someone in a room. */
 export interface RoomMember {
@@ -72,7 +84,9 @@ export interface RoomsOptions {
   /** The people list sent in `people` messages; set by the presence tracker. */
   peopleList?: () => unknown[];
   /** Speaks for the things players talk to. Without one, things answer from their stock lines. */
-  talker?: { greet(thing: number, sp: string): Said; reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null): Promise<Said> };
+  talker?: { greet(thing: number, sp: string): Said; reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean): Promise<Said> };
+  /** Finds a place a rider has asked to be taken to, near where they are, with the way there by road if it is close. */
+  wayTo?: (lat: number, lon: number, place: string, sp: string) => Promise<Way | null>;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
   journal?: JournalKeeper;
 }
@@ -194,7 +208,7 @@ export class Rooms {
         if (ws.readyState !== ws.OPEN) return;
         roomName = hello.room.toLowerCase();
         let r = this.rooms.get(roomName);
-        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map() }));
+        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map() }));
         if (r.members.size >= MAX_ROOM_SIZE) { send({ t: "error", code: "full", text: "Room is full" }); ws.close(4002, "full"); return; }
         // Names must be unique in a room so "/join <name>" is unambiguous.
         let name = clean(person.displayName, MAX_NAME) || "Guest";
@@ -210,6 +224,7 @@ export class Rooms {
           t: "welcome", id: me.id, name: me.name, avatar: me.avatar, room: roomName,
           peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}) })),
           left: [...r.left.values()].filter((l) => l.until > Date.now()),
+          orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
           history: r.history,
           signedIn: me.personId !== null,
           ...(me.personId !== null ? { personId: me.personId, home: me.home } : {}),
@@ -257,6 +272,7 @@ export class Rooms {
         me.ride = { thing, sp, seat };
         this.journal?.rode(me.id, sp, thing);
         room.left.delete(thing);
+        this.release(room, thing); // whoever rides it is in charge of it now
         this.broadcast(room, { t: "ride", id: me.id, ...me.ride });
       } else if (msg.t === "talk" && room) {
         // Say hello to a thing (no `text`), or say something to it. Everyone nearby hears the answer.
@@ -274,7 +290,7 @@ export class Rooms {
         let said: Said;
         if (text) {
           const place = me.hasPos && this.options.placeName ? await this.options.placeName(me.lat, me.lon).catch(() => null) : null;
-          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place);
+          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place, me.ride?.thing === thing && me.ride.sp === sp);
         } else said = this.talker.greet(thing, sp);
         if (!room.members.has(me.id)) return; // left while it was thinking
         this.journal?.talked(me.id, thing, sp, said.name, text, said.text);
@@ -282,6 +298,11 @@ export class Rooms {
         for (const m of room.members.values()) {
           const near = m === me || (m.hasPos && me.hasPos && Math.hypot((m.lat - me.lat) * 111_320, (m.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) <= HEARING_M);
           if (near && m.ws.readyState === m.ws.OPEN) m.ws.send(out);
+        }
+        if (said.wish) {
+          // Where the thing is, by the word of the player talking to it; failing that, where they are themselves.
+          const here = finite(msg.lat) && finite(msg.lon) && Math.abs(msg.lat) <= 90 && Math.abs(msg.lon) <= 180 ? { lat: msg.lat, lon: msg.lon } : me.hasPos ? { lat: me.lat, lon: me.lon } : null;
+          if (here) await this.obey(room, me, thing, sp, said, here);
         }
       } else if (msg.t === "time") {
         // The shared clock: the client sends its own stamp and gets it back with our time, so it can allow for the delay.
@@ -316,6 +337,7 @@ export class Rooms {
       clearTimeout(helloTimer);
       if (!room || !me) return;
       this.dismount(room, me);
+      for (const o of [...room.orders.values()]) if (o.by === me.id) this.release(room, o.thing); // their followers go home
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
       room.members.delete(me.id);
@@ -350,6 +372,44 @@ export class Rooms {
     const left: Left = { thing: ride.thing, sp: ride.sp, lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), alt: +m.alt.toFixed(2), yaw: +m.yaw.toFixed(1), until: now + LEFT_MS };
     room.left.set(ride.thing, left);
     this.broadcast(room, { t: "left", ...left });
+  }
+
+  /** Lets a thing go back to what it was doing, and tells the room. */
+  private release(room: Room, thing: number): void {
+    const order = room.orders.get(thing);
+    if (!order) return;
+    room.orders.delete(thing);
+    this.broadcast(room, { t: "order", thing, sp: order.sp, act: "home" });
+  }
+
+  /** A thing has agreed to do something: work out what that means and tell whoever needs to know. */
+  private async obey(room: Room, m: Member, thing: number, sp: string, said: Said, here: { lat: number; lon: number }): Promise<void> {
+    const wish = said.wish as Wish;
+    const now = Date.now();
+    const round = (v: number): number => +v.toFixed(7);
+    if (wish.deed === "home") return this.release(room, thing);
+    if (wish.deed === "trick" || wish.deed === "noise") {
+      // Done once, there and then, wherever each game has the thing.
+      return this.broadcast(room, { t: "order", thing, sp, act: wish.deed, at: now });
+    }
+    if (wish.deed === "goto") {
+      // Only its rider is carried, and their own game does the carrying; friends see them go.
+      const send = (obj: unknown): void => { if (m.ws.readyState === m.ws.OPEN) m.ws.send(JSON.stringify(obj)); };
+      const way = this.options.wayTo && wish.place ? await this.options.wayTo(m.lat, m.lon, wish.place, sp).catch(() => null) : null;
+      if (!way) return send({ t: "error", code: "nowhere", text: `${said.name} could not find "${wish.place ?? "that place"}"` });
+      return send({ t: "order", thing, sp, act: "goto", name: way.name, lat: round(way.lat), lon: round(way.lon), ...(way.path ? { path: way.path } : {}) });
+    }
+    for (const [id, o] of room.orders) if (o.until <= now) room.orders.delete(id);
+    const mine = [...room.orders.values()].filter((o) => o.by === m.id && o.thing !== thing);
+    if (mine.length >= ORDERS_EACH) this.release(room, mine[0].thing);
+    if (room.orders.size >= ORDER_CAP && !room.orders.has(thing)) this.release(room, room.orders.keys().next().value!);
+    const order: Order = {
+      thing, sp, act: wish.deed, by: m.id, lat: round(here.lat), lon: round(here.lon), at: now, until: now + ORDER_MS,
+      ...(wish.deed === "come" && m.hasPos ? { to: [round(m.lat), round(m.lon)] as [number, number] } : {}),
+    };
+    room.orders.delete(thing);
+    room.orders.set(thing, order);
+    this.broadcast(room, { t: "order", ...order });
   }
 
   private broadcast(room: Room, obj: unknown): void {

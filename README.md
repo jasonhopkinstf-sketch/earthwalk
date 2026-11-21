@@ -210,6 +210,13 @@ passing train to hop on, and E again to hop off. You steer what you ride; a frie
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
+Telling things what to do (in the browser so far): while talking to a thing, say "follow me", "come
+here", "stay", "go home", "do a trick" or "make your noise", and it does. Riding a car, a tractor
+or an animal, say "take me to the beach": a car drives itself there along the roads when the place
+is close (`server/src/route.ts` finds the way), an animal cuts across country, and anywhere far is
+one jump. Steering takes the reins back. Friends see all of it. `server/public/js/orders.js`;
+docs/PROTOCOL.md, "Doing as asked".
+
 A passport (in the browser so far): press P. The server keeps a journal for every player of where
 they have been, what they have ridden and whom they have talked to, and the passport shows it: a
 level that rises with all of it, countries, continents, places, friends, and stamps that pop up as

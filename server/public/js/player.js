@@ -134,12 +134,16 @@ export class Player {
         const m = this.mount;
         move.set(sin * forward + cos * strafe, 0, -cos * forward + sin * strafe);
         if (move.lengthSq() > 1) move.normalize();
+        // Being taken somewhere (orders.js): the mount finds its own way until the rider steers.
+        const auto = !forward && !strafe ? this.autopilot : null;
+        if (auto) move.set(auto.dx, 0, auto.dz);
         const from = this.position.clone();
-        this.moveHorizontally(move.multiplyScalar(m.speed * (fast ? 1 : 0.55) * dt));
+        this.moveHorizontally(move.multiplyScalar(m.speed * (auto ? auto.pace : fast ? 1 : 0.55) * dt));
         // A boat keeps to the water, and everything else keeps off it.
         const wet = this.world.waterAt(this.position.x, this.position.z);
         let ground = this.world.groundHeight(this.position.x, this.position.z);
-        if (ground === null || (wet !== null && wet !== !!m.afloat)) {
+        // (Being driven along a road, a bridge is a bridge, whatever lies under it.)
+        if (ground === null || (!auto && wet !== null && wet !== !!m.afloat)) {
           this.position.copy(from);
           ground = this.world.groundHeight(from.x, from.z) ?? from.y - m.seat;
         }

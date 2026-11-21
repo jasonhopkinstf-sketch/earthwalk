@@ -125,6 +125,12 @@ Roughly: an answer on the default model costs about one US cent, so the default 
 answers a day; on `claude-haiku-5-5` the same money buys a few thousand. These are estimates; prices
 change, so check Anthropic's pricing page.
 
+Things can also be told what to do ("follow me", "take me to the beach"). With the key set the AI
+decides whether something was asked for, through a tool it may call; that adds a few hundred tokens
+to each answer, well under a tenth of a cent on the default model. Without the key the things
+understand a handful of plain words by themselves. A place a rider asks for is looked up with
+OpenStreetMap's Nominatim, like `/goto`.
+
 What is sent to Anthropic for each answer: the character's description, the name of the area (about a
 kilometre across), the last few lines of that conversation, and what the player typed, attributed to
 the animal they play ("A fox says..."), not to their name. Nothing is sent for a hello, or when the

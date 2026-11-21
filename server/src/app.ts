@@ -9,7 +9,8 @@ import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
 import { generateLabels, LABELS_REV, partialLabels } from "./labels.ts";
-import { geocode, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
+import { geocode, geocodeNear, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
+import { planRoute, type Route } from "./route.ts";
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
 import { Talker } from "./talk.ts";
@@ -62,6 +63,9 @@ export interface AppOptions {
   readCache?: (rel: string) => Promise<Buffer | null>;
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
+  /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
+  findNear?: (query: string, lat: number, lon: number) => Promise<Place | null>;
+  planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
 }
 
 /** The server version, from package.json, shown by clients so a deploy can be told apart. */
@@ -122,7 +126,18 @@ export function createApp(options: AppOptions = {}): App {
   const placeDetail = options.placeDetail ?? (givenName ? async (lat: number, lon: number) => ({ name: await givenName(lat, lon), country: null }) : reverseDetail);
   const talker = options.talker ?? new Talker();
   const journals = new Journals({ store: options.journalStore ?? null, placeDetail });
-  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals });
+  const findNear = options.findNear ?? geocodeNear;
+  const routeBetween = options.planRoute ?? planRoute;
+  /** Where a rider asked to go, and for a car or tractor the way there by road when it is close. Slow map downloads are not waited for. */
+  const wayTo = async (lat: number, lon: number, place: string, sp: string) => {
+    const found = await findNear(place, lat, lon);
+    if (!found) return null;
+    const driven = sp === "car" || sp === "tractor"
+      ? await Promise.race([routeBetween(lat, lon, found.lat, found.lon).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 12_000).unref())])
+      : null;
+    return { name: found.name.split(",").slice(0, 2).join(","), lat: found.lat, lon: found.lon, ...(driven ? { path: driven.path } : {}) };
+  };
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
@@ -303,14 +318,16 @@ export function createApp(options: AppOptions = {}): App {
       if (req.method !== "GET" && !(req.method === "POST" && p === "/auth/logout")) return json(res, 405, { error: "method not allowed" });
       if (await serveAccounts(req, res, url)) return;
 
+      // The builds below are awaited, not just returned: one that fails must be caught here, or the
+      // rejection goes unhandled and takes the whole server down with everyone in it.
       const chunk = /^\/v1\/chunk\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (chunk) {
-        return serveBuilt(req, res, url, chunk, (x, y) => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`,
+        return await serveBuilt(req, res, url, chunk, (x, y) => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`,
           buildChunk, "application/octet-stream");
       }
       const labels = /^\/v1\/labels\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (labels) {
-        return serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
+        return await serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
           buildLabels, "application/json; charset=utf-8", (built) => !partialLabels.has(built));
       }
       if (p === "/v1/geocode") {
