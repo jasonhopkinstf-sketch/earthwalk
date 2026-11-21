@@ -628,9 +628,9 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	return Material;
 }
 
-UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Fluff)
+UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Fluff, int32 SwayCm)
 {
-	const uint64 Key = (static_cast<uint64>(Fluff > 0.5f ? 101 : 100) << 32) | Rgba;
+	const uint64 Key = (static_cast<uint64>((Fluff > 0.5f ? 101 : 100) + 16 * FMath::Clamp(SwayCm, 0, 60)) << 32) | Rgba;
 	if (const TObjectPtr<UMaterialInstanceDynamic>* Found = SurfaceMaterials.Find(Key))
 	{
 		return *Found;
@@ -646,6 +646,7 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Flu
 		const FColor Color((Rgba >> 24) & 0xff, (Rgba >> 16) & 0xff, (Rgba >> 8) & 0xff, 255);
 		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
 		Material->SetScalarParameterValue(TEXT("Fluff"), Fluff);
+		Material->SetScalarParameterValue(TEXT("Sway"), static_cast<float>(SwayCm));
 	}
 	SurfaceMaterials.Add(Key, Material);
 	return Material;
