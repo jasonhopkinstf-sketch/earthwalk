@@ -11,6 +11,7 @@ import { Passport } from "./passport.js";
 import { Orders } from "./orders.js";
 import { Houses } from "./houses.js";
 import { Taxis } from "./taxi.js";
+import { Pets } from "./pets.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
@@ -76,6 +77,7 @@ const houses = new Houses({
 });
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
+const pets = new Pets({ world, player, meetup, avatars, riding });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -193,7 +195,7 @@ meetup.addEventListener("welcome", (e) => {
 });
 meetup.addEventListener("people", (e) => showPeople(e.detail));
 const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup });
-meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""} (P opens your passport)`));
+meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" ? "" : " (P opens your passport)"}`));
 meetup.addEventListener("home", (e) => { if (e.detail) notice(`Home set to ${e.detail.name}. You will start there next time.`); });
 
 // ---------------------------------------------------------------- the world
@@ -394,7 +396,8 @@ async function command(name, arg) {
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
     notice("    and tell it what to do: follow me, come here, stay, go home, do a trick, make your noise;");
     notice("    riding it, say where to: take me to the beach");
-    notice("P   your passport (or /passport): countries, places, friends, stamps and your level");
+    notice("P   your passport (or /passport): countries, places, friends, stamps, your level, riddles to solve");
+    notice("    and the companions you have won by solving them");
   } else if (name === "taxi") {
     if (!arg) return notice("Say where to, like this: /taxi the beach");
     if (!meetup.joined) return problem("Not connected to the meetup server.");
@@ -492,4 +495,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, sounds, command, isStarted: () => started };

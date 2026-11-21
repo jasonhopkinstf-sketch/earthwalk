@@ -337,8 +337,11 @@ export class Life {
     const walk = m.moving ? 1 : 0;
     const lift = rig.hop ? Math.abs(Math.sin(stride / 2)) * rig.hop * walk : Math.abs(Math.sin(stride)) * 0.03 * walk;
     const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;
-    this.base.compose(this.v.set(m.x, m.y + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, rig.heel ?? 0)), this.s.set(size, size, size));
-    this.put(rig, coat, counts, MOUNT_POSE, 0, Math.sin(stride) * 0.55 * walk, t, beat, 1, !!rig.hop);
+    // An insect keeps to the air here too, wings going.
+    const hover = rig.hover ? rig.hover[0] + (rig.hover[1] - rig.hover[0]) * (0.5 + 0.5 * Math.sin(t * 0.8 + beat * 3)) : 0;
+    const flap = rig.hover && rig.wing ? rig.wing.air[0] + rig.wing.air[1] * Math.sin(t * rig.wing.rate + beat) : 0;
+    this.base.compose(this.v.set(m.x, m.y + hover + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, rig.heel ?? 0)), this.s.set(size, size, size));
+    this.put(rig, coat, counts, MOUNT_POSE, flap, Math.sin(stride) * 0.55 * walk, t, beat, 1, !!rig.hop);
   }
 
   /** A thing that is being talked to speaks up in its own voice as well, if it has one. */

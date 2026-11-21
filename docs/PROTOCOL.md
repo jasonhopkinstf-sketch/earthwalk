@@ -376,6 +376,7 @@ Client to server:
 | `{"t":"talk","thing":918398760,"sp":"cow"}` / `{"t":"talk","thing":..,"sp":"cow","text":"what do you eat?"}` | Say hello to a thing, or say something to it. See "Talking". |
 | `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
+| `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
 
@@ -389,6 +390,7 @@ Server to client:
 | `{"t":"left","thing":918398760,"sp":"horse","lat":..,"lon":..,"alt":..,"yaw":..,"until":1700000060000}` | A driver got off: the thing stands there until `until` (server clock, ms), then goes back to where it belongs. |
 | `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
 | `{"t":"taxi","thing":..,"by":"..","name":"Hackney","path":[[lat,lon],..],"at":..,"until":..,"dest":"Goat Island Beach, Leigh"}` / `{"t":"taxi","thing":..,"gone":true}` | A taxi is on its way to whoever called it, or one nobody boarded has driven off. See "Taxis". |
+| `{"t":"pet","id":"..","sp":"cow","thing":3049913570}` / `{"t":"pet","id":".."}` | A member's companion has come along, or gone home. Sent to the room; `welcome` gives each peer's as `pet: { sp, thing }`. |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
@@ -472,6 +474,26 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### Riddles and companions
+
+The journal carries riddles (`RIDDLES` in `server/src/journal.ts`). Each is unlocked at a level and
+solved by finding its answer in the world after that: talking to a thing of the right kind, riding
+one, or (for one of them) having set foot on three continents. The server notices from the `talk`
+and `ride` messages it already gets; clients send nothing extra. A solved riddle is announced with
+a `stamp` of kind `riddle`, as are new riddles when a level brings them.
+
+Solving a riddle wins its answer, or an animal that goes with it, as a companion. `pet` with an `sp`
+chooses one of those won (refused with `error` code `locked` otherwise); `pet` with none sends it
+home. The choice is kept in the journal, so the companion comes along on the next visit too. The
+room is told with `pet`: `thing` is the companion's identity, made from its player's own, so it is
+the same somebody every time and can be talked to (and ridden, if its kind can be). Clients draw it
+following a couple of metres behind its player, each working that out for itself from the positions
+already shared, as for a thing told to follow.
+
+In the journal object: `riddles` is `[{ id, text, solved, answer }]` for those unlocked (`answer` is
+null until solved), `moreRiddles` is `{ count, level }` for the next batch or null, `pets` the
+companions won, and `pet` the one chosen or null.
 
 ### Journal
 

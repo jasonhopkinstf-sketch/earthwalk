@@ -228,6 +228,12 @@ the door, then kitchens, bedrooms, bathrooms, studies and playrooms, with doorwa
 furniture. A house is the same inside for everyone, and friends who go in together see each other.
 `server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
+Riddles and companions (in the browser so far): the passport has riddles, a few more at each level
+("I carry my house on my back and leave a silver road behind me"). A riddle is solved out in the
+world, by finding its answer and talking to it or riding it, and each one solved wins that animal
+as a companion that follows you about, where friends can see it too. Thirty-four riddles so far
+(`RIDDLES` in `server/src/journal.ts`; `server/public/js/pets.js`).
+
 Telling things what to do: while talking to a thing, say "follow me", "come
 here", "stay", "go home", "do a trick" or "make your noise", and it does. Riding a car, a tractor
 or an animal, say "take me to the beach": a car drives itself there along the roads when the place
