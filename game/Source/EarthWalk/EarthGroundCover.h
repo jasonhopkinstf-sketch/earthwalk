@@ -30,6 +30,9 @@ public:
 	/** Removes everything, for when the world is re-centred somewhere else. */
 	void Clear();
 
+	/** Takes up the squares a circle of ground reaches into, so the next Update plants them again (a herd has moved in). */
+	void Replant(const FVector2D& Centre, double Radius);
+
 private:
 	using FParts = TArray<TWeakObjectPtr<UInstancedStaticMeshComponent>>;
 

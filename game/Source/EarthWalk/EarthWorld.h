@@ -6,6 +6,7 @@
 
 class AEarthChunkLabels;
 class AEarthGroundCover;
+class AEarthLife;
 class AEarthWalkAvatar;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
@@ -103,6 +104,18 @@ public:
 	/** What covers the ground at a place: one of EarthCover. Built with each chunk, a cell to about a metre. */
 	uint8 CoverAt(const FVector& Position) const;
 
+	/**
+	 * Height of the terrain in metres above sea level at a place given in metres east and south of the
+	 * origin; false while that chunk has not arrived. This is the bare ground (no roofs, roads or trees),
+	 * the same surface the browser game stands its animals on.
+	 */
+	bool TerrainHeightAt(double EastM, double SouthM, double& OutMeters) const;
+
+	/** Where herds roam and tractors work near a square of ground (AEarthLife::HomeCirclesIn): crops keep off. */
+	void HomeCirclesIn(const FBox2D& Area, TArray<FVector>& OutCentreAndRadius) const;
+
+	AEarthLife* GetLife() const { return Life; }
+
 	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
 	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
 
@@ -155,8 +168,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<AEarthGroundCover> GroundCover;
 
+	/** Animals, cars and trains (EarthLife.h). */
+	UPROPERTY()
+	TObjectPtr<AEarthLife> Life;
+
 	/** Per chunk, CoverCells x CoverCells of EarthCover, row by row from the north-west corner. */
 	TMap<FIntPoint, TArray<uint8>> CoverMaps;
+
+	/** Per chunk, the terrain's heights in metres on a lattice of TerrainGrid + 1 points a side, as the browser keeps them. */
+	TMap<FIntPoint, TArray<float>> HeightMaps;
 
 	/** The Cesium tileset of the photographic kinds, while there is one (EarthPhotoWorld.h). */
 	UPROPERTY()

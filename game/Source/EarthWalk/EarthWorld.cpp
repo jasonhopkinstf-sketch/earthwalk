@@ -3,6 +3,9 @@
 #include "EarthChunkLabels.h"
 #include "EarthGeo.h"
 #include "EarthGroundCover.h"
+#include "EarthLife.h"
+#include "EarthLifeMotion.h"
+#include "EarthSounds.h"
 #include "EarthPhotoWorld.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
@@ -41,6 +44,7 @@ namespace
 	constexpr double StoreyMeters = 3.0; // window row spacing; matches WallCode in EarthWalkAssetsCommandlet.cpp
 	constexpr double WallSinkMeters = 0.6; // how far the server sinks walls below the ground (server/src/chunk.ts)
 	constexpr int32 CoverCells = 512; // cells across a chunk in its cover map: a little under a metre each
+	constexpr int32 TerrainGrid = 64; // terrain cells per chunk side (GRID in server/public/js/chunk.js)
 }
 
 AEarthWorld::AEarthWorld()
@@ -84,6 +88,24 @@ void AEarthWorld::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("EarthWalk: %s"), *Reason);
 	}
 	GroundCover = GetWorld()->SpawnActor<AEarthGroundCover>();
+	Life = GetWorld()->SpawnActor<AEarthLife>();
+	FString Sound;
+	if (Life && Life->GetSounds() && FEarthWalkConfig::HasOverride(TEXT("Sound"), Sound) && Sound.Equals(TEXT("off"), ESearchCase::IgnoreCase))
+	{
+		Life->GetSounds()->SetEnabled(false);
+	}
+	// Checks for the living world, run without a person: see EarthLifeMotion.h and EarthSounds.h.
+	FString TestFile;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-EWLifeTest="), TestFile))
+	{
+		EarthLife::RunSelfTest(TestFile);
+		FPlatformMisc::RequestExit(false);
+	}
+	FString SoundFolder;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-EWSoundDump="), SoundFolder))
+	{
+		UEarthSounds::WriteWavFiles(SoundFolder);
+	}
 	double Lat = 0.0, Lon = 0.0;
 	FEarthWalkConfig::StartLocation(Lat, Lon);
 	SetOrigin(Lat, Lon);
@@ -125,6 +147,7 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 	}
 	Chunks.Reset();
 	CoverMaps.Reset();
+	HeightMaps.Reset();
 	if (GroundCover)
 	{
 		GroundCover->Clear();
@@ -228,6 +251,10 @@ void AEarthWorld::ClearLabels()
 	Labels.Reset();
 	PendingLabels.Reset();
 	LabelRetryAfter.Reset();
+	if (Life)
+	{
+		Life->Clear();
+	}
 }
 
 FVector AEarthWorld::GeoToWorld(double Lat, double Lon, double AltMeters) const
@@ -266,6 +293,47 @@ bool AEarthWorld::HasChunkAt(const FVector& Position) const
 		return bPhotoReady;
 	}
 	return Chunks.Contains(ChunkAt(Position));
+}
+
+bool AEarthWorld::TerrainHeightAt(double EastM, double SouthM, double& OutMeters) const
+{
+	// The same sum as terrainHeight in server/public/js/chunk.js: each lattice cell is two triangles.
+	const double U = OriginX + EastM * 100.0 / TileCm;
+	const double V = OriginY + SouthM * 100.0 / TileCm;
+	const FIntPoint Key(FMath::FloorToInt32(U), FMath::FloorToInt32(V));
+	const TArray<float>* Heights = HeightMaps.Find(Key);
+	if (!Heights)
+	{
+		return false;
+	}
+	const double Gx = FMath::Min(TerrainGrid - 1e-6, FMath::Max(0.0, (U - Key.X) * TerrainGrid));
+	const double Gy = FMath::Min(TerrainGrid - 1e-6, FMath::Max(0.0, (V - Key.Y) * TerrainGrid));
+	const int32 I = FMath::FloorToInt32(Gx);
+	const int32 J = FMath::FloorToInt32(Gy);
+	const double Fu = Gx - I;
+	const double Fv = Gy - J;
+	const int32 W = TerrainGrid + 1;
+	const double H00 = (*Heights)[J * W + I];
+	const double H11 = (*Heights)[(J + 1) * W + I + 1];
+	if (Fu >= Fv)
+	{
+		const double H10 = (*Heights)[J * W + I + 1];
+		OutMeters = H00 + Fu * (H10 - H00) + Fv * (H11 - H10);
+	}
+	else
+	{
+		const double H01 = (*Heights)[(J + 1) * W + I];
+		OutMeters = H00 + Fv * (H01 - H00) + Fu * (H11 - H01);
+	}
+	return true;
+}
+
+void AEarthWorld::HomeCirclesIn(const FBox2D& Area, TArray<FVector>& OutCentreAndRadius) const
+{
+	if (Life)
+	{
+		Life->HomeCirclesIn(Area, OutCentreAndRadius);
+	}
 }
 
 uint8 AEarthWorld::CoverAt(const FVector& Position) const
@@ -321,6 +389,26 @@ void AEarthWorld::Tick(float DeltaSeconds)
 	}
 
 	UpdateAvatars();
+
+	// The living world moves every frame, by the room's clock. It keeps to the ground, so it is put
+	// away while the photographic view from the air is up.
+	if (Life && !bAerial)
+	{
+		TArray<FVector> Everyone;
+		Everyone.Add(Player->GetActorLocation() - FVector(0, 0, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
+		for (const TPair<FString, TObjectPtr<AEarthWalkAvatar>>& Pair : Avatars)
+		{
+			if (Pair.Value)
+			{
+				Everyone.Add(Pair.Value->GetActorLocation());
+			}
+		}
+		const UEarthWalkNet* Clock = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+		const FVector Ears = Controller->PlayerCameraManager ? Controller->PlayerCameraManager->GetCameraLocation() : Player->GetActorLocation();
+		// -EWTimeShift=<seconds> moves this game's clock, for taking a picture of a moment that is not now (a train passing).
+		static const double TimeShift = []() { double Shift = 0.0; FParse::Value(FCommandLine::Get(), TEXT("-EWTimeShift="), Shift); return Shift; }();
+		Life->Update(this, DeltaSeconds, (Clock ? Clock->Now() : UEarthWalkNet::LocalNow()) + TimeShift, Everyone, Ears);
+	}
 }
 
 void AEarthWorld::UpdateChunks(const FVector& Around)
@@ -343,6 +431,7 @@ void AEarthWorld::UpdateChunks(const FVector& Around)
 				It.Value()->DestroyComponent();
 			}
 			CoverMaps.Remove(It.Key());
+			HeightMaps.Remove(It.Key());
 			It.RemoveCurrent();
 		}
 	}
@@ -398,6 +487,10 @@ void AEarthWorld::UpdateLabels(FIntPoint Center)
 			if (It.Value())
 			{
 				It.Value()->Destroy();
+			}
+			if (Life)
+			{
+				Life->RemoveChunk(It.Key());
 			}
 			It.RemoveCurrent();
 		}
@@ -479,6 +572,21 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 						Actor->Build(*Items, (*Mesh)->GetComponentLocation(), TileCm, this);
 						Actor->SetActorHiddenInGame(bAerial);
 						Labels.Add(Key, Actor);
+						if (Life)
+						{
+							// The same reply says where the animals live and what the cars and trains do.
+							Life->AddChunk(Key, *Items, OriginX, OriginY, TileCm / 100.0);
+							// Crops already planted where a herd turns out to roam are taken up again.
+							TArray<FVector> Circles;
+							Life->HomeCircles(Key, Circles);
+							for (const FVector& Circle : Circles)
+							{
+								if (GroundCover)
+								{
+									GroundCover->Replant(FVector2D(Circle.X, Circle.Y), Circle.Z);
+								}
+							}
+						}
 					}
 				}
 			}
@@ -709,6 +817,9 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 	// roads, then buildings, so whatever lies on top of the ground is drawn over it.
 	TArray<uint8> Cover;
 	Cover.SetNumZeroed(CoverCells * CoverCells);
+	// The bare terrain, for standing animals and cars on: every ground vertex sits on a lattice point.
+	TArray<float> Heights;
+	Heights.SetNumZeroed((TerrainGrid + 1) * (TerrainGrid + 1));
 
 	int64 Offset = 24;
 	bool bOk = true;
@@ -754,6 +865,19 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 			Vertices[i] = FVector(-Pos[i * 3 + 1] * TileCm, Pos[i * 3] * TileCm, Pos[i * 3 + 2] * 100.0);
 			// File: east, north, up.
 			Normals[i] = FVector(Nrm[i * 3 + 1], Nrm[i * 3], Nrm[i * 3 + 2]);
+		}
+
+		if (SurfaceId <= 8)
+		{
+			for (int64 i = 0; i < NumVerts; ++i)
+			{
+				const int32 Gi = FMath::RoundToInt32(Pos[i * 3] * TerrainGrid);
+				const int32 Gj = FMath::RoundToInt32(Pos[i * 3 + 1] * TerrainGrid);
+				if (Gi >= 0 && Gi <= TerrainGrid && Gj >= 0 && Gj <= TerrainGrid)
+				{
+					Heights[Gj * (TerrainGrid + 1) + Gi] = Pos[i * 3 + 2];
+				}
+			}
 		}
 
 		TArray<int32> Triangles;
@@ -935,6 +1059,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		}
 	}
 	CoverMaps.Add(Key, MoveTemp(Cover));
+	HeightMaps.Add(Key, MoveTemp(Heights));
 	Mesh->SetVisibility(!bAerial);
 	Chunks.Add(Key, Mesh);
 	return true;
@@ -1180,6 +1305,10 @@ void AEarthWorld::SetAerial(bool bShowPhoto)
 	if (GroundCover)
 	{
 		GroundCover->SetActorHiddenInGame(bAerial);
+	}
+	if (Life)
+	{
+		Life->SetActorHiddenInGame(bAerial);
 	}
 	// A blink of black covers the change of scenery.
 	const APlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;

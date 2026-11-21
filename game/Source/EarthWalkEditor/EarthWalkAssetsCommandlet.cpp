@@ -10,6 +10,7 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionLocalPosition.h"
+#include "Materials/MaterialExpressionPerInstanceCustomData.h"
 #include "Materials/MaterialExpressionPerInstanceRandom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionSceneTexture.h"
@@ -520,6 +521,33 @@ return float3(0.8, 0.6, 0.0) * gust * Sway * lift * lift;
 		FinishMaterial(Material, Custom);
 	}
 
+	/**
+	 * Animals, cars and trains (AEarthLife): thousands of the engine's basic shapes drawn as a few
+	 * instanced meshes, each shape painted the flat colour it carries with it (three numbers per
+	 * instance), matt like the leaves.
+	 */
+	void BuildFigureMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthFigure"));
+		if (!Material)
+		{
+			return;
+		}
+		UMaterialExpressionPerInstanceCustomData3Vector* Paint = Node<UMaterialExpressionPerInstanceCustomData3Vector>(Material, -600, 0);
+		Paint->DataIndex = 0;
+		Paint->ConstDefaultValue = FLinearColor::White;
+		UMaterialExpressionConstant* Rough = Node<UMaterialExpressionConstant>(Material, -600, 200);
+		Rough->R = 0.9f;
+		UMaterialExpressionConstant* Matt = Node<UMaterialExpressionConstant>(Material, -600, 300);
+		Matt->R = 0.1f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Paint, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Matt, TEXT(""), MP_Specular);
+		Material->bUsedWithInstancedStaticMeshes = true;
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		SaveAsset(Material);
+	}
+
 	void BuildWaterMaterial(IAssetTools& Tools)
 	{
 		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthWater"));
@@ -550,12 +578,21 @@ UEarthWalkAssetsCommandlet::UEarthWalkAssetsCommandlet()
 int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 {
 	IAssetTools& Tools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	// -only=figure builds just the figures' material and leaves the others as they are.
+	FString Only;
+	if (FParse::Value(*Params, TEXT("only="), Only) && Only.Equals(TEXT("figure"), ESearchCase::IgnoreCase))
+	{
+		BuildFigureMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthFigure only"));
+		return 0;
+	}
+	BuildFigureMaterial(Tools);
 	BuildPaintedMaterial(Tools, TEXT("M_EarthTop"), TopCode, false);
 	BuildPaintedMaterial(Tools, TEXT("M_EarthWall"), WallCode, true);
 	BuildInkMaterial(Tools);
 	BuildWaterMaterial(Tools);
 	BuildFoliageMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 5 materials under /Game/EarthWalk"));
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 6 materials under /Game/EarthWalk"));
 	return 0;
 }

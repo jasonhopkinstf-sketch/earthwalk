@@ -20,8 +20,61 @@ namespace
 	constexpr double LinkTimeoutSeconds = 600.0;
 }
 
+double UEarthWalkNet::LocalNow()
+{
+	// The date is read once and the stopwatch does the rest, so the clock runs evenly.
+	static const double StartedAt = FPlatformTime::Seconds();
+	static const double DateThen = static_cast<double>(FDateTime::UtcNow().GetTicks() - FDateTime(1970, 1, 1).GetTicks()) / ETimespan::TicksPerSecond;
+	return DateThen + (FPlatformTime::Seconds() - StartedAt);
+}
+
+void UEarthWalkNet::StopClock()
+{
+	FTSTicker::GetCoreTicker().RemoveTicker(ClockHandle);
+	ClockHandle.Reset();
+}
+
+void UEarthWalkNet::AskTime()
+{
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("time"));
+	Message->SetNumberField(TEXT("c"), FPlatformTime::Seconds() * 1000.0); // our stopwatch, sent back unchanged
+	SendJson(Message);
+}
+
+/** Asks the server the time a few times now, and once a minute after. The quickest answer is the truest. */
+void UEarthWalkNet::SyncClock()
+{
+	StopClock();
+	ClockAsks = 0;
+	TWeakObjectPtr<UEarthWalkNet> WeakThis(this);
+	ClockHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakThis](float)
+	{
+		UEarthWalkNet* Self = WeakThis.Get();
+		if (!Self)
+		{
+			return false;
+		}
+		// Half a second after the welcome, then at 1.5, 3 and 6 seconds, then every minute.
+		static const double Times[] = { 0.5, 1.5, 3.0, 6.0 };
+		const double Since = FPlatformTime::Seconds() - Self->ClockStartedAt;
+		const double Due = Self->ClockAsks < 4 ? Times[Self->ClockAsks] : 6.0 + (Self->ClockAsks - 3) * 60.0;
+		if (Since >= Due && Self->bJoined)
+		{
+			if (Self->ClockAsks >= 4)
+			{
+				Self->ClockTripMs *= 1.2; // an old measurement slowly gives way to a fresh one
+			}
+			++Self->ClockAsks;
+			Self->AskTime();
+		}
+		return true;
+	}), 0.25f);
+}
+
 void UEarthWalkNet::Deinitialize()
 {
+	StopClock();
 	StopLogin();
 	Disconnect();
 	Super::Deinitialize();
@@ -31,6 +84,7 @@ void UEarthWalkNet::Disconnect()
 {
 	bWantConnection = false;
 	bJoined = false;
+	StopClock();
 	FTSTicker::GetCoreTicker().RemoveTicker(RetryHandle);
 	RetryHandle.Reset();
 	if (Socket.IsValid())
@@ -428,6 +482,22 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			}
 		}
 	}
+	else if (Type == TEXT("time"))
+	{
+		// The answer to AskTime: the server's clock, and our own stopwatch reading sent back.
+		double Sent = 0.0, ServerMs = 0.0;
+		if (Json->TryGetNumberField(TEXT("c"), Sent) && Json->TryGetNumberField(TEXT("now"), ServerMs))
+		{
+			const double Trip = FPlatformTime::Seconds() * 1000.0 - Sent;
+			if (Trip >= 0.0 && Trip < ClockTripMs)
+			{
+				ClockTripMs = Trip;
+				ClockOffsetMs = ServerMs + Trip / 2.0 - LocalNow() * 1000.0;
+				bClockSet = true;
+				UE_LOG(LogTemp, Log, TEXT("EarthWalk: shared clock: the server is %.0f ms from this PC's clock (round trip %.0f ms)"), ClockOffsetMs, Trip);
+			}
+		}
+	}
 	else if (Type == TEXT("chat"))
 	{
 		OnChat.Broadcast(Json->GetStringField(TEXT("name")), Json->GetStringField(TEXT("text")));
@@ -497,6 +567,16 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		RoomName = Json->GetStringField(TEXT("room"));
 		bJoined = true;
 		Json->TryGetBoolField(TEXT("signedIn"), bSignedIn);
+		// A first estimate of the shared clock; SyncClock then measures it properly.
+		double ServerMs = 0.0;
+		if (Json->TryGetNumberField(TEXT("now"), ServerMs))
+		{
+			ClockOffsetMs = ServerMs - LocalNow() * 1000.0;
+			ClockTripMs = TNumericLimits<double>::Max();
+			bClockSet = true;
+			ClockStartedAt = FPlatformTime::Seconds();
+			SyncClock();
+		}
 		Peers.Reset();
 
 		Home = FEarthHome();
