@@ -32,7 +32,9 @@ private:
 	void AddBox(const FVector& Location, const FRotator& Rotation, const FVector& SizeCm, UMaterialInterface* Material);
 	void AddText(const FString& Text, const FVector& Location, const FRotator& Rotation, float SizeCm, const FColor& Color);
 	void AddPlate(const FString& Text, const FVector& Location, double Yaw, AEarthWorld* World);
-	void AddTree(const FVector& Base, double Yaw, double HeightM, double RadiusM, bool bConifer, AEarthWorld* World);
+	void AddTree(const FVector& Base, double Yaw, double HeightM, double RadiusM, bool bConifer, uint32 Seed, AEarthWorld* World);
+	UInstancedStaticMeshComponent* Blobs(uint32 Color, AEarthWorld* World);
+	UInstancedStaticMeshComponent* Cones(uint32 Color, AEarthWorld* World);
 	UInstancedStaticMeshComponent* Instanced(TObjectPtr<UInstancedStaticMeshComponent>& Slot, UStaticMesh* Mesh, UMaterialInterface* Material, bool bCollide);
 
 	UPROPERTY()
@@ -50,11 +52,12 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInstancedStaticMeshComponent> Trunks;
 
+	/** Leafy spheres and needle cones, one component to each colour of leaf, blossom or fruit. */
 	UPROPERTY()
-	TObjectPtr<UInstancedStaticMeshComponent> Canopies;
+	TMap<uint32, TObjectPtr<UInstancedStaticMeshComponent>> BlobParts;
 
 	UPROPERTY()
-	TObjectPtr<UInstancedStaticMeshComponent> Conifers;
+	TMap<uint32, TObjectPtr<UInstancedStaticMeshComponent>> ConeParts;
 
 	int32 Count = 0;
 	int32 Trees = 0;

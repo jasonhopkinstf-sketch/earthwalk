@@ -18,7 +18,15 @@ namespace
 	// Brighter than life, to sit with the barnyard palette of the ground and houses (EarthWorld.cpp).
 	constexpr uint32 BarkColor = 0x8a5a3aff;
 	constexpr uint32 LeafColor = 0x4fae3cff;
+	constexpr uint32 LightLeafColor = 0x7cc64aff;
+	constexpr uint32 DeepLeafColor = 0x3a9446ff;
+	constexpr uint32 GoldLeafColor = 0xe2b93aff;
+	constexpr uint32 PinkBlossomColor = 0xf4a9c4ff;
+	constexpr uint32 WhiteBlossomColor = 0xf7f0e6ff;
+	constexpr uint32 AppleColor = 0xd8362eff;
+	constexpr uint32 OrangeColor = 0xf08a24ff;
 	constexpr uint32 NeedleColor = 0x2f8f52ff;
+	constexpr uint32 DeepNeedleColor = 0x267648ff;
 	// Letterboxes are about three times life size, so the number reads from across the street.
 	constexpr double LetterboxPostHeight = 150.0; // cm
 	const FVector LetterboxSize(54.0, 90.0, 66.0); // depth (towards the street), width, height in cm
@@ -112,27 +120,132 @@ UInstancedStaticMeshComponent* AEarthChunkLabels::Instanced(TObjectPtr<UInstance
 	return Slot;
 }
 
-/** A tree from engine shapes: a trunk with either a cluster of leafy spheres or a conifer cone. Scales are in metres. */
-void AEarthChunkLabels::AddTree(const FVector& Base, double Yaw, double HeightM, double RadiusM, bool bConifer, AEarthWorld* World)
+UInstancedStaticMeshComponent* AEarthChunkLabels::Blobs(uint32 Color, AEarthWorld* World)
+{
+	return Instanced(BlobParts.FindOrAdd(Color), SphereMesh, World->MaterialForFoliage(Color, 1.f, 6), false);
+}
+
+UInstancedStaticMeshComponent* AEarthChunkLabels::Cones(uint32 Color, AEarthWorld* World)
+{
+	return Instanced(ConeParts.FindOrAdd(Color), ConeMesh, World->MaterialForFoliage(Color, 1.f, 4), false);
+}
+
+/**
+ * A tree from engine shapes, in metres. The server says where it stands, how tall and wide it is and
+ * whether it is a conifer; which kind of tree it is comes from Seed, a number of the tree's own.
+ * Broadleaves: a round crown of several blobs (some light green, a few gold), a tall narrow one, a
+ * wide spreading one, one in blossom, one hung with fruit. Conifers: tiered, slim, or a plain cone.
+ */
+void AEarthChunkLabels::AddTree(const FVector& Base, double Yaw, double HeightM, double RadiusM, bool bConifer, uint32 Seed, AEarthWorld* World)
 {
 	const FRotator Spin(0.0, Yaw, 0.0);
-	const double TrunkH = HeightM * (bConifer ? 0.3 : 0.45);
-	Instanced(Trunks, CylinderMesh, World->MaterialForFoliage(BarkColor, 0.f), true)
-		->AddInstance(FTransform(Spin, Base + FVector(0, 0, TrunkH * 50.0), FVector(0.3, 0.3, TrunkH)), true);
+	const int32 Pick = Seed % 100;
+	const double H = HeightM * 100.0; // cm
+	const double R = RadiusM * 100.0;
+	// The engine sphere and cone are 100 cm across, so a scale is a size in metres.
+	const auto Blob = [&](UInstancedStaticMeshComponent* Part, const FVector& Offset, const FVector& SizeM)
+	{
+		Part->AddInstance(FTransform(Spin, Base + Spin.RotateVector(Offset), SizeM), true);
+	};
+	const auto Trunk = [&](double Tall, double Thick)
+	{
+		Instanced(Trunks, CylinderMesh, World->MaterialForFoliage(BarkColor, 0.f), true)
+			->AddInstance(FTransform(Spin, Base + FVector(0, 0, Tall * 50.0), FVector(Thick, Thick, Tall)), true);
+	};
+
 	if (bConifer)
 	{
-		Instanced(Conifers, ConeMesh, World->MaterialForFoliage(NeedleColor, 1.f), false)
-			->AddInstance(FTransform(Spin, Base + FVector(0, 0, HeightM * 60.0), FVector(RadiusM * 1.8, RadiusM * 1.8, HeightM * 0.8)), true);
+		if (Pick < 60)
+		{
+			// Tiered: three skirts, each smaller and higher.
+			UInstancedStaticMeshComponent* Part = Cones((Seed >> 8) % 3 == 0 ? DeepNeedleColor : NeedleColor, World);
+			Trunk(HeightM * 0.3, 0.3);
+			Blob(Part, FVector(0, 0, H * 0.42), FVector(RadiusM * 2.0, RadiusM * 2.0, HeightM * 0.5));
+			Blob(Part, FVector(0, 0, H * 0.62), FVector(RadiusM * 1.55, RadiusM * 1.55, HeightM * 0.42));
+			Blob(Part, FVector(0, 0, H * 0.82), FVector(RadiusM * 1.05, RadiusM * 1.05, HeightM * 0.36));
+		}
+		else if (Pick < 85)
+		{
+			// Slim and dark, like a cypress.
+			Trunk(HeightM * 0.2, 0.25);
+			Blob(Cones(DeepNeedleColor, World), FVector(0, 0, H * 0.56), FVector(RadiusM * 1.1, RadiusM * 1.1, HeightM * 0.9));
+		}
+		else
+		{
+			Trunk(HeightM * 0.3, 0.3);
+			Blob(Cones(NeedleColor, World), FVector(0, 0, H * 0.6), FVector(RadiusM * 1.8, RadiusM * 1.8, HeightM * 0.8));
+		}
+		++Trees;
+		return;
+	}
+
+	// A round crown: a big blob with a ring of five round it, alternately high and low, and one on top.
+	const auto RoundCrown = [&](UInstancedStaticMeshComponent* Part, double Size)
+	{
+		const FVector Centre(0, 0, H * 0.68);
+		Blob(Part, Centre, FVector(RadiusM * 2.0, RadiusM * 2.0, RadiusM * 1.7) * Size);
+		for (int32 i = 0; i < 5; ++i)
+		{
+			const double Angle = (i * 72.0 + (Seed >> 4) % 72) * UE_PI / 180.0;
+			const double Lift = (i % 2 ? 0.28 : -0.2) * R;
+			const double Big = 1.15 + 0.07 * ((Seed >> (i * 3)) % 5);
+			Blob(Part, Centre + FVector(FMath::Cos(Angle) * R * 0.6, FMath::Sin(Angle) * R * 0.6, Lift) * Size, FVector(RadiusM * Big) * Size);
+		}
+		Blob(Part, Centre + FVector(0, 0, R * 0.6 * Size), FVector(RadiusM * 1.3) * Size);
+	};
+
+	if (Pick < 40)
+	{
+		Trunk(HeightM * 0.45, 0.32);
+		RoundCrown(Blobs((Seed >> 8) % 3 == 0 ? LightLeafColor : LeafColor, World), 1.0);
+	}
+	else if (Pick < 58)
+	{
+		// Tall and narrow: three long blobs stacked, each slimmer than the one below.
+		UInstancedStaticMeshComponent* Part = Blobs(DeepLeafColor, World);
+		Trunk(HeightM * 0.32, 0.26);
+		Blob(Part, FVector(0, 0, H * 0.45), FVector(RadiusM * 1.5, RadiusM * 1.5, HeightM * 0.42));
+		Blob(Part, FVector(0, 0, H * 0.68), FVector(RadiusM * 1.25, RadiusM * 1.25, HeightM * 0.42));
+		Blob(Part, FVector(0, 0, H * 0.88), FVector(RadiusM * 0.85, RadiusM * 0.85, HeightM * 0.36));
+	}
+	else if (Pick < 75)
+	{
+		// Wide and spreading: a low dome with six flattened blobs round its rim, on a stout trunk.
+		UInstancedStaticMeshComponent* Part = Blobs(LeafColor, World);
+		Trunk(HeightM * 0.4, 0.42);
+		const FVector Centre(0, 0, H * 0.6);
+		Blob(Part, Centre, FVector(RadiusM * 2.3, RadiusM * 2.3, RadiusM * 1.3));
+		for (int32 i = 0; i < 6; ++i)
+		{
+			const double Angle = (i * 60.0 + (Seed >> 4) % 60) * UE_PI / 180.0;
+			Blob(Part, Centre + FVector(FMath::Cos(Angle) * R * 0.95, FMath::Sin(Angle) * R * 0.95, (i % 2 ? 0.12 : -0.1) * R), FVector(RadiusM * 1.5, RadiusM * 1.5, RadiusM * 1.0));
+		}
+	}
+	else if (Pick < 85)
+	{
+		// In blossom.
+		Trunk(HeightM * 0.42, 0.28);
+		RoundCrown(Blobs((Seed >> 8) % 2 ? PinkBlossomColor : WhiteBlossomColor, World), 0.9);
+	}
+	else if (Pick < 95)
+	{
+		// Hung with fruit: apples or oranges dotted over the lower half of the crown.
+		Trunk(HeightM * 0.42, 0.3);
+		RoundCrown(Blobs(LeafColor, World), 0.9);
+		UInstancedStaticMeshComponent* Fruit = Instanced(BlobParts.FindOrAdd((Seed >> 8) % 2 ? AppleColor : OrangeColor), SphereMesh,
+			World->MaterialForFoliage((Seed >> 8) % 2 ? AppleColor : OrangeColor, 0.f, 6), false);
+		for (int32 i = 0; i < 9; ++i)
+		{
+			const double Angle = (i * 40.0 + (Seed >> 5) % 40) * UE_PI / 180.0;
+			const double Out = R * (0.78 + 0.16 * (i % 3));
+			Blob(Fruit, FVector(FMath::Cos(Angle) * Out, FMath::Sin(Angle) * Out, H * 0.68 + R * (0.3 - 0.22 * (i % 4))) * FVector(0.9, 0.9, 1.0), FVector(0.3));
+		}
 	}
 	else
 	{
-		UInstancedStaticMeshComponent* Leaves = Instanced(Canopies, SphereMesh, World->MaterialForFoliage(LeafColor, 1.f), false);
-		// A rounded crown: one big sphere with three smaller ones tucked around and above it.
-		const FVector Centre = Base + FVector(0, 0, HeightM * 65.0);
-		Leaves->AddInstance(FTransform(Spin, Centre, FVector(RadiusM * 2.0, RadiusM * 2.0, RadiusM * 1.7)), true);
-		Leaves->AddInstance(FTransform(Spin, Centre + Spin.RotateVector(FVector(RadiusM * 45.0, RadiusM * 25.0, RadiusM * 45.0)), FVector(RadiusM * 1.4)), true);
-		Leaves->AddInstance(FTransform(Spin, Centre + Spin.RotateVector(FVector(-RadiusM * 50.0, -RadiusM * 30.0, RadiusM * 20.0)), FVector(RadiusM * 1.3)), true);
-		Leaves->AddInstance(FTransform(Spin, Centre + Spin.RotateVector(FVector(RadiusM * 10.0, -RadiusM * 55.0, -RadiusM * 10.0)), FVector(RadiusM * 1.2)), true);
+		// Turning gold.
+		Trunk(HeightM * 0.45, 0.32);
+		RoundCrown(Blobs(GoldLeafColor, World), 1.0);
 	}
 	++Trees;
 }
@@ -165,7 +278,9 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			Json.TryGetNumberField(TEXT("s"), HeightM);
 			Json.TryGetNumberField(TEXT("r"), RadiusM);
 			Json.TryGetNumberField(TEXT("c"), Conifer);
-			AddTree(At, Yaw, FMath::Clamp(HeightM, 2.0, 40.0), FMath::Clamp(RadiusM, 0.5, 12.0), Conifer > 0.5, World);
+			// The tree's own number comes from where it stands in its chunk, so it is the same tree every visit.
+			const uint32 Seed = HashCombine(GetTypeHash(FMath::RoundToInt32(U * 1000000.0)), GetTypeHash(FMath::RoundToInt32(V * 1000000.0)));
+			AddTree(At, Yaw, FMath::Clamp(HeightM, 2.0, 40.0), FMath::Clamp(RadiusM, 0.5, 12.0), Conifer > 0.5, Seed, World);
 			continue;
 		}
 

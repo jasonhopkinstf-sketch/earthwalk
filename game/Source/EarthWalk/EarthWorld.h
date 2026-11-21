@@ -112,8 +112,11 @@ public:
 	 */
 	UMaterialInstanceDynamic* MaterialForSurface(uint32 SurfaceId, uint32 Rgba);
 
-	/** Leafy or bark material for trees (instanced), tinted; Fluff 1 ruffles the normals for canopies. */
-	UMaterialInstanceDynamic* MaterialForFoliage(uint32 Rgba, float Fluff);
+	/**
+	 * Leafy or bark material for trees and plants (instanced), tinted; Fluff 1 ruffles the normals for
+	 * canopies, and SwayCm is how far the top of each shape moves in the wind (0 for trunks and stones).
+	 */
+	UMaterialInstanceDynamic* MaterialForFoliage(uint32 Rgba, float Fluff, int32 SwayCm = 0);
 
 	int32 NumLoadedChunks() const { return Chunks.Num(); }
 	const FString& GetLastError() const { return LastError; }

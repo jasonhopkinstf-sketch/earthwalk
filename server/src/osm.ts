@@ -66,7 +66,8 @@ const OSM_API_URL = process.env.EARTHWALK_OSM_API_URL ?? "https://api.openstreet
 /** "overpass,osmapi" tries Overpass mirrors first, then the main OSM API. */
 const SOURCES = (process.env.EARTHWALK_OSM_SOURCES ?? "overpass,osmapi").split(",").map((s) => s.trim());
 
-const throttle = new Throttle(1100);
+// Newest first: the map for where a player is now comes before places they have already left.
+const throttle = new Throttle(1100, true);
 const inflight = new InFlight<OsmJson>();
 let overpassDownUntil = 0;
 

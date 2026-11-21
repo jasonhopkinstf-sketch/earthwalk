@@ -9,6 +9,7 @@
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionLocalPosition.h"
 #include "Materials/MaterialExpressionPerInstanceRandom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionSceneTexture.h"
@@ -259,6 +260,19 @@ Rough = 0.95;
 return saturate(c);
 )HLSL");
 
+	/**
+	 * Wind: everything drawn with the foliage material leans to and fro together, in gusts that travel
+	 * across the land, by up to Sway centimetres. The foot of each shape stays put and its top moves
+	 * most (the engine's basic shapes run from -50 to 50 in their own space), so a tuft bends rather
+	 * than slides.
+	 */
+	const TCHAR* const SwayCode = TEXT(R"HLSL(
+float phase = Time * 1.7 + WorldPos.x * 0.0045 + WorldPos.y * 0.0033;
+float gust = sin(phase) + 0.45 * sin(phase * 2.3 + 1.7);
+float lift = saturate(0.5 + Local.z / 100.0);
+return float3(0.8, 0.6, 0.0) * gust * Sway * lift * lift;
+)HLSL");
+
 	bool SaveAsset(UObject* Asset)
 	{
 		UPackage* Package = Asset->GetOutermost();
@@ -478,6 +492,30 @@ return saturate(c);
 		UMaterialExpressionConstant* Matt = Node<UMaterialExpressionConstant>(Material, -300, 400);
 		Matt->R = 0.08f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Matt, TEXT(""), MP_Specular);
+		// Wind, as a second small node moving the vertices.
+		UMaterialExpressionCustom* Wind = Node<UMaterialExpressionCustom>(Material, -300, 700);
+		Wind->Code = SwayCode;
+		Wind->Description = TEXT("EarthWalk wind");
+		Wind->OutputType = CMOT_Float3;
+		Wind->Inputs.Reset();
+		for (const TCHAR* Name : { TEXT("WorldPos"), TEXT("Local"), TEXT("Time"), TEXT("Sway") })
+		{
+			FCustomInput Input;
+			Input.InputName = Name;
+			Wind->Inputs.Add(Input);
+		}
+		Wind->RebuildOutputs();
+		// Positions before any offset: the offset cannot depend on itself.
+		UMaterialExpressionWorldPosition* Still = Node<UMaterialExpressionWorldPosition>(Material, -900, 600);
+		Still->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		UMaterialExpressionLocalPosition* Local = Node<UMaterialExpressionLocalPosition>(Material, -900, 700);
+		Local->IncludedOffsets = EPositionIncludedOffsets::ExcludeOffsets;
+		Local->LocalOrigin = ELocalPositionOrigin::Instance;
+		Connect(Still, Wind, TEXT("WorldPos"));
+		Connect(Local, Wind, TEXT("Local"));
+		Connect(Node<UMaterialExpressionTime>(Material, -900, 800), Wind, TEXT("Time"));
+		Connect(Scalar(Material, TEXT("Sway"), 0.f, 900), Wind, TEXT("Sway"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Wind, TEXT(""), MP_WorldPositionOffset);
 		Material->bUsedWithInstancedStaticMeshes = true;
 		FinishMaterial(Material, Custom);
 	}

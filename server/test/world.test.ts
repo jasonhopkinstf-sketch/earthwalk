@@ -452,3 +452,32 @@ test("a home nobody measured is one or two storeys, and they are not all the sam
   const z = measured.sections.filter((x) => x.mat.id >= 20 && x.mat.id <= 23).flatMap((x) => x.pos.filter((_, i) => i % 3 === 2));
   assert.ok(Math.max(...z) - Math.min(...z) > 11, "a mapped height is kept");
 });
+
+test("a newest-first queue serves the latest request next, one job at a time", async () => {
+  const { Throttle } = await import("../src/net.ts");
+  const queue = new Throttle(0, true);
+  const order: string[] = [];
+  let running = 0;
+  const job = (name: string) => async (): Promise<string> => {
+    assert.equal(++running, 1, "one at a time");
+    await new Promise((r) => setTimeout(r, 5));
+    order.push(name);
+    running--;
+    return name;
+  };
+  // "rome" starts at once; the others queue while it runs, and the last one asked for goes next.
+  const all = [queue.run(job("rome")), queue.run(job("leigh")), queue.run(job("alaska"))];
+  assert.deepEqual(await Promise.all(all), ["rome", "leigh", "alaska"], "each caller gets its own answer");
+  assert.deepEqual(order, ["rome", "alaska", "leigh"]);
+
+  // A failing job does not stop the queue, and the plain queue keeps arrival order.
+  const plain = new Throttle(0);
+  const seen: string[] = [];
+  const results = await Promise.allSettled([
+    plain.run(async () => { throw new Error("no map"); }),
+    plain.run(async () => { seen.push("b"); }),
+    plain.run(async () => { seen.push("c"); }),
+  ]);
+  assert.equal(results[0].status, "rejected");
+  assert.deepEqual(seen, ["b", "c"]);
+});
