@@ -512,44 +512,50 @@ namespace
 {
 	/**
 	 * How each server surface id is drawn: which master material, in what colour, with which drawn
-	 * pattern. The colours are the barnyard palette (bright, warm, a picture-book farm) and replace the
-	 * server's own, which the browser still uses.
+	 * pattern. Ground and roads take their colour from here, the barnyard palette (bright, warm, a
+	 * picture-book farm), instead of the server's, which the browser still uses. Buildings keep the
+	 * server's colour: it paints every house its own.
 	 */
 	struct FSurfaceStyle
 	{
 		const TCHAR* Master; // asset name under /Game/EarthWalk/Materials
-		uint32 Color; // 0xRRGGBB
+		uint32 Color; // 0xRRGGBB, or 0 to use the colour the server sent
 		float Pattern; // M_EarthTop: 0 plain, 1 roof tiles, 2 furrows, 3 paving slabs, 4 grass strokes
 		float Windows; // M_EarthWall
 		float Bricks; // M_EarthWall: patches of drawn brick
+		float Homely; // M_EarthWall: somebody's house, so some get shutters and some boxes of flowers
 	};
 
 	const FSurfaceStyle* StyleFor(uint32 SurfaceId)
 	{
 		static const TMap<uint32, FSurfaceStyle> Styles = {
 			// Ground cover (server/src/chunk.ts MATERIALS)
-			{ 0, { TEXT("M_EarthTop"), 0x7fc04f, 4.f, 0.f, 0.f } }, // unclassified land: meadow
-			{ 1, { TEXT("M_EarthTop"), 0x63b944, 4.f, 0.f, 0.f } }, // parks and grass
-			{ 2, { TEXT("M_EarthTop"), 0x4e9a3e, 0.f, 0.f, 0.f } }, // forest floor
-			{ 3, { TEXT("M_EarthTop"), 0xe6c85a, 2.f, 0.f, 0.f } }, // farmland: wheat gold, furrowed
-			{ 4, { TEXT("M_EarthTop"), 0xf3e2a6, 0.f, 0.f, 0.f } }, // sand
-			{ 5, { TEXT("M_EarthTop"), 0x88c653, 4.f, 0.f, 0.f } }, // residential land: lawns
-			{ 6, { TEXT("M_EarthTop"), 0xcbc4b4, 3.f, 0.f, 0.f } }, // paved
-			{ 7, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f } },
-			{ 8, { TEXT("M_EarthTop"), 0xa59c90, 0.f, 0.f, 0.f } }, // rock
+			{ 0, { TEXT("M_EarthTop"), 0x7fc04f, 4.f, 0.f, 0.f, 0.f } }, // unclassified land: meadow
+			{ 1, { TEXT("M_EarthTop"), 0x63b944, 4.f, 0.f, 0.f, 0.f } }, // parks and grass
+			{ 2, { TEXT("M_EarthTop"), 0x4e9a3e, 0.f, 0.f, 0.f, 0.f } }, // forest floor
+			{ 3, { TEXT("M_EarthTop"), 0xe6c85a, 2.f, 0.f, 0.f, 0.f } }, // farmland: wheat gold, furrowed
+			{ 4, { TEXT("M_EarthTop"), 0xf3e2a6, 0.f, 0.f, 0.f, 0.f } }, // sand
+			{ 5, { TEXT("M_EarthTop"), 0x88c653, 4.f, 0.f, 0.f, 0.f } }, // residential land: lawns
+			{ 6, { TEXT("M_EarthTop"), 0xcbc4b4, 3.f, 0.f, 0.f, 0.f } }, // paved
+			{ 7, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f } },
+			{ 8, { TEXT("M_EarthTop"), 0xa59c90, 0.f, 0.f, 0.f, 0.f } }, // rock
 			// Roads
-			{ 10, { TEXT("M_EarthTop"), 0x7f838c, 0.f, 0.f, 0.f } },
-			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f } }, // paths
-			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f } }, // railway
-			{ 13, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f } }, // streams
-			// Building walls, with windows
-			{ 20, { TEXT("M_EarthWall"), 0xf6e8c6, 0.f, 1.f, 0.f } }, // cream
-			{ 21, { TEXT("M_EarthWall"), 0xf2cc74, 0.f, 1.f, 0.f } }, // butter yellow
-			{ 22, { TEXT("M_EarthWall"), 0xbcd6e6, 0.f, 1.f, 0.f } }, // pale blue
-			{ 23, { TEXT("M_EarthWall"), 0xc9503c, 0.f, 1.f, 1.f } }, // barn red
+			{ 10, { TEXT("M_EarthTop"), 0x7f838c, 0.f, 0.f, 0.f, 0.f } },
+			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f, 0.f } }, // paths
+			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f, 0.f } }, // railway
+			{ 13, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f } }, // streams
+			// Building walls, with windows, in the server's paint
+			{ 20, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 1.f } }, // painted houses
+			{ 21, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 0.f } }, // large painted buildings
+			{ 22, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 0.f } }, // large concrete buildings
+			{ 23, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 1.f, 1.f } }, // brick houses
 			// Roofs
-			{ 24, { TEXT("M_EarthTop"), 0x5d6f8c, 1.f, 0.f, 0.f } }, // slate
-			{ 25, { TEXT("M_EarthTop"), 0xc75f3f, 1.f, 0.f, 0.f } }, // terracotta
+			{ 24, { TEXT("M_EarthTop"), 0, 1.f, 0.f, 0.f, 0.f } },
+			{ 25, { TEXT("M_EarthTop"), 0, 1.f, 0.f, 0.f, 0.f } },
+			// Doors, woodwork (frames, steps, porch posts, the undersides of eaves) and chimneys
+			{ 26, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 27, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
+			{ 28, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 1.f, 0.f } },
 		};
 		return Styles.Find(SurfaceId);
 	}
@@ -577,11 +583,13 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Master, this);
 	if (Material)
 	{
-		const FColor Color((Style->Color >> 16) & 0xff, (Style->Color >> 8) & 0xff, Style->Color & 0xff, 255);
+		const uint32 Rgb = Style->Color ? Style->Color : (Rgba >> 8);
+		const FColor Color((Rgb >> 16) & 0xff, (Rgb >> 8) & 0xff, Rgb & 0xff, 255);
 		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
 		Material->SetScalarParameterValue(TEXT("Pattern"), Style->Pattern);
 		Material->SetScalarParameterValue(TEXT("Windows"), Style->Windows);
 		Material->SetScalarParameterValue(TEXT("Bricks"), Style->Bricks);
+		Material->SetScalarParameterValue(TEXT("Homely"), Style->Homely);
 	}
 	SurfaceMaterials.Add(Key, Material);
 	return Material;
@@ -764,9 +772,12 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 				// Only the position within a storey matters, which also keeps the value small and exact.
 				// The server sinks walls WallSinkMeters below the lowest ground corner.
 				const double RowShift = FMath::Frac((static_cast<double>(Base) + WallSinkMeters) / StoreyMeters);
+				// The second number is one each building has to itself (near enough: it comes from the height
+				// of its base), which the wall material uses to give houses different shutters and flowers.
+				const double Own = FMath::Frac(FMath::Abs(static_cast<double>(Base)) * 7.3137 + 0.19);
 				for (int64 k = 0; k < 3; ++k)
 				{
-					UVs[Triangles[i + k]] = FVector2D(RowShift, 0.0);
+					UVs[Triangles[i + k]] = FVector2D(RowShift, Own);
 				}
 			}
 		}

@@ -1,6 +1,6 @@
 @echo off
-rem Rebuilds the world textures and materials under game\Content\EarthWalk from code.
-rem Only needed after changing fetch-textures.ps1 or EarthWalkAssetsCommandlet.cpp; the results
+rem Rebuilds the world materials under game\Content\EarthWalk from code.
+rem Only needed after changing EarthWalkAssetsCommandlet.cpp; the results
 rem are committed. Close the Unreal editor first. The game must have been built (game\build.cmd).
 setlocal
 cd /d "%~dp0.."
@@ -20,10 +20,7 @@ echo Found "%UE%" but it does not look like an Unreal Engine install.
 goto :stop
 
 :run
-echo Fetching textures...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0fetch-textures.ps1"
-if errorlevel 1 goto :failed
-echo Importing textures and building materials (a few minutes)...
+echo Building materials (a minute or two)...
 "%UE%\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "%cd%\EarthWalk.uproject" -run=EarthWalkAssets -unattended -nopause -nosplash -stdout -FullStdOutLogOutput > assets-log.txt 2>&1
 if errorlevel 1 goto :failed
 echo Done. The assets are in game\Content\EarthWalk; commit them.

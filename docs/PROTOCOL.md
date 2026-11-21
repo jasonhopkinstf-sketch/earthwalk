@@ -50,7 +50,7 @@ Then `sectionCount` sections, each:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| materialId | u32 | 0–8 ground types, 10–13 roads/paths/rail/streams, 20–25 buildings, 30 trees |
+| materialId | u32 | 0–8 ground types, 10–13 roads/paths/rail/streams, 20–28 buildings, 30 trees |
 | color | u32 | `0xRRGGBBAA`, sRGB |
 | flags | u32 | bit 0: the player collides with this section |
 | vertexCount | u32 | |
@@ -61,6 +61,14 @@ Then `sectionCount` sections, each:
 
 `u`/`v` may fall slightly outside 0–1 (buildings belong to the chunk holding their
 centre; roads overlap chunk edges a little so they join up).
+
+Buildings: the id says what a surface is and the colour says what paint it has, so one id can
+come in several sections, one per colour (sections are ordered by id, then colour, and no pair
+repeats). 20 painted house walls, 21 large painted walls, 22 large concrete walls, 23 brick
+house walls; 24 and 25 roofs; 26 doors (no collision); 27 woodwork such as door frames, steps,
+porch posts, chimney caps and the undersides of eaves (no collision); 28 chimneys (no
+collision). A client that does not know an id can draw it in its colour. Homes (small buildings
+that are not garages, sheds or shops) get a door on the wall facing the nearest road.
 
 ## Labels: `GET /v1/labels/16/{x}/{y}`
 

@@ -14,7 +14,7 @@ import { type Building, DATA_Z, loadFeatures, type Features, type GroundClass, t
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 6;
+export const GENERATOR_REV = 7;
 export const FLAG_COLLISION = 1;
 
 interface MaterialDef { id: number; color: number; collision: boolean }
@@ -40,12 +40,35 @@ export const MATERIALS = {
   wall3: { id: 23, color: rgb(0xa9553f), collision: true },
   roof0: { id: 24, color: rgb(0x6e6a66), collision: true },
   roof1: { id: 25, color: rgb(0x8f4a3a), collision: true },
+  door: { id: 26, color: rgb(0xb5372e), collision: false },
+  trim: { id: 27, color: rgb(0xf4f1e6), collision: false },
+  chimney: { id: 28, color: rgb(0xb5553c), collision: false },
   tree: { id: 30, color: rgb(0x2f6b2f), collision: false },
 } satisfies Record<string, MaterialDef>;
 
 const GROUND_ORDER: GroundClass[] = ["urban", "farm", "grass", "forest", "sand", "rock", "paved", "water"]; // later wins
-const WALLS = [MATERIALS.wall0, MATERIALS.wall1, MATERIALS.wall2, MATERIALS.wall3];
-const ROOFS = [MATERIALS.roof0, MATERIALS.roof1];
+// ---- house paints. A building keeps its own colours, chosen by its id, so a street is a row of
+// different houses. The wall and roof ids say how a surface is drawn (docs/PROTOCOL.md); a section's
+// colour says what paint it has, so one id can come in several sections.
+
+/** Painted houses (wall0). */
+const HOUSE_PAINTS = [0xf6e8c6, 0xf2cc74, 0xbcd6e6, 0xa9d6a4, 0xf3b9a2, 0xefe9dc, 0xe3a857, 0x9dbbe0, 0xdf9a94];
+/** Brick houses (wall3). */
+const HOUSE_BRICKS = [0xc9503c, 0xb5553c, 0xd07a55];
+/** Shops, offices, flats and anything large: calmer (wall1 painted, wall2 concrete). */
+const BIG_PAINTS = [0xbcd6e6, 0xd7dde3, 0xe9dfc9, 0xcdd8c4, 0xe6cdbb, 0xc9c4d8];
+const ROOF_PAINTS: [typeof MATERIALS.roof0, number][] = [
+  [MATERIALS.roof0, 0x5d6f8c], [MATERIALS.roof1, 0xc75f3f], [MATERIALS.roof0, 0x4f5560],
+  [MATERIALS.roof1, 0x8a5a44], [MATERIALS.roof0, 0x6f8f5a], [MATERIALS.roof1, 0xb5483a],
+];
+const DOOR_PAINTS = [0xb5372e, 0x3f6fb0, 0x3f7f4f, 0xe0a82e, 0x7a4f9a, 0x2f8f8a, 0x7a4a2e];
+const BARN_RED = 0xb8372b;
+const BARN_ROOF = 0x4a4f5c;
+const BARN_KINDS = /^(barn|farm|farm_auxiliary|stable|cowshed|sty|granary)$/;
+/** Buildings that are small but are not somebody's house: no front door, porch or chimney. */
+const PLAIN_KINDS = /^(garage|garages|shed|carport|roof|greenhouse|kiosk|hut|industrial|warehouse|retail|commercial|supermarket|service|toilets|transformer_tower)$/;
+
+const painted = (m: MaterialDef, hex: number): MaterialDef => ({ id: m.id, color: rgb(hex), collision: m.collision });
 
 class Section {
   readonly mat: MaterialDef;
@@ -426,13 +449,49 @@ export function insetRing(ring: XY[], d: number): XY[] | null {
   return out;
 }
 
+/** A flat polygon with a given normal, wound to agree with it. */
+function face(sec: Section, pts: [number, number, number][], n: [number, number, number]): void {
+  const [a, b, c] = pts;
+  const gx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
+  const gy = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
+  const gz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const flip = gx * n[0] + gy * n[1] + gz * n[2] < 0;
+  const first = sec.count;
+  for (const [e, nn, h] of pts) sec.vert(e, nn, h, n[0], n[1], n[2]);
+  for (let i = 1; i + 1 < pts.length; i++) {
+    if (flip) sec.tri(first, first + i + 1, first + i);
+    else sec.tri(first, first + i, first + i + 1);
+  }
+}
+
+/**
+ * A box placed against (or standing free of) a wall. `t` runs along the wall and `o` points out of
+ * it, both unit vectors; w is the extent along the wall, d the extent out of it, z the heights.
+ * Faces the box does not show (the back against the wall, the bottom in the ground) are left out.
+ */
+function box(sec: Section, x: number, y: number, t: XY, o: XY, w0: number, w1: number, d0: number, d1: number, z0: number, z1: number, back = false, bottom = false): void {
+  const p = (w: number, d: number, z: number): [number, number, number] => [x + t[0] * w + o[0] * d, y + t[1] * w + o[1] * d, z];
+  face(sec, [p(w0, d1, z0), p(w1, d1, z0), p(w1, d1, z1), p(w0, d1, z1)], [o[0], o[1], 0]);
+  face(sec, [p(w0, d0, z0), p(w0, d1, z0), p(w0, d1, z1), p(w0, d0, z1)], [-t[0], -t[1], 0]);
+  face(sec, [p(w1, d0, z0), p(w1, d1, z0), p(w1, d1, z1), p(w1, d0, z1)], [t[0], t[1], 0]);
+  face(sec, [p(w0, d0, z1), p(w1, d0, z1), p(w1, d1, z1), p(w0, d1, z1)], [0, 0, 1]);
+  if (back) face(sec, [p(w0, d0, z0), p(w1, d0, z0), p(w1, d0, z1), p(w0, d0, z1)], [-o[0], -o[1], 0]);
+  if (bottom) face(sec, [p(w0, d0, z0), p(w1, d0, z0), p(w1, d1, z0), p(w0, d1, z0)], [0, 0, -1]);
+}
+
+/** Where a chimney can stand on a pitched roof: a point on the ridge and the way the ridge runs. */
+interface RidgeSpot { x: number; y: number; z: number; along: XY }
+
+/** How far a pitched roof reaches out past the walls, in metres. */
+const EAVES = 0.4;
+
 /**
  * Roofs: a gable on rectangular houses, a hip on other small convex ones, and on L-shaped and other
  * mid-sized low buildings a hip that follows the outline (sloping in from every wall to a flat strip
  * along the middle). Flat on everything else and whenever OSM says flat: big or tall buildings stay
  * flat unless OSM says otherwise.
  */
-function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Section, roof: Section): void {
+function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Section, roof: Section, soffit: Section): RidgeSpot | null {
   const shape = b.roof ?? "";
   const pitched = !/^(flat|skillion)$/.test(shape) &&
     (/gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape) || (areaM2 < 1500 && b.height < 13));
@@ -446,11 +505,30 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Se
       const [a, b2, c, d] = long ? [p0, p1, p2, p3] : [p1, p2, p3, p0];
       const r0: [number, number, number] = [(d[0] + a[0]) / 2, (d[1] + a[1]) / 2, top + rise];
       const r1: [number, number, number] = [(b2[0] + c[0]) / 2, (b2[1] + c[1]) / 2, top + rise];
-      slopeFace(roof, [[a[0], a[1], top], [b2[0], b2[1], top], r1, r0]);
-      slopeFace(roof, [[c[0], c[1], top], [d[0], d[1], top], r0, r1]);
+      // The slopes run on past the walls: out over the gable ends and down past the eaves.
+      const run = Math.hypot(b2[0] - a[0], b2[1] - a[1]) || 1;
+      const u: XY = [(b2[0] - a[0]) / run, (b2[1] - a[1]) / run]; // along the ridge
+      const span = Math.hypot(a[0] - d[0], a[1] - d[1]) || 1;
+      const out: XY = [(a[0] - d[0]) / span, (a[1] - d[1]) / span]; // from the ridge towards side a-b2
+      const drop = (EAVES * rise) / (span / 2);
+      const eave = (p: XY, alongRidge: number, side: number): [number, number, number] =>
+        [p[0] + u[0] * EAVES * alongRidge + out[0] * EAVES * side, p[1] + u[1] * EAVES * alongRidge + out[1] * EAVES * side, top - drop];
+      const R0: [number, number, number] = [r0[0] - u[0] * EAVES, r0[1] - u[1] * EAVES, r0[2]];
+      const R1: [number, number, number] = [r1[0] + u[0] * EAVES, r1[1] + u[1] * EAVES, r1[2]];
+      const slopes: [number, number, number][][] = [
+        [eave(a, -1, 1), eave(b2, 1, 1), R1, R0],
+        [eave(c, 1, -1), eave(d, -1, -1), R0, R1],
+      ];
+      for (const pts of slopes) {
+        slopeFace(roof, pts);
+        // The underside, seen from the street under the eaves.
+        const first = roof.count - 4;
+        const n: [number, number, number] = [-roof.nrm[first * 3], -roof.nrm[first * 3 + 1], -roof.nrm[first * 3 + 2]];
+        face(soffit, pts.map(([e, nn, h]) => [e, nn, h - 0.04]), n);
+      }
       gableEnd(walls, b2, c, top, r1);
       gableEnd(walls, d, a, top, r0);
-      return;
+      return { x: r0[0] + (r1[0] - r0[0]) * 0.3, y: r0[1] + (r1[1] - r0[1]) * 0.3, z: top + rise, along: u };
     }
     // Hip: the outline pulled in towards the middle and raised, with a small flat top.
     let mx = 0, my = 0;
@@ -466,7 +544,8 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Se
     for (const [e, n] of inner) roof.vert(e, n, top + rise, 0, 0, 1);
     const tris = earcut(inner.flat());
     for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
-    return;
+    const edge = Math.hypot(simple[1][0] - simple[0][0], simple[1][1] - simple[0][1]) || 1;
+    return { x: mx, y: my, z: top + rise, along: [(simple[1][0] - simple[0][0]) / edge, (simple[1][1] - simple[0][1]) / edge] };
   }
   if (simple.length >= 4 && simple.length <= 24) {
     // Any other outline: slope in from every wall as far as the shape allows, leaving a flat strip on top.
@@ -482,21 +561,34 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, walls: Se
       for (const [e, n] of inner) roof.vert(e, n, top + rise, 0, 0, 1);
       const tris = earcut(inner.flat());
       for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
-      return;
+      // A chimney can stand just inside the longest edge of the flat strip.
+      let longest = 0;
+      let spot: RidgeSpot | null = null;
+      for (let i = 0; i < inner.length; i++) {
+        const p = inner[i], q = inner[(i + 1) % inner.length];
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        if (len <= longest) continue;
+        longest = len;
+        const u: XY = [(q[0] - p[0]) / len, (q[1] - p[1]) / len];
+        spot = { x: p[0] + (q[0] - p[0]) * 0.35 - u[1] * 0.3, y: p[1] + (q[1] - p[1]) * 0.35 + u[0] * 0.3, z: top + rise, along: u };
+      }
+      return spot;
     }
   }
   const first = roof.count;
   for (const [e, n] of ring) roof.vert(e, n, top, 0, 0, 1);
   const tris = earcut(ring.flat());
   for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+  return null;
 }
 
 export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation): ChunkMesh {
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
-  const sections = new Map<number, Section>();
+  const sections = new Map<string, Section>();
   const sec = (m: MaterialDef): Section => {
-    let s = sections.get(m.id);
-    if (!s) sections.set(m.id, (s = new Section(m)));
+    const key = `${m.id}:${m.color}`;
+    let s = sections.get(key);
+    if (!s) sections.set(key, (s = new Section(m)));
     return s;
   };
   const E = (wx: number): number => (wx - cx) * S;
@@ -604,6 +696,22 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
   for (const road of features.roads) ribbon(road);
 
   // ---- buildings: extruded footprints, owned by the chunk containing their centroid
+  // Road points near this chunk (chunk-local metres), for finding the wall that faces the street.
+  const roadPoints: XY[] = [];
+  for (const road of features.roads) {
+    if (road.cls !== "road") continue;
+    for (let i = 0; i < road.pts.length; i++) {
+      const [wx, wy] = road.pts[i];
+      if (wx < cx - 0.25 || wx > cx + 1.25 || wy < cy - 0.25 || wy > cy + 1.25) continue;
+      roadPoints.push([E(wx), N(wy)]);
+      // Long straight pieces have few points; add some along the way.
+      if (i + 1 < road.pts.length) {
+        const [nx, ny] = road.pts[i + 1];
+        const steps = Math.min(40, Math.floor((Math.hypot(nx - wx, ny - wy) * S) / 12));
+        for (let k = 1; k < steps; k++) roadPoints.push([E(wx + ((nx - wx) * k) / steps), N(wy + ((ny - wy) * k) / steps)]);
+      }
+    }
+  }
   for (const b of features.buildings) {
     let mx = 0;
     let my = 0;
@@ -629,7 +737,18 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     const top = Math.max((lo + hi) / 2 + b.height, hi + 2.4);
 
     const h = hash32(b.id);
-    const walls = sec(WALLS[h % WALLS.length]);
+    const areaM2 = Math.abs(area2) / 2;
+    const kind = b.kind ?? "";
+    const barn = BARN_KINDS.test(kind);
+    const small = areaM2 < 400 && b.height < 13;
+    const homely = small && areaM2 >= 35 && !barn && !PLAIN_KINDS.test(kind);
+    const wallMat = barn ? painted(MATERIALS.wall0, BARN_RED)
+      : !small ? painted(h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, BIG_PAINTS[(h >>> 4) % BIG_PAINTS.length])
+      : (h >>> 4) % 4 === 0 ? painted(MATERIALS.wall3, HOUSE_BRICKS[(h >>> 6) % HOUSE_BRICKS.length])
+      : painted(MATERIALS.wall0, HOUSE_PAINTS[(h >>> 6) % HOUSE_PAINTS.length]);
+    const roofPaint = ROOF_PAINTS[(h >>> 8) % ROOF_PAINTS.length];
+    const roofMat = barn ? painted(MATERIALS.roof0, BARN_ROOF) : painted(roofPaint[0], roofPaint[1]);
+    const walls = sec(wallMat);
     for (let i = 0; i < ring.length; i++) {
       const [ae, an] = ring[i];
       const [be, bn] = ring[(i + 1) % ring.length];
@@ -646,7 +765,67 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       walls.tri(v0, v1, v2);
       walls.tri(v0, v2, v3);
     }
-    addRoof(ring, top, b, Math.abs(area2) / 2, walls, sec(ROOFS[(h >>> 8) % ROOFS.length]));
+    const ridge = addRoof(ring, top, b, areaM2, walls, sec(roofMat), sec(MATERIALS.trim));
+
+    // A chimney astride the ridge of most houses.
+    if (ridge && homely && (h >>> 16) % 5 < 4) {
+      const across: XY = [-ridge.along[1], ridge.along[0]];
+      box(sec(MATERIALS.chimney), ridge.x, ridge.y, ridge.along, across, -0.38, 0.38, -0.38, 0.38, ridge.z - 0.6, ridge.z + 1.0, true);
+      box(sec(painted(MATERIALS.trim, 0x4f5560)), ridge.x, ridge.y, ridge.along, across, -0.46, 0.46, -0.46, 0.46, ridge.z + 1.0, ridge.z + 1.12, true, true);
+    }
+
+    // A front door on the wall that faces the street, with a step and, on some, a little porch.
+    if ((homely || barn) && top - lo > (barn ? 3.6 : 2.7)) {
+      const wide = barn ? 1.7 : 0.72;
+      let best = -1;
+      let bestScore = Infinity;
+      for (let i = 0; i < ring.length; i++) {
+        const [ae, an] = ring[i];
+        const [be, bn] = ring[(i + 1) % ring.length];
+        const len = Math.hypot(be - ae, bn - an);
+        if (len < wide * 2 + 0.9) continue;
+        const me = (ae + be) / 2, mn = (an + bn) / 2;
+        const oe = (bn - an) / len, on = -(be - ae) / len;
+        // The nearest road in front of this wall; failing any, the longest wall wins.
+        let score = 1000 - len;
+        for (const [qe, qn] of roadPoints) {
+          const de = qe - me, dn = qn - mn;
+          if (de * oe + dn * on <= 1) continue;
+          const dist = Math.hypot(de, dn);
+          if (dist < 90 && dist < score) score = dist;
+        }
+        if (score < bestScore) { bestScore = score; best = i; }
+      }
+      if (best >= 0) {
+        const [ae, an] = ring[best];
+        const [be, bn] = ring[(best + 1) % ring.length];
+        const len = Math.hypot(be - ae, bn - an);
+        const t: XY = [(be - ae) / len, (bn - an) / len];
+        const o: XY = [(bn - an) / len, -(be - ae) / len];
+        const at = clamp(len * (0.3 + ((h >>> 12) % 100) / 250), wide + 0.45, len - wide - 0.45);
+        const x = ae + t[0] * at, y = an + t[1] * at;
+        const g = ground(cx + x / S, cy - y / S);
+        const trim = sec(MATERIALS.trim);
+        if (barn) {
+          // Barn doors: a wide white frame and two dark leaves.
+          box(trim, x, y, t, o, -1.7, 1.7, 0, 0.1, g - 0.3, g + 3.2);
+          const leaf = sec(painted(MATERIALS.door, 0x8f2a22));
+          box(leaf, x, y, t, o, -1.5, -0.04, 0.1, 0.16, g + 0.02, g + 3.0);
+          box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
+        } else {
+          box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.32);
+          box(sec(painted(MATERIALS.door, DOOR_PAINTS[(h >>> 18) % DOOR_PAINTS.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
+          box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
+          box(sec(painted(MATERIALS.trim, 0xcfc8b8)), x, y, t, o, -0.85, 0.85, 0, 0.55, g - 0.4, g + 0.12);
+          if ((h >>> 21) % 2 === 0 && top - g > 3.2) {
+            // A porch: a small roof over the door on two posts.
+            box(sec(roofMat), x, y, t, o, -0.98, 0.98, 0, 1.0, g + 2.46, g + 2.6, false, true);
+            box(trim, x, y, t, o, -0.9, -0.8, 0.82, 0.92, g - 0.4, g + 2.46, true);
+            box(trim, x, y, t, o, 0.8, 0.9, 0.82, 0.92, g - 0.4, g + 2.46, true);
+          }
+        }
+      }
+    }
   }
 
   // ---- trees: cones, for clients that ignore the labels route (both of ours plant their own trees from it)
@@ -667,7 +846,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     for (let k = 0; k < SIDES; k++) trees.tri(first + k, first + ((k + 1) % SIDES), apex);
   }
 
-  return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((a, b) => a.mat.id - b.mat.id), metersPerTile: S };
+  return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((a, b) => a.mat.id - b.mat.id || a.mat.color - b.mat.color), metersPerTile: S };
 }
 
 /** Serialises a chunk mesh to the EWC1 binary layout (docs/PROTOCOL.md). */

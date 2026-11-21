@@ -17,6 +17,8 @@ export interface Building {
   id: number; ring: Pt[]; height: number; housenumber?: string; street?: string;
   /** OSM roof:shape and roof:height, when mapped. */
   roof?: string; roofHeight?: number;
+  /** The OSM building value when it says more than "yes": house, barn, garage, retail... */
+  kind?: string;
 }
 /** `name` is set for highway ways only. */
 export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string }
@@ -339,7 +341,8 @@ export function parseOsm(json: OsmJson): Features {
   const isBuilding = (tags: Record<string, string>): boolean => !!tags.building && tags.building !== "no";
   const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[]): void => {
     if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return;
-    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags), ...roofOf(tags) });
+    const kind = tags.building !== "yes" ? { kind: tags.building } : {};
+    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags), ...roofOf(tags), ...kind });
   };
 
   const usedAsOuter = new Set<number>();

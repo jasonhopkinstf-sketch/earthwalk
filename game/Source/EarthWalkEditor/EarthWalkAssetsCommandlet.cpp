@@ -1,8 +1,6 @@
 #include "EarthWalkAssetsCommandlet.h"
 
-#include "AssetImportTask.h"
 #include "AssetToolsModule.h"
-#include "Engine/Texture2D.h"
 #include "Factories/MaterialFactoryNew.h"
 #include "IAssetTools.h"
 #include "MaterialEditingLibrary.h"
@@ -15,7 +13,6 @@
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionSceneTexture.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
-#include "Materials/MaterialExpressionTextureObjectParameter.h"
 #include "Materials/MaterialExpressionTime.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
@@ -29,18 +26,11 @@ DEFINE_LOG_CATEGORY_STATIC(LogEarthWalkAssets, Log, All);
 
 namespace
 {
-	const TCHAR* const TexturePath = TEXT("/Game/EarthWalk/Textures");
 	const TCHAR* const MaterialPath = TEXT("/Game/EarthWalk/Materials");
-
-	// Names used by game/Tools/fetch-textures.ps1 and by AEarthWorld's surface table.
-	const TCHAR* const TextureNames[] = {
-		TEXT("plaster"), TEXT("brick"), TEXT("concrete"), TEXT("asphalt"), TEXT("grass"), TEXT("forest"), TEXT("sand"),
-		TEXT("roof_clay"), TEXT("roof_grey"), TEXT("rock"), TEXT("gravel"), TEXT("soil"), TEXT("dirt"), TEXT("paving"),
-	};
 
 	// The look is a drawn cartoon: flat painted colours, matt, with a little brushwork, and patterns
 	// that say "tiles" or "bricks" rather than photographs of them. M_EarthInk then bands the light and
-	// draws the outlines. The textures above are still imported but no longer used by these materials.
+	// draws the outlines. Nothing here uses a texture: every mark is worked out from where the surface is.
 
 	/** Ground, roads and roofs: the colour, a little uneven as if brushed on, with a drawn pattern for some surfaces. */
 	const TCHAR* const TopCode = TEXT(R"HLSL(
@@ -121,6 +111,27 @@ float3 c = lerp(wall, trim * 0.9, sill * Windows);
 c = lerp(c, trim, frame * Windows);
 c = lerp(c, glass, win * Windows);
 c = lerp(c, trim, bars * win * Windows * detail);
+// Homes: shutters on some, a box of flowers under the windows of others. RowShift.y is a number each
+// building has to itself, so a house is the same all the way round and differs from its neighbours.
+float own = RowShift.y;
+float home = Homely * Windows;
+float hasShutters = frac(own * 3.7) > 0.45 ? 1.0 : 0.0;
+float hasFlowers = frac(own * 5.3) > 0.5 ? 1.0 : 0.0;
+float shutter = (((f.x > 0.165 && f.x < 0.228) || (f.x > 0.772 && f.x < 0.835)) && f.y > 0.275 && f.y < 0.805) ? 1.0 : 0.0;
+float pick = frac(own * 9.1);
+float3 shutterPaint = pick < 0.3 ? float3(0.15, 0.36, 0.24) : pick < 0.55 ? float3(0.17, 0.28, 0.50) : pick < 0.8 ? float3(0.56, 0.16, 0.14) : float3(0.96, 0.95, 0.91);
+float slat = frac(height / 0.11) < 0.22 ? 1.0 : 0.0;
+c = lerp(c, shutterPaint * (1.0 - 0.2 * slat * detail), shutter * hasShutters * home);
+float trough = (f.x > 0.255 && f.x < 0.745 && f.y > 0.15 && f.y < 0.218) ? 1.0 : 0.0;
+float leaves = (f.x > 0.265 && f.x < 0.735 && f.y > 0.218 && f.y < 0.243) ? 1.0 : 0.0;
+float bloomAt = (f.x - 0.26) / 0.48 * 6.0;
+float2 fromBloom = float2((frac(bloomAt) - 0.5) * 0.192, (f.y - 0.25) * 3.0); // metres from the nearest flower head
+float bloom = (f.x > 0.26 && f.x < 0.74 && length(fromBloom) < 0.07) ? 1.0 : 0.0;
+float hue = frac(floor(bloomAt) * 0.37 + own * 4.0);
+float3 petal = hue < 0.34 ? float3(0.90, 0.20, 0.22) : hue < 0.67 ? float3(0.98, 0.80, 0.20) : float3(0.95, 0.50, 0.70);
+c = lerp(c, float3(0.50, 0.31, 0.18), trough * hasFlowers * home);
+c = lerp(c, float3(0.25, 0.55, 0.22), leaves * hasFlowers * home);
+c = lerp(c, petal, bloom * hasFlowers * home);
 WorldNormal = n;
 Rough = 0.9;
 return saturate(c);
@@ -223,54 +234,6 @@ return saturate(c);
 		return bSaved;
 	}
 
-	UTexture2D* ImportTexture(IAssetTools& Tools, const FString& File, const FString& Name, bool bNormalMap)
-	{
-		// Re-importing rewrites the (large) texture assets even when nothing changed, so keep existing ones.
-		if (UTexture2D* Existing = LoadObject<UTexture2D>(nullptr, *FString::Printf(TEXT("%s/%s.%s"), TexturePath, *Name, *Name)))
-		{
-			return Existing;
-		}
-		UAssetImportTask* Task = NewObject<UAssetImportTask>();
-		Task->AddToRoot();
-		Task->Filename = File;
-		Task->DestinationPath = TexturePath;
-		Task->DestinationName = Name;
-		Task->bAutomated = true;
-		Task->bReplaceExisting = true;
-		Task->bSave = false;
-		TArray<UAssetImportTask*> Tasks;
-		Tasks.Add(Task);
-		Tools.ImportAssetTasks(Tasks);
-
-		UTexture2D* Texture = nullptr;
-		for (UObject* Object : Task->GetObjects())
-		{
-			if ((Texture = Cast<UTexture2D>(Object)) != nullptr)
-			{
-				break;
-			}
-		}
-		Task->RemoveFromRoot();
-		if (!Texture)
-		{
-			UE_LOG(LogEarthWalkAssets, Error, TEXT("Could not import %s"), *File);
-			return nullptr;
-		}
-		if (bNormalMap)
-		{
-			Texture->CompressionSettings = TC_Normalmap;
-			Texture->SRGB = false;
-			Texture->LODGroup = TEXTUREGROUP_WorldNormalMap;
-		}
-		else
-		{
-			Texture->LODGroup = TEXTUREGROUP_World;
-		}
-		Texture->PostEditChange();
-		SaveAsset(Texture);
-		return Texture;
-	}
-
 	UMaterial* FreshMaterial(IAssetTools& Tools, const FString& Name)
 	{
 		const FString ObjectPath = FString::Printf(TEXT("%s/%s.%s"), MaterialPath, *Name, *Name);
@@ -294,18 +257,6 @@ return saturate(c);
 		UMaterialExpressionScalarParameter* Param = Node<UMaterialExpressionScalarParameter>(Material, -900, Y);
 		Param->ParameterName = Name;
 		Param->DefaultValue = Default;
-		return Param;
-	}
-
-	UMaterialExpressionTextureObjectParameter* TextureObject(UMaterial* Material, const TCHAR* Name, UTexture* Default, int32 Y)
-	{
-		UMaterialExpressionTextureObjectParameter* Param = Node<UMaterialExpressionTextureObjectParameter>(Material, -900, Y);
-		Param->ParameterName = Name;
-		Param->Texture = Default;
-		if (Default && Default->IsNormalMap())
-		{
-			Param->SamplerType = SAMPLERTYPE_Normal;
-		}
 		return Param;
 	}
 
@@ -366,6 +317,7 @@ return saturate(c);
 		{
 			Inputs.Add(TEXT("Windows"));
 			Inputs.Add(TEXT("Bricks"));
+			Inputs.Add(TEXT("Homely"));
 			Inputs.Add(TEXT("RowShift"));
 		}
 		else
@@ -386,6 +338,7 @@ return saturate(c);
 		{
 			Connect(Scalar(Material, TEXT("Windows"), 1.f, 150), Custom, TEXT("Windows"));
 			Connect(Scalar(Material, TEXT("Bricks"), 0.f, 250), Custom, TEXT("Bricks"));
+			Connect(Scalar(Material, TEXT("Homely"), 0.f, 300), Custom, TEXT("Homely"));
 			Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 350), Custom, TEXT("RowShift"));
 		}
 		else
@@ -517,39 +470,12 @@ UEarthWalkAssetsCommandlet::UEarthWalkAssetsCommandlet()
 int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 {
 	IAssetTools& Tools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
-	const FString TextureDir = FPaths::ProjectDir() / TEXT("Textures");
-
-	TMap<FString, UTexture2D*> Textures;
-	int32 Missing = 0;
-	for (const TCHAR* Name : TextureNames)
-	{
-		for (const TCHAR* Kind : { TEXT("D"), TEXT("N") })
-		{
-			const FString File = TextureDir / FString::Printf(TEXT("%s_%s.jpg"), Name, Kind);
-			const FString AssetName = FString::Printf(TEXT("T_%s_%s"), Name, Kind);
-			if (!FPaths::FileExists(File))
-			{
-				UE_LOG(LogEarthWalkAssets, Error, TEXT("Missing %s. Run game\\Tools\\fetch-textures.ps1 first."), *File);
-				++Missing;
-				continue;
-			}
-			if (UTexture2D* Texture = ImportTexture(Tools, File, AssetName, FCString::Strcmp(Kind, TEXT("N")) == 0))
-			{
-				Textures.Add(AssetName, Texture);
-			}
-		}
-	}
-	if (Missing > 0)
-	{
-		return 1;
-	}
-
 	BuildPaintedMaterial(Tools, TEXT("M_EarthTop"), TopCode, false);
 	BuildPaintedMaterial(Tools, TEXT("M_EarthWall"), WallCode, true);
 	BuildInkMaterial(Tools);
 	BuildWaterMaterial(Tools);
 	BuildFoliageMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: %d textures, 5 materials under /Game/EarthWalk"), Textures.Num());
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 5 materials under /Game/EarthWalk"));
 	return 0;
 }

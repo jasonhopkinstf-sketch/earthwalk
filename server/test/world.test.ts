@@ -311,3 +311,77 @@ test("labels carry the trees the mesh plants", async () => {
     assert.ok(t.u >= 0 && t.u < 1 && t.v >= 0 && t.v < 1, "inside the chunk");
   }
 });
+
+/** A row of 10 x 6 m houses along the south side of an east-west street, one per id. */
+function streetOfHouses(ids: number[], extra: Partial<Features["buildings"][number]> = {}): Features {
+  const S = metersPerTile(CY + 0.5);
+  const d = (metres: number): number => metres / S;
+  const buildings = ids.map((id, i) => {
+    const west = CX + 0.2 + d(i * 16);
+    const north = CY + 0.5;
+    const ring: [number, number][] = [[west, north], [west + d(10), north], [west + d(10), north + d(6)], [west, north + d(6)]];
+    return { id, ring, height: 6, ...extra };
+  });
+  const roads = [{ id: 900, cls: "road" as const, width: 6, pts: [[CX + 0.1, CY + 0.5 - d(12)], [CX + 0.9, CY + 0.5 - d(12)]] as [number, number][] }];
+  return { buildings, roads, areas: [], trees: [], addresses: [], coast: [] };
+}
+
+test("houses on a street each get their own paint, and a front door facing the street", async () => {
+  const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const { mesh: m } = await mesh(CX, CY, streetOfHouses(ids));
+  const colours = (lo: number, hi: number): Set<number> => new Set(m.sections.filter((s) => s.mat.id >= lo && s.mat.id <= hi).map((s) => s.mat.color));
+  assert.ok(colours(20, 23).size >= 4, "several wall paints along the street");
+  assert.ok(colours(24, 25).size >= 3, "several roof colours");
+  for (let i = 1; i < m.sections.length; i++) {
+    const a = m.sections[i - 1].mat, b = m.sections[i].mat;
+    assert.ok(a.id < b.id || (a.id === b.id && a.color < b.color), "sections are in a fixed order, none repeated");
+  }
+
+  // The street is north of the houses, so every door stands on a north wall: at or beyond it, never behind.
+  const S = metersPerTile(CY + 0.5);
+  const northWall = -0.5 * S; // chunk-local metres: n is 0 at the north edge and falls going south
+  const doors = m.sections.filter((s) => s.mat.id === 26);
+  assert.ok(doors.length >= 3, "doors in several colours");
+  let leaves = 0;
+  for (const s of doors) {
+    for (let i = 0; i < s.pos.length; i += 3) {
+      assert.ok(s.pos[i + 1] > northWall - 0.01 && s.pos[i + 1] < northWall + 0.3, "door parts sit on the street side of the north wall");
+    }
+    leaves += s.count;
+  }
+  assert.ok(leaves >= ids.length * 16, "a door for every house");
+
+  // The same houses come out the same every time.
+  const again = (await mesh(CX, CY, streetOfHouses(ids))).mesh;
+  assert.deepEqual(again.sections.map((s) => [s.mat.id, s.mat.color, s.count]), m.sections.map((s) => [s.mat.id, s.mat.color, s.count]));
+});
+
+test("most houses get a chimney that stands above the ridge", async () => {
+  const { mesh: m } = await mesh(CX, CY, streetOfHouses([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+  const z = (ss: { pos: number[] }[]): number[] => ss.flatMap((s) => s.pos.filter((_, i) => i % 3 === 2));
+  const chimneys = m.sections.filter((s) => s.mat.id === 28);
+  assert.equal(chimneys.length, 1);
+  assert.ok(chimneys[0].count >= 20 * 4, "at least four of the twelve");
+  assert.ok(Math.max(...z(chimneys)) > Math.max(...z(m.sections.filter((s) => s.mat.id === 24 || s.mat.id === 25))) - 3, "chimney tops are up by the ridges");
+});
+
+test("gable roofs overhang the walls", async () => {
+  const { mesh: m } = await mesh(CX, CY, streetOfHouses([7]));
+  const S = metersPerTile(CY + 0.5);
+  const roof = m.sections.find((s) => s.mat.id === 24 || s.mat.id === 25)!;
+  const north = roof.pos.filter((_, i) => i % 3 === 1);
+  assert.ok(Math.max(...north) > -0.5 * S + 0.3, "the eaves reach out past the north wall");
+  assert.ok(Math.min(...north) < -0.5 * S - 6 - 0.3, "and past the south wall");
+});
+
+test("barns are red with wide doors, and sheds have no front door", async () => {
+  const barn = (await mesh(CX, CY, streetOfHouses([5], { kind: "barn", height: 7 }))).mesh;
+  assert.ok(barn.sections.some((s) => s.mat.id === 20 && s.mat.color === 0xb8372bff), "barn red walls");
+  const leaves = barn.sections.filter((s) => s.mat.id === 26);
+  const e = leaves.flatMap((s) => s.pos.filter((_, i) => i % 3 === 0));
+  assert.ok(Math.max(...e) - Math.min(...e) > 2.8, "two wide leaves");
+  assert.ok(!barn.sections.some((s) => s.mat.id === 28), "no chimney on a barn");
+
+  const shed = (await mesh(CX, CY, streetOfHouses([5], { kind: "garage", height: 3 }))).mesh;
+  assert.ok(!shed.sections.some((s) => s.mat.id === 26), "no front door on a garage");
+});
