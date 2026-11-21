@@ -18,7 +18,7 @@ export const MOUNTS = {
   kangaroo: { speed: 9, seat: 1.0, name: "kangaroo" },
   deer: { speed: 9, seat: 1.05, name: "deer" },
   tractor: { speed: 5, seat: 1.35, name: "tractor", reach: 4 },
-  car: { speed: 13, seat: 0.5, name: "car", reach: 3.5 },
+  car: { speed: 13, seat: 0.95, name: "car", reach: 3.5 }, // up on the roof, where the view is not all bonnet
   boat: { speed: 2.5, seat: 0.3, name: "rowing boat", reach: 4, afloat: true },
   sailboat: { speed: 5, seat: 0.75, name: "sailing boat", reach: 6, afloat: true },
   train: { seat: 3.5, name: "train", reach: 8 },
@@ -156,6 +156,7 @@ export class Riding {
       if (y !== null) this.mounts.push({ key: "", thing, sp: left.sp, x: at.x, z: at.z, y, yaw: (-left.yaw * Math.PI) / 180, gait: 0, moving: false });
     }
     if (this.gaits.size > 64) this.gaits.clear();
+    this.extra?.(dt, t); // and everything doing as it was told (orders.js)
 
     // ---- what would E hop on?
     this.near = null;

@@ -332,6 +332,7 @@ Client to server:
 | `{"t":"ride","thing":918398760,"sp":"horse"}` / `{"t":"ride"}` | Hop on something, or (with no `thing`) hop off. See "Riding". |
 | `{"t":"talk","thing":918398760,"sp":"cow"}` / `{"t":"talk","thing":..,"sp":"cow","text":"what do you eat?"}` | Say hello to a thing, or say something to it. See "Talking". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
+| `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
 
 Server to client:
@@ -342,6 +343,7 @@ Server to client:
 | `{"t":"time","c":1234.5,"now":1700000000000}` | The answer to `time`: the server's clock in milliseconds since 1970. Shared time is `now` plus half the round trip; a client keeps the answer with the shortest round trip and asks again now and then. `welcome` carries `now` too, as a first estimate. Clients that ignore both still work; they just have no animals in step with everyone else. |
 | `{"t":"ride","id":"..","thing":918398760,"sp":"horse","seat":0}` / `{"t":"ride","id":".."}` | Someone hopped on something, or off. Sent to the whole room, the rider included: for the rider it is the go-ahead. |
 | `{"t":"left","thing":918398760,"sp":"horse","lat":..,"lon":..,"alt":..,"yaw":..,"until":1700000060000}` | A driver got off: the thing stands there until `until` (server clock, ms), then goes back to where it belongs. |
+| `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
@@ -376,6 +378,31 @@ the same somebody for everyone, on every visit. Clients learn a thing's `name` w
   was typed, attributed to the player's animal ("A fox says: ..."), never to their name.
 
 The browser's key is T; while talking to a thing, what is typed goes to it instead of to the room.
+
+### Doing as asked
+
+What a player says to a thing can be an instruction, and the thing does it as well as answering. The
+server decides what was asked (with the AI through a tool it may call, and without it from plain
+words: "follow me", "come here", "stay", "go home", "do a trick", "moo", "take me to the beach")
+and whether this kind of thing can do it (`deedsOf` in `server/src/talk.ts`): the animals that walk
+can follow, come, stay, go home, do a trick and make their noise; those that can be ridden, and cars
+and tractors, can also take their rider somewhere; cars and tractors can stop, go home and toot; a
+train can whistle; trees, houses and boats only talk. The answer in words comes as `say`, as always.
+What is to be done comes as `order`:
+
+| `act` | Sent to | Meaning |
+| --- | --- | --- |
+| `follow` | the room | The thing walks behind member `by` until `until` (ten minutes), or until told otherwise. `lat`/`lon` are where it was when told, by the word of the player who told it (their `talk` message; their own position failing that). |
+| `come` | the room | It walks from `lat`/`lon` to `to` (`[lat, lon]`, where the asker stood) and waits there. |
+| `stay` | the room | It waits at `lat`/`lon`. |
+| `home` | the room | It goes back to its timetable: forget any order for it. Also sent when whoever gave the order leaves, when someone hops on the thing, and when one player has more than six things under orders (the oldest goes home). |
+| `trick`, `noise` | the room | Done once, now, wherever each client has the thing: a jump and a spin with its noise, or the noise alone. Not remembered. |
+| `goto` | the asker alone | Only for a thing the asker is riding (seat 0). `name`, `lat`, `lon` are the place, found near the rider first and then anywhere; `path`, when present, is the way there by road as `[lat, lon]` points about 8 m apart (cars and tractors, places within 2.5 km). The rider's own client carries them: along `path`, or straight across country on an animal when the place is within 1.5 km, or in one jump (hop off, travel, hop on again). Friends see it through `ride` and the positions already shared. |
+
+`welcome` carries `orders`: the `follow`, `come` and `stay` orders still in force. Clients draw a thing
+under orders where the order puts it and not where its timetable would (as they do a ridden thing).
+Two clients work a follower out separately from the same order and the same player positions, so they
+agree to within a step or two, not to the millimetre.
 
 ### Journal
 

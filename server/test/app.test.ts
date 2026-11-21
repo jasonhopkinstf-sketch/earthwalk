@@ -117,3 +117,18 @@ test("files outside the public folder are not served", async () => {
     s.app.close();
   }
 });
+
+test("a part of the world that cannot be built is an error for that request, not the end of the server", async () => {
+  const s = await start({ buildChunk: async () => { throw new Error("Overpass HTTP 429"); }, buildLabels: async () => { throw new Error("Overpass HTTP 504"); } });
+  const loud = console.error;
+  console.error = () => {}; // the failures are logged, which is right, but not wanted in the test output
+  try {
+    assert.equal((await fetch(`${s.base}/v1/chunk/16/1/2`)).status, 502);
+    assert.equal((await fetch(`${s.base}/v1/labels/16/1/2`)).status, 502);
+    await new Promise((r) => setTimeout(r, 20)); // an unhandled rejection would have ended the process by now
+    assert.equal((await fetch(`${s.base}/health`)).status, 200, "and the server carries on");
+  } finally {
+    console.error = loud;
+    s.app.close();
+  }
+});

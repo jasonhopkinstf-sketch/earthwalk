@@ -117,7 +117,7 @@ export function stockLine(p: Persona, n: number): string {
  * What the model is told. It sets the scene and the character, then the few things that matter in a
  * game children play: short, kind, in character, nothing from the real world's arguments.
  */
-export function systemPrompt(p: Persona, place: string | null): string {
+export function systemPrompt(p: Persona, place: string | null, sp = ""): string {
   return [
     `You are playing ${p.name}, ${p.a}, in EarthWalk: a gentle family game in which children, parents and grandparents walk around a cartoon version of the real world together. In this world everything can talk, and the players stop to chat with the things they meet. Your words appear in a small speech bubble above you, where everyone nearby can read them.`,
     `Who you are: ${p.name} is ${p.mood.is}. ${p.name} ${p.quirk}.${p.twist ? ` Above all, ${p.name} ${p.twist}.` : ""}${place ? ` You live in ${place}.` : ""} You know what a real ${p.kind} knows and does, and you like to slip in a true, interesting fact about ${p.kind}s${place ? ` or about ${place}` : ""} when it fits.`,
@@ -130,8 +130,88 @@ export function systemPrompt(p: Persona, place: string | null): string {
     "- If a visitor seems truly upset or in trouble, be kind and suggest they talk to a grown-up they trust.",
     `- If asked whether you are real, or a computer, say honestly and lightly that you are a talking ${p.kind} in a game, with a computer helping you find your words.`,
     "The visitors are other animals, because every player chooses an animal to be. Each message says who is speaking, like this: \"A fox says: hello\".",
+    ...(deedsOf(sp).length ? [
+      `You can also do things when a visitor plainly asks: ${deedsOf(sp).map((d) => DEEDS[d]).join("; ")}. To do one, answer in words as usual (say you are doing it, in your own way) and call the \`do\` tool as well. Do it gladly, whatever your mood: a grouch grumbles and does it anyway. If they ask for something not on that list, say kindly that it is beyond ${p.a}. Don't call the tool unless they asked.`,
+      ...(deedsOf(sp).includes("goto") ? ["You can only take someone to a place while they are riding you; the message says when they are. If they ask to be taken somewhere and are not riding, tell them to hop on first (the E key) and ask again."] : []),
+    ] : []),
   ].join("\n");
 }
+
+// ---------------------------------------------------------------- doing as asked
+
+/** Things a player can ask a thing to do. */
+export type Deed = "follow" | "come" | "stay" | "home" | "trick" | "noise" | "goto";
+/** What a player asked for: a deed, and for `goto` the place as they said it. */
+export interface Wish { deed: Deed; place?: string }
+const DEEDS: Record<Deed, string> = {
+  follow: "follow them wherever they walk",
+  come: "come over to where they are standing",
+  stay: "stop and wait where you are",
+  home: "go back to what you were doing before",
+  trick: "do a trick (a jump and a spin)",
+  noise: "make your sound",
+  goto: "carry them to a place they name",
+};
+const STEEDS = new Set(["horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer"]);
+const WALKERS = new Set(["chicken", "duck", "pigeon", "cat", "dog", "rabbit", "squirrel", "penguin"]);
+
+/** What each kind of thing is able to do when asked. Trees, houses and boats only talk. */
+export function deedsOf(sp: string): Deed[] {
+  if (STEEDS.has(sp)) return ["follow", "come", "stay", "home", "trick", "noise", "goto"];
+  if (WALKERS.has(sp)) return ["follow", "come", "stay", "home", "trick", "noise"];
+  if (sp === "car" || sp === "tractor") return ["stay", "home", "noise", "goto"];
+  if (sp === "train") return ["noise"];
+  return [];
+}
+
+/**
+ * Understands a few plain words without any AI: "follow me", "come here", "stay", "go home",
+ * "jump", "moo", "take me to the beach". Null when nothing was asked that this kind of thing can do.
+ */
+export function wishFrom(said: string, sp: string): Wish | null {
+  const can = deedsOf(sp);
+  const s = ` ${said.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim()} `;
+  const to = /\b(?:take|carry|drive|bring|ride) (?:me|us) (?:to|over to) (.+)$|\b(?:go|drive|gallop|walk|trot|let's go|lets go) to (.+)$/i.exec(said.replace(/[.!?]+$/, "").trim());
+  const place = (to?.[1] ?? to?.[2] ?? "").replace(/^(?:the|a|an) /i, "").trim().slice(0, 80);
+  let wish: Wish | null = null;
+  if (place && !/^(?:sleep|bed|them|him|her|it|me|you)$/i.test(place)) wish = { deed: "goto", place };
+  else if (/ (follow|come with|walk with|come along) /.test(s)) wish = { deed: "follow" };
+  else if (/ (go home|go back|off you go|go away|you can go|be free|as you were|carry on) /.test(s)) wish = { deed: "home" };
+  else if (/ (come|here boy|here girl|over here) /.test(s)) wish = { deed: "come" };
+  else if (/ (stay|stop|wait|halt|whoa|sit|stand still|don't move|dont move) /.test(s)) wish = { deed: "stay" };
+  else if (/ (jump|spin|trick|dance|twirl|leap) /.test(s)) wish = { deed: "trick" };
+  else if (/ (toot|honk|beep|moo|baa|neigh|quack|cluck|woof|bark|meow|miaow|whistle|sing|shout|make a noise|make your noise|make a sound|speak|say something) /.test(s)) wish = { deed: "noise" };
+  return wish && can.includes(wish.deed) ? wish : null;
+}
+
+const DOING: Record<Deed, string[]> = {
+  follow: ["Lead the way! I am right behind you.", "Off we go, then. Not too fast."],
+  come: ["Coming!", "On my way over."],
+  stay: ["I shall wait right here.", "Stopping. Not a step further."],
+  home: ["Back to what I was doing, then. Goodbye!", "Off I go. It was nice being bossed about."],
+  trick: ["Watch this!", "Stand back, everyone."],
+  noise: ["Here goes!", "Cover your ears."],
+  goto: ["Hold on tight!", "Right you are. Off we go!"],
+};
+/** What a thing says as it does a deed, when it has to find the words itself. */
+export function doingLine(wish: Wish, n: number): string {
+  const line = DOING[wish.deed][n % DOING[wish.deed].length];
+  return wish.deed === "goto" && wish.place ? `To ${wish.place}? ${line}` : line;
+}
+
+/** The tool the model calls to do a deed. */
+const doTool = (deeds: Deed[]) => ({
+  name: "do",
+  description: "Do something a visitor has plainly asked you to do, as well as answering them in words. Call it once, only when asked, and only for one of the actions listed.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      action: { type: "string", enum: deeds, description: deeds.map((d) => `${d}: ${DEEDS[d]}`).join(". ") },
+      place: { type: "string", description: "For goto only: where to go, as the visitor said it, with the town if they gave one. For example \"the beach\" or \"Eiffel Tower, Paris\"." },
+    },
+    required: ["action"],
+  },
+});
 
 // ---------------------------------------------------------------- asking the model
 
@@ -145,24 +225,35 @@ const HISTORY_TURNS = 6;
 const HISTORY_MS = 10 * 60 * 1000;
 const MAX_SAID = 200;
 
-export interface Asked { text: string | null; inputTokens: number; outputTokens: number }
-/** Asks the model for the next line. `text` is null when it declined. Replaceable for tests. */
-export type Ask = (model: string, system: string, messages: Anthropic.MessageParam[]) => Promise<Asked>;
+export interface Asked { text: string | null; inputTokens: number; outputTokens: number; act?: { action?: unknown; place?: unknown } }
+/**
+ * Asks the model for the next line. `text` is null when it declined. `deeds` are the things this
+ * speaker can be asked to do; when the model decides to do one, `act` says which. Replaceable for tests.
+ */
+export type Ask = (model: string, system: string, messages: Anthropic.MessageParam[], deeds?: Deed[]) => Promise<Asked>;
 
 function askClaude(): Ask {
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY
-  return async (model, system, messages) => {
+  return async (model, system, messages, deeds = []) => {
     // Short replies need little thinking: low effort keeps them quick and cheap. The room for output
     // is generous because thinking counts towards it; the prompt keeps the reply itself short.
-    const request = { model, max_tokens: 2000, system, messages, output_config: { effort: "low" as const } };
+    const request = { model, max_tokens: 2000, system, messages, output_config: { effort: "low" as const }, ...(deeds.length ? { tools: [doTool(deeds)] } : {}) };
     // On Claude Opus 5.5 a request the safety filters decline is retried on another model by the
     // API itself. A reply that is still declined comes back as stop_reason "refusal".
     const response = model === "claude-opus-5-5"
       ? await client.beta.messages.create({ ...request, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" })
       : await client.messages.create(request);
     let text = "";
-    for (const block of response.content) if (block.type === "text") text += block.text;
-    return { text: response.stop_reason === "refusal" || !text.trim() ? null : text.trim(), inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+    let act: Asked["act"];
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
+      else if (block.type === "tool_use" && block.name === "do" && typeof block.input === "object" && block.input !== null) act = block.input as Asked["act"];
+    }
+    const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+    // A declined reply, or one cut short, may carry half a tool call: nothing is done on its say-so.
+    if (response.stop_reason === "refusal") return { text: null, ...usage };
+    if (response.stop_reason === "max_tokens") act = undefined;
+    return { text: text.trim() || null, ...usage, ...(act ? { act } : {}) };
   };
 }
 
@@ -176,7 +267,7 @@ export interface TalkerOptions {
   /** Where the day's spending is kept between restarts; null to keep it in memory only. */
   spendFile?: string | null;
 }
-export interface Said { name: string; text: string; ai: boolean }
+export interface Said { name: string; text: string; ai: boolean; /** Something it was asked to do, and agreed to. */ wish?: Wish }
 
 /** Speaks for every thing in every room. */
 export class Talker {
@@ -210,8 +301,11 @@ export class Talker {
     return { name: p.name, text: greeting(p, hash32(thing, Math.floor(this.now() / 60000)) & 1), ai: false };
   }
 
-  /** What a thing answers. `speaker` is the animal the player is, never their name. */
-  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null): Promise<Said> {
+  /**
+   * What a thing answers, and anything it was asked to do. `speaker` is the animal the player is, never
+   * their name; `riding` says whether they are on its back (or in its seat) as they speak.
+   */
+  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false): Promise<Said> {
     const p = persona(thing, sp);
     const key = `${room}/${sp}/${thing}`;
     const now = this.now();
@@ -222,18 +316,31 @@ export class Talker {
     this.history.delete(key);
     this.history.set(key, talk); // most recently used last
     if (this.history.size > 300) this.history.delete(this.history.keys().next().value!);
-    const stock = (): Said => ({ name: p.name, text: stockLine(p, hash32(thing, talk.said)), ai: false });
+    const deeds = deedsOf(sp);
+    // Nobody is carried anywhere unless they are riding: asked from the ground, it says to hop on.
+    const allowed = (wish: Wish | null): Wish | null => (wish && deeds.includes(wish.deed) && (wish.deed !== "goto" || (riding && !!wish.place)) ? wish : null);
+    const stock = (): Said => {
+      const plain = wishFrom(said, sp);
+      const wish = allowed(plain);
+      if (wish) return { name: p.name, text: doingLine(wish, hash32(thing, talk.said)), ai: false, wish };
+      if (plain?.deed === "goto") return { name: p.name, text: "Hop on first (press E), then tell me where to.", ai: false };
+      return { name: p.name, text: stockLine(p, hash32(thing, talk.said)), ai: false };
+    };
 
     if (!this.ask || !(await this.canSpend())) return stock();
-    const line = `${/^[aeiou]/.test(speaker) ? "An" : "A"} ${speaker} says: ${said.slice(0, MAX_SAID)}`;
+    const who = `${/^[aeiou]/.test(speaker) ? "An" : "A"} ${speaker}`;
+    const line = `${who}${riding ? ", who is riding you," : ""} says: ${said.slice(0, MAX_SAID)}`;
     try {
-      const answer = await this.ask(this.model, systemPrompt(p, place), [...talk.turns, { role: "user", content: line }]);
+      const answer = await this.ask(this.model, systemPrompt(p, place, sp), [...talk.turns, { role: "user", content: line }], deeds);
       await this.spent(answer.inputTokens, answer.outputTokens);
-      if (!answer.text) return stock();
-      const text = answer.text.replace(/\s+/g, " ").slice(0, 400);
+      const act = answer.act;
+      const deed = typeof act?.action === "string" ? (act.action as Deed) : null;
+      const wish = allowed(deed ? { deed, ...(typeof act?.place === "string" && act.place.trim() ? { place: act.place.replace(/\s+/g, " ").trim().slice(0, 80) } : {}) } : null);
+      if (!answer.text && !wish) return stock();
+      const text = (answer.text ?? doingLine(wish!, hash32(thing, talk.said))).replace(/\s+/g, " ").slice(0, 400);
       talk.turns.push({ role: "user", content: line }, { role: "assistant", content: text });
       if (talk.turns.length > HISTORY_TURNS * 2) talk.turns.splice(0, talk.turns.length - HISTORY_TURNS * 2);
-      return { name: p.name, text, ai: true };
+      return { name: p.name, text, ai: true, ...(wish ? { wish } : {}) };
     } catch (err) {
       // Most specific first: a bad key will not get better; a busy service will.
       if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) this.complain("the API key was not accepted");

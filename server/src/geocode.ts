@@ -33,6 +33,28 @@ export async function geocode(query: string): Promise<Place | null> {
   return place;
 }
 
+/**
+ * A place by name, looked for round a position first ("the beach" should be the nearest beach, not
+ * the most famous), then anywhere.
+ */
+export async function geocodeNear(query: string, lat: number, lon: number): Promise<Place | null> {
+  const q = query.trim().slice(0, 200);
+  if (!q || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const key = `${q.toLowerCase()}@${lat.toFixed(1)},${lon.toFixed(1)}`;
+  if (cache.has(key)) return cache.get(key)!;
+  const box = 0.25; // degrees: about 25 km each way
+  const near = await throttle.run(async () => {
+    const res = await httpGet(`${NOMINATIM_URL}/search?format=jsonv2&limit=1&bounded=1&viewbox=${(lon - box).toFixed(3)},${(lat + box).toFixed(3)},${(lon + box).toFixed(3)},${(lat - box).toFixed(3)}&q=${encodeURIComponent(q)}`, 15000);
+    if (!res.ok) throw new Error(`geocoder HTTP ${res.status}`);
+    const rows = (await res.json()) as { display_name: string; lat: string; lon: string }[];
+    return rows.length ? { name: rows[0].display_name, lat: parseFloat(rows[0].lat), lon: parseFloat(rows[0].lon) } : null;
+  });
+  const place = near ?? (await geocode(q));
+  if (cache.size >= 500) cache.delete(cache.keys().next().value!);
+  cache.set(key, place);
+  return place;
+}
+
 // ---------------------------------------------------------------- place names
 
 interface NominatimAddress { [k: string]: string | undefined }

@@ -8,6 +8,7 @@ import { Player } from "./player.js";
 import { Riding } from "./riding.js";
 import { Sounds } from "./sounds.js";
 import { Passport } from "./passport.js";
+import { Orders } from "./orders.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
@@ -66,6 +67,7 @@ const talk = new Talk({
 });
 life.riding = riding;
 traffic.riding = riding;
+const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -212,6 +214,7 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
+  orders.steer(dt);
   player.update(dt);
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
@@ -376,6 +379,8 @@ async function command(name, arg) {
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
+    notice("    and tell it what to do: follow me, come here, stay, go home, do a trick, make your noise;");
+    notice("    riding it, say where to: take me to the beach");
     notice("P   your passport (or /passport): countries, places, friends, stamps and your level");
   } else if (name === "passport" || name === "journal") {
     passport.toggle();
@@ -469,4 +474,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, sounds, command, isStarted: () => started };
