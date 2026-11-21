@@ -37,7 +37,7 @@ export interface Area { id: number; cls: GroundClass; rings: Pt[][]; /** Water t
 export interface TreePoint { id: number; at: Pt }
 /** What a field is used for, where the map says more than its ground cover does. Used to decide where animals live. */
 export type FieldKind = "meadow" | "paddock" | "farmyard" | "farmland";
-export type Stock = "cow" | "sheep" | "horse" | "chicken";
+export type Stock = "cow" | "sheep" | "horse" | "chicken" | "pig" | "goat" | "donkey" | "goose";
 /** A field that may hold animals. `stock` is the animal the map names for it, if any. Rings as in Area. */
 export interface Field { id: number; kind: FieldKind; rings: Pt[][]; stock?: Stock }
 export interface Features {
@@ -292,7 +292,8 @@ export function groundClassOf(tags: Record<string, string>): GroundClass | null 
 }
 
 const STOCK: [RegExp, Stock][] = [
-  [/horse|equine|pony/, "horse"], [/cattle|cow|dairy|beef/, "cow"], [/sheep|goat/, "sheep"], [/chicken|poultry|hen|fowl/, "chicken"],
+  [/donkey|mule/, "donkey"], [/horse|equine|pony/, "horse"], [/cattle|cow|dairy|beef/, "cow"], [/goat/, "goat"], [/sheep/, "sheep"],
+  [/pig|swine|hog/, "pig"], [/goose|geese/, "goose"], [/chicken|poultry|hen|fowl/, "chicken"],
 ];
 
 /** The kind of field an area is, when animals might be kept on it. */

@@ -13,7 +13,7 @@ import { RIGS, VEHICLES } from "./liferigs.js";
 
 const SHOW_M = 220; // homes further off than this are not drawn
 const HEAR_M = 70;
-const MAX_SHOWN = 110;
+const MAX_SHOWN = 170;
 const CAPACITY = 2048; // shapes per kind of shape
 const SALT_COAT = 0x434f4154;
 /** How something being ridden holds its head: up, looking where it is going. */
@@ -223,7 +223,9 @@ export class Life {
     const aside = Math.hypot(stepX, stepZ);
     const hurrying = dt > 0 && aside / dt > 0.25;
     st.up += ((startled && rig.takesOff ? rig.takesOff : 0) - st.up) * ease(startled ? 3 : 0.9, dt);
-    const airborne = st.up > 0.15;
+    // An insect on the wing never lands: it bobs about at its own height.
+    const hover = rig.hover ? rig.hover[0] + (rig.hover[1] - rig.hover[0]) * (0.5 + 0.5 * Math.sin(t * 0.8 + beat * 3)) : 0;
+    const airborne = st.up > 0.15 || !!rig.hover;
     if (((startled && !st.startled) || (greeting && !st.greeted)) && rig.alarm && t > st.quietUntil) {
       st.quietUntil = t + 5;
       this.call(rig.alarm, c.id, sx, sz);
@@ -286,7 +288,7 @@ export class Life {
 
     if (herd.d < 60) this.nearby.push({ thing: c.id, sp: herd.home.sp, x, z });
     if (herd.d < 60 && this.riding?.rides(herd.home.sp)) this.rideable.push({ thing: c.id, sp: herd.home.sp, x, z, yaw: st.yaw, reach: Math.max(3, rig.flee + 2.5) }); // near enough, even as it shies away
-    this.base.compose(this.v.set(x, ground + st.up + (lift + bob) * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, roll)), this.s.set(size, size, size));
+    this.base.compose(this.v.set(x, ground + st.up + hover + (lift + bob) * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, roll)), this.s.set(size, size, size));
     this.put(rig, coat, counts, st, flap, swing, t, beat, greeting ? 4 : 1, !!rig.hop);
     return true;
   }

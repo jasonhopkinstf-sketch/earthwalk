@@ -12,7 +12,10 @@ import { type Elevation, GRID } from "./elevation.ts";
 import { BARN_KINDS, clipPolyline, groundClassId, PLAIN_KINDS, type TreeSpot } from "./chunk.ts";
 import type { Building, Features, Field, FieldKind, GroundClass, Pt, Stock } from "./osm.ts";
 
-export type Wild = "duck" | "pigeon" | "bird" | "cat" | "dog" | "rabbit" | "deer" | "squirrel" | "kangaroo" | "llama" | "camel" | "penguin";
+export type Wild = "duck" | "pigeon" | "bird" | "cat" | "dog" | "rabbit" | "deer" | "squirrel" | "kangaroo" | "llama" | "camel" | "penguin"
+  | "mouse" | "hedgehog" | "fox" | "frog" | "snail" | "tortoise" | "crab" | "beaver" | "otter" | "swan" | "heron" | "seagull" | "sparrow" | "flamingo" | "seal"
+  | "butterfly" | "bee" | "dragonfly" | "ladybird" | "ant" | "grasshopper"
+  | "elephant" | "giraffe" | "zebra" | "lion" | "monkey" | "panda" | "koala" | "bear" | "moose" | "bison" | "reindeer" | "capybara" | "marmot";
 /** Things that are driven or sailed round a home of their own, by the same means as the animals. */
 export type Machine = "tractor" | "boat" | "sailboat";
 export type Species = Stock | Wild | Machine;
@@ -31,6 +34,9 @@ export const HOME_CAP = 40;
 export const CREATURE_CAP = 150;
 export const WILD_HOME_CAP = 40;
 export const WILD_CREATURE_CAP = 120;
+/** The many kinds added later have limits of their own, so they never crowd out the first ones. */
+export const MORE_HOME_CAP = 40;
+export const MORE_CREATURE_CAP = 130;
 export const MACHINE_CAP = 8;
 
 interface Herd { min: number; max: number; area: number; few: number; many: number }
@@ -52,6 +58,44 @@ const HERDS: Record<Species, Herd> = {
   llama: { min: 7, max: 16, area: 90, few: 2, many: 5 },
   camel: { min: 8, max: 18, area: 200, few: 1, many: 4 },
   penguin: { min: 3, max: 8, area: 12, few: 3, many: 9 },
+  pig: { min: 3, max: 8, area: 12, few: 2, many: 5 },
+  goat: { min: 4, max: 12, area: 25, few: 2, many: 6 },
+  donkey: { min: 6, max: 16, area: 120, few: 1, many: 3 },
+  goose: { min: 3, max: 8, area: 10, few: 3, many: 7 },
+  mouse: { min: 1.5, max: 3, area: 4, few: 1, many: 3 },
+  hedgehog: { min: 2, max: 4, area: 20, few: 1, many: 2 },
+  fox: { min: 6, max: 14, area: 400, few: 1, many: 1 },
+  frog: { min: 2, max: 5, area: 6, few: 2, many: 5 },
+  snail: { min: 1.5, max: 3, area: 3, few: 2, many: 4 },
+  tortoise: { min: 2, max: 5, area: 25, few: 1, many: 2 },
+  crab: { min: 2, max: 6, area: 6, few: 3, many: 8 },
+  beaver: { min: 3, max: 6, area: 30, few: 1, many: 2 },
+  otter: { min: 3, max: 8, area: 40, few: 1, many: 3 },
+  swan: { min: 4, max: 10, area: 60, few: 1, many: 2 },
+  heron: { min: 3, max: 6, area: 100, few: 1, many: 1 },
+  seagull: { min: 4, max: 10, area: 15, few: 3, many: 7 },
+  sparrow: { min: 2.5, max: 6, area: 5, few: 4, many: 9 },
+  flamingo: { min: 4, max: 10, area: 10, few: 4, many: 10 },
+  seal: { min: 4, max: 10, area: 15, few: 2, many: 6 },
+  butterfly: { min: 3, max: 7, area: 6, few: 3, many: 8 },
+  bee: { min: 2.5, max: 6, area: 4, few: 4, many: 9 },
+  dragonfly: { min: 3, max: 7, area: 12, few: 2, many: 5 },
+  ladybird: { min: 1.5, max: 3, area: 2, few: 3, many: 6 },
+  ant: { min: 2, max: 5, area: 1.5, few: 6, many: 12 },
+  grasshopper: { min: 2.5, max: 6, area: 8, few: 2, many: 5 },
+  elephant: { min: 10, max: 22, area: 300, few: 1, many: 4 },
+  giraffe: { min: 10, max: 22, area: 300, few: 1, many: 3 },
+  zebra: { min: 8, max: 20, area: 90, few: 3, many: 7 },
+  lion: { min: 8, max: 16, area: 300, few: 1, many: 3 },
+  monkey: { min: 4, max: 10, area: 25, few: 2, many: 6 },
+  panda: { min: 5, max: 10, area: 200, few: 1, many: 2 },
+  koala: { min: 2, max: 3, area: 100, few: 1, many: 1 },
+  bear: { min: 8, max: 16, area: 500, few: 1, many: 1 },
+  moose: { min: 8, max: 18, area: 400, few: 1, many: 2 },
+  bison: { min: 9, max: 22, area: 120, few: 3, many: 7 },
+  reindeer: { min: 8, max: 18, area: 80, few: 3, many: 7 },
+  capybara: { min: 4, max: 10, area: 25, few: 2, many: 6 },
+  marmot: { min: 3, max: 7, area: 15, few: 2, many: 4 },
   tractor: { min: 12, max: 28, area: 1, few: 1, many: 1 },
   boat: { min: 6, max: 12, area: 1, few: 1, many: 1 },
   sailboat: { min: 14, max: 26, area: 1, few: 1, many: 1 },
@@ -252,10 +296,10 @@ export function placeHomes(cx: number, cy: number, features: Features, cls: Uint
   };
   const speciesFor = (f: Field, p: Pt): Stock | null => {
     if (f.stock) return f.stock;
-    if (f.kind === "farmyard") return "chicken";
-    if (f.kind === "paddock") return "horse";
     const pick = hash32(f.id, 0x57) % 10; // one kind of animal per field
-    if (f.kind === "meadow") return pick < 5 ? "cow" : pick < 8 ? "sheep" : "horse";
+    if (f.kind === "farmyard") return pick < 5 ? "chicken" : pick < 8 ? "pig" : "goose";
+    if (f.kind === "paddock") return pick < 6 ? "horse" : pick < 8 ? "donkey" : "goat";
+    if (f.kind === "meadow") return pick < 4 ? "cow" : pick < 7 ? "sheep" : pick < 8 ? "goat" : "horse";
     const barn = barnNear(p);
     if (!barn) return null;
     return barn.kind === "stable" ? "horse" : barn.kind === "cowshed" ? "cow" : pick < 6 ? "cow" : "sheep";
@@ -309,6 +353,35 @@ export function localStars(lat: number, lon: number): { kangaroo: boolean; llama
 }
 
 /**
+ * More animals that belong to one part of the world or another, by rough boxes like `localStars`:
+ * the big ones of the African plains, Asian elephants, monkeys in the tropics, pandas in the hills
+ * of central China, koalas in eastern Australia, bears and moose in the north, bison on the
+ * American plains, reindeer in the far north, capybaras in South America, and so on.
+ */
+export function localFauna(lat: number, lon: number) {
+  const box = (s: number, w: number, n: number, e: number): boolean => lat >= s && lat <= n && lon >= w && lon <= e;
+  const australia = box(-44, 112, -10, 154);
+  return {
+    savanna: box(-35, -18, 16, 52),
+    asianElephant: box(5, 68, 30, 110),
+    monkey: Math.abs(lat) < 28 && !australia,
+    panda: box(26, 100, 35, 110),
+    koala: box(-40, 138, -15, 154),
+    bear: lat > 44 && (lon < -52 || lon > 12),
+    moose: lat > 48 && (lon < -52 || lon > 5),
+    bison: box(35, -115, 55, -95),
+    reindeer: lat > 62,
+    capybara: box(-35, -82, 12, -34),
+    seal: lat > 50 || lat < -40,
+    flamingo: Math.abs(lat) < 33,
+    tortoise: Math.abs(lat) < 42,
+    hedgehog: lon > -12 && lon < 140 && lat > -36 && !australia,
+    marmot: lat > 35,
+    cold: Math.abs(lat) > 66,
+  };
+}
+
+/**
  * Everything that is not a farm animal. `trees` are the chunk's trees (`placeTrees`), `farm` the
  * homes `placeHomes` gave it, which these keep clear of.
  *
@@ -319,6 +392,11 @@ export function localStars(lat: number, lon: number): { kangaroo: boolean; llama
  *   (but not in Australia).
  * - Local stars (see `localStars`): kangaroos in place of deer and on some grass, llamas on high
  *   open ground, camels and penguins on sand.
+ * - And many more, on a second set of spots so that none of the above moves: butterflies, bees,
+ *   grasshoppers, ladybirds, snails and ants on grass and fields; frogs, herons and beavers beside
+ *   fresh water, swans, otters and dragonflies on it; crabs, gulls, tortoises, seals and flamingos
+ *   on sand; sparrows and ants in town; foxes at the edge of woods; mice and hedgehogs by houses;
+ *   and the big animals of each part of the world (see `localFauna`).
  */
 export function placeWild(cx: number, cy: number, features: Features, cls: Uint8Array, trees: TreeSpot[], elev: Elevation, farm: Home[] = []): Home[] {
   const { S, buildings, inChunk, classAt, clearRadius, classNear, shoreNear } = site(cx, cy, features, cls);
@@ -358,6 +436,8 @@ export function placeWild(cx: number, cy: number, features: Features, cls: Uint8
     }
   }
 
+  const fauna = localFauna(yToLat(cy + 0.5), xToLon(cx + 0.5));
+
   // ---- ducks along rivers and canals that are drawn as a line, one group every 90 m or so
   for (const road of features.roads) {
     if (road.cls !== "stream" || road.width < 7) continue;
@@ -381,7 +461,9 @@ export function placeWild(cx: number, cy: number, features: Features, cls: Uint8
   // ---- squirrels under some of the trees that stand on grass
   for (const t of trees) {
     const p: Pt = [t.wx + 1.5 / S, t.wy];
-    if (star.kangaroo || t.seed % 30 !== 0 || !inChunk(p) || classAt(p) !== grass) continue; // there are no squirrels in Australia
+    if (!inChunk(p) || classAt(p) !== grass) continue;
+    if (fauna.koala && t.seed % 25 === 1) at("koala", p, hash32(t.seed, 0x4b4f), { open: town, margin: SNUG_M }); // a koala under a gum tree
+    if (star.kangaroo || t.seed % 30 !== 0) continue; // there are no squirrels in Australia
     at("squirrel", p, hash32(t.seed, 0x5351), { open: town, margin: SNUG_M });
   }
 
@@ -393,17 +475,70 @@ export function placeWild(cx: number, cy: number, features: Features, cls: Uint8
     const areaM2 = (Math.abs(area2(b.ring)) / 2) * S * S;
     if (areaM2 < 35 || areaM2 >= 400 || b.height >= 13 || BARN_KINDS.test(kind) || PLAIN_KINDS.test(kind)) continue;
     const seed = hash32(b.id, 0x504554);
-    if (seed % 4 !== 0) continue;
-    const sp: Species = (seed >>> 8) % 100 < 55 ? "cat" : "dog";
+    // One home in four has a cat or a dog; of the rest, some have a mouse about the place, and some a hedgehog in the garden.
+    const small: Species | null = seed % 4 === 0 ? null : seed % 7 === 1 ? "mouse" : seed % 9 === 2 && fauna.hedgehog ? "hedgehog" : seed % 11 === 3 ? "snail" : null;
+    if (seed % 4 !== 0 && !small) continue;
+    const sp: Species = small ?? ((seed >>> 8) % 100 < 55 ? "cat" : "dog");
     const reach = Math.max(...b.ring.map((q) => Math.hypot(q[0] - c[0], q[1] - c[1])));
     for (let k = 0; k < 8; k++) {
       const a = (((seed >>> 3) + k) % 8) * (Math.PI / 4);
       const p: Pt = [c[0] + Math.cos(a) * (reach + 4 / S), c[1] + Math.sin(a) * (reach + 4 / S)];
-      if (add(p, seed, sp, clearRadius(p, HERDS[sp].max, { open: garden, margin: SNUG_M }), (seed >>> 16) % 6 === 0 ? 2 : 1)) break;
+      if (add(p, seed, sp, clearRadius(p, HERDS[sp].max, { open: garden, margin: SNUG_M }), small ? undefined : (seed >>> 16) % 6 === 0 ? 2 : 1)) break;
     }
   }
 
-  const kept = capped(homes, WILD_HOME_CAP, WILD_CREATURE_CAP);
+  // ---- many more kinds, at spots of their own, with a limit of their own, so that nothing above is moved or thinned by them
+  const more: Home[] = [];
+  const addMore = adder(S, more, [...farm, ...homes]);
+  const also = (sp: Species, p: Pt, seed: number, clear: Clear): boolean => addMore(p, seed, sp, clearRadius(p, HERDS[sp].max, clear));
+  const fields = classes("plain", "farm", "grass");
+  const farmGround = groundClassId("farm");
+  for (let j = 0; j < LATTICE; j++) {
+    for (let i = 0; i < LATTICE; i++) {
+      const { p, seed } = latticeSpot(cx, cy, i, j, 0x4d4f5245);
+      const c = classAt(p);
+      const pick = (seed >>> 24) % 40;
+      const big = (seed >>> 8) % 16;
+      if (c === water) {
+        if (!inland(p) || !shoreNear(p, water, 60)) continue;
+        if (pick % 10 === 0) also("swan", p, seed, { open: classes("water"), margin: SNUG_M, afloat: true });
+        else if (pick % 10 === 1 && !fauna.cold) also("otter", p, seed, { open: classes("water"), margin: SNUG_M, afloat: true });
+        else if (pick % 10 === 2 && shoreNear(p, water, 25)) also("dragonfly", p, seed, { open: classes("water"), margin: SNUG_M, afloat: true });
+      } else if (c === sand) {
+        if (fauna.seal && pick % 5 === 0) also("seal", p, seed, { open: classes("sand", "plain") });
+        else if (fauna.flamingo && pick % 8 === 1) also("flamingo", p, seed, { open: classes("sand", "plain") });
+        else if (pick % 4 === 2) also("crab", p, seed, { open: classes("sand", "plain"), margin: SNUG_M });
+        else if (pick % 4 === 3) also("seagull", p, seed, { open: classes("sand", "plain") });
+        else if (fauna.tortoise && pick % 8 === 4) also("tortoise", p, seed, { open: classes("sand", "plain"), margin: SNUG_M });
+      } else if (c === urban || c === paved) {
+        if (pick % 6 === 0) also("sparrow", p, seed, { open: town, margin: SNUG_M });
+        else if (pick % 10 === 1) also("ant", p, seed, { open: town, margin: SNUG_M });
+      } else if (c === grass || c === 0 || c === farmGround) {
+        const open = c === farmGround;
+        // The big animals first, where they live: they need the room.
+        if (!open && fauna.savanna && big < 4) also((["zebra", "giraffe", "elephant", "lion"] as const)[big], p, seed, { open: land });
+        else if (!open && fauna.asianElephant && big === 0) also("elephant", p, seed, { open: land });
+        else if (!open && fauna.bison && big < 2) also("bison", p, seed, { open: land });
+        else if (!open && fauna.reindeer && big < 3) also("reindeer", p, seed, { open: land });
+        else if (!open && fauna.marmot && big < 3 && elev.surfaceHeight(p[0], p[1]) >= 1400) also("marmot", p, seed, { open: land, margin: SNUG_M });
+        else if (!open && classNear(p, water, 30) && pick % 5 === 0) also(fauna.capybara && pick % 10 === 0 ? "capybara" : "frog", p, seed, { open: land, margin: SNUG_M });
+        else if (!open && classNear(p, water, 30) && pick % 7 === 1) also("heron", p, seed, { open: land, margin: SNUG_M });
+        else if (!open && classNear(p, water, 30) && pick % 9 === 2 && !fauna.cold) also("beaver", p, seed, { open: land, margin: SNUG_M });
+        else if (!open && classNear(p, forest, FOREST_NEAR_M) && pick % 8 === 3) {
+          also(fauna.panda ? "panda" : fauna.monkey ? "monkey" : fauna.moose && pick % 16 === 3 ? "moose" : fauna.bear && pick % 16 === 11 ? "bear" : "fox", p, seed, { open: land });
+        } else if (fauna.cold) continue; // no insects in the far north
+        else if (c === 0) { if (pick === 0 || pick === 20) also("butterfly", p, seed, { open: fields, margin: SNUG_M }); } // a few over rough ground
+        else if (pick % 8 === 0) also("butterfly", p, seed, { open: fields, margin: SNUG_M });
+        else if (pick === 1 || pick === 15) also("bee", p, seed, { open: fields, margin: SNUG_M });
+        else if (pick === 2 || pick === 21) also("grasshopper", p, seed, { open: fields, margin: SNUG_M });
+        else if (pick === 3) also("ladybird", p, seed, { open: fields, margin: SNUG_M });
+        else if (pick === 5 || pick === 27) also("snail", p, seed, { open: fields, margin: SNUG_M });
+        else if (pick === 6) also("ant", p, seed, { open: fields, margin: SNUG_M });
+      }
+    }
+  }
+
+  const kept = [...capped(homes, WILD_HOME_CAP, WILD_CREATURE_CAP), ...capped(more, MORE_HOME_CAP, MORE_CREATURE_CAP)];
 
   // ---- a flock circling overhead, over about half the chunks. It flies above everything, so anywhere will do.
   const sky = hash32(cx, cy ^ 0x534b59);

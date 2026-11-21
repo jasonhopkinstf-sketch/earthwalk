@@ -150,6 +150,22 @@ The other animals, by the ground under a home:
 | `llama` | The Andes, on open ground above 2000 m. |
 | `camel` | Sand, from the Sahara to the Thar (latitude 12 to 36, longitude -17 to 75). |
 | `penguin` | Sand south of latitude -33. |
+| `pig`, `goat`, `donkey`, `goose` | Farm animals like the first four: pigs and geese in farmyards, donkeys and goats in paddocks, goats on some meadows. |
+| `mouse`, `hedgehog`, `snail` | Beside some homes that have no cat or dog (hedgehogs in the Old World only). |
+| `butterfly`, `bee`, `grasshopper`, `ladybird`, `snail`, `ant` | Grass and farmland, and a few butterflies over unmapped ground; ants on paved ground too. None beyond latitude 66. Butterflies, bees and dragonflies never land: a client draws them 0.4 to 1.6 m up. |
+| `frog`, `heron`, `beaver` | Open ground within 30 m of fresh water. |
+| `swan`, `otter`, `dragonfly` | Fresh water within 60 m of the bank. |
+| `crab`, `seagull` | Sand. |
+| `tortoise`, `flamingo`, `seal` | Sand: tortoises within latitude 42, flamingos within 33, seals beyond 50 north or 40 south. |
+| `sparrow` | Paved or built-up ground. |
+| `fox` | Open ground within 60 m of a wood. In its place: `panda` in central China, `monkey` in the tropics, and now and then `moose` or `bear` in the north. |
+| `koala` | Under some trees in eastern Australia. |
+| `zebra`, `giraffe`, `elephant`, `lion` | Open ground in Africa south of latitude 16; elephants in south and south-east Asia too. |
+| `bison`, `reindeer`, `marmot`, `capybara` | Open ground: bison on the American plains, reindeer beyond latitude 62, marmots above 1400 m in the north, capybaras by fresh water in South America. |
+
+The kinds from `pig` down were added later and are placed at spots of their own, after everything
+above, with a limit of their own (40 homes and 130 animals a chunk), so the first animals are where
+they always were. Exactly which regions is `localFauna` in `server/src/life.ts`.
 | `tractor` | A clear patch of ploughed farmland, 12 to 28 m across. One to a home. |
 | `boat`, `sailboat` | Water within 250 m of a shore, the sea included: a sailing boat where there is a clear 14 m round it, a rowing boat where there is 6 m. One to a home. At most 8 tractors and boats per chunk. |
 

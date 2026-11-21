@@ -440,6 +440,914 @@
 	};
 }
 {
+	FEarthRig& R = Add(TEXT("pig"), false);
+	R.Voice = TEXT("oink"); R.Alarm = TEXT("oink");
+	R.Alert = 6.0; R.Flee = 2.0; R.Stride = 0.6; R.Graze = 0.8; R.Drop = 0.12;
+	R.Neck = { 0.0, 0.469, -0.4 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xf0b3a8, 0xe59a90 }, { 0xe9a79c, 0x3a3432 }, { 0xd9a08a, 0xc98a78 }, { 0x4a403c, 0xf0b3a8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.365, 0.0 }, { 0.26, 0.26, 0.5 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.482, -0.565 }, { 0.17, 0.17, 0.2 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.4395, -0.725 }, { 0.10200000000000001, 0.10200000000000001, 0.11000000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.10540000000000001, 0.533, -0.6749999999999999 }, { 0.023800000000000005, 0.028560000000000006, 0.019040000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.10540000000000001, 0.533, -0.6749999999999999 }, { 0.023800000000000005, 0.028560000000000006, 0.019040000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.1615, 0.6094999999999999, -0.5149999999999999 }, { 0.0595, 0.07650000000000001, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.1615, 0.6094999999999999, -0.5149999999999999 }, { 0.0595, 0.07650000000000001, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.156, 0.15, -0.31 }, { 0.06, 0.3, 0.06 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.156, 0.15, -0.31 }, { 0.06, 0.3, 0.06 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.156, 0.15, 0.31 }, { 0.06, 0.3, 0.06 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.156, 0.15, 0.31 }, { 0.06, 0.3, 0.06 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.0, 0.544, 0.503 }, { 0.036, 0.14, 0.036 }, EEarthRole::TailUp, 0.6 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("goat"), false);
+	R.Voice = TEXT("baa"); R.Alarm = TEXT("baa");
+	R.Alert = 8.0; R.Flee = 2.5; R.Stride = 0.8; R.Graze = 1.0; R.Drop = 0.25;
+	R.Neck = { 0.0, 0.55, -0.32000000000000006 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xf1ece0, 0xcfc6b4 }, { 0x8a6a4a, 0xf1ece0 }, { 0x3a3432, 0xd9d2c4 }, { 0xc9a777, 0x6f5234 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.47, 0.0 }, { 0.17, 0.2, 0.4 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.7, -0.47000000000000003 }, { 0.09, 0.1, 0.15 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.6749999999999999, -0.5900000000000001 }, { 0.0675, 0.06, 0.0825 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.055799999999999995, 0.73, -0.5525 }, { 0.0126, 0.01512, 0.01008 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.055799999999999995, 0.73, -0.5525 }, { 0.0126, 0.01512, 0.01008 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.08549999999999999, 0.7749999999999999, -0.43250000000000005 }, { 0.054, 0.03, 0.045 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.08549999999999999, 0.7749999999999999, -0.43250000000000005 }, { 0.054, 0.03, 0.045 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.10200000000000001, 0.21, -0.248 }, { 0.035, 0.42, 0.035 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.10200000000000001, 0.21, -0.248 }, { 0.035, 0.42, 0.035 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.10200000000000001, 0.21, 0.248 }, { 0.035, 0.42, 0.035 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.10200000000000001, 0.21, 0.248 }, { 0.035, 0.42, 0.035 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.612, 0.404 }, { 0.021, 0.12, 0.021 }, EEarthRole::TailUp, 0.6 },
+		{ EEarthShape::Cone, 0xe9dcc0, { -0.04, 0.85, -0.42500000000000004 }, { 0.018, 0.18, 0.018 }, EEarthRole::Head, 0.4 },
+		{ EEarthShape::Cone, 0xe9dcc0, { 0.04, 0.85, -0.42500000000000004 }, { 0.018, 0.18, 0.018 }, EEarthRole::Head, 0.4 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatB, { 0.0, 0.58, -0.545 }, { 0.03, 0.12, 0.02 }, EEarthRole::Head, 3.141592653589793 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("donkey"), false);
+	R.Voice = TEXT("bray"); R.Alarm = TEXT("bray");
+	R.Alert = 9.0; R.Flee = 2.6; R.Stride = 1.2; R.Graze = 1.2; R.Drop = 0.3;
+	R.Neck = { 0.0, 0.855, -0.496 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x9a9088, 0xe9e2d6 }, { 0x7a6a5a, 0xe9e2d6 }, { 0x5a4f48, 0xd9d0c2 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.735, 0.0 }, { 0.26, 0.3, 0.62 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 1.0875, -0.5920000000000001 }, { 0.096, 0.5019626006984983, 0.096 }, EEarthRole::Head, -0.5601514205273604 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.29, -0.791 }, { 0.12, 0.14, 0.24 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 1.2550000000000001, -0.9830000000000001 }, { 0.102, 0.084, 0.132 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0744, 1.332, -0.923 }, { 0.016800000000000002, 0.02016, 0.013440000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0744, 1.332, -0.923 }, { 0.016800000000000002, 0.02016, 0.013440000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.11399999999999999, 1.395, -0.7310000000000001 }, { 0.041999999999999996, 0.266, 0.072 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.11399999999999999, 1.395, -0.7310000000000001 }, { 0.041999999999999996, 0.266, 0.072 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.156, 0.33, -0.3844 }, { 0.05, 0.66, 0.05 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.156, 0.33, -0.3844 }, { 0.05, 0.66, 0.05 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.156, 0.33, 0.3844 }, { 0.05, 0.66, 0.05 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.156, 0.33, 0.3844 }, { 0.05, 0.66, 0.05 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.63, 0.589 }, { 0.025, 0.45, 0.025 }, EEarthRole::Tail, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("goose"), false);
+	R.Voice = TEXT("honk"); R.Alarm = TEXT("honk");
+	R.Alert = 8.0; R.Flee = 0.0; R.Stride = 0.35; R.Graze = 0.9; R.Drop = 0.2;
+	R.Neck = { 0.0, 0.342, -0.15 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.12;
+	R.TakesOff = 0.0; R.Curious = 1.2; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.0, 0.0 }; R.WingWalk = { 0.0, 0.0 }; R.bWingStartled = true; R.WingStartled = { 0.6, 0.4 }; R.WingRate = 16.0;
+	R.Coats = { { 0xf4f1ea, 0xe9e4d8 }, { 0xb9b0a2, 0x8a8278 }, { 0xf4f1ea, 0xcfc8ba } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.277, 0.0 }, { 0.15, 0.13, 0.25 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.316, 0.2375 }, { 0.075, 0.15, 0.039 }, EEarthRole::None, 1.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.452, -0.15 }, { 0.035, 0.24200000000000002, 0.035 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.5980000000000001, -0.162 }, { 0.06, 0.06, 0.066 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0xe8a23a, { 0.0, 0.5920000000000001, -0.267 }, { 0.03, 0.09, 0.018 }, EEarthRole::Head, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.041999999999999996, 0.6130000000000001, -0.195 }, { 0.010799999999999999, 0.012, 0.0096 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.041999999999999996, 0.6130000000000001, -0.195 }, { 0.010799999999999999, 0.012, 0.0096 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.138, 0.30300000000000005, 0.025 }, { 0.0375, 0.078, 0.1875 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.138, 0.30300000000000005, 0.025 }, { 0.0375, 0.078, 0.1875 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, 0xe8a23a, { -0.06, 0.08, 0.0 }, { 0.014, 0.16, 0.014 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0xe8a23a, { 0.06, 0.08, 0.0 }, { 0.014, 0.16, 0.014 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("mouse"), false);
+	R.Voice = TEXT("squeak"); R.Alarm = TEXT("squeak");
+	R.Alert = 5.0; R.Flee = 3.0; R.Stride = 0.1; R.Graze = 0.5; R.Drop = 0.01;
+	R.Neck = { 0.0, 0.04275, -0.048 };
+	R.bPeck = false; R.Hop = 0.01; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x9a8c7c, 0xe8b4a8 }, { 0xb8a48a, 0xe8b4a8 }, { 0x6f6860, 0xe8b4a8 }, { 0xe9e2d6, 0xe8b4a8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.02875, 0.0 }, { 0.035, 0.035, 0.06 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.044500000000000005, -0.072 }, { 0.028, 0.028, 0.035 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0xe8b4a8, { 0.0, 0.037500000000000006, -0.1 }, { 0.011200000000000002, 0.0168, 0.019250000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.01736, 0.0529, -0.09125 }, { 0.008, 0.0096, 0.0064 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.01736, 0.0529, -0.09125 }, { 0.008, 0.0096, 0.0064 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.0266, 0.0655, -0.06325 }, { 0.021, 0.0252, 0.0105 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0266, 0.0655, -0.06325 }, { 0.021, 0.0252, 0.0105 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.021, 0.01, -0.0372 }, { 0.008, 0.02, 0.008 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.021, 0.01, -0.0372 }, { 0.008, 0.02, 0.008 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.021, 0.01, 0.0372 }, { 0.008, 0.02, 0.008 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.021, 0.01, 0.0372 }, { 0.008, 0.02, 0.008 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.0, 0.08124999999999999, 0.077 }, { 0.0048, 0.1, 0.0048 }, EEarthRole::TailUp, 0.6 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("hedgehog"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 4.0; R.Flee = 0.0; R.Stride = 0.15; R.Graze = 0.5; R.Drop = 0.02;
+	R.Neck = { 0.0, 0.08525, -0.10400000000000001 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x6f5a48, 0xe9dcc0 }, { 0x5a4a3c, 0xd9c7a8 }, { 0x857058, 0xe9dcc0 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.051250000000000004, 0.0 }, { 0.09, 0.085, 0.13 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.08950000000000001, -0.11649999999999999 }, { 0.045, 0.04, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.07950000000000002, -0.16449999999999998 }, { 0.0135, 0.024, 0.033 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.027899999999999998, 0.1015, -0.1495 }, { 0.008, 0.0096, 0.0064 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.027899999999999998, 0.1015, -0.1495 }, { 0.008, 0.0096, 0.0064 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.042749999999999996, 0.11950000000000001, -0.10149999999999999 }, { 0.0135, 0.016, 0.018 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.042749999999999996, 0.11950000000000001, -0.10149999999999999 }, { 0.0135, 0.016, 0.018 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.054, 0.015, -0.0806 }, { 0.014, 0.03, 0.014 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.054, 0.015, -0.0806 }, { 0.014, 0.03, 0.014 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.054, 0.015, 0.0806 }, { 0.014, 0.03, 0.014 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.054, 0.015, 0.0806 }, { 0.014, 0.03, 0.014 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { -0.045, 0.11925000000000001, -0.078 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.13625, -0.078 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.045, 0.11925000000000001, -0.078 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { -0.045, 0.11925000000000001, -0.026000000000000002 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.13625, -0.026000000000000002 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.045, 0.11925000000000001, -0.026000000000000002 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { -0.045, 0.11925000000000001, 0.026000000000000002 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.13625, 0.026000000000000002 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.045, 0.11925000000000001, 0.026000000000000002 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { -0.045, 0.11925000000000001, 0.078 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.13625, 0.078 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.045, 0.11925000000000001, 0.078 }, { 0.018, 0.07, 0.018 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("fox"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 18.0; R.Flee = 8.0; R.Stride = 0.7; R.Graze = 0.7; R.Drop = 0.14;
+	R.Neck = { 0.0, 0.411, -0.272 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xd9702a, 0xf4f1ea }, { 0xc9622a, 0xf1e6d2 }, { 0xb86a3a, 0xf4f1ea } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.355, 0.0 }, { 0.13, 0.14, 0.34 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.478, -0.36100000000000004 }, { 0.1, 0.095, 0.12 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.45425, -0.4570000000000001 }, { 0.05500000000000001, 0.056999999999999995, 0.066 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.062, 0.5065, -0.42700000000000005 }, { 0.014000000000000002, 0.016800000000000002, 0.011200000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.062, 0.5065, -0.42700000000000005 }, { 0.014000000000000002, 0.016800000000000002, 0.011200000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, 0x2a2826, { -0.078, 0.16, -0.21080000000000002 }, { 0.03, 0.32, 0.03 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0x2a2826, { 0.078, 0.16, -0.21080000000000002 }, { 0.03, 0.32, 0.03 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, 0x2a2826, { -0.078, 0.16, 0.21080000000000002 }, { 0.03, 0.32, 0.03 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, 0x2a2826, { 0.078, 0.16, 0.21080000000000002 }, { 0.03, 0.32, 0.03 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { -0.06, 0.6015, -0.33100000000000007 }, { 0.035, 0.11, 0.03 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.06, 0.6015, -0.33100000000000007 }, { 0.035, 0.11, 0.03 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.40499999999999997, 0.54 }, { 0.075, 0.075, 0.2 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.40499999999999997, 0.72 }, { 0.055, 0.055, 0.08 }, EEarthRole::Tail, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("frog"), false);
+	R.Voice = TEXT("ribbit"); R.Alarm = nullptr;
+	R.Alert = 5.0; R.Flee = 2.5; R.Stride = 0.4; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.05, -0.04 };
+	R.bPeck = false; R.Hop = 0.18; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x5aa84a, 0xe6e2a8 }, { 0x7ab05a, 0xf0ecc0 }, { 0x4a8a52, 0xd9d8a0 }, { 0x8a9a4a, 0xe6e2a8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.055, 0.01 }, { 0.07, 0.05, 0.085 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.04, -0.01 }, { 0.055, 0.035, 0.07 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.075, -0.07 }, { 0.055, 0.04, 0.05 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.035, 0.115, -0.07 }, { 0.022, 0.022, 0.022 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.035, 0.115, -0.07 }, { 0.022, 0.022, 0.022 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.04, 0.125, -0.085 }, { 0.01, 0.011, 0.01 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.04, 0.125, -0.085 }, { 0.01, 0.011, 0.01 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.075, 0.03, 0.06 }, { 0.03, 0.03, 0.07 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.075, 0.03, 0.06 }, { 0.03, 0.03, 0.07 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.05, 0.025, -0.05 }, { 0.012, 0.05, 0.012 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.05, 0.025, -0.05 }, { 0.012, 0.05, 0.012 }, EEarthRole::Leg0, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("snail"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 0.0; R.Flee = 0.0; R.Stride = 0.2; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.03, -0.06 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xc98a4a, 0xe9dcc0 }, { 0xa86a3a, 0xe6d2a8 }, { 0xd9b06a, 0xf0e6cc }, { 0x8a5a34, 0xd9c7a8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.022, -0.01 }, { 0.03, 0.022, 0.1 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.075, 0.025 }, { 0.045, 0.06, 0.06 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x7a5234, { 0.047, 0.075, 0.025 }, { 0.004, 0.032, 0.032 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x7a5234, { -0.047, 0.075, 0.025 }, { 0.004, 0.032, 0.032 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.014, 0.065, -0.095 }, { 0.004, 0.05, 0.004 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.014, 0.065, -0.095 }, { 0.004, 0.05, 0.004 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.014, 0.093, -0.095 }, { 0.007, 0.007, 0.007 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.014, 0.093, -0.095 }, { 0.007, 0.007, 0.007 }, EEarthRole::Head, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("tortoise"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 4.0; R.Flee = 0.0; R.Stride = 0.15; R.Graze = 0.5; R.Drop = 0.03;
+	R.Neck = { 0.0, 0.14800000000000002, -0.16000000000000003 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x6f7a44, 0x9a9a62 }, { 0x7a6a44, 0xa89a6a }, { 0x5f6f4a, 0x8a9a6a } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.1, 0.0 }, { 0.17, 0.12, 0.2 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.08399999999999999, -0.226 }, { 0.045, 0.04, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.027899999999999998, 0.09599999999999999, -0.259 }, { 0.008, 0.0096, 0.0064 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.027899999999999998, 0.09599999999999999, -0.259 }, { 0.008, 0.0096, 0.0064 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.10200000000000001, 0.035, -0.124 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.10200000000000001, 0.035, -0.124 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.10200000000000001, 0.035, 0.124 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.10200000000000001, 0.035, 0.124 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.04000000000000001, 0.0 }, { 0.17850000000000002, 0.048, 0.21000000000000002 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.068, 0.1864, -0.09000000000000001 }, { 0.05, 0.03, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.068, 0.1864, -0.09000000000000001 }, { 0.05, 0.03, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.068, 0.1864, 0.0 }, { 0.05, 0.03, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.068, 0.1864, 0.0 }, { 0.05, 0.03, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.068, 0.1864, 0.09000000000000001 }, { 0.05, 0.03, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.068, 0.1864, 0.09000000000000001 }, { 0.05, 0.03, 0.05 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("crab"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 5.0; R.Flee = 2.5; R.Stride = 0.12; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.05, -0.05 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xd9502e, 0xf0a070 }, { 0xc9643c, 0xf0c8a0 }, { 0xe07a3a, 0xf4d8b0 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.06, 0.0 }, { 0.1, 0.045, 0.075 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.13, 0.07, -0.08 }, { 0.045, 0.03, 0.035 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.13, 0.07, -0.08 }, { 0.045, 0.03, 0.035 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.035, 0.115, -0.05 }, { 0.006, 0.05, 0.006 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.035, 0.115, -0.05 }, { 0.006, 0.05, 0.006 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.035, 0.145, -0.05 }, { 0.012, 0.012, 0.012 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.035, 0.145, -0.05 }, { 0.012, 0.012, 0.012 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.1, 0.025, 0.0 }, { 0.008, 0.06, 0.008 }, EEarthRole::Leg0, 0.5 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.1, 0.025, 0.0 }, { 0.008, 0.06, 0.008 }, EEarthRole::Leg1, 0.5 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.1, 0.025, 0.05 }, { 0.008, 0.06, 0.008 }, EEarthRole::Leg1, 0.5 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.1, 0.025, 0.05 }, { 0.008, 0.06, 0.008 }, EEarthRole::Leg0, 0.5 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("beaver"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 8.0; R.Flee = 3.0; R.Stride = 0.3; R.Graze = 0.6; R.Drop = 0.05;
+	R.Neck = { 0.0, 0.16100000000000003, -0.192 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x7a5234, 0x4a3628 }, { 0x6a482e, 0x3f2e22 }, { 0x8a6240, 0x55402e } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.10500000000000001, 0.0 }, { 0.14, 0.14, 0.24 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.16800000000000004, -0.24400000000000002 }, { 0.085, 0.08, 0.1 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0xe9dcc0, { 0.0, 0.14800000000000005, -0.32400000000000007 }, { 0.0425, 0.048, 0.05500000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.052700000000000004, 0.19200000000000003, -0.29900000000000004 }, { 0.011900000000000003, 0.014280000000000003, 0.009520000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.052700000000000004, 0.19200000000000003, -0.29900000000000004 }, { 0.011900000000000003, 0.014280000000000003, 0.009520000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.08075, 0.22800000000000004, -0.21900000000000003 }, { 0.02125, 0.032, 0.03 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.08075, 0.22800000000000004, -0.21900000000000003 }, { 0.02125, 0.032, 0.03 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.084, 0.035, -0.1488 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.084, 0.035, -0.1488 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.084, 0.035, 0.1488 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.084, 0.035, 0.1488 }, { 0.03, 0.07, 0.03 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 0.02500000000000001, 0.38 }, { 0.14, 0.025, 0.3 }, EEarthRole::Tail, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("otter"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 7.0; R.Flee = 3.0; R.Stride = 0.3; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.082, -0.24 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = true; R.Swim = 0.05; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x6a4a34, 0xd9c7a8 }, { 0x5a4030, 0xcfbc9c } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.05, 0.0 }, { 0.09, 0.08, 0.3 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.136, -0.303 }, { 0.065, 0.06, 0.08 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.12100000000000001, -0.367 }, { 0.0455, 0.036, 0.044000000000000004 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0403, 0.154, -0.347 }, { 0.0091, 0.010920000000000001, 0.007280000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0403, 0.154, -0.347 }, { 0.0091, 0.010920000000000001, 0.007280000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.06175, 0.181, -0.283 }, { 0.014625, 0.020999999999999998, 0.024 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.06175, 0.181, -0.283 }, { 0.014625, 0.020999999999999998, 0.024 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.054, 0.015, -0.186 }, { 0.02, 0.03, 0.02 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.054, 0.015, -0.186 }, { 0.02, 0.03, 0.02 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.054, 0.015, 0.186 }, { 0.02, 0.03, 0.02 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.054, 0.015, 0.186 }, { 0.02, 0.03, 0.02 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.05, 0.45999999999999996 }, { 0.045, 0.04, 0.2 }, EEarthRole::Tail, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("swan"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 7.0; R.Flee = 2.5; R.Stride = 0.4; R.Graze = 0.9; R.Drop = 0.3;
+	R.Neck = { 0.0, 0.22999999999999998, -0.216 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = true; R.Swim = 0.03; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.0, 0.0 }; R.WingWalk = { 0.0, 0.0 }; R.bWingStartled = true; R.WingStartled = { 0.5, 0.3 }; R.WingRate = 12.0;
+	R.Coats = { { 0xf7f5ef, 0xf1eee6 }, { 0xf7f5ef, 0xe9e6dc }, { 0x2a2826, 0x3a3836 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.155, 0.0 }, { 0.2, 0.15, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.2, 0.34199999999999997 }, { 0.1, 0.216, 0.045 }, EEarthRole::None, 1.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.43, -0.216 }, { 0.04, 0.44000000000000006, 0.04 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.669, -0.229 }, { 0.065, 0.065, 0.07150000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0xe8a23a, { 0.0, 0.6625000000000001, -0.34400000000000003 }, { 0.03, 0.1, 0.018 }, EEarthRole::Head, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0455, 0.68525, -0.26475000000000004 }, { 0.0117, 0.013000000000000001, 0.010400000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0455, 0.68525, -0.26475000000000004 }, { 0.0117, 0.013000000000000001, 0.010400000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.18400000000000002, 0.185, 0.036 }, { 0.05, 0.09, 0.27 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.18400000000000002, 0.185, 0.036 }, { 0.05, 0.09, 0.27 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, 0x26221f, { -0.08000000000000002, 0.01, 0.0 }, { 0.012, 0.02, 0.012 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0x26221f, { 0.08000000000000002, 0.01, 0.0 }, { 0.012, 0.02, 0.012 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("heron"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 14.0; R.Flee = 6.0; R.Stride = 0.6; R.Graze = 1.2; R.Drop = 0.4;
+	R.Neck = { 0.0, 0.6819999999999999, -0.156 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.0, 0.0 }; R.WingWalk = { 0.0, 0.0 }; R.bWingStartled = true; R.WingStartled = { 0.6, 0.4 }; R.WingRate = 10.0;
+	R.Coats = { { 0xa9b2ba, 0x5f6a78 }, { 0xb9c0c6, 0x6f7a88 }, { 0xf1eee6, 0xcfd4d8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.617, 0.0 }, { 0.12, 0.13, 0.26 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.656, 0.247 }, { 0.06, 0.156, 0.039 }, EEarthRole::None, 1.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.8919999999999999, -0.156 }, { 0.028, 0.462, 0.028 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.1349999999999998, -0.167 }, { 0.055, 0.055, 0.060500000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0xf2c230, { 0.0, 1.1294999999999997, -0.322 }, { 0.022, 0.2, 0.013199999999999998 }, EEarthRole::Head, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0385, 1.1487499999999997, -0.19725 }, { 0.009899999999999999, 0.011000000000000001, 0.0088 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0385, 1.1487499999999997, -0.19725 }, { 0.009899999999999999, 0.011000000000000001, 0.0088 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.1104, 0.643, 0.026000000000000002 }, { 0.03, 0.078, 0.195 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.1104, 0.643, 0.026000000000000002 }, { 0.03, 0.078, 0.195 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, 0x8a8a5a, { -0.048, 0.25, 0.0 }, { 0.012, 0.5, 0.012 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0x8a8a5a, { 0.048, 0.25, 0.0 }, { 0.012, 0.5, 0.012 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("seagull"), false);
+	R.Voice = TEXT("squawk"); R.Alarm = TEXT("squawk");
+	R.Alert = 8.0; R.Flee = 4.0; R.Stride = 0.25; R.Graze = 0.9; R.Drop = 0.08;
+	R.Neck = { 0.0, 0.21900000000000003, -0.10200000000000001 };
+	R.bPeck = true; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 5.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.4, 0.6 }; R.WingWalk = { 0.0, 0.0 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 12.0;
+	R.Coats = { { 0xf4f1ea, 0x9aa2aa }, { 0xf4f1ea, 0x7f8890 }, { 0xe9e6dc, 0x5f666e } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.17650000000000002, 0.0 }, { 0.09, 0.085, 0.17 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.202, 0.1615 }, { 0.045, 0.10200000000000001, 0.025500000000000002 }, EEarthRole::None, 1.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.24400000000000002, -0.10200000000000001 }, { 0.035, 0.05500000000000001, 0.035 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.29900000000000004, -0.11200000000000002 }, { 0.05, 0.05, 0.05500000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0xf2c230, { 0.0, 0.29400000000000004, -0.19700000000000004 }, { 0.018, 0.07, 0.010799999999999999 }, EEarthRole::Head, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.034999999999999996, 0.31150000000000005, -0.1395 }, { 0.009, 0.010000000000000002, 0.008 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.034999999999999996, 0.31150000000000005, -0.1395 }, { 0.009, 0.010000000000000002, 0.008 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.0828, 0.1935, 0.017 }, { 0.0225, 0.051000000000000004, 0.1275 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0828, 0.1935, 0.017 }, { 0.0225, 0.051000000000000004, 0.1275 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, 0xf2c230, { -0.036, 0.05, 0.0 }, { 0.008, 0.1, 0.008 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0xf2c230, { 0.036, 0.05, 0.0 }, { 0.008, 0.1, 0.008 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("sparrow"), false);
+	R.Voice = TEXT("cheep"); R.Alarm = nullptr;
+	R.Alert = 5.0; R.Flee = 3.5; R.Stride = 0.12; R.Graze = 0.9; R.Drop = 0.03;
+	R.Neck = { 0.0, 0.09100000000000001, -0.036 };
+	R.bPeck = true; R.Hop = 0.03; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 3.5; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 1.2, 0.5 }; R.WingWalk = { 0.0, 0.0 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 34.0;
+	R.Coats = { { 0x9a7a58, 0x6a5038 }, { 0xa8865e, 0x5a4634 }, { 0x8a7a68, 0x4a4038 }, { 0xc9643c, 0x6a5038 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.07100000000000001, 0.0 }, { 0.04, 0.04, 0.06 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.083, 0.056999999999999995 }, { 0.02, 0.036, 0.012 }, EEarthRole::None, 1.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.09600000000000002, -0.036 }, { 0.022, 0.011000000000000001, 0.022 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.11900000000000001, -0.041999999999999996 }, { 0.03, 0.03, 0.033 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0x4a4038, { 0.0, 0.116, -0.08449999999999999 }, { 0.01, 0.025, 0.006 }, EEarthRole::Head, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.020999999999999998, 0.1265, -0.058499999999999996 }, { 0.005399999999999999, 0.006, 0.0048 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.020999999999999998, 0.1265, -0.058499999999999996 }, { 0.005399999999999999, 0.006, 0.0048 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.0368, 0.07900000000000001, 0.006 }, { 0.01, 0.024, 0.045 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0368, 0.07900000000000001, 0.006 }, { 0.01, 0.024, 0.045 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, 0x8a6a5a, { -0.016, 0.0175, 0.0 }, { 0.004, 0.035, 0.004 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0x8a6a5a, { 0.016, 0.0175, 0.0 }, { 0.004, 0.035, 0.004 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("flamingo"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 10.0; R.Flee = 4.0; R.Stride = 0.7; R.Graze = 1.3; R.Drop = 0.5;
+	R.Neck = { 0.0, 0.768, -0.132 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.0, 0.0 }; R.WingWalk = { 0.0, 0.0 }; R.bWingStartled = true; R.WingStartled = { 0.5, 0.3 }; R.WingRate = 10.0;
+	R.Coats = { { 0xf08aa0, 0xe86a88 }, { 0xf4a0b0, 0xf07a94 }, { 0xf7b8c4, 0xf08aa0 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.708, 0.0 }, { 0.11, 0.12, 0.22 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatA, { 0.0, 0.744, 0.209 }, { 0.055, 0.132, 0.036 }, EEarthRole::None, 1.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.998, -0.132 }, { 0.024, 0.5060000000000001, 0.024 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.258, -0.14200000000000002 }, { 0.05, 0.05, 0.05500000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0x2a2826, { 0.0, 1.2530000000000001, -0.237 }, { 0.028, 0.09, 0.0168 }, EEarthRole::Head, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.034999999999999996, 1.2705, -0.1695 }, { 0.009, 0.010000000000000002, 0.008 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.034999999999999996, 1.2705, -0.1695 }, { 0.009, 0.010000000000000002, 0.008 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.1012, 0.732, 0.022000000000000002 }, { 0.0275, 0.072, 0.165 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.1012, 0.732, 0.022000000000000002 }, { 0.0275, 0.072, 0.165 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cyl, 0xf07a94, { -0.044000000000000004, 0.3, 0.0 }, { 0.01, 0.6, 0.01 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, 0xf07a94, { 0.044000000000000004, 0.3, 0.0 }, { 0.01, 0.6, 0.01 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("seal"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 9.0; R.Flee = 0.0; R.Stride = 0.5; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.3, -0.42 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.6; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x8a8f94, 0xb9bcc0 }, { 0x6f7478, 0xa9acb0 }, { 0x9a8c7c, 0xcfc4b4 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.24, 0.1 }, { 0.27, 0.23, 0.62 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.19, 0.0 }, { 0.22, 0.18, 0.5 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.48, -0.58 }, { 0.16, 0.16, 0.19 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.43, -0.74 }, { 0.09, 0.07, 0.07 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.46, -0.81 }, { 0.025, 0.02, 0.02 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.09, 0.54, -0.7 }, { 0.022, 0.026, 0.02 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.09, 0.54, -0.7 }, { 0.022, 0.026, 0.02 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.27, 0.12, -0.2 }, { 0.16, 0.035, 0.1 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.27, 0.12, -0.2 }, { 0.16, 0.035, 0.1 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.1, 0.1, 0.76 }, { 0.08, 0.03, 0.16 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.1, 0.1, 0.76 }, { 0.08, 0.03, 0.16 }, EEarthRole::Tail, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("butterfly"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 0.0; R.Flee = 1.5; R.Stride = 1.0; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.0, 0.0 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.2, 0.9 }; R.WingWalk = { 0.2, 0.9 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 14.0;
+	R.Coats = { { 0xf0a030, 0x26221f }, { 0x5a8fd8, 0xf4f1ea }, { 0xf4f1ea, 0xf2c230 }, { 0xe86a88, 0x7a4f9a }, { 0xf2c230, 0xd9502e }, { 0x7ac0e8, 0x26221f } };
+	R.Parts = {
+		{ EEarthShape::Cyl, 0x26221f, { 0.0, 0.0, 0.0 }, { 0.012, 0.14, 0.012 }, EEarthRole::None, -1.5707963267948966 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.0, -0.08 }, { 0.018, 0.018, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.09, 0.0, -0.03 }, { 0.085, 0.004, 0.07 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.09, 0.0, -0.03 }, { 0.085, 0.004, 0.07 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.07, 0.0, 0.05 }, { 0.065, 0.004, 0.055 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.07, 0.0, 0.05 }, { 0.065, 0.004, 0.055 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.1, 0.004, -0.03 }, { 0.035, 0.004, 0.03 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.1, 0.004, -0.03 }, { 0.035, 0.004, 0.03 }, EEarthRole::Wing1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("bee"), false);
+	R.Voice = TEXT("buzz"); R.Alarm = nullptr;
+	R.Alert = 0.0; R.Flee = 1.2; R.Stride = 1.0; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.0, 0.0 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.1, 0.5 }; R.WingWalk = { 0.1, 0.5 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 60.0;
+	R.Coats = { { 0xf2c230, 0x26221f } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.0, 0.02 }, { 0.04, 0.038, 0.06 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.0, 0.0 }, { 0.041, 0.039, 0.012 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.0, 0.045 }, { 0.036, 0.034, 0.012 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.005, -0.06 }, { 0.03, 0.03, 0.03 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xbfe0ee, { -0.045, 0.035, 0.0 }, { 0.045, 0.004, 0.025 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, 0xbfe0ee, { 0.045, 0.035, 0.0 }, { 0.045, 0.004, 0.025 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Cone, FEarthRigPart::CoatB, { 0.0, 0.0, 0.09 }, { 0.008, 0.03, 0.008 }, EEarthRole::None, 1.5707963267948966 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("dragonfly"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 0.0; R.Flee = 2.0; R.Stride = 1.0; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.0, 0.0 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.bWing = true; R.WingAir = { 0.0, 0.35 }; R.WingWalk = { 0.0, 0.35 }; R.bWingStartled = false; R.WingStartled = { 0.0, 0.0 }; R.WingRate = 50.0;
+	R.Coats = { { 0x3f8fd0, 0xbfe0ee }, { 0x4caf6a, 0xbfe0ee }, { 0xd9502e, 0xbfe0ee }, { 0x2f8f8a, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.0, 0.1 }, { 0.012, 0.3, 0.012 }, EEarthRole::None, -1.5707963267948966 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.0, -0.06 }, { 0.03, 0.028, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.02, 0.01, -0.1 }, { 0.018, 0.018, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.02, 0.01, -0.1 }, { 0.018, 0.018, 0.018 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.13, 0.01, -0.05 }, { 0.12, 0.003, 0.03 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.13, 0.01, -0.05 }, { 0.12, 0.003, 0.03 }, EEarthRole::Wing1, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.12, 0.01, 0.02 }, { 0.11, 0.003, 0.03 }, EEarthRole::Wing0, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.12, 0.01, 0.02 }, { 0.11, 0.003, 0.03 }, EEarthRole::Wing1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("ladybird"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 0.0; R.Flee = 0.0; R.Stride = 0.08; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.03, -0.04 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xd9302a, 0x26221f }, { 0xe8502e, 0x26221f }, { 0xf2c230, 0x26221f } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.035, 0.01 }, { 0.05, 0.035, 0.06 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.03, -0.05 }, { 0.03, 0.025, 0.025 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 0.07, 0.01 }, { 0.004, 0.004, 0.11 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.025, 0.06, -0.01 }, { 0.012, 0.008, 0.012 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.025, 0.06, -0.01 }, { 0.012, 0.008, 0.012 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.028, 0.055, 0.035 }, { 0.011, 0.008, 0.011 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.028, 0.055, 0.035 }, { 0.011, 0.008, 0.011 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf4f1ea, { -0.015, 0.04, -0.07 }, { 0.006, 0.006, 0.004 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0xf4f1ea, { 0.015, 0.04, -0.07 }, { 0.006, 0.006, 0.004 }, EEarthRole::Head, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("ant"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 0.0; R.Flee = 0.0; R.Stride = 0.05; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.03, -0.04 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x2a2826, 0x3a3432 }, { 0x7a3a2a, 0x5a2a20 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.03, 0.05 }, { 0.025, 0.022, 0.035 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.03, 0.0 }, { 0.016, 0.016, 0.022 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.035, -0.04 }, { 0.02, 0.018, 0.022 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.012, 0.06, -0.06 }, { 0.003, 0.04, 0.003 }, EEarthRole::Head, -0.6 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.012, 0.06, -0.06 }, { 0.003, 0.04, 0.003 }, EEarthRole::Head, -0.6 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.025, 0.015, 0.0 }, { 0.003, 0.035, 0.003 }, EEarthRole::Leg0, 0.4 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.025, 0.015, 0.0 }, { 0.003, 0.035, 0.003 }, EEarthRole::Leg1, 0.4 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.025, 0.015, 0.03 }, { 0.003, 0.035, 0.003 }, EEarthRole::Leg1, 0.4 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.025, 0.015, 0.03 }, { 0.003, 0.035, 0.003 }, EEarthRole::Leg0, 0.4 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("grasshopper"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 4.0; R.Flee = 2.0; R.Stride = 0.5; R.Graze = 0.0; R.Drop = 0.0;
+	R.Neck = { 0.0, 0.04, -0.06 };
+	R.bPeck = false; R.Hop = 0.25; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x6fae4a, 0x4f8a3a }, { 0x8ab85a, 0x5f9a44 }, { 0xa89a5a, 0x7a6f44 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.045, 0.02 }, { 0.022, 0.022, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.055, -0.07 }, { 0.02, 0.024, 0.022 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.016, 0.065, -0.08 }, { 0.007, 0.008, 0.007 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.016, 0.065, -0.08 }, { 0.007, 0.008, 0.007 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.01, 0.09, -0.09 }, { 0.002, 0.07, 0.002 }, EEarthRole::Head, -0.7 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.01, 0.09, -0.09 }, { 0.002, 0.07, 0.002 }, EEarthRole::Head, -0.7 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.035, 0.05, 0.05 }, { 0.006, 0.11, 0.006 }, EEarthRole::Leg0, 0.9 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.035, 0.05, 0.05 }, { 0.006, 0.11, 0.006 }, EEarthRole::Leg0, 0.9 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.025, 0.02, -0.02 }, { 0.003, 0.04, 0.003 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.025, 0.02, -0.02 }, { 0.003, 0.04, 0.003 }, EEarthRole::Leg1, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("elephant"), false);
+	R.Voice = TEXT("trumpet"); R.Alarm = TEXT("trumpet");
+	R.Alert = 14.0; R.Flee = 0.0; R.Stride = 2.2; R.Graze = 0.3; R.Drop = 0.1;
+	R.Neck = { 0.0, 1.6875, -0.9199999999999999 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x8f8a86, 0xa9a39c }, { 0x7f7a76, 0x9a948e }, { 0x9a938a, 0xb9b2a8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.3875, 0.0 }, { 0.75, 0.75, 1.15 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.975, -1.3275 }, { 0.5, 0.55, 0.5 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.31, 2.14, -1.6025 }, { 0.035, 0.042, 0.028000000000000004 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.31, 2.14, -1.6025 }, { 0.035, 0.042, 0.028000000000000004 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.44999999999999996, 0.6, -0.713 }, { 0.2, 1.2, 0.2 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.44999999999999996, 0.6, -0.713 }, { 0.2, 1.2, 0.2 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.44999999999999996, 0.6, 0.713 }, { 0.2, 1.2, 0.2 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.44999999999999996, 0.6, 0.713 }, { 0.2, 1.2, 0.2 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 1.2375, 1.0924999999999998 }, { 0.1, 0.9, 0.1 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.625, 2.0025, -1.0775 }, { 0.34, 0.5, 0.08 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.625, 2.0025, -1.0775 }, { 0.34, 0.5, 0.08 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 1.2875, -1.7774999999999999 }, { 0.13, 1.2, 0.13 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.655, -1.7774999999999999 }, { 0.09, 0.35, 0.09 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cone, 0xe9dcc0, { -0.225, 1.5625, -1.8275 }, { 0.05, 0.5, 0.05 }, EEarthRole::Head, -1.9 },
+		{ EEarthShape::Cone, 0xe9dcc0, { 0.225, 1.5625, -1.8275 }, { 0.05, 0.5, 0.05 }, EEarthRole::Head, -1.9 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("giraffe"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 18.0; R.Flee = 5.0; R.Stride = 2.0; R.Graze = 0.5; R.Drop = 0.3;
+	R.Neck = { 0.0, 2.023, -0.6000000000000001 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xe9c27a, 0x9a5a2a }, { 0xf0cc8a, 0x8a4f26 }, { 0xe3b96a, 0xa8642e } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.855, 0.0 }, { 0.36, 0.42, 0.75 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 3.1045, -0.9199999999999999 }, { 0.11200000000000002, 2.308440223397609, 0.11200000000000002 }, EEarthRole::Head, -0.33124394007729663 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 4.144, -1.3675 }, { 0.14, 0.16, 0.3 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 4.104, -1.6075 }, { 0.11900000000000001, 0.096, 0.165 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0868, 4.192, -1.5325 }, { 0.022400000000000003, 0.026880000000000005, 0.017920000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0868, 4.192, -1.5325 }, { 0.022400000000000003, 0.026880000000000005, 0.017920000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.133, 4.264, -1.2925 }, { 0.05600000000000001, 0.064, 0.09 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.133, 4.264, -1.2925 }, { 0.05600000000000001, 0.064, 0.09 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.216, 0.875, -0.46499999999999997 }, { 0.075, 1.75, 0.075 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.216, 0.875, -0.46499999999999997 }, { 0.075, 1.75, 0.075 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.216, 0.875, 0.46499999999999997 }, { 0.075, 1.75, 0.075 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.216, 0.875, 0.46499999999999997 }, { 0.075, 1.75, 0.075 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.0, 1.6230000000000002, 0.7124999999999999 }, { 0.0375, 0.8, 0.0375 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.06, 4.368, -1.2674999999999998 }, { 0.02, 0.16, 0.02 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.06, 4.368, -1.2674999999999998 }, { 0.02, 0.16, 0.02 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.18359999999999999, 2.0125, -0.375 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.2142, 1.9495, -0.07500000000000001 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.153, 1.918, 0.22499999999999998 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.153, 2.044, 0.375 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.06119999999999999, 2.12275, 0.0 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.09179999999999999, 2.107, -0.41250000000000003 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.2142, 1.9495, -0.037500000000000006 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.030599999999999995, 2.1385, 0.375 }, { 0.12, 0.12, 0.14 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("zebra"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 16.0; R.Flee = 5.0; R.Stride = 1.5; R.Graze = 1.2; R.Drop = 0.35;
+	R.Neck = { 0.0, 0.971, -0.544 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xf4f1ea, 0x26221f } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.835, 0.0 }, { 0.3, 0.34, 0.68 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 1.2465, -0.6595000000000001 }, { 0.11200000000000002, 0.5964610004015352, 0.11200000000000002 }, EEarthRole::Head, -0.5543074962015514 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.488, -0.8900000000000001 }, { 0.14, 0.16, 0.27 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 1.448, -1.106 }, { 0.11900000000000001, 0.096, 0.14850000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0868, 1.536, -1.0385000000000002 }, { 0.019600000000000003, 0.023520000000000003, 0.015680000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0868, 1.536, -1.0385000000000002 }, { 0.019600000000000003, 0.023520000000000003, 0.015680000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.133, 1.608, -0.8225000000000001 }, { 0.042, 0.17600000000000002, 0.081 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.133, 1.608, -0.8225000000000001 }, { 0.042, 0.17600000000000002, 0.081 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.18, 0.375, -0.42160000000000003 }, { 0.055, 0.75, 0.055 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.18, 0.375, -0.42160000000000003 }, { 0.055, 0.75, 0.055 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.18, 0.375, 0.42160000000000003 }, { 0.055, 0.75, 0.055 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.18, 0.375, 0.42160000000000003 }, { 0.055, 0.75, 0.055 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.0, 0.721, 0.646 }, { 0.0275, 0.5, 0.0275 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.835, -0.476 }, { 0.22067013844197406, 0.2500928235675706, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.835, -0.272 }, { 0.28320317794827093, 0.32096360167470706, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.835, -0.068 }, { 0.30745111806594555, 0.3484446004747383, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.835, 0.136 }, { 0.3027569322080008, 0.3431245231690676, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.835, 0.34 }, { 0.2676018497693915, 0.30328209640531045, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.835, 0.5304000000000001 }, { 0.1933658697909225, 0.2191479857630455, 0.045 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 1.52, -0.8630000000000001 }, { 0.1456, 0.16, 0.03 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.508, -0.4200000000000001 }, { 0.05, 0.14, 0.5 }, EEarthRole::Head, 0.9 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("lion"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 16.0; R.Flee = 0.0; R.Stride = 1.2; R.Graze = 0.3; R.Drop = 0.1;
+	R.Neck = { 0.0, 0.758, -0.5599999999999999 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xd9aa5a, 0x8a5a2a }, { 0xcf9f52, 0x7a4f26 }, { 0xe3b96a, 0xe3b96a } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.63, 0.0 }, { 0.3, 0.32, 0.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.994, -0.767 }, { 0.2, 0.2, 0.22 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0xe9dcc0, { 0.0, 0.944, -0.9430000000000001 }, { 0.12, 0.12, 0.12100000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.124, 1.054, -0.888 }, { 0.028000000000000004, 0.033600000000000005, 0.022400000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.124, 1.054, -0.888 }, { 0.028000000000000004, 0.033600000000000005, 0.022400000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.19, 1.1440000000000001, -0.712 }, { 0.05, 0.1, 0.066 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.19, 1.1440000000000001, -0.712 }, { 0.05, 0.1, 0.066 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.18, 0.275, -0.434 }, { 0.075, 0.55, 0.075 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.18, 0.275, -0.434 }, { 0.075, 0.55, 0.075 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.18, 0.275, 0.434 }, { 0.075, 0.55, 0.075 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.18, 0.275, 0.434 }, { 0.075, 0.55, 0.075 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.458, 0.6649999999999999 }, { 0.0375, 0.6, 0.0375 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.974, -0.602 }, { 0.33, 0.36, 0.26 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.944, -1.053 }, { 0.04, 0.03, 0.03 }, EEarthRole::Head, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("monkey"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 9.0; R.Flee = 0.0; R.Stride = 0.5; R.Graze = 0.4; R.Drop = 0.05;
+	R.Neck = { 0.0, 0.39749999999999996, -0.192 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 1.2; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x8a5a34, 0xe9dcc0 }, { 0x6a4a34, 0xe3cfa8 }, { 0x9a8c7c, 0xe9dcc0 }, { 0x4a3a30, 0xd9c7a8 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.33749999999999997, 0.0 }, { 0.13, 0.15, 0.24 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.5249999999999999, -0.27599999999999997 }, { 0.12, 0.12, 0.12 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.4949999999999999, -0.372 }, { 0.08399999999999999, 0.072, 0.066 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0744, 0.5609999999999999, -0.34199999999999997 }, { 0.016800000000000002, 0.02016, 0.013440000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0744, 0.5609999999999999, -0.34199999999999997 }, { 0.016800000000000002, 0.02016, 0.013440000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.11399999999999999, 0.6149999999999999, -0.24599999999999997 }, { 0.054, 0.06, 0.036 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.11399999999999999, 0.6149999999999999, -0.24599999999999997 }, { 0.054, 0.06, 0.036 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.078, 0.15, -0.1488 }, { 0.03, 0.3, 0.03 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.078, 0.15, -0.1488 }, { 0.03, 0.3, 0.03 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.078, 0.15, 0.1488 }, { 0.03, 0.3, 0.03 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.078, 0.15, 0.1488 }, { 0.03, 0.3, 0.03 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.6224999999999999, 0.348 }, { 0.018, 0.6, 0.018 }, EEarthRole::TailUp, 0.6 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("panda"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 9.0; R.Flee = 0.0; R.Stride = 0.9; R.Graze = 0.5; R.Drop = 0.12;
+	R.Neck = { 0.0, 0.647, -0.44000000000000006 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0xf4f1ea, 0x26221f } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.495, 0.0 }, { 0.38, 0.38, 0.55 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.7160000000000001, -0.6115 }, { 0.26, 0.24, 0.24 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.6560000000000001, -0.8035000000000001 }, { 0.13, 0.144, 0.132 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.1612, 0.788, -0.7435 }, { 0.020800000000000003, 0.024960000000000003, 0.016640000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.1612, 0.788, -0.7435 }, { 0.020800000000000003, 0.024960000000000003, 0.016640000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.247, 0.8960000000000001, -0.5515000000000001 }, { 0.091, 0.108, 0.072 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.247, 0.8960000000000001, -0.5515000000000001 }, { 0.091, 0.108, 0.072 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.22799999999999998, 0.2, -0.341 }, { 0.11, 0.4, 0.11 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.22799999999999998, 0.2, -0.341 }, { 0.11, 0.4, 0.11 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.22799999999999998, 0.2, 0.341 }, { 0.11, 0.4, 0.11 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.22799999999999998, 0.2, 0.341 }, { 0.11, 0.4, 0.11 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.13, 0.7640000000000001, -0.7435 }, { 0.07, 0.085, 0.05 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.13, 0.7640000000000001, -0.7435 }, { 0.07, 0.085, 0.05 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.533, -0.30250000000000005 }, { 0.3876, 0.38, 0.16 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.668, -0.8875 }, { 0.04, 0.03, 0.03 }, EEarthRole::Head, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("koala"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 5.0; R.Flee = 0.0; R.Stride = 0.4; R.Graze = 0.3; R.Drop = 0.03;
+	R.Neck = { 0.0, 0.257, -0.16000000000000003 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x9a9aa0, 0xf1eee6 }, { 0x8a8a90, 0xe9e6dc } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.185, 0.0 }, { 0.16, 0.18, 0.2 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.316, -0.228 }, { 0.14, 0.13, 0.13 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.2835, -0.332 }, { 0.042, 0.078, 0.07150000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0868, 0.355, -0.2995 }, { 0.019600000000000003, 0.023520000000000003, 0.015680000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0868, 0.355, -0.2995 }, { 0.019600000000000003, 0.023520000000000003, 0.015680000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.133, 0.4135, -0.1955 }, { 0.10500000000000001, 0.0975, 0.039 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.133, 0.4135, -0.1955 }, { 0.10500000000000001, 0.0975, 0.039 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.096, 0.07, -0.124 }, { 0.05, 0.14, 0.05 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.096, 0.07, -0.124 }, { 0.05, 0.14, 0.05 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.096, 0.07, 0.124 }, { 0.05, 0.14, 0.05 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.096, 0.07, 0.124 }, { 0.05, 0.14, 0.05 }, EEarthRole::Leg3, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("bear"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 16.0; R.Flee = 0.0; R.Stride = 1.2; R.Graze = 0.6; R.Drop = 0.2;
+	R.Neck = { 0.0, 0.8230000000000001, -0.6000000000000001 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x6a4a34, 0x8a6a4a }, { 0x4a3a30, 0x6a5a4a }, { 0x8a6240, 0xb08a62 }, { 0x2f2a28, 0x7a5a40 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.655, 0.0 }, { 0.42, 0.42, 0.75 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.8940000000000001, -0.8315 }, { 0.24, 0.22, 0.24 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.8390000000000001, -1.0235 }, { 0.132, 0.132, 0.132 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.1488, 0.9600000000000002, -0.9635 }, { 0.021599999999999998, 0.025919999999999995, 0.01728 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.1488, 0.9600000000000002, -0.9635 }, { 0.021599999999999998, 0.025919999999999995, 0.01728 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.22799999999999998, 1.0590000000000002, -0.7715000000000001 }, { 0.06, 0.08800000000000001, 0.072 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.22799999999999998, 1.0590000000000002, -0.7715000000000001 }, { 0.06, 0.08800000000000001, 0.072 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.252, 0.275, -0.46499999999999997 }, { 0.12, 0.55, 0.12 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.252, 0.275, -0.46499999999999997 }, { 0.12, 0.55, 0.12 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.252, 0.275, 0.46499999999999997 }, { 0.12, 0.55, 0.12 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.252, 0.275, 0.46499999999999997 }, { 0.12, 0.55, 0.12 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0, 0.8500000000000001, -1.1315 }, { 0.045, 0.035, 0.035 }, EEarthRole::Head, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("moose"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 18.0; R.Flee = 5.0; R.Stride = 1.8; R.Graze = 1.2; R.Drop = 0.4;
+	R.Neck = { 0.0, 1.4229999999999998, -0.6400000000000001 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x5a4030, 0x8a6a4a }, { 0x4a3628, 0x7a5a40 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.255, 0.0 }, { 0.38, 0.42, 0.8 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.694, -1.034 }, { 0.17, 0.19, 0.34 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 1.6464999999999999, -1.306 }, { 0.17, 0.11399999999999999, 0.18700000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.10540000000000001, 1.751, -1.221 }, { 0.023800000000000005, 0.028560000000000006, 0.019040000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.10540000000000001, 1.751, -1.221 }, { 0.023800000000000005, 0.028560000000000006, 0.019040000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.1615, 1.8365, -0.9490000000000001 }, { 0.051000000000000004, 0.11399999999999999, 0.10200000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.1615, 1.8365, -0.9490000000000001 }, { 0.051000000000000004, 0.11399999999999999, 0.10200000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.22799999999999998, 0.575, -0.496 }, { 0.07, 1.15, 0.07 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.22799999999999998, 0.575, -0.496 }, { 0.07, 1.15, 0.07 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { -0.22799999999999998, 0.575, 0.496 }, { 0.07, 1.15, 0.07 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.22799999999999998, 0.575, 0.496 }, { 0.07, 1.15, 0.07 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 1.3479999999999999, 0.76 }, { 0.035, 0.15, 0.035 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Box, 0xe9dcc0, { -0.36, 1.9124999999999999, -0.898 }, { 0.5, 0.05, 0.28 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Box, 0xe9dcc0, { 0.36, 1.9124999999999999, -0.898 }, { 0.5, 0.05, 0.28 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { -0.12, 1.8744999999999998, -0.898 }, { 0.03, 0.14, 0.03 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { 0.12, 1.8744999999999998, -0.898 }, { 0.03, 0.14, 0.03 }, EEarthRole::Head, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("bison"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 14.0; R.Flee = 3.0; R.Stride = 1.5; R.Graze = 1.0; R.Drop = 0.3;
+	R.Neck = { 0.0, 1.0425, -0.68 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x5a4030, 0x3a2a22 }, { 0x6a4a34, 0x40302a } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.8625, 0.0 }, { 0.42, 0.45, 0.85 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.945, -0.9105 }, { 0.24, 0.26, 0.28 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.8799999999999999, -1.1345 }, { 0.18, 0.156, 0.15400000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.1488, 1.023, -1.0645 }, { 0.033600000000000005, 0.04032, 0.026880000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.1488, 1.023, -1.0645 }, { 0.033600000000000005, 0.04032, 0.026880000000000005 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.22799999999999998, 1.14, -0.8405 }, { 0.06, 0.078, 0.084 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.22799999999999998, 1.14, -0.8405 }, { 0.06, 0.078, 0.084 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.252, 0.375, -0.527 }, { 0.085, 0.75, 0.085 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.252, 0.375, -0.527 }, { 0.085, 0.75, 0.085 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.252, 0.375, 0.527 }, { 0.085, 0.75, 0.085 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.252, 0.375, 0.527 }, { 0.085, 0.75, 0.085 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.0, 0.7925, 0.8075 }, { 0.0425, 0.5, 0.0425 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 1.11, -0.3825 }, { 0.4, 0.42, 0.5 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cone, 0xe9dcc0, { -0.24, 1.14, -0.8544999999999999 }, { 0.04, 0.2, 0.04 }, EEarthRole::Head, 0.5 },
+		{ EEarthShape::Cone, 0xe9dcc0, { 0.24, 1.14, -0.8544999999999999 }, { 0.04, 0.2, 0.04 }, EEarthRole::Head, 0.5 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("reindeer"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 16.0; R.Flee = 6.0; R.Stride = 1.2; R.Graze = 1.3; R.Drop = 0.35;
+	R.Neck = { 0.0, 0.9255, -0.44000000000000006 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x8a7a6a, 0xf1eee6 }, { 0x9a8c7c, 0xf1eee6 }, { 0x6f6258, 0xe9e2d6 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.8175, 0.0 }, { 0.24, 0.27, 0.55 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 1.14575, -0.53 }, { 0.08000000000000002, 0.4749520956107047, 0.08000000000000002 }, EEarthRole::Head, -0.5462962098687103 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 1.339, -0.7075 }, { 0.1, 0.11, 0.2 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 1.3114999999999999, -0.8675 }, { 0.08000000000000002, 0.066, 0.11000000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.062, 1.3719999999999999, -0.8175 }, { 0.014000000000000002, 0.016800000000000002, 0.011200000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.062, 1.3719999999999999, -0.8175 }, { 0.014000000000000002, 0.016800000000000002, 0.011200000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.095, 1.4215, -0.6575 }, { 0.03, 0.055, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.095, 1.4215, -0.6575 }, { 0.03, 0.055, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.144, 0.375, -0.341 }, { 0.04, 0.75, 0.04 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.144, 0.375, -0.341 }, { 0.04, 0.75, 0.04 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.144, 0.375, 0.341 }, { 0.04, 0.75, 0.04 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.144, 0.375, 0.341 }, { 0.04, 0.75, 0.04 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatB, { 0.0, 0.8755, 0.5225 }, { 0.02, 0.1, 0.02 }, EEarthRole::Tail, 0.0 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { -0.1, 1.625, -0.6075 }, { 0.02, 0.45, 0.02 }, EEarthRole::Head, 0.3 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { 0.1, 1.625, -0.6075 }, { 0.02, 0.45, 0.02 }, EEarthRole::Head, 0.3 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { -0.2, 1.7349999999999999, -0.6675 }, { 0.018, 0.3, 0.018 }, EEarthRole::Head, -0.6 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { 0.2, 1.7349999999999999, -0.6675 }, { 0.018, 0.3, 0.018 }, EEarthRole::Head, -0.6 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { -0.16, 1.603, -0.7475 }, { 0.016, 0.22, 0.016 }, EEarthRole::Head, -0.9 },
+		{ EEarthShape::Cyl, 0xe9dcc0, { 0.16, 1.603, -0.7475 }, { 0.016, 0.22, 0.016 }, EEarthRole::Head, -0.9 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("capybara"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 6.0; R.Flee = 0.0; R.Stride = 0.6; R.Graze = 0.7; R.Drop = 0.12;
+	R.Neck = { 0.0, 0.34950000000000003, -0.336 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x9a6a40, 0x7a5234 }, { 0x8a6240, 0x6a482e }, { 0xa87a4a, 0x8a6240 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.2575, 0.0 }, { 0.22, 0.23, 0.42 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.361, -0.497 }, { 0.14, 0.14, 0.2 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.32599999999999996, -0.657 }, { 0.12600000000000003, 0.084, 0.11000000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0868, 0.40299999999999997, -0.607 }, { 0.019600000000000003, 0.023520000000000003, 0.015680000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0868, 0.40299999999999997, -0.607 }, { 0.019600000000000003, 0.023520000000000003, 0.015680000000000003 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { -0.133, 0.46599999999999997, -0.447 }, { 0.0245, 0.042, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.133, 0.46599999999999997, -0.447 }, { 0.0245, 0.042, 0.06 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.132, 0.1, -0.26039999999999996 }, { 0.05, 0.2, 0.05 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.132, 0.1, -0.26039999999999996 }, { 0.05, 0.2, 0.05 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.132, 0.1, 0.26039999999999996 }, { 0.05, 0.2, 0.05 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.132, 0.1, 0.26039999999999996 }, { 0.05, 0.2, 0.05 }, EEarthRole::Leg3, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("marmot"), false);
+	R.Voice = nullptr; R.Alarm = nullptr;
+	R.Alert = 12.0; R.Flee = 5.0; R.Stride = 0.3; R.Graze = 0.6; R.Drop = 0.05;
+	R.Neck = { 0.0, 0.138, -0.144 };
+	R.bPeck = false; R.Hop = 0.0; R.bSwim = false; R.Swim = 0.0; R.Waddle = 0.0;
+	R.TakesOff = 0.0; R.Curious = 0.0; R.bFly = false; R.bFlock = false; R.Yields = 0.0; R.Heel = 0.0;
+	R.Coats = { { 0x9a7a50, 0xd9c7a8 }, { 0x8a6a44, 0xcfb890 }, { 0x7a6a58, 0xcfc4b4 } };
+	R.Parts = {
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.09, 0.0 }, { 0.11, 0.12, 0.18 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.0, 0.174, -0.20400000000000001 }, { 0.075, 0.07, 0.085 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatB, { 0.0, 0.15649999999999997, -0.272 }, { 0.045, 0.042, 0.04675000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { -0.0465, 0.19499999999999998, -0.25075000000000003 }, { 0.0105, 0.0126, 0.008400000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, 0x26221f, { 0.0465, 0.19499999999999998, -0.25075000000000003 }, { 0.0105, 0.0126, 0.008400000000000001 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { -0.07125, 0.22649999999999998, -0.18275000000000002 }, { 0.016875, 0.0245, 0.025500000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Sphere, FEarthRigPart::CoatA, { 0.07125, 0.22649999999999998, -0.18275000000000002 }, { 0.016875, 0.0245, 0.025500000000000002 }, EEarthRole::Head, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.066, 0.03, -0.11159999999999999 }, { 0.03, 0.06, 0.03 }, EEarthRole::Leg0, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.066, 0.03, -0.11159999999999999 }, { 0.03, 0.06, 0.03 }, EEarthRole::Leg1, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { -0.066, 0.03, 0.11159999999999999 }, { 0.03, 0.06, 0.03 }, EEarthRole::Leg2, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.066, 0.03, 0.11159999999999999 }, { 0.03, 0.06, 0.03 }, EEarthRole::Leg3, 0.0 },
+		{ EEarthShape::Cyl, FEarthRigPart::CoatA, { 0.0, 0.192, 0.19499999999999998 }, { 0.018, 0.12, 0.018 }, EEarthRole::TailUp, 0.6 },
+	};
+}
+{
 	FEarthRig& R = Add(TEXT("railcar"), true);
 	R.Coats = { { 0xc0392b, 0xbfe0ee }, { 0x2e7d4f, 0xbfe0ee }, { 0x2f5fa8, 0xbfe0ee }, { 0xe2a52b, 0xbfe0ee }, { 0xe07a2a, 0xbfe0ee }, { 0x6a4c93, 0xbfe0ee } };
 	R.Parts = {

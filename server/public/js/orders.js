@@ -13,7 +13,7 @@ import { MOUNTS } from "./riding.js";
 import { RIGS } from "./liferigs.js";
 
 /** How fast a thing walks when told to come or follow, by kind; the rest amble. */
-const PACE = { horse: 7, deer: 7, kangaroo: 7, dog: 6, cat: 4.5, rabbit: 5, cow: 3, sheep: 3.5, camel: 4, llama: 4, chicken: 3, duck: 2.5, pigeon: 3, squirrel: 5, penguin: 2 };
+const PACE = { zebra: 7, reindeer: 7, fox: 6, donkey: 4, goat: 4, pig: 3, monkey: 5, elephant: 4, giraffe: 5, bison: 4, moose: 5, bear: 4, lion: 6, mouse: 3, frog: 3, snail: 0.1, tortoise: 0.4, horse: 7, deer: 7, kangaroo: 7, dog: 6, cat: 4.5, rabbit: 5, cow: 3, sheep: 3.5, camel: 4, llama: 4, chicken: 3, duck: 2.5, pigeon: 3, squirrel: 5, penguin: 2 };
 const AMBLE = 3;
 /** A follower stops this far short of whoever it follows, and gives up the chase for a jump beyond `LOST_M`. */
 const HEEL_M = 2.4;
