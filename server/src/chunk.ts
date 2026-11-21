@@ -51,6 +51,8 @@ export const MATERIALS = {
 } satisfies Record<string, MaterialDef>;
 
 const GROUND_ORDER: GroundClass[] = ["urban", "farm", "grass", "forest", "sand", "rock", "paved", "water"]; // later wins
+/** The value `groundClasses` gives a cell of this class (0 is plain ground with no class). */
+export const groundClassId = (c: GroundClass): number => GROUND_ORDER.indexOf(c) + 1;
 // ---- house paints. A building keeps its own colours, chosen by its id, so a street is a row of
 // different houses. The wall and roof ids say how a surface is drawn (docs/PROTOCOL.md); a section's
 // colour says what paint it has, so one id can come in several sections.
@@ -68,7 +70,7 @@ const ROOF_PAINTS: [typeof MATERIALS.roof0, number][] = [
 const DOOR_PAINTS = [0xb5372e, 0x3f6fb0, 0x3f7f4f, 0xe0a82e, 0x7a4f9a, 0x2f8f8a, 0x7a4a2e];
 const BARN_RED = 0xb8372b;
 const BARN_ROOF = 0x4a4f5c;
-const BARN_KINDS = /^(barn|farm|farm_auxiliary|stable|cowshed|sty|granary)$/;
+export const BARN_KINDS = /^(barn|farm|farm_auxiliary|stable|cowshed|sty|granary)$/;
 /** Buildings that are small but are not somebody's house: no front door, porch or chimney. */
 const PLAIN_KINDS = /^(garage|garages|shed|carport|roof|greenhouse|kiosk|hut|industrial|warehouse|retail|commercial|supermarket|service|toilets|transformer_tower)$/;
 

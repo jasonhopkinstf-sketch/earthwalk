@@ -201,6 +201,7 @@ export class World {
       const { items } = await res.json();
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile
       chunk.trees = true;
+      chunk.homes = items.filter((it) => it.kind === "home"); // where herds live; life.js brings them to life
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);

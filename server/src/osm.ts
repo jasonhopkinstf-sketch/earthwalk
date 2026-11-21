@@ -29,6 +29,11 @@ export interface AddressPoint { id: number; at: Pt; housenumber: string; street?
 /** Ground cover. A point is inside if it is within an odd number of rings, so inner rings are holes (islands in a lake). */
 export interface Area { id: number; cls: GroundClass; rings: Pt[][] }
 export interface TreePoint { id: number; at: Pt }
+/** What a field is used for, where the map says more than its ground cover does. Used to decide where animals live. */
+export type FieldKind = "meadow" | "paddock" | "farmyard" | "farmland";
+export type Stock = "cow" | "sheep" | "horse" | "chicken";
+/** A field that may hold animals. `stock` is the animal the map names for it, if any. Rings as in Area. */
+export interface Field { id: number; kind: FieldKind; rings: Pt[][]; stock?: Stock }
 export interface Features {
   buildings: Building[];
   roads: Road[];
@@ -37,6 +42,8 @@ export interface Features {
   addresses: AddressPoint[];
   /** Coastline pieces. By OpenStreetMap convention, land is on the left of the direction of travel. */
   coast: Pt[][];
+  /** Fields that may hold animals (labels route only; the meshes do not use them). */
+  fields?: Field[];
 }
 
 interface OsmElement {
@@ -271,6 +278,21 @@ export function groundClassOf(tags: Record<string, string>): GroundClass | null 
   return null;
 }
 
+const STOCK: [RegExp, Stock][] = [
+  [/horse|equine|pony/, "horse"], [/cattle|cow|dairy|beef/, "cow"], [/sheep|goat/, "sheep"], [/chicken|poultry|hen|fowl/, "chicken"],
+];
+
+/** The kind of field an area is, when animals might be kept on it. */
+export function fieldOf(tags: Record<string, string>): { kind: FieldKind; stock?: Stock } | null {
+  const { landuse } = tags;
+  const kind: FieldKind | null = landuse === "animal_keeping" ? "paddock" : landuse === "meadow" ? "meadow"
+    : landuse === "farmyard" ? "farmyard" : landuse === "farmland" ? "farmland" : null;
+  if (!kind) return null;
+  const said = `${tags.animal_keeping ?? ""} ${tags.livestock ?? ""} ${tags.animal ?? ""}`.toLowerCase();
+  const stock = STOCK.find(([re]) => re.test(said))?.[1];
+  return stock ? { kind, stock } : { kind };
+}
+
 /** Joins way fragments end-to-end into closed rings (multipolygon outers). Unclosed leftovers are dropped. */
 export function stitchRings(parts: number[][]): number[][] {
   const rings: number[][] = [];
@@ -312,7 +334,8 @@ function roofOf(tags: Record<string, string>): { roof?: string; roofHeight?: num
 export function parseOsm(json: OsmJson): Features {
   const nodes = new Map<number, Pt>();
   const ways = new Map<number, OsmElement>();
-  const out: Features = { buildings: [], roads: [], areas: [], trees: [], addresses: [], coast: [] };
+  const fields: Field[] = [];
+  const out: Features = { buildings: [], roads: [], areas: [], trees: [], addresses: [], coast: [], fields };
 
   for (const el of json.elements) {
     if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) {
@@ -353,7 +376,8 @@ export function parseOsm(json: OsmJson): Features {
     if (el.type !== "relation" || el.tags?.type !== "multipolygon" || !el.members) continue;
     const tags = el.tags;
     const cls = groundClassOf(tags);
-    if (!isBuilding(tags) && !cls) continue;
+    const field = isBuilding(tags) ? null : fieldOf(tags);
+    if (!isBuilding(tags) && !cls && !field) continue;
     // Buildings use their outer outlines only; ground cover keeps inner rings as holes.
     const parts: number[][] = [];
     for (const m of el.members) {
@@ -365,8 +389,9 @@ export function parseOsm(json: OsmJson): Features {
     if (isBuilding(tags)) {
       // Negative, distinct ids keep relation pieces from colliding with way ids.
       rings.forEach((ring, n) => addBuilding(-(el.id * 8 + (n % 8)), tags, ring));
-    } else if (cls && rings.length) {
-      out.areas.push({ id: -el.id, cls, rings });
+    } else if (rings.length) {
+      if (cls) out.areas.push({ id: -el.id, cls, rings });
+      if (field) fields.push({ id: -el.id, ...field, rings });
     }
   }
 
@@ -389,12 +414,14 @@ export function parseOsm(json: OsmJson): Features {
       continue;
     }
     if (!closed) continue;
-    if (usedAsOuter.has(w.id) && !tags.building && !groundClassOf(tags)) continue;
+    const field = isBuilding(tags) ? null : fieldOf(tags);
+    if (usedAsOuter.has(w.id) && !tags.building && !groundClassOf(tags) && !field) continue;
     const ring = ringOf(w.nodes);
     if (!ring) continue;
     const cls = groundClassOf(tags);
     if (isBuilding(tags)) addBuilding(w.id, tags, ring);
     else if (cls) out.areas.push({ id: w.id, cls, rings: [ring] });
+    if (field) fields.push({ id: w.id, ...field, rings: [ring] });
   }
   return out;
 }

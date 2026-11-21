@@ -8,15 +8,20 @@
 import { CHUNK_Z, metersPerTile } from "./geo.ts";
 import { Elevation } from "./elevation.ts";
 import { clipPolyline, featuresForChunk, groundClasses, placeTrees } from "./chunk.ts";
+import { placeHomes } from "./life.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 2;
+export const LABELS_REV = 3;
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree";
-  /** Plate text; absent on trees. */
+  kind: "house" | "street" | "tree" | "home";
+  /** Plate text; absent on trees and homes. */
   text?: string;
+  /** Homes (a herd or flock): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
+  sp?: string;
+  n?: number;
+  id?: number;
   /** Trees: height and canopy radius in metres, and 1 for a conifer. */
   s?: number;
   r?: number;
@@ -212,7 +217,8 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
 
   // ---- trees, as placed in the mesh, so clients with their own tree models can draw them
   const trees: LabelItem[] = [];
-  const spots = placeTrees(cx, cy, features, groundClasses(cx, cy, features, elev));
+  const cls = groundClasses(cx, cy, features, elev);
+  const spots = placeTrees(cx, cy, features, cls);
   const step = Math.max(1, Math.ceil(spots.length / TREE_CAP));
   for (let i = 0; i < spots.length; i += step) {
     const t = spots[i];
@@ -221,10 +227,18 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     trees.push({ kind: "tree", u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: t.seed % 360, s: r1(t.height), r: r1(t.radius), c: t.conifer ? 1 : 0 });
   }
 
+  // ---- farm animals: where each herd lives. Clients move them (docs/PROTOCOL.md, "Life").
+  const homes: LabelItem[] = placeHomes(cx, cy, features, cls).map((home) => {
+    const u = r7(home.wx - cx);
+    const v = r7(home.wy - cy);
+    return { kind: "home", sp: home.sp, n: home.n, r: r1(home.r), id: home.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0 };
+  });
+
   return [
     ...houses.slice(0, HOUSE_CAP).map((h) => h.it),
     ...[...crossings, ...plates].slice(0, STREET_CAP).map((s) => s.it),
     ...trees,
+    ...homes,
   ];
 }
 
