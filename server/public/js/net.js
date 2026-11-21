@@ -9,6 +9,10 @@ export class Meetup extends EventTarget {
     this.me = null;
     this.wanted = false;
     this.denied = false;
+    /** What I am riding, once the server has said so: { thing, sp, seat }. Each peer has a `ride` of the same shape. */
+    this.ride = null;
+    /** Things left standing where a rider got off: identity -> { thing, sp, lat, lon, alt, yaw, until }. */
+    this.left = new Map();
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
     this.clockOffset = 0;
     this.clockTrip = Infinity;
@@ -97,6 +101,15 @@ export class Meetup extends EventTarget {
     else this.send({ t: "chat", text });
   }
 
+  /** Asks to hop on something (the answer comes as a "ride" event), and says I have hopped off. */
+  sendRide(thing, sp) {
+    this.send({ t: "ride", thing, sp });
+  }
+
+  sendDismount() {
+    this.send({ t: "ride" });
+  }
+
   /** Sets my home: to the given place, or (with no arguments) to where I am standing now. */
   sendHome(place) {
     if (!this.joined) return this.emit("notice", "Not connected to the meetup server.");
@@ -131,7 +144,12 @@ export class Meetup extends EventTarget {
         this.me = { id: msg.id, name: msg.name, room: msg.room, avatar: msg.avatar, signedIn: !!msg.signedIn, personId: msg.personId ?? null, home: msg.home ?? null };
         this.peers.clear();
         for (const p of msg.peers ?? []) {
-          this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number" });
+          this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number", ride: p.ride ?? null });
+        }
+        this.left = new Map((msg.left ?? []).map((l) => [l.thing, l]));
+        if (this.ride) {
+          this.ride = null; // a new connection starts on foot
+          this.emit("ride", null);
         }
         if (typeof msg.now === "number") {
           this.clockOffset = msg.now - Date.now();
@@ -149,8 +167,24 @@ export class Meetup extends EventTarget {
         }
         break;
       }
+      case "ride": {
+        // Somebody hopped on something (with `thing`) or off it (without).
+        const ride = typeof msg.thing === "number" ? { thing: msg.thing, sp: msg.sp, seat: msg.seat ?? 0 } : null;
+        if (ride) this.left.delete(ride.thing);
+        if (msg.id === this.me?.id) {
+          this.ride = ride;
+          this.emit("ride", ride);
+        } else {
+          const peer = this.peers.get(msg.id);
+          if (peer) peer.ride = ride;
+        }
+        break;
+      }
+      case "left":
+        if (typeof msg.thing === "number") this.left.set(msg.thing, msg);
+        break;
       case "join":
-        this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false });
+        this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false, ride: null });
         this.emit("notice", `${msg.name} joined. Type /join ${msg.name} to go to them.`);
         break;
       case "leave": {
@@ -177,6 +211,7 @@ export class Meetup extends EventTarget {
         this.emit("chat", { name: msg.name, text: msg.text });
         break;
       case "error":
+        if (msg.code === "taken") this.emit("ridefail");
         if (msg.code === "denied" || msg.code === "full") {
           this.denied = true;
           this.emit("denied", msg.code === "full" ? "That room is full." : "That access code was not accepted.");

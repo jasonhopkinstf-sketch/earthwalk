@@ -314,17 +314,45 @@ Client to server:
 | `{"t":"chat","text":"hello"}` | Say something to the room. |
 | `{"t":"home"}` / `{"t":"home","lat":..,"lon":..,"name":"Eiffel Tower"}` | Signed-in only. Make where I stand my home (the server names the place), or the given place. Answered with a `home` message, or `error` `guest` / `nowhere`. |
 | `{"t":"people"}` | Ask for the people list again (it is also pushed whenever it changes). |
+| `{"t":"ride","thing":918398760,"sp":"horse"}` / `{"t":"ride"}` | Hop on something, or (with no `thing`) hop off. See "Riding". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
 
 Server to client:
 
 | Message | Meaning |
 | --- | --- |
-| `{"t":"welcome","id":"..","name":"..","avatar":"..","room":"..","peers":[{"id","name","avatar","lat","lon","alt","yaw"}],"history":[...],"signedIn":true,"personId":"..","home":{"lat","lon","name"},"now":1700000000000}` | You are in. `name` may differ from what you asked for if it was taken. `history` holds recent chat lines. `personId` and `home` (which may be `null`) are present only for a signed-in player; a signed-in client should start at `home` when it is set. |
+| `{"t":"welcome","id":"..","name":"..","avatar":"..","room":"..","peers":[{"id","name","avatar","lat","lon","alt","yaw"}],"history":[...],"signedIn":true,"personId":"..","home":{"lat","lon","name"},"now":1700000000000}` | You are in. `name` may differ from what you asked for if it was taken. `history` holds recent chat lines. A peer who is riding has `"ride":{"thing","sp","seat"}`, and `left` lists what is standing where a rider left it. `personId` and `home` (which may be `null`) are present only for a signed-in player; a signed-in client should start at `home` when it is set. |
 | `{"t":"time","c":1234.5,"now":1700000000000}` | The answer to `time`: the server's clock in milliseconds since 1970. Shared time is `now` plus half the round trip; a client keeps the answer with the shortest round trip and asks again now and then. `welcome` carries `now` too, as a first estimate. Clients that ignore both still work; they just have no animals in step with everyone else. |
+| `{"t":"ride","id":"..","thing":918398760,"sp":"horse","seat":0}` / `{"t":"ride","id":".."}` | Someone hopped on something, or off. Sent to the whole room, the rider included: for the rider it is the go-ahead. |
+| `{"t":"left","thing":918398760,"sp":"horse","lat":..,"lon":..,"alt":..,"yaw":..,"until":1700000060000}` | A driver got off: the thing stands there until `until` (server clock, ms), then goes back to where it belongs. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
 | `{"t":"peers","p":[[id,lat,lon,alt,yaw],...]}` | People who moved since the last update (10 per second). |
 | `{"t":"chat","id":"..","name":"..","text":"..","ts":1700000000000}` | A chat line (also echoed to the sender). |
 | `{"t":"people","p":[{"id","name","avatar","online","room","place","lat","lon","lastSeen","home"}]}` | Everyone with an account (guests are not listed), online first. Sent right after `welcome`, whenever someone with an account arrives or leaves or their place name changes, and on request. `room` and `place` are where they are, or were last; `lat`/`lon` (about 10 m precision) only while online; `lastSeen` is milliseconds since the epoch; `home` is the name of their home or `null`. Place names come from a reverse lookup of the position, rounded to about a kilometre and at most once every 30 s per person. |
 | `{"t":"home","lat":..,"lon":..,"name":".."}` | Your home was saved. |
-| `{"t":"error","code":"denied" \| "full" \| "slow" \| "guest" \| "nowhere" \| "home","text":".."}` | Something was refused. |
+| `{"t":"error","code":"denied" \| "full" \| "slow" \| "guest" \| "nowhere" \| "home" \| "taken","text":".."}` | Something was refused. |
+
+### Riding
+
+A ridden thing belongs to its rider: the rider's client moves it (it goes where they go), and everyone
+else draws it under the rider, from the positions players already share. The server keeps only who is
+on what. It never knows where a horse is.
+
+- A `thing` is the identity clients already use: an animal's (`hash32(home id, k + 1)`, the `id` of
+  `creatureAt`), a tractor's or boat's the same way, a `car` or `route` item's `id`, a `train` item's
+  `id`. `sp` says what it is: `horse`, `cow`, `sheep`, `camel`, `llama`, `kangaroo`, `deer`, `tractor`,
+  `boat`, `sailboat`, `car` or `train`. The server checks only that `sp` is one of these.
+- The first rider of a thing gets seat 0 and steers. The next three get seats 1 to 3 as passengers; a
+  fifth is refused with `taken`. A `train` takes any number, all with seat 1: it keeps to its timetable
+  and carries them.
+- Asking for something else, hopping off, or leaving the room takes a rider off what they were on.
+  When the driver gets off, the passengers are taken off too (each gets a `ride` without `thing`), and
+  a `left` goes out with the driver's last position. A train is never "left".
+- While a thing has a driver, and while it stands where it was left (60 s), clients do not draw it
+  where its timetable has it. A rider reports the seat's position in `pos`, so their figure sits on
+  top; the browser draws the thing at ground level under seat 0 and puts passengers 0.7 m behind
+  per seat. When `until` passes the thing is simply back where it belongs.
+- Where a ridden thing may go is the rider's client's business: in the browser, boats keep to water
+  and everything else keeps off it, at a pace of its own (horse 10 m/s, cow 4, sheep 4.5, camel 5.5,
+  llama 5, kangaroo and deer 9, tractor 5, car 13, rowing boat 2.5, sailing boat 5; a little over half
+  of that unless Shift is held).

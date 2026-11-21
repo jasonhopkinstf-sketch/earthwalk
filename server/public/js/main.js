@@ -5,6 +5,7 @@ import { ANIMALS, Avatars } from "./avatars.js";
 import { Life } from "./life.js";
 import { Meetup } from "./net.js";
 import { Player } from "./player.js";
+import { Riding } from "./riding.js";
 import { Sounds } from "./sounds.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
@@ -43,6 +44,13 @@ const sounds = new Sounds();
 sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
 const life = new Life(scene, world, sounds, traffic);
+const riding = new Riding({
+  world, player, meetup, avatars, life, traffic,
+  say: (text) => notice(text),
+  hint: (text) => { $("ride").hidden = !text; $("ride").textContent = text; },
+});
+life.riding = riding;
+traffic.riding = riding;
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -189,6 +197,7 @@ function frame(now) {
   last = now;
   player.update(dt);
   avatars.update(dt, meetup.peers, world);
+  riding.frame(dt, meetup.now());
   everyone.length = 1;
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
@@ -305,6 +314,8 @@ addEventListener("keydown", (e) => {
     say.focus();
   } else if (e.code === "Escape" && document.activeElement === say) {
     say.blur();
+  } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
+    riding.key(); // hop on whatever is nearest, or hop off
   }
 });
 say.addEventListener("focus", () => { player.typing = true; player.keys.clear(); });
@@ -337,6 +348,7 @@ async function command(name, arg) {
     notice("/invite   get a link to send to someone        /where   show your coordinates");
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
+    notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
   } else if (name === "goto" && arg) {
     notice(`Looking for "${arg}"...`);
     try {
@@ -427,4 +439,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, sounds, command, isStarted: () => started };

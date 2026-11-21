@@ -16,6 +16,8 @@ const HEAR_M = 70;
 const MAX_SHOWN = 110;
 const CAPACITY = 2048; // shapes per kind of shape
 const SALT_COAT = 0x434f4154;
+/** How something being ridden holds its head: up, looking where it is going. */
+const MOUNT_POSE = { head: 0, look: 0 };
 
 const SHAPES = {
   sphere: new THREE.SphereGeometry(1, 12, 8),
@@ -64,6 +66,10 @@ export class Life {
     this.world = world;
     this.sounds = sounds;
     this.traffic = traffic;
+    /** Set by main.js: riding.js, which says what is being ridden (and so not drawn where its timetable has it). */
+    this.riding = null;
+    /** The animals, tractors and boats near enough to hop on, as drawn last frame. */
+    this.rideable = [];
     this.byChunk = new Map(); // chunk key -> { chunk, herds }
     this.herds = []; // nearest first
     this.states = new Map(); // animal id -> how it is reacting to players
@@ -135,6 +141,7 @@ export class Life {
   update(dt, t, players, camera) {
     const counts = { sphere: 0, cyl: 0, cone: 0, box: 0 };
     const slot = Math.floor(t / CALL_SLOT);
+    this.rideable.length = 0;
     let shown = 0;
     for (const herd of this.herds) {
       if (shown >= MAX_SHOWN) break;
@@ -144,6 +151,7 @@ export class Life {
       }
     }
     this.traffic?.draw(this, dt, t, players, counts);
+    this.riding?.draw(this, t, counts);
     for (const [name, mesh] of Object.entries(this.meshes)) {
       mesh.count = counts[name];
       mesh.instanceMatrix.needsUpdate = true;
@@ -158,6 +166,7 @@ export class Life {
     // A machine that stopped for somebody is running late; it makes the time up afterwards.
     const late = rig.yields ? this.states.get(memberId(herd.home.id, k)) : null;
     const c = creatureAt(herd.home, k, t - (late?.lag ?? 0));
+    if (this.riding?.hidden.has(c.id)) return false; // somebody is riding it, or has left it somewhere
     const sx = herd.x + c.x;
     const sz = herd.z + c.y;
     const beat = (c.id % 628) / 100; // so no two animals nod, wag or flap in step
@@ -272,6 +281,7 @@ export class Life {
       flap = mid + amp * Math.sin(rig.wing.rate ? t * rig.wing.rate + beat : stride);
     }
 
+    if (herd.d < 60 && this.riding?.rides(herd.home.sp)) this.rideable.push({ thing: c.id, sp: herd.home.sp, x, z, yaw: st.yaw, reach: Math.max(3, rig.flee + 2.5) }); // near enough, even as it shies away
     this.base.compose(this.v.set(x, ground + st.up + (lift + bob) * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, roll)), this.s.set(size, size, size));
     this.put(rig, coat, counts, st, flap, swing, t, beat, greeting ? 4 : 1, !!rig.hop);
     return true;
@@ -304,6 +314,25 @@ export class Life {
       mesh.setMatrixAt(i, this.tmp);
       mesh.setColorAt(i, part.colour === "a" ? coat.a : part.colour === "b" ? coat.b : part.colour);
     }
+  }
+
+  /**
+   * Draws an animal, a tractor or a boat that somebody is riding, or has left standing, where they
+   * took it. It looks just as it did at home: its coat and size come from its identity.
+   * @param {{ thing: number, sp: string, x: number, y: number, z: number, yaw: number, gait: number, moving: boolean }} m
+   */
+  putMount(m, t, counts) {
+    const rig = RIGS[m.sp];
+    if (!rig) return;
+    const beat = (m.thing % 628) / 100;
+    const size = 0.9 + 0.2 * unit(m.thing, SALT_COAT + 1);
+    const coat = rig.palette[hash32(m.thing, SALT_COAT) % rig.palette.length];
+    const stride = (m.gait / rig.stride) * Math.PI * 2;
+    const walk = m.moving ? 1 : 0;
+    const lift = rig.hop ? Math.abs(Math.sin(stride / 2)) * rig.hop * walk : Math.abs(Math.sin(stride)) * 0.03 * walk;
+    const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;
+    this.base.compose(this.v.set(m.x, m.y + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, rig.heel ?? 0)), this.s.set(size, size, size));
+    this.put(rig, coat, counts, MOUNT_POSE, 0, Math.sin(stride) * 0.55 * walk, t, beat, 1, !!rig.hop);
   }
 
   /** Each animal has its own voice: a little higher or lower than its neighbours. */

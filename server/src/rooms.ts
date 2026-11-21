@@ -12,6 +12,13 @@ const MAX_CHAT = 300;
 const MAX_ROOM_SIZE = 32;
 const HISTORY = 30;
 const TICK_MS = 100;
+/** What can be ridden. The clients decide where each of these is; the server only keeps track of who is on what. */
+const RIDEABLE = new Set(["horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer", "tractor", "boat", "sailboat", "car", "train"]);
+/** A driver and up to three passengers. A train takes any number, all passengers. */
+const SEATS = 4;
+/** How long something stays where its rider left it before it goes home, and how many a room remembers. */
+const LEFT_MS = 60_000;
+const LEFT_CAP = 100;
 /** Name of the browser's sign-in cookie; the token in it stands in for `hello.token`. */
 export const TOKEN_COOKIE = "ew_token";
 
@@ -28,9 +35,14 @@ interface Member {
   dirty: boolean;
   chatTimes: number[];
   home: Home | null;
+  /** What this member is riding: the thing's identity, what it is, and their seat (0 drives). */
+  ride: Ride | null;
 }
+interface Ride { thing: number; sp: string; seat: number }
+/** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
+interface Left { thing: number; sp: string; lat: number; lon: number; alt: number; yaw: number; until: number }
 interface ChatLine { id: string; name: string; text: string; ts: number }
-interface Room { members: Map<string, Member>; history: ChatLine[] }
+interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left> }
 
 /** What the rest of the server may know about someone in a room. */
 export interface RoomMember {
@@ -152,7 +164,7 @@ export class Rooms {
         if (ws.readyState !== ws.OPEN) return;
         roomName = hello.room.toLowerCase();
         let r = this.rooms.get(roomName);
-        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [] }));
+        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map() }));
         if (r.members.size >= MAX_ROOM_SIZE) { send({ t: "error", code: "full", text: "Room is full" }); ws.close(4002, "full"); return; }
         // Names must be unique in a room so "/join <name>" is unambiguous.
         let name = clean(person.displayName, MAX_NAME) || "Guest";
@@ -161,12 +173,13 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null,
         };
         clearTimeout(helloTimer);
         send({
           t: "welcome", id: me.id, name: me.name, avatar: me.avatar, room: roomName,
-          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}) })),
+          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}) })),
+          left: [...r.left.values()].filter((l) => l.until > Date.now()),
           history: r.history,
           signedIn: me.personId !== null,
           ...(me.personId !== null ? { personId: me.personId, home: me.home } : {}),
@@ -198,6 +211,19 @@ export class Rooms {
         room.history.push(line);
         if (room.history.length > HISTORY) room.history.shift();
         this.broadcast(room, { t: "chat", ...line });
+      } else if (msg.t === "ride" && room) {
+        // Hop on something, or (with no `thing`) hop off.
+        this.dismount(room, me);
+        const sp = clean(msg.sp, 16);
+        if (!finite(msg.thing) || !Number.isInteger(msg.thing) || msg.thing < 1 || msg.thing > 0xffffffff || !RIDEABLE.has(sp)) return;
+        const thing = msg.thing;
+        const taken = new Set([...room.members.values()].filter((m) => m.ride?.thing === thing && m.ride.sp === sp).map((m) => m.ride!.seat));
+        let seat = sp === "train" ? 1 : 0;
+        while (sp !== "train" && taken.has(seat)) seat++;
+        if (seat >= SEATS) { send({ t: "error", code: "taken", text: "There is no room left on that one" }); return; }
+        me.ride = { thing, sp, seat };
+        room.left.delete(thing);
+        this.broadcast(room, { t: "ride", id: me.id, ...me.ride });
       } else if (msg.t === "time") {
         // The shared clock: the client sends its own stamp and gets it back with our time, so it can allow for the delay.
         send({ t: "time", c: finite(msg.c) ? msg.c : 0, now: Date.now() });
@@ -227,12 +253,37 @@ export class Rooms {
     ws.on("close", () => {
       clearTimeout(helloTimer);
       if (!room || !me) return;
+      this.dismount(room, me);
       room.members.delete(me.id);
       if (room.members.size === 0) this.rooms.delete(roomName);
       else this.broadcast(room, { t: "leave", id: me.id });
       this.listener.left?.(this.publicMember(me, roomName));
     });
     ws.on("error", () => ws.terminate());
+  }
+
+  /**
+   * Takes a member off whatever they are riding and tells the room. When the driver gets off, the
+   * passengers get off too, and the thing stays where it is for a minute (a train just carries on).
+   */
+  private dismount(room: Room, m: Member): void {
+    const ride = m.ride;
+    if (!ride) return;
+    m.ride = null;
+    this.broadcast(room, { t: "ride", id: m.id });
+    if (ride.seat !== 0 || ride.sp === "train") return;
+    for (const other of room.members.values()) {
+      if (other.ride?.thing !== ride.thing || other.ride.sp !== ride.sp) continue;
+      other.ride = null;
+      this.broadcast(room, { t: "ride", id: other.id });
+    }
+    if (!m.hasPos) return;
+    const now = Date.now();
+    for (const [thing, l] of room.left) if (l.until <= now) room.left.delete(thing);
+    if (room.left.size >= LEFT_CAP) room.left.delete(room.left.keys().next().value!);
+    const left: Left = { thing: ride.thing, sp: ride.sp, lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), alt: +m.alt.toFixed(2), yaw: +m.yaw.toFixed(1), until: now + LEFT_MS };
+    room.left.set(ride.thing, left);
+    this.broadcast(room, { t: "left", ...left });
   }
 
   private broadcast(room: Room, obj: unknown): void {

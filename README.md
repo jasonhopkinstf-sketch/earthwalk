@@ -98,6 +98,7 @@ Controls (Unreal):
 | `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
+| `E` | Browser only, for now: hop on the horse, tractor, boat, car or train beside you; again to hop off |
 | `Enter` | Chat and commands |
 
 In the editor, click the game viewport once so it has the keyboard; `Shift+F1` gives the
@@ -200,6 +201,11 @@ Trains (in the browser so far): `server/src/rail.ts` fetches the railway tracks 
 the world, joins them into runs and timetables a train along each, stopping at stations. Every chunk
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
+
+Riding (in the browser so far): press E beside a horse, a cow, a tractor, a boat, a parked car or a
+passing train to hop on, and E again to hop off. You steer what you ride; a friend can hop on behind
+you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
+who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
 The browser game shows where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.

@@ -107,6 +107,75 @@ test("the server shares its clock: in welcome, and on request with the client's 
   }
 });
 
+test("riding: a driver, passengers, getting off, and what a latecomer is told", async () => {
+  const s = await start();
+  try {
+    const join = async (name: string) => {
+      const c = client(s.url);
+      await c.open;
+      c.send({ t: "hello", name, room: "family" });
+      return { c, w: await c.next("welcome") };
+    };
+    const mum = await join("Mum");
+    const kid = await join("Kid");
+    await mum.c.next("join");
+    mum.c.send({ t: "pos", lat: 52.0313, lon: 4.78105, alt: 1.6, yaw: 90 });
+
+    // Mum takes the horse; Kid hops on behind her.
+    mum.c.send({ t: "ride", thing: 123456, sp: "horse" });
+    assert.deepEqual(await kid.c.next("ride"), { t: "ride", id: mum.w.id, thing: 123456, sp: "horse", seat: 0 });
+    assert.deepEqual(await mum.c.next("ride"), { t: "ride", id: mum.w.id, thing: 123456, sp: "horse", seat: 0 }, "the rider is told too: that is the go-ahead");
+    kid.c.send({ t: "ride", thing: 123456, sp: "horse" });
+    assert.equal((await mum.c.next("ride")).seat, 1);
+    await kid.c.next("ride");
+
+    // Nonsense is ignored: an unknown kind of thing, a thing with no number.
+    kid.c.send({ t: "ride", thing: 5, sp: "dragon" });
+    assert.deepEqual(await mum.c.next("ride"), { t: "ride", id: kid.w.id }, "asking for something else gets you off what you were on");
+    await kid.c.next("ride");
+    kid.c.send({ t: "ride", thing: 123456, sp: "horse" });
+    assert.equal((await mum.c.next("ride")).seat, 1);
+    await kid.c.next("ride");
+
+    // A latecomer learns who is riding what.
+    const late = await join("Grandad");
+    assert.deepEqual(late.w.peers.map((p: Msg) => [p.name, p.ride?.thing, p.ride?.seat]).sort(), [["Kid", 123456, 1], ["Mum", 123456, 0]]);
+    assert.deepEqual(late.w.left, []);
+
+    // Mum gets off: Kid is off too, and the horse stays where she left it for a minute.
+    const before = Date.now();
+    mum.c.send({ t: "ride" });
+    const off = [await late.c.next("ride"), await late.c.next("ride")];
+    assert.deepEqual(off.map((m) => [m.id, m.thing]).sort(), [[kid.w.id, undefined], [mum.w.id, undefined]].sort());
+    const left = await late.c.next("left");
+    assert.deepEqual([left.thing, left.sp, left.lat, left.lon, left.yaw], [123456, "horse", 52.0313, 4.78105, 90]);
+    assert.ok(left.until >= before + 59_000 && left.until <= Date.now() + 61_000);
+    const later = await join("Aunt");
+    assert.deepEqual(later.w.left.map((l: Msg) => l.thing), [123456], "and someone arriving in that minute sees it there");
+
+    // Someone taking it again clears that; leaving the room gets you off.
+    kid.c.send({ t: "ride", thing: 123456, sp: "horse" });
+    assert.equal((await late.c.next("ride")).seat, 0);
+    assert.deepEqual((await join("Uncle")).w.left, []);
+    kid.c.ws.close();
+    assert.equal((await late.c.next("ride")).thing, undefined);
+
+    await later.c.next("ride"); // Aunt heard Kid get on
+    await later.c.next("ride"); // and leave
+
+    // A train takes everyone as passengers and is never left anywhere.
+    mum.c.send({ t: "ride", thing: 777, sp: "train" });
+    late.c.send({ t: "ride", thing: 777, sp: "train" });
+    const aboard = [await later.c.next("ride"), await later.c.next("ride")];
+    assert.deepEqual(aboard.map((m) => m.seat), [1, 1]);
+    mum.c.send({ t: "ride" });
+    assert.equal((await later.c.next("ride")).id, mum.w.id);
+    for (const c of [mum.c, late.c, later.c]) c.ws.close();
+  } finally {
+    s.stop();
+  }
+});
+
 test("rooms are separate and the access code is enforced", async () => {
   const s = await start("secret");
   try {

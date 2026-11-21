@@ -11,6 +11,7 @@ const GRAVITY = 22;
 const JUMP = 7;
 const BODY_RADIUS = 0.45;
 const LOOK = 0.0022; // radians per pixel of mouse movement
+const RIDING_EYE = 0.85; // eyes above the seat
 
 export class Player {
   constructor(camera, world, canvas) {
@@ -25,6 +26,12 @@ export class Player {
     this.waitingForGround = true;
     this.typing = false; // set while the chat box has focus
     this.keys = new Set();
+    /** What the player is riding and steering (riding.js): { speed, seat, afloat }. `position` is then the seat, not the feet. */
+    this.mount = null;
+    /** True while something else moves the player: a train, or the friend steering what they both ride. */
+    this.carried = false;
+    /** Metres ridden on the present mount, for its legs. */
+    this.travelled = 0;
     this.ray = new THREE.Raycaster();
     this.ray.firstHitOnly = true;
     camera.rotation.order = "YXZ";
@@ -55,6 +62,7 @@ export class Player {
   }
 
   setFlying(fly) {
+    if (this.mount || this.carried) return; // not while riding
     this.flying = fly;
     this.velocityY = 0;
     this.grounded = false;
@@ -120,7 +128,26 @@ export class Player {
       const cos = Math.cos(this.yaw);
       const move = new THREE.Vector3();
 
-      if (this.flying) {
+      if (this.carried) {
+        // Nothing to do: riding.js puts us where the train, or our friend, has got to.
+      } else if (this.mount) {
+        const m = this.mount;
+        move.set(sin * forward + cos * strafe, 0, -cos * forward + sin * strafe);
+        if (move.lengthSq() > 1) move.normalize();
+        const from = this.position.clone();
+        this.moveHorizontally(move.multiplyScalar(m.speed * (fast ? 1 : 0.55) * dt));
+        // A boat keeps to the water, and everything else keeps off it.
+        const wet = this.world.waterAt(this.position.x, this.position.z);
+        let ground = this.world.groundHeight(this.position.x, this.position.z);
+        if (ground === null || (wet !== null && wet !== !!m.afloat)) {
+          this.position.copy(from);
+          ground = this.world.groundHeight(from.x, from.z) ?? from.y - m.seat;
+        }
+        this.travelled += Math.hypot(this.position.x - from.x, this.position.z - from.z);
+        this.position.y = ground + m.seat;
+        this.velocityY = 0;
+        this.grounded = true;
+      } else if (this.flying) {
         const speed = (fast ? FLY_FAST : FLY) * dt;
         const cp = Math.cos(this.pitch);
         move.set(sin * cp * forward + cos * strafe, 0, -cos * cp * forward + sin * strafe).multiplyScalar(speed);
@@ -165,7 +192,7 @@ export class Player {
       }
     }
 
-    this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
+    this.camera.position.set(this.position.x, this.position.y + (this.mount || this.carried ? RIDING_EYE : EYE_HEIGHT), this.position.z);
     this.camera.rotation.set(this.pitch, -this.yaw, 0);
   }
 
