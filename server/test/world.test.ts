@@ -253,7 +253,7 @@ test("generateLabels returns well-formed JSON for an empty area", async () => {
   assert.equal(json.x, CX);
   assert.equal(json.y, CY);
   assert.equal(typeof json.rev, "number");
-  assert.equal(json.items.length, 0);
+  assert.equal(json.items.filter((i) => i.sp !== "bird").length, 0, "nothing but, perhaps, a flock of birds overhead");
 });
 
 test("small rectangular houses get a gable roof", async () => {

@@ -3,7 +3,7 @@
 
 const MAX_VOICES = 6;
 /** How loud each call is against the others. */
-const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45 };
+const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5 };
 
 export class Sounds {
   constructor() {
@@ -50,7 +50,7 @@ export class Sounds {
 
   /**
    * Plays one call at a place in the scene. `pitch` near 1 makes each animal's voice its own.
-   * @param {"moo" | "baa" | "neigh" | "cluck" | "squawk"} kind
+   * @param {string} kind  one of the voices below: moo, baa, neigh, cluck, squawk, quack, coo, caw, woof, meow, bray
    * @returns {boolean} false when sound is off, not yet allowed, or too much is already playing
    */
   play(kind, x, y, z, pitch = 1) {
@@ -158,5 +158,64 @@ const VOICES = {
     });
     for (let i = 0; i < 4; i++) cluck(ctx, out, t0 + 0.36 + i * 0.11, p * (1.1 - i * 0.04), 0.7);
     return 0.9;
+  },
+  // A duck: three nasal quacks, each a little lower.
+  quack(ctx, out, t0, p) {
+    for (let i = 0; i < 3; i++) {
+      note(ctx, out, t0 + i * 0.21, {
+        type: "sawtooth", pitch: [[0, 460 * p * (1 - i * 0.05)], [0.15, 330 * p]], level: [[0.015, 0.9], [0.1, 0.7], [0.17, 0]],
+        chain: [["bandpass", 1350, 3], ["lowpass", 3000, 0.7]],
+      });
+    }
+    return 0.65;
+  },
+  // A pigeon: a soft, round "coo-COO-coo".
+  coo(ctx, out, t0, p) {
+    const say = (at, hz, long, loud) => note(ctx, out, t0 + at, {
+      type: "triangle", pitch: [[0, hz * p * 0.94], [long * 0.4, hz * p], [long, hz * p * 0.9]], level: [[0.05, loud], [long * 0.7, loud * 0.8], [long, 0]],
+      tremolo: [22, 0.35], chain: [["lowpass", 900, 0.7]],
+    });
+    say(0, 400, 0.22, 0.6);
+    say(0.28, 470, 0.42, 0.9);
+    say(0.76, 390, 0.26, 0.6);
+    return 1.1;
+  },
+  // A gull crying overhead: two falling calls.
+  caw(ctx, out, t0, p) {
+    for (let i = 0; i < 2; i++) {
+      note(ctx, out, t0 + i * 0.5, {
+        type: "sawtooth", pitch: [[0, 950 * p], [0.08, 1500 * p], [0.4, 820 * p]], level: [[0.03, 0.8], [0.25, 0.6], [0.42, 0]],
+        vibrato: [9, 30], chain: [["bandpass", 1900, 1.5]],
+      });
+    }
+    return 0.95;
+  },
+  // A dog: two short, friendly barks.
+  woof(ctx, out, t0, p) {
+    for (let i = 0; i < 2; i++) {
+      note(ctx, out, t0 + i * 0.26, {
+        type: "sawtooth", pitch: [[0, 210 * p], [0.04, 290 * p], [0.16, 130 * p]], level: [[0.01, 1], [0.08, 0.7], [0.18, 0]],
+        chain: [["lowpass", 1100, 2, [[0.16, 500]]], ["peaking", 520, 2]],
+      });
+    }
+    return 0.5;
+  },
+  // A cat: "mee-ow", up and then down, with the mouth opening and closing.
+  meow(ctx, out, t0, p) {
+    note(ctx, out, t0, {
+      type: "sawtooth", pitch: [[0, 520 * p], [0.22, 820 * p], [0.7, 470 * p]], level: [[0.06, 0.8], [0.45, 0.7], [0.72, 0]],
+      vibrato: [6, 8], chain: [["bandpass", 900, 2, [[0.25, 1900], [0.7, 950]]]],
+    });
+    return 0.75;
+  },
+  // A penguin: a hoarse, donkey-like bray.
+  bray(ctx, out, t0, p) {
+    for (let i = 0; i < 3; i++) {
+      note(ctx, out, t0 + i * 0.3, {
+        type: "sawtooth", pitch: [[0, 300 * p], [0.1, 380 * p], [0.26, 280 * p]], level: [[0.03, 0.8], [0.2, 0.6], [0.28, 0]],
+        tremolo: [26, 0.8], chain: [["bandpass", 950, 1.5]],
+      });
+    }
+    return 0.95;
   },
 };

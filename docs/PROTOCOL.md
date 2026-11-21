@@ -81,7 +81,7 @@ House numbers and street names for the same chunk, as JSON. The route is **optio
 client that ignores it still gets the complete world from the chunk meshes. It takes the
 same access code, zoom and rate-limit rules as the chunk route, and the same `x`/`y`
 numbering. Both clients plant their trees from it (and skip mesh section 30); the Unreal
-client also spawns letterboxes and sign posts from it. The browser client brings the farm
+client also spawns letterboxes and sign posts from it. The browser client brings the
 animals to life from it (see "Life" below).
 
 ```json
@@ -96,7 +96,7 @@ animals to life from it (see "Life" below).
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
 | `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives). A client skips kinds it does not know. |
-| `sp`, `n`, `r`, `id` | Homes only: the animal (`cow`, `sheep`, `horse` or `chicken`), how many, the radius in metres of the circle they roam in, and the home's identity (a whole number from 1 to 4294967295, the same on every visit). At most 40 homes and 150 animals per chunk. |
+| `sp`, `n`, `r`, `id` | Homes only: the animal (one of those listed under "Life"), how many, the radius in metres of the circle they roam in (for `bird`, of the ring the flock flies), and the home's identity (a whole number from 1 to 4294967295, the same on every visit). Per chunk, at most 40 farm homes with 150 animals, 40 other homes with 120 animals, and one flock. A client skips animals it does not know. |
 | `text`, `text2` | The plate text (absent on trees and homes). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
 | `s`, `r`, `c` | Trees only: height and canopy radius in metres, and `c` = 1 for a conifer. Trees are the same ones the chunk mesh draws as cones (surface id 30), so a client with its own tree models skips that section and plants these instead. At most 1500 per chunk, thinned evenly. |
 | `u`, `v` | Position across the chunk, as in the meshes: `u` 0 = west edge, 1 = east edge; `v` 0 = north edge, 1 = south edge. May fall slightly outside 0–1 for buildings that straddle the chunk edge. |
@@ -109,20 +109,36 @@ A crossing sign stands on the corner of the junction with the most room, each pl
 facing back across its own street. A street with no crossing in the area gets one plate
 halfway along its piece of the chunk. At most 120 house and 40 street items per chunk.
 
-## Life: farm animals
+## Life: animals
 
-The server only says where a herd lives. It runs nothing while people play: every client works
+The server only says where a herd, a flock or a pet lives. It runs nothing while people play: every client works
 out where each animal is from the home's `id` and the **shared clock** (the `now` of `welcome`
 and `time` in the meetup messages below), so everyone in a room sees the same animal in the same
 place, whenever they arrived. The reference is `server/public/js/lifemotion.js` (checked by
 `server/test/life.test.ts`); another client must give the same answers.
 
-Where homes are put (`server/src/life.ts`): on meadows (`landuse=meadow`), in paddocks
+Where farm homes are put (`server/src/life.ts`): on meadows (`landuse=meadow`), in paddocks
 (`landuse=animal_keeping`) and farmyards, and on farmland only within 150 m of a farm building,
 since most mapped farmland is crops. A barn with no mapped yard gets a few chickens beside it.
 One kind of animal per field; a field's `animal_keeping`, `livestock` or `animal` tag decides it
 when present. The roam circle lies inside its field and is clear by 3 m of buildings, roads,
 railways, streams, water and woods, so a client need not check the ground. Footpaths may cross it.
+
+The other animals, by the ground under a home:
+
+| Animal | Where |
+| --- | --- |
+| `duck` | Ponds and lakes within 60 m of the bank, and rivers and canals at least 7 m wide. Never the sea or a bay. |
+| `pigeon` | Open paved or built-up ground. |
+| `bird` | A flock circling 32 to 50 m up, over about half the chunks, anywhere. |
+| `cat`, `dog` | Beside one home in four, in a patch 2 to 4 m across, clear of walls by 1 m. |
+| `rabbit` | Grass. |
+| `deer` | Open ground within 60 m of a wood. |
+| `squirrel` | Under some trees that stand on grass (not in Australia). |
+| `kangaroo` | Australia: in place of deer, and on some grass. |
+| `llama` | The Andes, on open ground above 2000 m. |
+| `camel` | Sand, from the Sahara to the Thar (latitude 12 to 36, longitude -17 to 75). |
+| `penguin` | Sand south of latitude -33. |
 
 The rule, with `hash32(a, b)` as in `server/src/geo.ts`, `unit(a, b) = hash32(a, b) / 2^32`, and
 `disc(seed, n)` a point of the unit disc: `rad = sqrt(unit(seed, 2n))`, `ang = 2π × unit(seed, 2n + 1)`,
@@ -131,6 +147,9 @@ The rule, with `hash32(a, b)` as in `server/src/geo.ts`, `unit(a, b) = hash32(a,
 - Animal `k` (from 0) of a home has identity `A = hash32(id, k + 1)`.
 - Per animal: seconds per step, the share of a step spent walking, and walking pace in m/s.
   Cow 24, 0.35, 0.8. Sheep 18, 0.35, 0.9. Horse 20, 0.4, 1.4. Chicken 5, 0.45, 1.1.
+  Duck 9, 0.6, 0.45 (the same rule, on water). Pigeon 4, 0.5, 0.5. Cat 30, 0.2, 0.9. Dog 9, 0.45, 1.5.
+  Rabbit 7, 0.3, 1.6. Deer 22, 0.35, 1.1. Squirrel 4, 0.45, 1.5. Kangaroo 16, 0.3, 2.0.
+  Llama 22, 0.35, 0.9. Camel 26, 0.35, 0.9. Penguin 8, 0.5, 0.5.
 - `patch = min(pace × walk × step / 2, r / 2)`, `room = r − patch`,
   `drift = min(0.4 × room, 0.75 × pace × walk × step)`, `spread = room − drift`.
 - The animal's resting place for step `n`, in metres from the home's centre, is
@@ -142,11 +161,19 @@ The rule, with `hash32(a, b)` as in `server/src/geo.ts`, `unit(a, b) = hash32(a,
   with its head down to graze when `unit(A, n xor 0x47524153) < 0.7`. After that it walks to place
   `n + 1`: with `g = (f − (1 − walk)) / walk`, it is `g² × (3 − 2g)` of the way there.
 - Voices: time is cut into slots of 3 s, `slot = floor(t / 3)`. An animal calls in a slot when
-  `hash32(A, slot xor 0x43414c4c) mod c = 0` (`c`: cow 14, sheep 11, horse 30, chicken 5), at
+  `hash32(A, slot xor 0x43414c4c) mod c = 0` (`c`: cow 14, sheep 11, horse 30, chicken 5, duck 9,
+  pigeon 8, cat 40, dog 25, penguin 12, bird 10; the others have no voice), at
   `t = (slot + unit(A, slot + 1)) × 3`. Everyone hears the same animal at the same moment.
+- The flock (`bird`) has its own rule. With `seed = hash32(id, 0x464c4f43)`, `turn(s) = 2π × ((t / s) mod 1)`
+  and a pace of 9 m/s: the flock flies a ring round the home's centre, clockwise when `seed` is odd,
+  at angle `a = ±turn(2π × 0.7r / 9) + 2π × unit(seed, 1)` and radius
+  `r × (0.6 + 0.15 × sin(turn(47) + 2π × unit(seed, 2)))`. Bird `k` trails the leader (bird 0) in a V:
+  `row = ceil(k / 2)`, it is `row × 2.4 + 0.5 × sin(turn(3.1) + k)` metres behind along the direction
+  of flight and `row × 1.7` metres further out (odd `k`) or in (even `k`). Its height above the
+  ground at the home's centre is `32 + 18 × unit(seed, 3) + 2.5 × sin(turn(11) + 1.3k)` metres.
 
-What an animal does when a player comes near (lifting its head, stepping aside, an alarm call) is
-not part of the rule. Each client works it out from the player positions it already has, as a
+What an animal does when a player comes near (lifting its head, stepping aside, a dog trotting
+over, pigeons flying up, an alarm call) is not part of the rule. Each client works it out from the player positions it already has, as a
 short offset from the place above that fades away again, so players agree closely but not exactly.
 
 Sounds are made by code on each client; nothing is sent for them.

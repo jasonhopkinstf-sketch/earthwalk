@@ -177,12 +177,15 @@ and accounts (Google sign-in, remembered by a player token, with a home and a ch
 stored as one JSON file under the cache directory. `server/src/presence.ts` joins that with
 the rooms to say who is online and where. The access code doubles as the sign-up gate.
 
-Farm animals (in the browser so far): `server/src/life.ts` decides where herds live, from the
-map's meadows, paddocks and farmyards, and sends them with the labels. The server also shares its
-clock. `server/public/js/lifemotion.js` is the one rule for where each cow, sheep, horse and
-chicken is at a moment, so everyone in a room sees the same animal in the same place, and
-`life.js` draws them and has them look at, and step aside for, players. Their voices are made by
-code (`sounds.js`); there are no recordings. docs/PROTOCOL.md, "Life", has the details.
+Animals (in the browser so far): `server/src/life.ts` decides where they live and sends that with
+the labels: herds on the map's meadows, paddocks and farmyards, ducks on ponds and rivers, pigeons
+in town, a flock overhead, a cat or a dog beside some homes, rabbits, deer and squirrels, and a few
+that belong to one part of the world (kangaroos, llamas, camels, penguins). The server also shares
+its clock. `server/public/js/lifemotion.js` is the one rule for where each animal is at a moment,
+so everyone in a room sees the same animal in the same place. `liferigs.js` says what each looks
+like and `life.js` draws them and has them notice players: most look up and step aside, dogs trot
+over, pigeons fly up. Their voices are made by code (`sounds.js`); there are no recordings.
+docs/PROTOCOL.md, "Life", has the details.
 
 ## Art assets and the look
 

@@ -8,17 +8,17 @@
 import { CHUNK_Z, metersPerTile } from "./geo.ts";
 import { Elevation } from "./elevation.ts";
 import { clipPolyline, featuresForChunk, groundClasses, placeTrees } from "./chunk.ts";
-import { placeHomes } from "./life.ts";
+import { placeHomes, placeWild } from "./life.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 3;
+export const LABELS_REV = 4;
 
 export interface LabelItem {
   kind: "house" | "street" | "tree" | "home";
   /** Plate text; absent on trees and homes. */
   text?: string;
-  /** Homes (a herd or flock): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
+  /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
   sp?: string;
   n?: number;
   id?: number;
@@ -227,8 +227,9 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     trees.push({ kind: "tree", u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: t.seed % 360, s: r1(t.height), r: r1(t.radius), c: t.conifer ? 1 : 0 });
   }
 
-  // ---- farm animals: where each herd lives. Clients move them (docs/PROTOCOL.md, "Life").
-  const homes: LabelItem[] = placeHomes(cx, cy, features, cls).map((home) => {
+  // ---- animals: where each herd, flock and pet lives. Clients move them (docs/PROTOCOL.md, "Life").
+  const farm = placeHomes(cx, cy, features, cls);
+  const homes: LabelItem[] = [...farm, ...placeWild(cx, cy, features, cls, spots, elev, farm)].map((home) => {
     const u = r7(home.wx - cx);
     const v = r7(home.wy - cy);
     return { kind: "home", sp: home.sp, n: home.n, r: r1(home.r), id: home.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0 };
