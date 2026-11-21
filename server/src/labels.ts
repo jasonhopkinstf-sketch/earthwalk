@@ -8,20 +8,30 @@
 import { CHUNK_Z, metersPerTile } from "./geo.ts";
 import { Elevation } from "./elevation.ts";
 import { clipPolyline, featuresForChunk, groundClasses, placeTrees } from "./chunk.ts";
-import { placeHomes, placeWild } from "./life.ts";
+import { placeHomes, placeMachines, placeWild } from "./life.ts";
+import { placeTraffic } from "./traffic.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 4;
+export const LABELS_REV = 5;
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree" | "home";
+  kind: "house" | "street" | "tree" | "home" | "car" | "route";
   /** Plate text; absent on trees and homes. */
   text?: string;
   /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
   sp?: string;
   n?: number;
   id?: number;
+  /**
+   * Routes (a car's trip): the narrowest road's width in metres, 1 where people drive on the left, the
+   * seconds it waits at each end, and the path as u, v, seconds, u, v, seconds... (docs/PROTOCOL.md, "Traffic").
+   */
+  w?: number;
+  left?: number;
+  da?: number;
+  db?: number;
+  pts?: number[];
   /** Trees: height and canopy radius in metres, and 1 for a conifer. */
   s?: number;
   r?: number;
@@ -229,10 +239,29 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
 
   // ---- animals: where each herd, flock and pet lives. Clients move them (docs/PROTOCOL.md, "Life").
   const farm = placeHomes(cx, cy, features, cls);
-  const homes: LabelItem[] = [...farm, ...placeWild(cx, cy, features, cls, spots, elev, farm)].map((home) => {
+  const wild = placeWild(cx, cy, features, cls, spots, elev, farm);
+  const homes: LabelItem[] = [...farm, ...wild, ...placeMachines(cx, cy, features, cls, [...farm, ...wild])].map((home) => {
     const u = r7(home.wx - cx);
     const v = r7(home.wy - cy);
     return { kind: "home", sp: home.sp, n: home.n, r: r1(home.r), id: home.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0 };
+  });
+
+  // ---- cars: the parked ones, and the trips the others make. Clients drive them (docs/PROTOCOL.md, "Traffic").
+  const r5 = (v: number): number => Math.round(v * 1e5) / 1e5;
+  const traffic = placeTraffic(cx, cy, features);
+  const cars: LabelItem[] = traffic.parked.map((car) => {
+    const u = r7(car.wx - cx);
+    const v = r7(car.wy - cy);
+    return { kind: "car", id: car.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: r1(car.yaw) };
+  });
+  const routes: LabelItem[] = traffic.trips.map((trip) => {
+    const u = r5(trip.path[0][0] - cx);
+    const v = r5(trip.path[0][1] - cy);
+    return {
+      kind: "route", id: trip.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0,
+      w: r1(trip.w), left: trip.left ? 1 : 0, da: trip.dwellA, db: trip.dwellB,
+      pts: trip.path.flatMap(([x, y, t]) => [r5(x - cx), r5(y - cy), t]),
+    };
   });
 
   return [
@@ -240,6 +269,8 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     ...[...crossings, ...plates].slice(0, STREET_CAP).map((s) => s.it),
     ...trees,
     ...homes,
+    ...cars,
+    ...routes,
   ];
 }
 

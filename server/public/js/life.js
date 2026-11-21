@@ -9,7 +9,7 @@
 import * as THREE from "three";
 import { xToLon, yToLat } from "./geo.js";
 import { CALL_SLOT, callTime, creatureAt, hash32, memberId, SPECIES } from "./lifemotion.js";
-import { RIGS } from "./liferigs.js";
+import { RIGS, VEHICLES } from "./liferigs.js";
 
 const SHOW_M = 220; // homes further off than this are not drawn
 const HEAR_M = 70;
@@ -25,7 +25,7 @@ const SHAPES = {
 };
 
 // Turn the readable tables of liferigs.js into matrices once.
-for (const rig of Object.values(RIGS)) {
+for (const rig of [...Object.values(RIGS), ...Object.values(VEHICLES)]) {
   const o = new THREE.Object3D();
   rig.built = rig.parts.map(([shape, colour, at, size, role = "", tilt = 0]) => {
     o.position.set(at[0], at[1], at[2]);
@@ -56,10 +56,14 @@ function turn(from, to) {
 }
 
 export class Life {
-  /** @param {import("./world.js").World} world  @param {import("./sounds.js").Sounds} sounds */
-  constructor(scene, world, sounds) {
+  /**
+   * @param {import("./world.js").World} world  @param {import("./sounds.js").Sounds} sounds
+   * @param {import("./traffic.js").Traffic} [traffic]  cars, drawn through the same meshes
+   */
+  constructor(scene, world, sounds, traffic = null) {
     this.world = world;
     this.sounds = sounds;
+    this.traffic = traffic;
     this.byChunk = new Map(); // chunk key -> { chunk, herds }
     this.herds = []; // nearest first
     this.states = new Map(); // animal id -> how it is reacting to players
@@ -107,6 +111,7 @@ export class Life {
       }
     }
     this.herds.sort((a, b) => a.d - b.d);
+    this.traffic?.sync(position);
     if (this.states.size > 600) this.states.clear(); // far-off animals are forgotten; they are calm again by the time we return
   }
 
@@ -138,6 +143,7 @@ export class Life {
         if (this.draw(herd, rig, k, dt, t, slot, players, counts)) shown++;
       }
     }
+    this.traffic?.draw(this, dt, t, players, counts);
     for (const [name, mesh] of Object.entries(this.meshes)) {
       mesh.count = counts[name];
       mesh.instanceMatrix.needsUpdate = true;
@@ -149,7 +155,9 @@ export class Life {
   }
 
   draw(herd, rig, k, dt, t, slot, players, counts) {
-    const c = creatureAt(herd.home, k, t);
+    // A machine that stopped for somebody is running late; it makes the time up afterwards.
+    const late = rig.yields ? this.states.get(memberId(herd.home.id, k)) : null;
+    const c = creatureAt(herd.home, k, t - (late?.lag ?? 0));
     const sx = herd.x + c.x;
     const sz = herd.z + c.y;
     const beat = (c.id % 628) / 100; // so no two animals nod, wag or flap in step
@@ -171,7 +179,7 @@ export class Life {
     }
 
     let st = this.states.get(c.id);
-    if (!st) this.states.set(c.id, (st = { ox: 0, oz: 0, up: 0, yaw: (-c.yaw * Math.PI) / 180, walk: 0, head: 0, look: 0, gait: 0, startled: false, greeted: false, quietUntil: 0 }));
+    if (!st) this.states.set(c.id, (st = { lag: 0, tootAt: 0, ox: 0, oz: 0, up: 0, yaw: (-c.yaw * Math.PI) / 180, walk: 0, head: 0, look: 0, gait: 0, startled: false, greeted: false, quietUntil: 0 }));
 
     // ---- who is near? Measured from where the animal should be, so stepping aside does not make it dither.
     let near = null;
@@ -216,6 +224,21 @@ export class Life {
     const ground = this.world.groundHeight(x, z);
     if (ground === null) return false;
 
+    if (rig.yields) {
+      // A tractor stops for anyone in front of it, and toots.
+      const a = (c.yaw * Math.PI) / 180;
+      let blocked = false;
+      for (const p of players) {
+        const ahead = (p.x - x) * Math.sin(a) - (p.z - z) * Math.cos(a);
+        const aside = Math.abs((p.x - x) * Math.cos(a) + (p.z - z) * Math.sin(a));
+        if (ahead > 0.5 && ahead < rig.yields && aside < 1.8) { blocked = true; break; }
+      }
+      if (blocked) {
+        st.lag = Math.min(90, st.lag + dt);
+        if (rig.alarm && t > st.tootAt) { st.tootAt = t + 4; this.call(rig.alarm, c.id, x, z, ground); }
+      } else if (st.lag > 0) st.lag = Math.max(0, st.lag - dt * 0.3);
+    }
+
     // ---- pose
     const moving = c.moving || hurrying;
     st.walk += ((moving ? 1 : 0) - st.walk) * ease(8, dt);
@@ -242,7 +265,7 @@ export class Life {
     const swing = airborne ? 0 : Math.sin(stride) * 0.55 * st.walk;
     const lift = rig.hop ? Math.abs(Math.sin(stride / 2)) * rig.hop * st.walk : Math.abs(Math.sin(stride)) * 0.03 * st.walk;
     const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;
-    const roll = rig.waddle ? Math.sin(stride) * rig.waddle * st.walk : 0;
+    const roll = rig.waddle ? Math.sin(stride) * rig.waddle * st.walk : rig.heel ?? 0;
     let flap = 0;
     if (rig.wing) {
       const [mid, amp] = airborne ? rig.wing.air : startled && rig.wing.startled ? rig.wing.startled : moving ? rig.wing.walk : [0, 0];

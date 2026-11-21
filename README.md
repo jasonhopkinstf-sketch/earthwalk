@@ -189,6 +189,13 @@ like and `life.js` draws them and has them notice players: most look up and step
 over, pigeons fly up. Their voices are made by code (`sounds.js`); there are no recordings.
 docs/PROTOCOL.md, "Life", has the details.
 
+Cars, tractors and boats (in the browser so far): `server/src/traffic.ts` parks cars along streets
+where people live and works out every trip a car makes, street by street and second by second, on
+the side of the road the country drives on. `trafficmotion.js` replays a trip from the shared clock
+and `traffic.js` draws the cars and has them stop and toot for a player in the way. Tractors work
+ploughed fields and boats sail water near a shore; they circle a home like the animals do.
+docs/PROTOCOL.md, "Traffic".
+
 ## Art assets and the look
 
 The Unreal game is drawn as a barnyard cartoon: flat painted colours, light sorted into a few flat

@@ -13,7 +13,9 @@ import { BARN_KINDS, clipPolyline, groundClassId, PLAIN_KINDS, type TreeSpot } f
 import type { Building, Features, Field, FieldKind, GroundClass, Pt, Stock } from "./osm.ts";
 
 export type Wild = "duck" | "pigeon" | "bird" | "cat" | "dog" | "rabbit" | "deer" | "squirrel" | "kangaroo" | "llama" | "camel" | "penguin";
-export type Species = Stock | Wild;
+/** Things that are driven or sailed round a home of their own, by the same means as the animals. */
+export type Machine = "tractor" | "boat" | "sailboat";
+export type Species = Stock | Wild | Machine;
 /** One herd, flock or pet: `r` is the roam radius in metres, `id` its identity (the same on every visit). */
 export interface Home { wx: number; wy: number; id: number; sp: Species; n: number; r: number }
 
@@ -29,6 +31,7 @@ export const HOME_CAP = 40;
 export const CREATURE_CAP = 150;
 export const WILD_HOME_CAP = 40;
 export const WILD_CREATURE_CAP = 120;
+export const MACHINE_CAP = 8;
 
 interface Herd { min: number; max: number; area: number; few: number; many: number }
 /** Smallest and largest roam radius in metres, square metres of circle per animal, and the head count limits. */
@@ -49,6 +52,9 @@ const HERDS: Record<Species, Herd> = {
   llama: { min: 7, max: 16, area: 90, few: 2, many: 5 },
   camel: { min: 8, max: 18, area: 200, few: 1, many: 4 },
   penguin: { min: 3, max: 8, area: 12, few: 3, many: 9 },
+  tractor: { min: 12, max: 28, area: 1, few: 1, many: 1 },
+  boat: { min: 6, max: 12, area: 1, few: 1, many: 1 },
+  sailboat: { min: 14, max: 26, area: 1, few: 1, many: 1 },
 };
 /** A candidate spot is used when its seed is a multiple of this: how thickly each kind of field is stocked. */
 const ODDS: Record<FieldKind, number> = { paddock: 1, farmyard: 2, meadow: 5, farmland: 4 };
@@ -409,4 +415,33 @@ export function placeWild(cx: number, cy: number, features: Features, cls: Uint8
     });
   }
   return kept;
+}
+
+/**
+ * Tractors and boats, which circle a home of their own. A tractor works a clear patch of ploughed
+ * farmland; a boat sails any water within 250 m of a shore (a sailing boat where there is room for
+ * one, a rowing boat otherwise). `taken` are the homes already placed, which these keep clear of.
+ */
+export function placeMachines(cx: number, cy: number, features: Features, cls: Uint8Array, taken: Home[] = []): Home[] {
+  const { S, classAt, clearRadius, shoreNear } = site(cx, cy, features, cls);
+  const water = groundClassId("water");
+  const fields = (features.fields ?? []).filter((f) => f.kind === "farmland").map((f) => ({ f, box: boxOf(f.rings.flat()) }));
+  const homes: Home[] = [];
+  const add = adder(S, homes, taken);
+  for (let j = 0; j < LATTICE; j++) {
+    for (let i = 0; i < LATTICE; i++) {
+      const { p, seed } = latticeSpot(cx, cy, i, j, 0x4d414348);
+      const pick = (seed >>> 24) % 24;
+      if (classAt(p) === water) {
+        if (pick % 6 !== 0 || !shoreNear(p, water, 250)) continue;
+        const clear = clearRadius(p, HERDS.sailboat.max, { open: classes("water"), margin: SNUG_M, afloat: true });
+        add(p, seed, clear >= HERDS.sailboat.min ? "sailboat" : "boat", clear, 1);
+      } else if (pick % 8 === 0) {
+        const field = fields.find(({ f, box }) => p[0] >= box[0] && p[0] <= box[2] && p[1] >= box[1] && p[1] <= box[3] && inRings(p, f.rings));
+        if (field) add(p, seed, "tractor", clearRadius(p, HERDS.tractor.max, { open: classes("farm", "plain"), field: field.f }), 1);
+      }
+    }
+  }
+  const step = Math.max(1, Math.ceil(homes.length / MACHINE_CAP));
+  return homes.filter((_, i) => i % step === 0);
 }

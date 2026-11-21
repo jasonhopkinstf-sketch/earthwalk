@@ -14,7 +14,11 @@
 // aside (0: never). `voice` is its everyday call and `alarm` the one it makes when startled.
 // `peck` pecks instead of grazing, `hop` is the height of its hop, `swim` floats (sunk by that much),
 // `waddle` rocks from foot to foot, `takesOff` flies up out of reach, `curious` comes to see who
-// it is, `fly` never lands, and `flock` gives the whole group one coat.
+// it is, `fly` never lands, and `flock` gives the whole group one coat. A machine that `yields`
+// stops for anyone that many metres in front of it, and a boat that `heel`s leans to its sail.
+//
+// Tractors and boats are here with the animals because they go round a home in the same way. Cars
+// and vans are in VEHICLES at the end; traffic.js drives them.
 
 const PINK = 0xe8b4a8;
 const DARK = 0x26221f;
@@ -22,6 +26,16 @@ const CREAM = 0xf3ecd9;
 const ORANGE = 0xe8a23a;
 const RED = 0xd23a2e;
 const AHEAD = -Math.PI / 2; // tilts a cone or cylinder to point forward
+const GLASS = 0xbfe0ee;
+const TYRE = 0x2a2b2e;
+const WOOD = 0x8a5a34;
+/** Paint for things with windows: [body, glass]. */
+const PAINTS = [0xd94a3a, 0x3f7fd0, 0xf2c94c, 0x4caf6a, 0xf4f1ea, 0x8f9aa6, 0xf08a3c, 0x2f8f8a, 0x7a4f9a, 0x2f3b55].map((c) => [c, GLASS]);
+/** Four wheels: tyres as fat discs. */
+const wheels = (x, front, back, radius, y = radius) => [
+  ...pair("sphere", TYRE, [x, y, -front], [0.14, radius, radius]),
+  ...pair("sphere", TYRE, [x, y, back], [0.14, radius, radius]),
+];
 
 /** The same part on the left and on the right. `roles` names each side's role, if they move. */
 const pair = (shape, colour, [x, y, z], size, roles = ["", ""], tilt = 0) => [
@@ -280,6 +294,80 @@ export const RIGS = {
       ...pair("sphere", 0xf4f1ea, [0.04, 0.52, -0.07], [0.014, 0.016, 0.01], HEAD),
       ...pair("sphere", "a", [0.14, 0.27, 0], [0.02, 0.14, 0.05], WINGS),
       ...pair("sphere", ORANGE, [0.05, 0.015, -0.03], [0.04, 0.015, 0.06], ["leg0", "leg1"]),
+    ],
+  },
+
+  // ---- machines that go round a home of their own
+  tractor: {
+    voice: "chug", alarm: "toot", alert: 0, flee: 0, stride: 1, graze: 0, drop: 0, neck: [0, 0, 0], yields: 7,
+    coats: [[0x3f9a45, GLASS], [0xd94a3a, GLASS], [0x3f7fd0, GLASS], [0xf2c94c, GLASS]],
+    parts: [
+      ["box", "a", [0, 1.0, -0.55], [0.8, 0.6, 1.5]],
+      ["box", "a", [0, 1.5, 0.55], [1.0, 1.2, 1.0]],
+      ["box", "b", [0, 1.72, 0.55], [1.04, 0.6, 0.84]],
+      ["box", "b", [0, 1.72, 0.55], [0.86, 0.6, 1.04]],
+      ["box", TYRE, [0, 2.14, 0.55], [1.1, 0.08, 1.1]],
+      ...pair("sphere", TYRE, [0.72, 0.75, 0.6], [0.2, 0.75, 0.75]),
+      ...pair("sphere", "a", [0.78, 0.75, 0.6], [0.16, 0.34, 0.34]),
+      ...pair("sphere", TYRE, [0.56, 0.4, -1.0], [0.13, 0.4, 0.4]),
+      ["cyl", TYRE, [0.25, 1.65, -0.95], [0.05, 0.7, 0.05]],
+      ...pair("sphere", CREAM, [0.25, 1.1, -1.31], [0.1, 0.1, 0.04]),
+    ],
+  },
+  boat: {
+    voice: null, alarm: null, alert: 0, flee: 0, stride: 1, graze: 0, drop: 0, neck: [0, 0, 0], swim: 0.06,
+    coats: [[WOOD, 0x5e3a22], [0x3f7fd0, 0xf4f1ea], [0xd94a3a, 0xf4f1ea], [0xf4f1ea, WOOD], [0x4caf6a, 0xf4f1ea]],
+    parts: [
+      ["sphere", "a", [0, 0.12, 0], [0.65, 0.32, 1.7]],
+      ["sphere", "b", [0, 0.27, 0], [0.52, 0.2, 1.45]],
+      ["box", "a", [0, 0.36, 0.1], [1.05, 0.06, 0.26]],
+      ["box", "a", [0, 0.36, -0.75], [0.8, 0.06, 0.22]],
+      ["box", CREAM, [0, 0.46, 0.2], [3.0, 0.05, 0.09]],
+      ...pair("box", CREAM, [1.55, 0.44, 0.2], [0.3, 0.03, 0.2]),
+    ],
+  },
+  sailboat: {
+    voice: null, alarm: null, alert: 0, flee: 0, stride: 1, graze: 0, drop: 0, neck: [0, 0, 0], swim: 0.1, heel: 0.1,
+    coats: [[0xf4f1ea, 0xf7f3e6], [0x3f7fd0, 0xf7f3e6], [0xd94a3a, 0xf7f3e6], [0x2f3b55, 0xf2c94c], [0xf4f1ea, 0xd94a3a], [0x2f8f8a, 0xf7f3e6]],
+    parts: [
+      ["sphere", "a", [0, 0.2, 0], [0.95, 0.5, 2.8]],
+      ["box", CREAM, [0, 0.58, 0], [1.2, 0.08, 3.6]],
+      ["box", "a", [0, 0.82, 0.5], [0.9, 0.4, 1.4]],
+      ["cyl", WOOD, [0, 3.4, -0.3], [0.05, 5.6, 0.05]],
+      ["cone", "b", [0, 3.4, 0.7], [0.04, 4.8, 0.95]],
+      ["cone", "b", [0, 2.9, -1.35], [0.03, 3.8, 0.75]],
+      ["box", WOOD, [0, 1.05, 0.7], [0.06, 0.06, 1.9]],
+    ],
+  },
+};
+
+/** Cars and vans, driven by traffic.js. Colour "a" is the paint and "b" the glass. */
+export const VEHICLES = {
+  car: {
+    coats: PAINTS,
+    parts: [
+      ["box", "a", [0, 0.52, 0], [1.7, 0.5, 3.9]],
+      ["box", "a", [0, 0.98, 0.25], [1.5, 0.46, 2.0]],
+      ["box", "b", [0, 1.0, 0.25], [1.54, 0.3, 1.7]],
+      ["box", "b", [0, 1.0, 0.25], [1.3, 0.3, 2.04]],
+      ...wheels(0.82, 1.2, 1.2, 0.33),
+      ...pair("sphere", CREAM, [0.6, 0.6, -1.95], [0.14, 0.1, 0.05]),
+      ...pair("sphere", RED, [0.6, 0.6, 1.95], [0.14, 0.08, 0.05]),
+      ["box", 0x55595e, [0, 0.32, -1.97], [1.6, 0.12, 0.08]],
+      ["box", 0x55595e, [0, 0.32, 1.97], [1.6, 0.12, 0.08]],
+    ],
+  },
+  van: {
+    coats: PAINTS,
+    parts: [
+      ["box", "a", [0, 1.15, 0.45], [1.85, 1.6, 3.4]],
+      ["box", "a", [0, 0.8, -1.75], [1.85, 0.9, 1.0]],
+      ["box", "b", [0, 1.45, -1.3], [1.7, 0.55, 0.14]],
+      ["box", "b", [0, 1.45, -0.95], [1.89, 0.5, 0.7]],
+      ...wheels(0.9, 1.5, 1.4, 0.36),
+      ...pair("sphere", CREAM, [0.65, 0.75, -2.25], [0.15, 0.11, 0.05]),
+      ...pair("sphere", RED, [0.7, 0.8, 2.15], [0.12, 0.14, 0.05]),
+      ["box", 0x55595e, [0, 0.38, -2.27], [1.75, 0.14, 0.08]],
     ],
   },
 };

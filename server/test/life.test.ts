@@ -287,7 +287,7 @@ test("the browser's hash is the server's hash", () => {
 
 test("animals stay in their circle, keep to a walking pace, and are the same for everyone", () => {
   const t0 = 1_795_000_000;
-  for (const sp of Object.keys(SPECIES).filter((k) => !SPECIES[k].fly)) {
+  for (const sp of Object.keys(SPECIES).filter((k) => !SPECIES[k].fly && !SPECIES[k].lap)) {
     for (const r of [2, 3, 8, 22]) {
       const home = { id: hash32(r, sp.length), sp, n: 6, r };
       for (let k = 0; k < home.n; k++) {

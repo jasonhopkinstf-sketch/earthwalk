@@ -23,7 +23,11 @@ export interface Building {
   guessed?: boolean;
 }
 /** `name` is set for highway ways only. */
-export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string }
+export interface Road {
+  id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string;
+  /** Roads only: the map's kind of road (residential, primary...), and whether traffic may only go the way it is drawn. */
+  hw?: string; oneway?: boolean;
+}
 /** A house number mapped as a standalone point rather than on a building. */
 export interface AddressPoint { id: number; at: Pt; housenumber: string; street?: string }
 /** Ground cover. A point is inside if it is within an odd number of rings, so inner rings are holes (islands in a lake). */
@@ -247,7 +251,8 @@ function roadOf(id: number, tags: Record<string, string>, pts: Pt[]): Road | nul
     if (hw in ROAD_WIDTH) {
       const lanes = num(tags.lanes);
       const width = num(tags.width) ?? (lanes && lanes >= 1 && lanes <= 10 ? Math.max(lanes * 3.2, 3.5) : ROAD_WIDTH[hw]);
-      return named({ id, cls: "road", width: Math.min(Math.max(width, 2.5), 40), pts }, tags.name);
+      const oneway = /^(yes|true|1|-1|reversible)$/.test(tags.oneway ?? "") || tags.junction === "roundabout" || hw === "motorway";
+      return named({ id, cls: "road", width: Math.min(Math.max(width, 2.5), 40), pts, hw, ...(oneway ? { oneway } : {}) }, tags.name);
     }
     if (hw in PATH_WIDTH) return named({ id, cls: "path", width: PATH_WIDTH[hw], pts }, tags.name);
     return null;

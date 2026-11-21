@@ -95,7 +95,8 @@ animals to life from it (see "Life" below).
 | Field | Meaning |
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
-| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives). A client skips kinds it does not know. |
+| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives), `car` (a parked car) or `route` (a trip a car makes). A client skips kinds it does not know. |
+| `w`, `left`, `da`, `db`, `pts` | Routes only; see "Traffic". Cars and routes also carry an `id`. At most 60 cars and 14 routes per chunk. |
 | `sp`, `n`, `r`, `id` | Homes only: the animal (one of those listed under "Life"), how many, the radius in metres of the circle they roam in (for `bird`, of the ring the flock flies), and the home's identity (a whole number from 1 to 4294967295, the same on every visit). Per chunk, at most 40 farm homes with 150 animals, 40 other homes with 120 animals, and one flock. A client skips animals it does not know. |
 | `text`, `text2` | The plate text (absent on trees and homes). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
 | `s`, `r`, `c` | Trees only: height and canopy radius in metres, and `c` = 1 for a conifer. Trees are the same ones the chunk mesh draws as cones (surface id 30), so a client with its own tree models skips that section and plants these instead. At most 1500 per chunk, thinned evenly. |
@@ -139,6 +140,8 @@ The other animals, by the ground under a home:
 | `llama` | The Andes, on open ground above 2000 m. |
 | `camel` | Sand, from the Sahara to the Thar (latitude 12 to 36, longitude -17 to 75). |
 | `penguin` | Sand south of latitude -33. |
+| `tractor` | A clear patch of ploughed farmland, 12 to 28 m across. One to a home. |
+| `boat`, `sailboat` | Water within 250 m of a shore, the sea included: a sailing boat where there is a clear 14 m round it, a rowing boat where there is 6 m. One to a home. At most 8 tractors and boats per chunk. |
 
 The rule, with `hash32(a, b)` as in `server/src/geo.ts`, `unit(a, b) = hash32(a, b) / 2^32`, and
 `disc(seed, n)` a point of the unit disc: `rad = sqrt(unit(seed, 2n))`, `ang = 2π × unit(seed, 2n + 1)`,
@@ -172,11 +175,63 @@ The rule, with `hash32(a, b)` as in `server/src/geo.ts`, `unit(a, b) = hash32(a,
   of flight and `row × 1.7` metres further out (odd `k`) or in (even `k`). Its height above the
   ground at the home's centre is `32 + 18 × unit(seed, 3) + 2.5 × sin(turn(11) + 1.3k)` metres.
 
+- Tractors and boats go round their home. With `seed = hash32(id, 0x4c415053)`, an oval `a = 0.85r` long
+  and `b = 0.5r` wide is turned by `2π × unit(seed, 2)`; its length is taken as
+  `π × (3(a + b) − sqrt((3a + b)(a + 3b)))`. The machine is at angle
+  `±turn(length / pace) + 2π × unit(seed, 1)` round it (plus when `seed` is odd), at
+  `(a × cos, b × sin)` before the turn. Pace: tractor 1.6 m/s, rowing boat 0.5, sailing boat 1.4. A tractor
+  putts every 6 s or so (`c` = 2).
+
 What an animal does when a player comes near (lifting its head, stepping aside, a dog trotting
-over, pigeons flying up, an alarm call) is not part of the rule. Each client works it out from the player positions it already has, as a
+over, pigeons flying up, an alarm call) is not part of the rule. Nor is a tractor stopping for
+someone in front of it: it waits, then makes up the time. Each client works it out from the player positions it already has, as a
 short offset from the place above that fades away again, so players agree closely but not exactly.
 
 Sounds are made by code on each client; nothing is sent for them.
+
+## Traffic
+
+Cars are in the labels too. A `car` item is a parked car: its position is already at the kerb and
+`yaw` is the way it faces. A `route` item is one car and the trip it makes, out and back, for ever:
+
+```json
+{"kind": "route", "id": 2863311530, "u": 0.41235, "v": 0.5, "h": 61.2, "yaw": 0,
+ "w": 6, "left": 0, "da": 95, "db": 40,
+ "pts": [0.41235, 0.5, 0, 0.42229, 0.5, 2.9, 0.43223, 0.5, 4.4]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `pts` | The middle of the road the car follows, as `u`, `v`, seconds since setting off, three numbers a point, a point every 4 m or so. `u` and `v` are as everywhere else and may run well outside 0 to 1: a trip is 60 to 420 m long and can leave its chunk. |
+| `w` | The width in metres of the narrowest road on the way. |
+| `left` | 1 where people drive on the left (`drivesLeft` in `server/src/traffic.ts`: rough boxes round the countries that do). |
+| `da`, `db` | Seconds the car waits at the start and at the far end. |
+
+The server builds the trips (`server/src/traffic.ts`): a car parked on a street where people live sets
+off away from the way it faces, follows two-way streets (never a one-way street or a roundabout, since
+it must come back the same way), mostly keeps straight on at junctions, and stops clear of one. The
+times already allow for the kind of road (3 m/s on a living street to 11 on a primary road), easing off
+for bends and junctions, and pulling out and in.
+
+A client replays it (`server/public/js/trafficmotion.js` is the reference, checked by
+`server/test/traffic.test.ts`). With `T` the last time in `pts`, `P = da + T + db + T` and
+`τ = (t + unit(id, 0x54524950) × P) mod P`, the car is:
+
+1. waiting at the start while `τ < da`, facing back the way it came;
+2. driving out, `τ − da` seconds along the path;
+3. waiting at the far end for `db` seconds, facing the way it arrived;
+4. driving back, the same path and times in reverse.
+
+Between two points it moves evenly. It faces along the road from 3 m behind it to 3 m ahead (so it
+rounds corners), and keeps to one side of the middle of the road: the right of the way it faces, or
+the left where `left` is 1. How far over: `kerb = max(0.6, w / 2 − 0.95)` metres when parked and
+`lane = min(w / 4, kerb)` when driving. It sets off from the kerb on the *other* side (where it stood
+facing the other way), so over the first 10 m of a leg it crosses from `−kerb` to `lane`, and over the
+last 10 m it pulls in from `lane` to `kerb`, each with `g² × (3 − 2g)` smoothing. A client turns the
+body round to its heading gradually, which is what swings the car about at each end.
+
+A car that finds a player in front of it stops and toots; that is each client's own doing, like the
+animals' reactions. It then runs a little late and makes up the time. Cars do not notice each other.
 
 ## Place search: `GET /v1/geocode?q=...`
 

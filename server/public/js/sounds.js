@@ -3,7 +3,7 @@
 
 const MAX_VOICES = 6;
 /** How loud each call is against the others. */
-const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5 };
+const LOUDNESS = { moo: 1, baa: 0.7, neigh: 0.8, cluck: 0.3, squawk: 0.45, quack: 0.4, coo: 0.3, caw: 0.9, woof: 0.7, meow: 0.45, bray: 0.5, toot: 0.5, chug: 0.45 };
 
 export class Sounds {
   constructor() {
@@ -50,7 +50,7 @@ export class Sounds {
 
   /**
    * Plays one call at a place in the scene. `pitch` near 1 makes each animal's voice its own.
-   * @param {string} kind  one of the voices below: moo, baa, neigh, cluck, squawk, quack, coo, caw, woof, meow, bray
+   * @param {string} kind  one of the voices below: moo, baa, neigh, cluck, squawk, quack, coo, caw, woof, meow, bray, toot, chug
    * @returns {boolean} false when sound is off, not yet allowed, or too much is already playing
    */
   play(kind, x, y, z, pitch = 1) {
@@ -217,5 +217,25 @@ const VOICES = {
       });
     }
     return 0.95;
+  },
+  // A car horn: two notes at once, a short friendly "beep".
+  toot(ctx, out, t0, p) {
+    for (const hz of [392, 494]) {
+      note(ctx, out, t0, {
+        type: "square", pitch: [[0, hz * p], [0.3, hz * p]], level: [[0.015, 0.5], [0.26, 0.5], [0.3, 0]],
+        chain: [["lowpass", 1900, 0.7]],
+      });
+    }
+    return 0.35;
+  },
+  // A tractor's engine: a handful of low putts.
+  chug(ctx, out, t0, p) {
+    for (let i = 0; i < 6; i++) {
+      note(ctx, out, t0 + i * 0.14, {
+        type: "sawtooth", pitch: [[0, 78 * p], [0.09, 58 * p]], level: [[0.01, 0.9], [0.07, 0.5], [0.11, 0]],
+        chain: [["lowpass", 420, 1.5]],
+      });
+    }
+    return 0.9;
   },
 };

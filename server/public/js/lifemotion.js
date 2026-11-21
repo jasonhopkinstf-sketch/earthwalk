@@ -40,6 +40,10 @@ export const SPECIES = {
   camel: { step: 26, walk: 0.35, pace: 0.9, call: 0 },
   penguin: { step: 8, walk: 0.5, pace: 0.5, call: 12 },
   bird: { step: 1, walk: 1, pace: 9, call: 10, fly: true },
+  // Machines go round and round a home of their own: `lap`.
+  tractor: { step: 1, walk: 1, pace: 1.6, call: 2, lap: true },
+  boat: { step: 1, walk: 1, pace: 0.5, call: 0, lap: true },
+  sailboat: { step: 1, walk: 1, pace: 1.4, call: 0, lap: true },
 };
 /** Every this many steps the whole herd moves to another part of its circle. */
 export const HERD_STEPS = 8;
@@ -51,6 +55,7 @@ const SALT_PHASE = 0x50484153;
 const SALT_GRAZE = 0x47524153;
 const SALT_CALL = 0x43414c4c;
 const SALT_FLOCK = 0x464c4f43;
+const SALT_LAP = 0x4c415053;
 const WRAP = 0x40000000;
 const TURN = Math.PI * 2;
 
@@ -81,6 +86,7 @@ export const memberId = (homeId, k) => hash32(homeId, k + 1);
 export function creatureAt(home, k, t) {
   const sp = SPECIES[home.sp] ?? SPECIES.cow;
   if (sp.fly) return flyerAt(home, k, t, sp);
+  if (sp.lap) return lapAt(home, k, t, sp);
   const id = memberId(home.id, k);
   // Each animal shuffles about its own small patch; the patches sit round a point the herd shares.
   const patch = Math.min((sp.pace * sp.walk * sp.step) / 2, home.r * 0.5);
@@ -140,6 +146,31 @@ function flyerAt(home, k, t, sp) {
     id, x: out[0] * (ring + across) - ahead[0] * back, y: out[1] * (ring + across) - ahead[1] * back,
     alt: 32 + 18 * unit(seed, 3) + 2.5 * Math.sin(cycle(t, 11) + k * 1.3),
     yaw: heading(ahead[0], ahead[1]), moving: true, gait: (t % 1000) * sp.pace, pace: sp.pace, graze: false,
+  };
+}
+
+/**
+ * A tractor or a boat going round its home: an oval 0.85 of `home.r` long and half of it wide,
+ * turned to some angle, driven at a steady pace one way or the other.
+ */
+function lapAt(home, k, t, sp) {
+  const id = memberId(home.id, k);
+  const seed = hash32(home.id, SALT_LAP);
+  const way = seed & 1 ? 1 : -1;
+  const a = home.r * 0.85;
+  const b = home.r * 0.5;
+  const round = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b))); // the oval's length, near enough
+  const th = way * cycle(t, round / sp.pace) + TURN * unit(seed, 1);
+  const tilt = TURN * unit(seed, 2);
+  const c = Math.cos(tilt);
+  const s = Math.sin(tilt);
+  const ex = a * Math.cos(th);
+  const ey = b * Math.sin(th);
+  const dx = -a * Math.sin(th) * way;
+  const dy = b * Math.cos(th) * way;
+  return {
+    id, x: ex * c - ey * s, y: ex * s + ey * c, alt: 0, yaw: heading(dx * c - dy * s, dx * s + dy * c),
+    moving: true, gait: (t % 1000) * sp.pace, pace: sp.pace, graze: false,
   };
 }
 

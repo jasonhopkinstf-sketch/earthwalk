@@ -6,6 +6,7 @@ import { Life } from "./life.js";
 import { Meetup } from "./net.js";
 import { Player } from "./player.js";
 import { Sounds } from "./sounds.js";
+import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
 const $ = (id) => document.getElementById(id);
@@ -40,7 +41,8 @@ const avatars = new Avatars(scene);
 const meetup = new Meetup();
 const sounds = new Sounds();
 sounds.enabled = saved.sound !== false;
-const life = new Life(scene, world, sounds);
+const traffic = new Traffic(world, sounds);
+const life = new Life(scene, world, sounds, traffic);
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -295,7 +297,7 @@ async function command(name, arg) {
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
     notice("/invite   get a link to send to someone        /where   show your coordinates");
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
-    notice("/sound on or /sound off   the animals' voices");
+    notice("/sound on or /sound off   the animals' voices, car horns and tractors");
   } else if (name === "goto" && arg) {
     notice(`Looking for "${arg}"...`);
     try {
@@ -386,4 +388,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, sounds, command, isStarted: () => started };
