@@ -9,6 +9,26 @@ export class Meetup extends EventTarget {
     this.me = null;
     this.wanted = false;
     this.denied = false;
+    /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
+    this.clockOffset = 0;
+    this.clockTrip = Infinity;
+    this.clockTimers = [];
+  }
+
+  /**
+   * The shared clock, in seconds: the server's time, as near as we can tell. Everyone in the world
+   * agrees on it to within a few hundredths of a second, which is what keeps the animals in step.
+   */
+  now() {
+    return (Date.now() + this.clockOffset) / 1000;
+  }
+
+  /** Asks the server the time a few times now, and once a minute after. The quickest answer is the truest. */
+  syncClock() {
+    for (const t of this.clockTimers) clearTimeout(t);
+    const ask = () => this.send({ t: "time", c: performance.now() });
+    this.clockTimers = [500, 1500, 3000, 6000].map((ms) => setTimeout(ask, ms));
+    this.clockTimers.push(setInterval(() => { this.clockTrip *= 1.2; ask(); }, 60000));
   }
 
   emit(type, detail) {
@@ -56,6 +76,7 @@ export class Meetup extends EventTarget {
   close() {
     this.wanted = false;
     clearTimeout(this.retry);
+    for (const t of this.clockTimers) clearTimeout(t);
     const ws = this.ws;
     this.ws = null;
     ws?.close();
@@ -112,7 +133,20 @@ export class Meetup extends EventTarget {
         for (const p of msg.peers ?? []) {
           this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number" });
         }
+        if (typeof msg.now === "number") {
+          this.clockOffset = msg.now - Date.now();
+          this.clockTrip = Infinity;
+          this.syncClock();
+        }
         this.emit("welcome", { me: this.me, history: msg.history ?? [] });
+        break;
+      }
+      case "time": {
+        const trip = performance.now() - msg.c;
+        if (typeof msg.now === "number" && trip >= 0 && trip < this.clockTrip) {
+          this.clockTrip = trip;
+          this.clockOffset = msg.now + trip / 2 - Date.now();
+        }
         break;
       }
       case "join":

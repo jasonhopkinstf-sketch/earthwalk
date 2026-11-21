@@ -88,6 +88,25 @@ test("two people meet in a room, see each other move and chat", async () => {
   }
 });
 
+test("the server shares its clock: in welcome, and on request with the client's own stamp", async () => {
+  const s = await start();
+  try {
+    const mum = client(s.url);
+    await mum.open;
+    const before = Date.now();
+    mum.send({ t: "hello", name: "Mum", room: "family" });
+    const welcome = await mum.next("welcome");
+    assert.ok(welcome.now >= before && welcome.now <= Date.now());
+    mum.send({ t: "time", c: 1234.5 });
+    const time = await mum.next("time");
+    assert.equal(time.c, 1234.5);
+    assert.ok(time.now >= welcome.now && time.now <= Date.now());
+    mum.ws.close();
+  } finally {
+    s.stop();
+  }
+});
+
 test("rooms are separate and the access code is enforced", async () => {
   const s = await start("secret");
   try {

@@ -170,6 +170,7 @@ export class Rooms {
           history: r.history,
           signedIn: me.personId !== null,
           ...(me.personId !== null ? { personId: me.personId, home: me.home } : {}),
+          now: Date.now(),
         });
         this.broadcast(r, { t: "join", id: me.id, name: me.name, avatar: me.avatar });
         r.members.set(me.id, me);
@@ -197,6 +198,9 @@ export class Rooms {
         room.history.push(line);
         if (room.history.length > HISTORY) room.history.shift();
         this.broadcast(room, { t: "chat", ...line });
+      } else if (msg.t === "time") {
+        // The shared clock: the client sends its own stamp and gets it back with our time, so it can allow for the delay.
+        send({ t: "time", c: finite(msg.c) ? msg.c : 0, now: Date.now() });
       } else if (msg.t === "people") {
         if (this.options.peopleList) send({ t: "people", p: this.options.peopleList() });
       } else if (msg.t === "home") {

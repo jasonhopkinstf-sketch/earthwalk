@@ -2,8 +2,10 @@
 
 import * as THREE from "three";
 import { ANIMALS, Avatars } from "./avatars.js";
+import { Life } from "./life.js";
 import { Meetup } from "./net.js";
 import { Player } from "./player.js";
+import { Sounds } from "./sounds.js";
 import { World } from "./world.js";
 
 const $ = (id) => document.getElementById(id);
@@ -36,6 +38,11 @@ const world = new World(scene);
 const player = new Player(camera, world, canvas);
 const avatars = new Avatars(scene);
 const meetup = new Meetup();
+const sounds = new Sounds();
+sounds.enabled = saved.sound !== false;
+const life = new Life(scene, world, sounds);
+// Browsers only let a page make sound once it has been clicked or typed in.
+for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
 /** The signed-in account (from /v1/me), or null for a guest. */
 let account = null;
@@ -172,12 +179,17 @@ function start(me) {
   renderer.setAnimationLoop(frame);
 }
 
+/** Scene positions of all players, this one first: the animals watch them. */
+const everyone = [player.position];
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
   player.update(dt);
   avatars.update(dt, meetup.peers, world);
+  everyone.length = 1;
+  for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
+  life.update(dt, meetup.now(), everyone, camera);
   renderer.render(scene, camera);
 }
 
@@ -188,6 +200,7 @@ function tickSlow() {
   const here = world.sceneToGeo(player.position);
   if (!player.waitingForGround) meetup.sendPosition(here.lat, here.lon, here.alt, player.heading);
   if (slowTicks % 5 === 0) {
+    life.sync(player.position);
     const parts = [`${here.lat.toFixed(5)}, ${here.lon.toFixed(5)}`];
     if (player.flying) parts.push("flying");
     if (player.waitingForGround) parts.push(world.lastError || "building the world here...");
@@ -282,6 +295,7 @@ async function command(name, arg) {
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
     notice("/invite   get a link to send to someone        /where   show your coordinates");
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
+    notice("/sound on or /sound off   the animals' voices");
   } else if (name === "goto" && arg) {
     notice(`Looking for "${arg}"...`);
     try {
@@ -338,6 +352,10 @@ async function command(name, arg) {
     notice(`You are at ${here.lat.toFixed(6)}, ${here.lon.toFixed(6)}, ${Math.round(here.alt)} m above sea level.`);
   } else if (name === "fly") {
     player.setFlying(!player.flying);
+  } else if (name === "sound") {
+    sounds.enabled = arg ? /^(on|yes|1)$/i.test(arg) : !sounds.enabled;
+    save({ sound: sounds.enabled });
+    notice(sounds.enabled ? "Sound is on." : "Sound is off.");
   } else if (name === "login") {
     if (account) return notice(`You are signed in as ${account.name}.`);
     location.href = `/auth/google?${new URLSearchParams({ next: "/", ...(world.code ? { code: world.code } : {}) })}`;
@@ -368,4 +386,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, sounds, command, isStarted: () => started };

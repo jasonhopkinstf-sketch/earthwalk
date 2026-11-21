@@ -81,7 +81,8 @@ House numbers and street names for the same chunk, as JSON. The route is **optio
 client that ignores it still gets the complete world from the chunk meshes. It takes the
 same access code, zoom and rate-limit rules as the chunk route, and the same `x`/`y`
 numbering. Both clients plant their trees from it (and skip mesh section 30); the Unreal
-client also spawns letterboxes and sign posts from it.
+client also spawns letterboxes and sign posts from it. The browser client brings the farm
+animals to life from it (see "Life" below).
 
 ```json
 {"x": 33185, "y": 22545, "rev": 1,
@@ -94,8 +95,9 @@ client also spawns letterboxes and sign posts from it.
 | Field | Meaning |
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
-| `kind` | `house` (a letterbox plate), `street` (a sign post) or `tree`. |
-| `text`, `text2` | The plate text (absent on trees). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
+| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives). A client skips kinds it does not know. |
+| `sp`, `n`, `r`, `id` | Homes only: the animal (`cow`, `sheep`, `horse` or `chicken`), how many, the radius in metres of the circle they roam in, and the home's identity (a whole number from 1 to 4294967295, the same on every visit). At most 40 homes and 150 animals per chunk. |
+| `text`, `text2` | The plate text (absent on trees and homes). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
 | `s`, `r`, `c` | Trees only: height and canopy radius in metres, and `c` = 1 for a conifer. Trees are the same ones the chunk mesh draws as cones (surface id 30), so a client with its own tree models skips that section and plants these instead. At most 1500 per chunk, thinned evenly. |
 | `u`, `v` | Position across the chunk, as in the meshes: `u` 0 = west edge, 1 = east edge; `v` 0 = north edge, 1 = south edge. May fall slightly outside 0–1 for buildings that straddle the chunk edge. |
 | `h` | Terrain-mesh height at the point, in metres above sea level, so the prop stands on the ground. |
@@ -106,6 +108,48 @@ Placement: a house plate stands 1.5 m from the building corner nearest its stree
 A crossing sign stands on the corner of the junction with the most room, each plate
 facing back across its own street. A street with no crossing in the area gets one plate
 halfway along its piece of the chunk. At most 120 house and 40 street items per chunk.
+
+## Life: farm animals
+
+The server only says where a herd lives. It runs nothing while people play: every client works
+out where each animal is from the home's `id` and the **shared clock** (the `now` of `welcome`
+and `time` in the meetup messages below), so everyone in a room sees the same animal in the same
+place, whenever they arrived. The reference is `server/public/js/lifemotion.js` (checked by
+`server/test/life.test.ts`); another client must give the same answers.
+
+Where homes are put (`server/src/life.ts`): on meadows (`landuse=meadow`), in paddocks
+(`landuse=animal_keeping`) and farmyards, and on farmland only within 150 m of a farm building,
+since most mapped farmland is crops. A barn with no mapped yard gets a few chickens beside it.
+One kind of animal per field; a field's `animal_keeping`, `livestock` or `animal` tag decides it
+when present. The roam circle lies inside its field and is clear by 3 m of buildings, roads,
+railways, streams, water and woods, so a client need not check the ground. Footpaths may cross it.
+
+The rule, with `hash32(a, b)` as in `server/src/geo.ts`, `unit(a, b) = hash32(a, b) / 2^32`, and
+`disc(seed, n)` a point of the unit disc: `rad = sqrt(unit(seed, 2n))`, `ang = 2π × unit(seed, 2n + 1)`,
+`(rad × cos(ang), rad × sin(ang))`, x east and y south, with `n` taken modulo 2^30:
+
+- Animal `k` (from 0) of a home has identity `A = hash32(id, k + 1)`.
+- Per animal: seconds per step, the share of a step spent walking, and walking pace in m/s.
+  Cow 24, 0.35, 0.8. Sheep 18, 0.35, 0.9. Horse 20, 0.4, 1.4. Chicken 5, 0.45, 1.1.
+- `patch = min(pace × walk × step / 2, r / 2)`, `room = r − patch`,
+  `drift = min(0.4 × room, 0.75 × pace × walk × step)`, `spread = room − drift`.
+- The animal's resting place for step `n`, in metres from the home's centre, is
+  `drift × disc(hash32(id, 0x464f4355), floor(n / 8)) + spread × disc(hash32(A, 0x53504f54), 0) + patch × disc(A, n)`:
+  a point the herd shares, which moves every 8 steps; the animal's own place in the herd; and a
+  small shuffle. It is always within `r` of the centre.
+- At shared time `t` seconds: `q = (t + unit(A, 0x50484153) × step) / step`, `n = floor(q)`,
+  `f = q − n`. While `f < 1 − walk` the animal stands at place `n`, facing the way it last walked,
+  with its head down to graze when `unit(A, n xor 0x47524153) < 0.7`. After that it walks to place
+  `n + 1`: with `g = (f − (1 − walk)) / walk`, it is `g² × (3 − 2g)` of the way there.
+- Voices: time is cut into slots of 3 s, `slot = floor(t / 3)`. An animal calls in a slot when
+  `hash32(A, slot xor 0x43414c4c) mod c = 0` (`c`: cow 14, sheep 11, horse 30, chicken 5), at
+  `t = (slot + unit(A, slot + 1)) × 3`. Everyone hears the same animal at the same moment.
+
+What an animal does when a player comes near (lifting its head, stepping aside, an alarm call) is
+not part of the rule. Each client works it out from the player positions it already has, as a
+short offset from the place above that fades away again, so players agree closely but not exactly.
+
+Sounds are made by code on each client; nothing is sent for them.
 
 ## Place search: `GET /v1/geocode?q=...`
 
@@ -150,12 +194,14 @@ Client to server:
 | `{"t":"chat","text":"hello"}` | Say something to the room. |
 | `{"t":"home"}` / `{"t":"home","lat":..,"lon":..,"name":"Eiffel Tower"}` | Signed-in only. Make where I stand my home (the server names the place), or the given place. Answered with a `home` message, or `error` `guest` / `nowhere`. |
 | `{"t":"people"}` | Ask for the people list again (it is also pushed whenever it changes). |
+| `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
 
 Server to client:
 
 | Message | Meaning |
 | --- | --- |
-| `{"t":"welcome","id":"..","name":"..","avatar":"..","room":"..","peers":[{"id","name","avatar","lat","lon","alt","yaw"}],"history":[...],"signedIn":true,"personId":"..","home":{"lat","lon","name"}}` | You are in. `name` may differ from what you asked for if it was taken. `history` holds recent chat lines. `personId` and `home` (which may be `null`) are present only for a signed-in player; a signed-in client should start at `home` when it is set. |
+| `{"t":"welcome","id":"..","name":"..","avatar":"..","room":"..","peers":[{"id","name","avatar","lat","lon","alt","yaw"}],"history":[...],"signedIn":true,"personId":"..","home":{"lat","lon","name"},"now":1700000000000}` | You are in. `name` may differ from what you asked for if it was taken. `history` holds recent chat lines. `personId` and `home` (which may be `null`) are present only for a signed-in player; a signed-in client should start at `home` when it is set. |
+| `{"t":"time","c":1234.5,"now":1700000000000}` | The answer to `time`: the server's clock in milliseconds since 1970. Shared time is `now` plus half the round trip; a client keeps the answer with the shortest round trip and asks again now and then. `welcome` carries `now` too, as a first estimate. Clients that ignore both still work; they just have no animals in step with everyone else. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
 | `{"t":"peers","p":[[id,lat,lon,alt,yaw],...]}` | People who moved since the last update (10 per second). |
 | `{"t":"chat","id":"..","name":"..","text":"..","ts":1700000000000}` | A chat line (also echoed to the sender). |
