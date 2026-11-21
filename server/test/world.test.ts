@@ -385,3 +385,70 @@ test("barns are red with wide doors, and sheds have no front door", async () => 
   const shed = (await mesh(CX, CY, streetOfHouses([5], { kind: "garage", height: 3 }))).mesh;
   assert.ok(!shed.sections.some((s) => s.mat.id === 26), "no front door on a garage");
 });
+
+test("town streets get pavements, wide roads a dashed line, and country roads neither pavement", async () => {
+  const S = metersPerTile(CY + 0.5);
+  const d = (metres: number): number => metres / S;
+  const road = { id: 900, cls: "road" as const, width: 7, pts: [[CX + 0.1, CY + 0.5], [CX + 0.9, CY + 0.5]] as [number, number][] };
+  const town: Features = {
+    buildings: [], roads: [road], trees: [], addresses: [], coast: [],
+    areas: [{ id: 1, cls: "urban", rings: [[[CX, CY], [CX + 1, CY], [CX + 1, CY + 1], [CX, CY + 1]]] }],
+  };
+  const { mesh: m } = await mesh(CX, CY, town);
+  const pavement = m.sections.find((s) => s.mat.id === 14)!;
+  const marks = m.sections.find((s) => s.mat.id === 15)!;
+  assert.ok(pavement && pavement.idx.length > 0, "pavement beside the street");
+  assert.ok(marks && marks.idx.length >= 6 * 10, "a row of dashes");
+  // Pavements lie outside the carriageway: 3.5 to 5.1 m from the centre line (which runs at n = -0.5 S).
+  for (let i = 0; i < pavement.pos.length; i += 3) {
+    const off = Math.abs(pavement.pos[i + 1] + 0.5 * S);
+    assert.ok(off > 3.4 && off < 5.2, `pavement vertex ${off.toFixed(2)} m from the centre line`);
+  }
+  for (let i = 0; i < marks.pos.length; i += 3) assert.ok(Math.abs(marks.pos[i + 1] + 0.5 * S) < 0.2, "dashes on the centre line");
+  assert.ok(d(1) > 0);
+
+  const country = (await mesh(CX, CY, { ...town, areas: [] })).mesh;
+  assert.ok(!country.sections.some((s) => s.mat.id === 14), "no pavement out of town");
+  assert.ok(country.sections.some((s) => s.mat.id === 15), "the line stays");
+});
+
+test("front gardens have a path to the street and a hedge or fence that keeps off the road", async () => {
+  const { mesh: m } = await mesh(CX, CY, streetOfHouses([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+  const S = metersPerTile(CY + 0.5);
+  const wall = -0.5 * S; // the houses' north walls, chunk-local metres
+  const roadLine = wall + 12;
+  const paths = m.sections.find((s) => s.mat.id === 11)!;
+  assert.ok(paths && paths.count >= 12 * 4, "a garden path for every house");
+  const edges = m.sections.filter((s) => s.mat.id === 32 || s.mat.id === 33);
+  assert.equal(edges.length, 2, "some gardens hedged and some fenced");
+  for (const s of edges) {
+    for (let i = 0; i < s.pos.length; i += 3) {
+      assert.ok(s.pos[i + 1] > wall && s.pos[i + 1] < roadLine - 4.5, "hedges and fences stand between the house and the pavement");
+    }
+  }
+});
+
+test("a home nobody measured is one or two storeys, and they are not all the same", async () => {
+  const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const f = streetOfHouses(ids, { height: 7.5, guessed: true });
+  const { mesh: m, elev } = await mesh(CX, CY, f);
+  const S = metersPerTile(CY + 0.5);
+  // Wall tops by house: each house's walls are the wall vertices within its 10 m of the street.
+  const tops = new Map<number, number>();
+  for (const s of m.sections.filter((x) => x.mat.id >= 20 && x.mat.id <= 23)) {
+    for (let i = 0; i < s.pos.length; i += 3) {
+      const house = Math.floor((s.pos[i] - 0.2 * S + 3) / 16);
+      const ground = elev.surfaceHeight(CX + s.pos[i] / S, CY - s.pos[i + 1] / S);
+      tops.set(house, Math.max(tops.get(house) ?? -Infinity, s.pos[i + 2] - ground));
+    }
+  }
+  assert.equal(tops.size, ids.length);
+  const heights = [...tops.values()];
+  // Gable ends rise into the roof, so allow for that above the eaves.
+  for (const t of heights) assert.ok(t > 2.5 && t < 6.6 + 3.5, `a house ${t.toFixed(1)} m tall`);
+  assert.ok(Math.max(...heights) - Math.min(...heights) > 2, "bungalows and two-storey houses on one street");
+
+  const measured = (await mesh(CX, CY, streetOfHouses([1], { height: 12 }))).mesh;
+  const z = measured.sections.filter((x) => x.mat.id >= 20 && x.mat.id <= 23).flatMap((x) => x.pos.filter((_, i) => i % 3 === 2));
+  assert.ok(Math.max(...z) - Math.min(...z) > 11, "a mapped height is kept");
+});

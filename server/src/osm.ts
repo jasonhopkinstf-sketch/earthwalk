@@ -19,6 +19,8 @@ export interface Building {
   roof?: string; roofHeight?: number;
   /** The OSM building value when it says more than "yes": house, barn, garage, retail... */
   kind?: string;
+  /** True when nobody mapped a height or a number of floors, so `height` is only the usual one for its kind. */
+  guessed?: boolean;
 }
 /** `name` is set for highway ways only. */
 export interface Road { id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string }
@@ -342,7 +344,8 @@ export function parseOsm(json: OsmJson): Features {
   const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[]): void => {
     if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return;
     const kind = tags.building !== "yes" ? { kind: tags.building } : {};
-    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags), ...roofOf(tags), ...kind });
+    const guessed = num(tags.height) || num(tags["building:height"]) || num(tags["building:levels"]) ? {} : { guessed: true };
+    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags), ...roofOf(tags), ...kind, ...guessed });
   };
 
   const usedAsOuter = new Set<number>();

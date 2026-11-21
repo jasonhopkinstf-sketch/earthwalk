@@ -5,6 +5,7 @@
 #include "EarthWorld.generated.h"
 
 class AEarthChunkLabels;
+class AEarthGroundCover;
 class AEarthWalkAvatar;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
@@ -16,6 +17,17 @@ class UProceduralMeshComponent;
  * tiles instead of ours, walked on. Auto is ours on foot and the tiles from the air: both are loaded,
  * one is shown, and the player only ever stands on ours. See EarthPhotoWorld.h.
  */
+/** What covers a square metre of ground, as far as planting tufts and flowers on it goes (AEarthWorld::CoverAt). */
+namespace EarthCover
+{
+	constexpr uint8 Unknown = 0; // no chunk there yet
+	constexpr uint8 Grass = 1; // meadow, parks, lawns
+	constexpr uint8 Forest = 2;
+	constexpr uint8 Farm = 3;
+	constexpr uint8 Edge = 254; // beside something in the way
+	constexpr uint8 Blocked = 255; // a road, path, building, water, sand, rock...
+}
+
 enum class EEarthWorldKind : uint8
 {
 	Generated,
@@ -88,6 +100,9 @@ public:
 	/** The player has just been moved to where they will stand, so judge the tiles from there, from now. */
 	void RestartPhotoWait();
 
+	/** What covers the ground at a place: one of EarthCover. Built with each chunk, a cell to about a metre. */
+	uint8 CoverAt(const FVector& Position) const;
+
 	/** A lit, tinted instance of the basic engine material, shared by everything of that colour (0xRRGGBBAA). */
 	UMaterialInstanceDynamic* MaterialFor(uint32 Rgba);
 
@@ -133,6 +148,12 @@ private:
 
 	UPROPERTY()
 	TMap<FString, TObjectPtr<AEarthWalkAvatar>> Avatars;
+
+	UPROPERTY()
+	TObjectPtr<AEarthGroundCover> GroundCover;
+
+	/** Per chunk, CoverCells x CoverCells of EarthCover, row by row from the north-west corner. */
+	TMap<FIntPoint, TArray<uint8>> CoverMaps;
 
 	/** The Cesium tileset of the photographic kinds, while there is one (EarthPhotoWorld.h). */
 	UPROPERTY()

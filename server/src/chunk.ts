@@ -14,7 +14,7 @@ import { type Building, DATA_Z, loadFeatures, type Features, type GroundClass, t
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 7;
+export const GENERATOR_REV = 8;
 export const FLAG_COLLISION = 1;
 
 interface MaterialDef { id: number; color: number; collision: boolean }
@@ -34,6 +34,8 @@ export const MATERIALS = {
   path: { id: 11, color: rgb(0xc9b28a), collision: false },
   rail: { id: 12, color: rgb(0x5b4a3f), collision: false },
   stream: { id: 13, color: rgb(0x3f7fb5), collision: false },
+  pavement: { id: 14, color: rgb(0xd2cab8), collision: false },
+  marking: { id: 15, color: rgb(0xf4f1e6), collision: false },
   wall0: { id: 20, color: rgb(0xd9cdb8), collision: true },
   wall1: { id: 21, color: rgb(0xc4a48a), collision: true },
   wall2: { id: 22, color: rgb(0xb9bec4), collision: true },
@@ -43,6 +45,8 @@ export const MATERIALS = {
   door: { id: 26, color: rgb(0xb5372e), collision: false },
   trim: { id: 27, color: rgb(0xf4f1e6), collision: false },
   chimney: { id: 28, color: rgb(0xb5553c), collision: false },
+  hedge: { id: 32, color: rgb(0x3f9a45), collision: false },
+  fence: { id: 33, color: rgb(0xf4f1e6), collision: false },
   tree: { id: 30, color: rgb(0x2f6b2f), collision: false },
 } satisfies Record<string, MaterialDef>;
 
@@ -484,6 +488,8 @@ interface RidgeSpot { x: number; y: number; z: number; along: XY }
 
 /** How far a pitched roof reaches out past the walls, in metres. */
 const EAVES = 0.4;
+/** Width of the pavement beside a town street, in metres. */
+const PAVEMENT = 1.6;
 
 /**
  * Roofs: a gable on rectangular houses, a hip on other small convex ones, and on L-shaped and other
@@ -604,6 +610,32 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
   };
 
   const cls = groundClasses(cx, cy, features, elev);
+  const URBAN = GROUND_ORDER.indexOf("urban") + 1;
+  const PAVED = GROUND_ORDER.indexOf("paved") + 1;
+  // Land use is often not mapped where houses are, so buildings count too: the cells within about
+  // 40 m of one (a border of cells round the chunk is kept, since streets run on past its edge).
+  const NEAR = 5;
+  const PADDED = GRID + 2 * NEAR;
+  const nearBuilding = new Uint8Array(PADDED * PADDED);
+  for (const b of features.buildings) {
+    for (const [wx, wy] of b.ring) {
+      const i = Math.floor((wx - cx) * GRID) + NEAR, j = Math.floor((wy - cy) * GRID) + NEAR;
+      for (let dj = -NEAR; dj <= NEAR; dj++) {
+        for (let di = -NEAR; di <= NEAR; di++) {
+          const x = i + di, y = j + dj;
+          if (x >= 0 && x < PADDED && y >= 0 && y < PADDED) nearBuilding[y * PADDED + x] = 1;
+        }
+      }
+    }
+  }
+  /** True where people live: residential or paved ground, or buildings close by. */
+  const builtUp = (wx: number, wy: number): boolean => {
+    const fi = Math.floor((wx - cx) * GRID), fj = Math.floor((wy - cy) * GRID);
+    const c = cls[clamp(fj, 0, GRID - 1) * GRID + clamp(fi, 0, GRID - 1)];
+    if (c === URBAN || c === PAVED) return true;
+    const x = fi + NEAR, y = fj + NEAR;
+    return x >= 0 && x < PADDED && y >= 0 && y < PADDED && nearBuilding[y * PADDED + x] === 1;
+  };
 
   // ---- terrain
   const heights = new Float32Array((GRID + 1) * (GRID + 1));
@@ -666,6 +698,11 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       const s = sec(mat);
       let prevL = -1;
       let prevR = -1;
+      // Town streets get a pavement each side. It lies a little lower than the road, so where two
+      // streets meet, each road covers the other's pavement instead of being crossed by it.
+      const paved = road.cls === "road" && road.width >= 5 && road.width < 10;
+      const walk = paved ? sec(MATERIALS.pavement) : null;
+      let prevWalk: number[] | null = null;
       for (let i = 0; i < line.length; i++) {
         const a = line[Math.max(0, i - 1)];
         const b = line[Math.min(line.length - 1, i + 1)];
@@ -690,6 +727,65 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
         }
         prevL = L;
         prevR = R;
+
+        if (walk) {
+          // Only where the land is lived on: a road through fields or forest has verges, not pavements.
+          const here = builtUp(cx + line[i][0] / S, cy - line[i][1] / S);
+          let now: number[] | null = null;
+          if (here) {
+            now = [];
+            for (const side of [1, -1]) {
+              for (const reach of [half, half + PAVEMENT]) {
+                const e = line[i][0] - tn * reach * side;
+                const n = line[i][1] + te * reach * side;
+                const wx = cx + e / S, wy = cy - n / S;
+                const [ne, nn, nh] = groundNormal(wx, wy);
+                now.push(walk.vert(e, n, ground(wx, wy) + 0.09, ne, nn, nh));
+              }
+            }
+          }
+          if (now && prevWalk) {
+            for (const k of [0, 2]) {
+              walk.triUp(prevWalk[k], prevWalk[k + 1], now[k + 1]);
+              walk.triUp(prevWalk[k], now[k + 1], now[k]);
+            }
+          }
+          prevWalk = now;
+        }
+      }
+
+      // A dashed line down the middle of the wider roads, stopping short of the ends where roads meet.
+      if (road.cls === "road" && road.width >= 6.5) {
+        const marks = sec(MATERIALS.marking);
+        const lift = 0.19 + Math.min(road.width, 12) * 0.004;
+        let total = 0;
+        for (let i = 1; i < line.length; i++) total += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
+        let at = 0;
+        for (let i = 1; i < line.length; i++) {
+          const [ae, an] = line[i - 1];
+          const [be, bn] = line[i];
+          const len = Math.hypot(be - ae, bn - an);
+          if (len < 0.05) continue;
+          const te = (be - ae) / len, tn = (bn - an) / len;
+          // Dashes are 3 m long, 8 m apart, placed by distance along the road so they do not bunch at bends.
+          for (let d = Math.ceil((at - 3) / 8) * 8; d < at + len; d += 8) {
+            const from = Math.max(d, at), to = Math.min(d + 3, at + len);
+            if (to - from < 0.3 || d < 7 || d + 3 > total - 7) continue;
+            const corners: number[] = [];
+            for (const along of [from - at, to - at]) {
+              for (const side of [0.09, -0.09]) {
+                const e = ae + te * along - tn * side;
+                const n = an + tn * along + te * side;
+                const wx = cx + e / S, wy = cy - n / S;
+                const [ne, nn, nh] = groundNormal(wx, wy);
+                corners.push(marks.vert(e, n, ground(wx, wy) + lift, ne, nn, nh));
+              }
+            }
+            marks.triUp(corners[0], corners[1], corners[3]);
+            marks.triUp(corners[0], corners[3], corners[2]);
+          }
+          at += len;
+        }
       }
     }
   };
@@ -697,18 +793,19 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
 
   // ---- buildings: extruded footprints, owned by the chunk containing their centroid
   // Road points near this chunk (chunk-local metres), for finding the wall that faces the street.
-  const roadPoints: XY[] = [];
+  const roadPoints: [number, number, number][] = []; // east, north, half width with any pavement
   for (const road of features.roads) {
     if (road.cls !== "road") continue;
     for (let i = 0; i < road.pts.length; i++) {
       const [wx, wy] = road.pts[i];
       if (wx < cx - 0.25 || wx > cx + 1.25 || wy < cy - 0.25 || wy > cy + 1.25) continue;
-      roadPoints.push([E(wx), N(wy)]);
+      const reach = road.width / 2 + (road.width >= 5 && road.width < 10 ? PAVEMENT : 0);
+      roadPoints.push([E(wx), N(wy), reach]);
       // Long straight pieces have few points; add some along the way.
       if (i + 1 < road.pts.length) {
         const [nx, ny] = road.pts[i + 1];
         const steps = Math.min(40, Math.floor((Math.hypot(nx - wx, ny - wy) * S) / 12));
-        for (let k = 1; k < steps; k++) roadPoints.push([E(wx + ((nx - wx) * k) / steps), N(wy + ((ny - wy) * k) / steps)]);
+        for (let k = 1; k < steps; k++) roadPoints.push([E(wx + ((nx - wx) * k) / steps), N(wy + ((ny - wy) * k) / steps), reach]);
       }
     }
   }
@@ -734,7 +831,6 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       if (g > hi) hi = g;
     }
     const base = lo - 0.6; // sink slightly so no gap shows on slopes
-    const top = Math.max((lo + hi) / 2 + b.height, hi + 2.4);
 
     const h = hash32(b.id);
     const areaM2 = Math.abs(area2) / 2;
@@ -746,6 +842,11 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       : !small ? painted(h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, BIG_PAINTS[(h >>> 4) % BIG_PAINTS.length])
       : (h >>> 4) % 4 === 0 ? painted(MATERIALS.wall3, HOUSE_BRICKS[(h >>> 6) % HOUSE_BRICKS.length])
       : painted(MATERIALS.wall0, HOUSE_PAINTS[(h >>> 6) % HOUSE_PAINTS.length]);
+    // A home nobody measured is one or two storeys, not the tall default for any building, and the
+    // smallest are bungalows. Each sits a little differently so a street's eaves do not line up.
+    const storeys = areaM2 < 50 || (h >>> 26) % 5 < 2 ? 1 : 2;
+    const height = homely && b.guessed ? storeys * 3 - 0.15 + ((h >>> 29) % 4) * 0.12 : b.height;
+    const top = Math.max((lo + hi) / 2 + height, hi + 2.4);
     const roofPaint = ROOF_PAINTS[(h >>> 8) % ROOF_PAINTS.length];
     const roofMat = barn ? painted(MATERIALS.roof0, BARN_ROOF) : painted(roofPaint[0], roofPaint[1]);
     const walls = sec(wallMat);
@@ -779,6 +880,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       const wide = barn ? 1.7 : 0.72;
       let best = -1;
       let bestScore = Infinity;
+      let bestGap = 0; // from the chosen wall to the edge of its road, when there is one
       for (let i = 0; i < ring.length; i++) {
         const [ae, an] = ring[i];
         const [be, bn] = ring[(i + 1) % ring.length];
@@ -788,13 +890,14 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
         const oe = (bn - an) / len, on = -(be - ae) / len;
         // The nearest road in front of this wall; failing any, the longest wall wins.
         let score = 1000 - len;
-        for (const [qe, qn] of roadPoints) {
+        let gap = 0;
+        for (const [qe, qn, reach] of roadPoints) {
           const de = qe - me, dn = qn - mn;
           if (de * oe + dn * on <= 1) continue;
           const dist = Math.hypot(de, dn);
-          if (dist < 90 && dist < score) score = dist;
+          if (dist < 90 && dist < score) { score = dist; gap = de * oe + dn * on - reach; }
         }
-        if (score < bestScore) { bestScore = score; best = i; }
+        if (score < bestScore) { bestScore = score; best = i; bestGap = gap; }
       }
       if (best >= 0) {
         const [ae, an] = ring[best];
@@ -813,15 +916,71 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(leaf, x, y, t, o, -1.5, -0.04, 0.1, 0.16, g + 0.02, g + 3.0);
           box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
         } else {
-          box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.32);
+          box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.5);
           box(sec(painted(MATERIALS.door, DOOR_PAINTS[(h >>> 18) % DOOR_PAINTS.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
           box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
           box(sec(painted(MATERIALS.trim, 0xcfc8b8)), x, y, t, o, -0.85, 0.85, 0, 0.55, g - 0.4, g + 0.12);
-          if ((h >>> 21) % 2 === 0 && top - g > 3.2) {
+          if ((h >>> 21) % 2 === 0 && top - g > 3.4) {
             // A porch: a small roof over the door on two posts.
-            box(sec(roofMat), x, y, t, o, -0.98, 0.98, 0, 1.0, g + 2.46, g + 2.6, false, true);
-            box(trim, x, y, t, o, -0.9, -0.8, 0.82, 0.92, g - 0.4, g + 2.46, true);
-            box(trim, x, y, t, o, 0.8, 0.9, 0.82, 0.92, g - 0.4, g + 2.46, true);
+            box(sec(roofMat), x, y, t, o, -0.98, 0.98, 0, 1.0, g + 2.62, g + 2.76, false, true);
+            box(trim, x, y, t, o, -0.9, -0.8, 0.82, 0.92, g - 0.4, g + 2.62, true);
+            box(trim, x, y, t, o, 0.8, 0.9, 0.82, 0.92, g - 0.4, g + 2.62, true);
+          }
+
+          // A front garden: a path from the door to the street and, round most gardens, a hedge or a
+          // white fence with a gap for the gate. Only where there is room before the road's edge.
+          const depth = Math.min(bestGap - 0.4, 5.5);
+          if (depth >= 2.2) {
+            const at2 = (w: number, d: number): [number, number, number] => {
+              const e = x + t[0] * w + o[0] * d, n = y + t[1] * w + o[1] * d;
+              return [e, n, ground(cx + e / S, cy - n / S)];
+            };
+            const pathSec = sec(MATERIALS.path);
+            const reach = Math.min(bestGap, depth + 1.5);
+            let prev: number[] | null = null;
+            for (let d = 0.55; d < reach + 0.01; d += Math.max(0.5, (reach - 0.55) / Math.ceil((reach - 0.55) / 2.5))) {
+              const now: number[] = [];
+              for (const w of [-0.5, 0.5]) {
+                const [e, n, gz] = at2(w, d);
+                const [ne, nn, nh] = groundNormal(cx + e / S, cy - n / S);
+                now.push(pathSec.vert(e, n, gz + 0.07, ne, nn, nh));
+              }
+              if (prev) {
+                pathSec.triUp(prev[0], prev[1], now[1]);
+                pathSec.triUp(prev[0], now[1], now[0]);
+              }
+              prev = now;
+            }
+
+            const style = (h >>> 23) % 8; // 0-2 hedge, 3-5 fence, 6-7 open
+            if (style < 6) {
+              const hedge = style < 3;
+              const part = sec(hedge ? MATERIALS.hedge : MATERIALS.fence);
+              const thick = hedge ? 0.28 : 0.04;
+              const tall = hedge ? 1.05 : 0.95;
+              const w0 = -at - 1.5, w1 = len - at + 1.5;
+              // A piece stands only on open ground: not through a neighbour's house, not out in a road.
+              const clear = (e: number, n: number): boolean => {
+                for (const [qe, qn, r] of roadPoints) if (Math.hypot(qe - e, qn - n) < r + 0.3) return false;
+                const wx = cx + e / S, wy = cy - n / S;
+                for (const other of features.buildings) if (other !== b && pointInRing(wx, wy, other.ring)) return false;
+                return true;
+              };
+              const run = (from: number, to: number, along: boolean, fixed: number): void => {
+                const pieces = Math.max(1, Math.ceil(Math.abs(to - from) / 3));
+                for (let k = 0; k < pieces; k++) {
+                  const a = from + ((to - from) * k) / pieces, c = from + ((to - from) * (k + 1)) / pieces;
+                  const [me, mn, gz] = along ? at2((a + c) / 2, fixed) : at2(fixed, (a + c) / 2);
+                  if (!clear(me, mn)) continue;
+                  if (along) box(part, x, y, t, o, a, c, fixed - thick, fixed + thick, gz - 0.4, gz + tall, true);
+                  else box(part, x, y, t, o, fixed - thick, fixed + thick, a, c, gz - 0.4, gz + tall, true);
+                }
+              };
+              run(w0, -0.8, true, depth);
+              run(0.8, w1, true, depth);
+              run(0.3, depth, false, w0);
+              run(0.3, depth, false, w1);
+            }
           }
         }
       }

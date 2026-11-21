@@ -63,7 +63,7 @@ else if (Pattern > 2.5 && Pattern < 3.5)
 	float2 g = frac(p / 1.3);
 	mark = (g.x < 0.045 || g.y < 0.045) ? 0.6 : 0.0;
 }
-else if (Pattern > 3.5)
+else if (Pattern > 3.5 && Pattern < 4.5)
 {
 	// Grass: a scatter of strokes, one or two to a stride, each a little tilted.
 	float2 cell = floor(p / 1.5);
@@ -71,6 +71,21 @@ else if (Pattern > 3.5)
 	float2 g = frac(p / 1.5) - 0.5 - (float2(rnd, frac(rnd * 7.31)) - 0.5) * 0.5;
 	float lean = (rnd - 0.5) * 0.8;
 	mark = (rnd > 0.4 && abs(g.x - g.y * lean) < 0.035 && abs(g.y) < 0.2) ? 0.8 : 0.0;
+}
+else if (Pattern > 4.5 && Pattern < 5.5)
+{
+	// Hedge: leafy dabs, darker and lighter, on every side.
+	float3 q = WorldPos / 21.0;
+	float dab = sin(q.x * 1.3 + 1.2 * sin(q.z * 1.7)) * sin(q.y * 1.1 + 1.2 * sin(q.x * 1.9)) * sin(q.z * 1.5 + q.y * 0.7);
+	mark = smoothstep(0.18, 0.3, dab) * 0.75;
+	c *= 1.0 + 0.16 * smoothstep(0.15, 0.3, -dab) * detail;
+}
+else if (Pattern > 5.5)
+{
+	// Picket fence: the gaps between the pales, on its upright faces.
+	float2 d = normalize(n.xy + float2(1e-4, 0.0));
+	float along = dot(p, float2(d.y, -d.x));
+	mark = (frac(along / 0.17) < 0.2 ? 1.2 : 0.0) * saturate(1.0 - abs(n.z) * 4.0);
 }
 c *= 1.0 - 0.3 * mark * detail;
 WorldNormal = n;
@@ -94,12 +109,36 @@ float mortar = (b.x < 0.07 || b.y < 0.14) ? 1.0 : 0.0;
 float clump = smoothstep(0.30, 0.55, sin(along * 0.45 + 2.0) * sin(height * 0.7 + along * 0.13 + 1.0));
 wall *= 1.0 - 0.22 * mortar * clump * Bricks * detail;
 // RowShift.x is where the building's ground floor sits within a 3 m storey (AEarthWorld::BuildChunk),
-// so window rows count up from the ground floor rather than from sea level.
-float2 f = frac(float2(along / 2.4, height / 3.0 - RowShift.x));
+// so window rows count up from the ground floor rather than from sea level. RowShift.y is a number
+// each building has to itself. Span is how far this point is along its wall and how long the wall
+// is, in metres.
+//
+// Windows are spaced to fit the wall and centred in their bays, so none is cut off at a corner and a
+// wall too short for one has none. A big building has one about every 2.6 m. A home has far fewer
+// and no two homes quite alike: each has its own spacing, its own width of window, some windows
+// left out, and now and then a short wall with none at all.
+float own = RowShift.y;
+float wallOwn = frac(sin(Span.y * 12.9898 + own * 78.233) * 43758.5453);
+float spacing = lerp(2.6, lerp(3.4, 5.4, frac(own * 2.3)), Homely);
+float bays = max(1.0, round(Span.y / spacing) - ((Homely > 0.5 && wallOwn < 0.3) ? 1.0 : 0.0));
+float bayWidth = Span.y / bays;
+float bay = floor(Span.x / bayWidth);
+float fromMiddle = (Span.x / bayWidth - bay - 0.5) * bayWidth;
+float storey = floor(height / 3.0 - RowShift.x);
+float each = frac(sin(bay * 37.7 + storey * 91.3 + wallOwn * 57.1) * 43758.5453);
+float blank = (Homely > 0.5 && (each < 0.16 || (Span.y < 5.0 && wallOwn > 0.86))) ? 1.0 : 0.0;
+float kept = (Span.y >= 2.2 && blank < 0.5) ? 1.0 : 0.0;
+float widthPick = frac(own * 6.7);
+float wide = Homely > 0.5 ? (widthPick < 0.3 ? 0.8 : widthPick < 0.75 ? 1.0 : 1.4) : 1.0;
+wide = min(wide, max(0.5, (bayWidth - 0.4) / 1.7)); // with its shutters a window is 1.7 m at full width
+float2 f = float2(fromMiddle / (2.4 * wide) + 0.5, frac(height / 3.0 - RowShift.x));
+float Win = Windows * kept;
 float win = (f.x > 0.28 && f.x < 0.72 && f.y > 0.30 && f.y < 0.78) ? 1.0 : 0.0;
 float frame = (f.x > 0.235 && f.x < 0.765 && f.y > 0.255 && f.y < 0.825) ? 1.0 : 0.0;
 float sill = (f.x > 0.20 && f.x < 0.80 && f.y > 0.215 && f.y < 0.255) ? 1.0 : 0.0;
-float bars = (abs(f.x - 0.5) < 0.011 || abs(f.y - 0.56) < 0.009) ? 1.0 : 0.0;
+// Glazing bars: a cross on some homes, one upright on others, a plain pane on the rest.
+float barPick = frac(own * 8.3);
+float bars = ((barPick < 0.8 && abs(f.x - 0.5) < 0.011 / wide) || (barPick < 0.45 && abs(f.y - 0.56) < 0.009)) ? 1.0 : 0.0;
 // The pane: sky blue, lighter towards the top, with two slanting streaks of shine.
 float2 pane = (f - float2(0.28, 0.30)) / float2(0.44, 0.48);
 float slant = pane.x + pane.y;
@@ -107,14 +146,13 @@ float shine = (abs(slant - 0.72) < 0.07 || abs(slant - 0.93) < 0.025) ? 1.0 : 0.
 float3 glass = lerp(float3(0.30, 0.56, 0.80), float3(0.52, 0.76, 0.93), pane.y);
 glass = lerp(glass, float3(0.93, 0.97, 1.0), shine * 0.75 * detail);
 float3 trim = float3(0.97, 0.96, 0.92);
-float3 c = lerp(wall, trim * 0.9, sill * Windows);
-c = lerp(c, trim, frame * Windows);
-c = lerp(c, glass, win * Windows);
-c = lerp(c, trim, bars * win * Windows * detail);
-// Homes: shutters on some, a box of flowers under the windows of others. RowShift.y is a number each
-// building has to itself, so a house is the same all the way round and differs from its neighbours.
-float own = RowShift.y;
-float home = Homely * Windows;
+float3 c = lerp(wall, trim * 0.9, sill * Win);
+c = lerp(c, trim, frame * Win);
+c = lerp(c, glass, win * Win);
+c = lerp(c, trim, bars * win * Win * detail);
+// Homes: shutters on some, a box of flowers under the windows of others, the same all the way round
+// a house and different from its neighbours.
+float home = Homely * Win;
 float hasShutters = frac(own * 3.7) > 0.45 ? 1.0 : 0.0;
 float hasFlowers = frac(own * 5.3) > 0.5 ? 1.0 : 0.0;
 float shutter = (((f.x > 0.165 && f.x < 0.228) || (f.x > 0.772 && f.x < 0.835)) && f.y > 0.275 && f.y < 0.805) ? 1.0 : 0.0;
@@ -319,6 +357,7 @@ return saturate(c);
 			Inputs.Add(TEXT("Bricks"));
 			Inputs.Add(TEXT("Homely"));
 			Inputs.Add(TEXT("RowShift"));
+			Inputs.Add(TEXT("Span"));
 		}
 		else
 		{
@@ -340,6 +379,9 @@ return saturate(c);
 			Connect(Scalar(Material, TEXT("Bricks"), 0.f, 250), Custom, TEXT("Bricks"));
 			Connect(Scalar(Material, TEXT("Homely"), 0.f, 300), Custom, TEXT("Homely"));
 			Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 350), Custom, TEXT("RowShift"));
+			UMaterialExpressionTextureCoordinate* Span = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 450);
+			Span->CoordinateIndex = 1;
+			Connect(Span, Custom, TEXT("Span"));
 		}
 		else
 		{

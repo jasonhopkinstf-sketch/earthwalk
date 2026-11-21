@@ -50,7 +50,7 @@ Then `sectionCount` sections, each:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| materialId | u32 | 0–8 ground types, 10–13 roads/paths/rail/streams, 20–28 buildings, 30 trees |
+| materialId | u32 | 0–8 ground types, 10–15 roads/paths/rail/streams/pavements/markings, 20–28 buildings, 30 trees, 32–33 hedges and fences |
 | color | u32 | `0xRRGGBBAA`, sRGB |
 | flags | u32 | bit 0: the player collides with this section |
 | vertexCount | u32 | |
@@ -69,6 +69,11 @@ house walls; 24 and 25 roofs; 26 doors (no collision); 27 woodwork such as door 
 porch posts, chimney caps and the undersides of eaves (no collision); 28 chimneys (no
 collision). A client that does not know an id can draw it in its colour. Homes (small buildings
 that are not garages, sheds or shops) get a door on the wall facing the nearest road.
+
+Streets and gardens: 14 pavements, laid beside roads where the ground is residential or paved
+or buildings stand within about 40 m, a little lower than the road so that crossing roads cover
+them; 15 road markings; 32 hedges and 33 fences round front gardens, whose paths are ordinary
+path sections (11). None of these collide.
 
 ## Labels: `GET /v1/labels/16/{x}/{y}`
 

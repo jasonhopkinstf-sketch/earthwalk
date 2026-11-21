@@ -2,6 +2,7 @@
 
 #include "EarthChunkLabels.h"
 #include "EarthGeo.h"
+#include "EarthGroundCover.h"
 #include "EarthPhotoWorld.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
@@ -39,6 +40,7 @@ namespace
 	constexpr double LabelRetrySeconds = 120.0; // labels are optional, so failures are retried slowly
 	constexpr double StoreyMeters = 3.0; // window row spacing; matches WallCode in EarthWalkAssetsCommandlet.cpp
 	constexpr double WallSinkMeters = 0.6; // how far the server sinks walls below the ground (server/src/chunk.ts)
+	constexpr int32 CoverCells = 512; // cells across a chunk in its cover map: a little under a metre each
 }
 
 AEarthWorld::AEarthWorld()
@@ -81,6 +83,7 @@ void AEarthWorld::BeginPlay()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("EarthWalk: %s"), *Reason);
 	}
+	GroundCover = GetWorld()->SpawnActor<AEarthGroundCover>();
 	double Lat = 0.0, Lon = 0.0;
 	FEarthWalkConfig::StartLocation(Lat, Lon);
 	SetOrigin(Lat, Lon);
@@ -121,6 +124,11 @@ void AEarthWorld::SetOrigin(double Lat, double Lon)
 		}
 	}
 	Chunks.Reset();
+	CoverMaps.Reset();
+	if (GroundCover)
+	{
+		GroundCover->Clear();
+	}
 	Pending.Reset();
 	RetryAfter.Reset();
 	ClearLabels();
@@ -260,6 +268,21 @@ bool AEarthWorld::HasChunkAt(const FVector& Position) const
 	return Chunks.Contains(ChunkAt(Position));
 }
 
+uint8 AEarthWorld::CoverAt(const FVector& Position) const
+{
+	const double U = OriginX + Position.Y / TileCm;
+	const double V = OriginY - Position.X / TileCm;
+	const FIntPoint Key(FMath::FloorToInt32(U), FMath::FloorToInt32(V));
+	const TArray<uint8>* Map = CoverMaps.Find(Key);
+	if (!Map)
+	{
+		return EarthCover::Unknown;
+	}
+	const int32 X = FMath::Clamp(static_cast<int32>((U - Key.X) * CoverCells), 0, CoverCells - 1);
+	const int32 Y = FMath::Clamp(static_cast<int32>((V - Key.Y) * CoverCells), 0, CoverCells - 1);
+	return (*Map)[Y * CoverCells + X];
+}
+
 void AEarthWorld::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -277,6 +300,10 @@ void AEarthWorld::Tick(float DeltaSeconds)
 		ChunkTimer = 0.25f;
 		UpdateChunks(Player->GetActorLocation());
 		UpdateAerial(Player);
+		if (GroundCover && !bAerial)
+		{
+			GroundCover->Update(this, Player->GetActorLocation());
+		}
 	}
 
 	// Tell the room where we are, ten times a second.
@@ -315,6 +342,7 @@ void AEarthWorld::UpdateChunks(const FVector& Around)
 			{
 				It.Value()->DestroyComponent();
 			}
+			CoverMaps.Remove(It.Key());
 			It.RemoveCurrent();
 		}
 	}
@@ -520,7 +548,7 @@ namespace
 	{
 		const TCHAR* Master; // asset name under /Game/EarthWalk/Materials
 		uint32 Color; // 0xRRGGBB, or 0 to use the colour the server sent
-		float Pattern; // M_EarthTop: 0 plain, 1 roof tiles, 2 furrows, 3 paving slabs, 4 grass strokes
+		float Pattern; // M_EarthTop: 0 plain, 1 roof tiles, 2 furrows, 3 paving slabs, 4 grass strokes, 5 hedge leaves, 6 pickets
 		float Windows; // M_EarthWall
 		float Bricks; // M_EarthWall: patches of drawn brick
 		float Homely; // M_EarthWall: somebody's house, so some get shutters and some boxes of flowers
@@ -544,6 +572,8 @@ namespace
 			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f, 0.f } }, // paths
 			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f, 0.f } }, // railway
 			{ 13, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f } }, // streams
+			{ 14, { TEXT("M_EarthTop"), 0xd9d2c0, 3.f, 0.f, 0.f, 0.f } }, // pavements
+			{ 15, { TEXT("M_EarthTop"), 0xf7f4ea, 0.f, 0.f, 0.f, 0.f } }, // road markings
 			// Building walls, with windows, in the server's paint
 			{ 20, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 1.f } }, // painted houses
 			{ 21, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 0.f } }, // large painted buildings
@@ -556,6 +586,9 @@ namespace
 			{ 26, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 27, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 28, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 1.f, 0.f } },
+			// Gardens
+			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f } }, // hedges
+			{ 33, { TEXT("M_EarthTop"), 0xf6f3ea, 6.f, 0.f, 0.f, 0.f } }, // picket fences
 		};
 		return Styles.Find(SurfaceId);
 	}
@@ -667,8 +700,14 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 	Mesh->RegisterComponent();
 
 	const bool bFlip = GetDefault<UEarthWalkSettings>()->bFlipTriangleWinding;
+	const TArray<FVector2D> NoUVs;
 	const TArray<FLinearColor> NoColors;
 	const TArray<FProcMeshTangent> NoTangents;
+
+	// What covers the ground, cell by cell, for AEarthGroundCover. Sections arrive ground first, then
+	// roads, then buildings, so whatever lies on top of the ground is drawn over it.
+	TArray<uint8> Cover;
+	Cover.SetNumZeroed(CoverCells * CoverCells);
 
 	int64 Offset = 24;
 	bool bOk = true;
@@ -740,9 +779,62 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 			}
 		}
 
+		// Draw this section into the cover map: every cell whose middle a triangle lies over.
+		{
+			const uint8 Code = SurfaceId == 0 || SurfaceId == 1 || SurfaceId == 5 ? EarthCover::Grass
+				: SurfaceId == 2 ? EarthCover::Forest
+				: SurfaceId == 3 ? EarthCover::Farm
+				: EarthCover::Blocked;
+			for (int64 i = 0; i + 2 < NumIndices; i += 3)
+			{
+				const float* A = Pos + Triangles[i] * 3;
+				const float* B = Pos + Triangles[i + 1] * 3;
+				const float* C = Pos + Triangles[i + 2] * 3;
+				const double Ax = A[0] * CoverCells, Ay = A[1] * CoverCells;
+				const double Bx = B[0] * CoverCells, By = B[1] * CoverCells;
+				const double Cx = C[0] * CoverCells, Cy = C[1] * CoverCells;
+				if (Code == EarthCover::Blocked)
+				{
+					// Thin things (a fence, a door step) may cover no cell's middle: mark their corners at least.
+					for (const float* P : { A, B, C })
+					{
+						const int32 X = static_cast<int32>(P[0] * CoverCells), Y = static_cast<int32>(P[1] * CoverCells);
+						if (X >= 0 && X < CoverCells && Y >= 0 && Y < CoverCells)
+						{
+							Cover[Y * CoverCells + X] = Code;
+						}
+					}
+				}
+				const double Area = (Bx - Ax) * (Cy - Ay) - (By - Ay) * (Cx - Ax);
+				if (FMath::Abs(Area) < 1e-4)
+				{
+					continue; // upright, as walls are
+				}
+				const int32 X0 = FMath::Max(0, FMath::FloorToInt32(FMath::Min3(Ax, Bx, Cx)));
+				const int32 X1 = FMath::Min(CoverCells - 1, FMath::FloorToInt32(FMath::Max3(Ax, Bx, Cx)));
+				const int32 Y0 = FMath::Max(0, FMath::FloorToInt32(FMath::Min3(Ay, By, Cy)));
+				const int32 Y1 = FMath::Min(CoverCells - 1, FMath::FloorToInt32(FMath::Max3(Ay, By, Cy)));
+				for (int32 Y = Y0; Y <= Y1; ++Y)
+				{
+					for (int32 X = X0; X <= X1; ++X)
+					{
+						const double Px = X + 0.5, Py = Y + 0.5;
+						const double W0 = (Bx - Ax) * (Py - Ay) - (By - Ay) * (Px - Ax);
+						const double W1 = (Cx - Bx) * (Py - By) - (Cy - By) * (Px - Bx);
+						const double W2 = (Ax - Cx) * (Py - Cy) - (Ay - Cy) * (Px - Cx);
+						if ((W0 >= 0 && W1 >= 0 && W2 >= 0) || (W0 <= 0 && W1 <= 0 && W2 <= 0))
+						{
+							Cover[Y * CoverCells + X] = Code;
+						}
+					}
+				}
+			}
+		}
+
 		// Walls tell their material where the building's ground floor is, so window rows start there
 		// instead of at a multiple of the storey height above sea level (which cuts rows off on slopes).
 		TArray<FVector2D> UVs;
+		TArray<FVector2D> Spans;
 		if (SurfaceId >= 20 && SurfaceId <= 23)
 		{
 			// The lowest vertex of each vertical line of the wall is the building's base (server/src/chunk.ts).
@@ -761,6 +853,7 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 				Base = FMath::Min(Base, Pos[i * 3 + 2]);
 			}
 			UVs.SetNumZeroed(NumVerts);
+			Spans.SetNumZeroed(NumVerts);
 			for (int64 i = 0; i + 2 < NumIndices; i += 3)
 			{
 				// A face never mixes buildings, and a gable's ridge has no wall below it, so take the lowest of the three.
@@ -779,10 +872,42 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 				{
 					UVs[Triangles[i + k]] = FVector2D(RowShift, Own);
 				}
+
+				// Where each corner is along its wall, and how long the wall is, in metres, so the material can
+				// space windows to fit the wall instead of cutting them off at its corners. The two corners
+				// furthest apart on the ground are the wall's ends; the one that sorts first is its start, so
+				// every triangle of a wall (and the gable above it) agrees.
+				int32 Ends[2] = { Triangles[i], Triangles[i + 1] };
+				double Length = -1.0;
+				for (int32 a = 0; a < 3; ++a)
+				{
+					for (int32 b = a + 1; b < 3; ++b)
+					{
+						const double Apart = FVector::Dist2D(Vertices[Triangles[i + a]], Vertices[Triangles[i + b]]);
+						if (Apart > Length)
+						{
+							Length = Apart;
+							Ends[0] = Triangles[i + a];
+							Ends[1] = Triangles[i + b];
+						}
+					}
+				}
+				FVector2D Start(Vertices[Ends[0]]);
+				FVector2D End(Vertices[Ends[1]]);
+				if (End.X < Start.X || (End.X == Start.X && End.Y < Start.Y))
+				{
+					Swap(Start, End);
+				}
+				const FVector2D Along = (End - Start).GetSafeNormal();
+				for (int64 k = 0; k < 3; ++k)
+				{
+					const int32 Corner = Triangles[i + k];
+					Spans[Corner] = FVector2D(FVector2D::DotProduct(FVector2D(Vertices[Corner]) - Start, Along) / 100.0, Length / 100.0);
+				}
 			}
 		}
 
-		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, UVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
+		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, UVs, Spans, NoUVs, NoUVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
 		Mesh->SetMaterial(Section, MaterialForSurface(SurfaceId, Color));
 	}
 
@@ -791,6 +916,24 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 		Mesh->DestroyComponent();
 		return false;
 	}
+	// Nothing grows hard up against a road or a wall: cells beside something in the way become its edge.
+	for (int32 Y = 0; Y < CoverCells; ++Y)
+	{
+		for (int32 X = 0; X < CoverCells; ++X)
+		{
+			uint8& Cell = Cover[Y * CoverCells + X];
+			if (Cell == EarthCover::Blocked || Cell == EarthCover::Edge || Cell == EarthCover::Unknown)
+			{
+				continue;
+			}
+			if ((X > 0 && Cover[Y * CoverCells + X - 1] == EarthCover::Blocked) || (X + 1 < CoverCells && Cover[Y * CoverCells + X + 1] == EarthCover::Blocked)
+				|| (Y > 0 && Cover[(Y - 1) * CoverCells + X] == EarthCover::Blocked) || (Y + 1 < CoverCells && Cover[(Y + 1) * CoverCells + X] == EarthCover::Blocked))
+			{
+				Cell = EarthCover::Edge;
+			}
+		}
+	}
+	CoverMaps.Add(Key, MoveTemp(Cover));
 	Mesh->SetVisibility(!bAerial);
 	Chunks.Add(Key, Mesh);
 	return true;
@@ -1032,6 +1175,10 @@ void AEarthWorld::SetAerial(bool bShowPhoto)
 	if (PhotoTileset)
 	{
 		PhotoTileset->SetActorHiddenInGame(!bAerial);
+	}
+	if (GroundCover)
+	{
+		GroundCover->SetActorHiddenInGame(bAerial);
 	}
 	// A blink of black covers the change of scenery.
 	const APlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
