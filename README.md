@@ -103,6 +103,8 @@ Controls (Unreal):
 | `F` | Toggle flying (`C` descends) |
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
+| `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
+| `H` | Windows: the strip of buttons along the bottom, off and on (remembered) |
 | `Esc`, `Esc` | Leave the game (Windows; it fills the screen, so there is no window to close). `/quit` does the same |
 | `P` | Your passport (`/passport` does the same) |
 | `G` | Show me: a list of things to show somebody; pick one and you are taken straight to it (`/show` does the same) |
@@ -477,7 +479,8 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
-is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
+table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_underscores>` then answers that box as if typed. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
 (`look_flat`, `quit`). Cars, vans and taxis are ready-made
 models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
 `EarthModels.gen.inl` and `server/public/js/models.gen.js` by `node game/Tools/gen-models.mjs`),

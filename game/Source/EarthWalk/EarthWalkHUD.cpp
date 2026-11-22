@@ -1,5 +1,6 @@
 #include "EarthWalkHUD.h"
 
+#include "EarthMenu.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -206,7 +207,7 @@ public:
 				SAssignNew(BubbleCanvas, SCanvas).Visibility(EVisibility::HitTestInvisible)
 			]
 			// What E and T would do just now.
-			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 58.f)
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 92.f)
 			[
 				SAssignNew(Hint, STextBlock)
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 15))
@@ -326,7 +327,7 @@ public:
 					[
 						SAssignNew(Input, SEditableTextBox)
 						.Font(Font)
-						.HintText(FText::FromString(TEXT("Press Enter to chat. Type /help for commands. Esc twice to quit.")))
+						.HintText(FText::FromString(TEXT("Press Enter to chat. Tab shows everything you can do. Esc twice to quit.")))
 						.ClearKeyboardFocusOnCommit(true)
 						.OnTextCommitted(this, &SEarthWalkOverlay::HandleCommitted)
 					]
@@ -1323,6 +1324,22 @@ void AEarthWalkHUD::BeginPlay()
 		SAssignNew(Overlay, SEarthWalkOverlay, this);
 		Overlay->SetHitTestable(false);
 		GEngine->GameViewport->AddViewportWidgetContent(Overlay.ToSharedRef(), 10);
+		// The menu, the box that asks "where to?" and the strip of buttons, over everything else.
+		SAssignNew(Menu, SEarthMenu, this);
+		FString Buttons;
+		bStripOn = !(FEarthWalkConfig::HasOverride(TEXT("Buttons"), Buttons) && Buttons.Equals(TEXT("off"), ESearchCase::IgnoreCase));
+		Menu->ShowStrip(bStripOn);
+		GEngine->GameViewport->AddViewportWidgetContent(Menu.ToSharedRef(), 11);
+	}
+	// Tab is the menu. It is bound, not just looked at each frame, so that it is used up here: left to
+	// itself Tab moves the keyboard from one thing on the screen to the next, as it does in any window.
+	if (APlayerController* MenuPC = GetOwningPlayerController())
+	{
+		EnableInput(MenuPC);
+		if (InputComponent)
+		{
+			InputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AEarthWalkHUD::ToggleMenu);
+		}
 	}
 
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
@@ -1403,9 +1420,9 @@ void AEarthWalkHUD::BeginPlay()
 
 	ApplyGameInputMode(GetOwningPlayerController());
 	StartedAt = FPlatformTime::Seconds();
-	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly, Enter to chat. Try /goto Sydney Opera House."), NoticeColor);
-	AddLine(TEXT("Walk up to an animal, a car or a train: E hops on, T talks to it (trees and houses too). P opens your passport."), NoticeColor);
-	AddLine(TEXT("Showing it to somebody? Press G for a list of things to see: catch a train, ride a horse, drive a car..."), NoticeColor);
+	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly."), NoticeColor);
+	AddLine(TEXT("Press Tab to see everything you can do: go to a place, call your car or a taxi, open your passport. The buttons along the bottom do the same."), NoticeColor);
+	AddLine(TEXT("Walk up to an animal, a car or a train: E hops on, T talks to it (trees and houses too)."), NoticeColor);
 }
 
 void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
@@ -1442,6 +1459,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		GEngine->GameViewport->RemoveViewportWidgetContent(Overlay.ToSharedRef());
 	}
 	Overlay.Reset();
+	if (Menu.IsValid() && GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->RemoveViewportWidgetContent(Menu.ToSharedRef());
+	}
+	Menu.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -1462,9 +1484,62 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	{
 		return;
 	}
-	if (!bChatOpen && FPlatformTime::Seconds() - ChatClosedAt > 0.2 && PC->WasInputKeyJustPressed(EKeys::Enter))
+	if (!Typing() && FPlatformTime::Seconds() - ChatClosedAt > 0.2 && PC->WasInputKeyJustPressed(EKeys::Enter))
 	{
+		CloseMenu();
 		OpenChat();
+	}
+	// The menu: Esc puts it away (and is then not "leave the game?"), and so does any key that does
+	// something of its own, which it then goes on to do. H turns the strip of buttons off and on.
+	bMenuTookEsc = false;
+	if (bAskOpen && Menu.IsValid() && FSlateApplication::IsInitialized())
+	{
+		// The box that asks keeps the keyboard until it is answered or Esc sends it away, wherever the pointer clicks.
+		if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			AskDone(FString());
+			bMenuTookEsc = true;
+		}
+		else if (FSlateApplication::Get().IsActive() && !Menu->GetAskInput()->HasKeyboardFocus())
+		{
+			FSlateApplication::Get().SetKeyboardFocus(Menu->GetAskInput(), EFocusCause::SetDirectly);
+		}
+	}
+	if (!Typing())
+	{
+		if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			CloseMenu();
+			bMenuTookEsc = true;
+		}
+		else if (bMenuOpen && (PC->WasInputKeyJustPressed(EKeys::E) || PC->WasInputKeyJustPressed(EKeys::T) || PC->WasInputKeyJustPressed(EKeys::R)
+			|| PC->WasInputKeyJustPressed(EKeys::G) || PC->WasInputKeyJustPressed(EKeys::P)))
+		{
+			CloseMenu();
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::H))
+		{
+			ToggleStrip();
+		}
+	}
+	// -EWAsk=<words_with_underscores> answers the box that asks "where to?" three seconds after it comes up, as if typed, for tests.
+	if (bAskOpen && AskOpenedAt > 0.0 && FPlatformTime::Seconds() - AskOpenedAt > 3.0)
+	{
+		AskOpenedAt = 0.0;
+		FString Answer;
+		if (FParse::Value(FCommandLine::Get(), TEXT("-EWAsk="), Answer))
+		{
+			AskDone(Answer.Replace(TEXT("_"), TEXT(" ")));
+		}
+	}
+	// -EWMenu opens the menu by itself a few seconds in, for pictures.
+	if (!bMenuTested && FPlatformTime::Seconds() - StartedAt > 11.0)
+	{
+		bMenuTested = true;
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWMenu")))
+		{
+			OpenMenu();
+		}
 	}
 	UpdateCompany(PC);
 
@@ -1535,7 +1610,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 			});
 		}
 	}
-	if (!bChatOpen && bShowsOpen)
+	if (!Typing() && bShowsOpen)
 	{
 		// The list of things to show is up: a number picks one, G or Esc puts it away, and nothing else is listening.
 		static const FKey Row[10] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five, EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine, EKeys::Zero };
@@ -1555,7 +1630,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 			CloseShows();
 		}
 	}
-	else if (!bChatOpen)
+	else if (!Typing())
 	{
 		if (PC->WasInputKeyJustPressed(EKeys::E))
 		{
@@ -1581,7 +1656,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			TogglePassport(); // where I have been and what I have done
 		}
-		else if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		else if (PC->WasInputKeyJustPressed(EKeys::Escape) && !bMenuTookEsc)
 		{
 			if (bPassportOpen || Friends->IsTalking())
 			{
@@ -1614,7 +1689,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 	if (TalkingTo != TalkingToShown)
 	{
 		TalkingToShown = TalkingTo;
-		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands. Esc twice to quit.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
+		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Tab shows everything you can do. Esc twice to quit.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
 	}
 	Overlay->SetHint(Friends->GetHint());
 	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
@@ -1622,7 +1697,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 
 	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
 	// P and Esc still close it. If a click has left the keyboard somewhere else, give it back.
-	if ((bPassportOpen || bShowsOpen) && !bChatOpen && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
+	if ((bPassportOpen || bShowsOpen) && !Typing() && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
 	{
 		const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetUserFocusedWidget(0);
 		const TSharedPtr<SWidget> Viewport = GEngine->GameViewport->GetGameViewportWidget();
@@ -1951,6 +2026,188 @@ void AEarthWalkHUD::CloseChat()
 	}
 }
 
+void AEarthWalkHUD::ToggleMenu()
+{
+	if (Typing())
+	{
+		return;
+	}
+	if (bMenuOpen)
+	{
+		CloseMenu();
+	}
+	else
+	{
+		OpenMenu();
+	}
+}
+
+void AEarthWalkHUD::OpenMenu()
+{
+	if (!Menu.IsValid() || bMenuOpen)
+	{
+		return;
+	}
+	CloseShows();
+	ClosePassport();
+	bMenuOpen = true;
+	Menu->ShowMenu(true);
+}
+
+void AEarthWalkHUD::CloseMenu()
+{
+	if (bMenuOpen && Menu.IsValid())
+	{
+		bMenuOpen = false;
+		Menu->ShowMenu(false);
+	}
+}
+
+void AEarthWalkHUD::ToggleStrip()
+{
+	bStripOn = !bStripOn;
+	if (Menu.IsValid())
+	{
+		Menu->ShowStrip(bStripOn);
+	}
+	FEarthWalkConfig::Save(TEXT("Buttons"), bStripOn ? TEXT("on") : TEXT("off"));
+	AddLine(bStripOn ? TEXT("The buttons are back. H hides them.") : TEXT("The buttons are hidden. H brings them back, and Tab still shows everything you can do."), NoticeColor);
+}
+
+void AEarthWalkHUD::MenuAction(const FString& Id)
+{
+	const FEarthAction* Action = EarthMenu::Find(Id);
+	if (!Action)
+	{
+		AddLine(FString::Printf(TEXT("There is nothing called \"%s\" to do. Tab shows everything there is."), *Id), ErrorColor);
+		return;
+	}
+	CloseMenu();
+	if (FSlateApplication::IsInitialized() && !Typing())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport(); // a click on a button must not keep the keyboard
+	}
+	if (Action->Ask[0])
+	{
+		OpenAsk(Id);
+		return;
+	}
+	UEarthCompany* Friends = Company();
+	if (Id == TEXT("ride"))
+	{
+		if (Friends)
+		{
+			Friends->KeyRide();
+		}
+	}
+	else if (Id == TEXT("talk"))
+	{
+		if (Friends && Friends->KeyTalk() && Overlay.IsValid())
+		{
+			Overlay->SetInputHint(FString::Printf(TEXT("Say something to %s..."), *Friends->TalkingTo()));
+			OpenChat();
+		}
+	}
+	else if (Id == TEXT("race"))
+	{
+		if (Friends)
+		{
+			Friends->KeyRace();
+		}
+	}
+	else if (Id == TEXT("shows"))
+	{
+		ToggleShows();
+	}
+	else if (Id == TEXT("passport"))
+	{
+		TogglePassport();
+	}
+	else if (Id == TEXT("chat"))
+	{
+		OpenChat();
+	}
+	else if (Id == TEXT("strip"))
+	{
+		ToggleStrip();
+	}
+	else if (Id == TEXT("look"))
+	{
+		RunCommand(TEXT("look"), EarthLook::Current() == EEarthLook::Flat ? TEXT("barnyard") : TEXT("flat"));
+	}
+	else if (Id == TEXT("sound"))
+	{
+		const AEarthWorld* Earth = AEarthWorld::Get(this);
+		const UEarthSounds* Sounds = Earth && Earth->GetLife() ? Earth->GetLife()->GetSounds() : nullptr;
+		RunCommand(TEXT("sound"), Sounds && Sounds->IsEnabled() ? TEXT("off") : TEXT("on"));
+	}
+	else
+	{
+		// Everything else is a command by another name.
+		FString Command = Action->Command, Argument;
+		if (!Command.Split(TEXT(" "), &Command, &Argument))
+		{
+			Command = Action->Command;
+		}
+		RunCommand(Command, Argument);
+	}
+}
+
+void AEarthWalkHUD::OpenAsk(const FString& Id)
+{
+	APlayerController* PC = GetOwningPlayerController();
+	const FEarthAction* Action = EarthMenu::Find(Id);
+	if (!PC || !Menu.IsValid() || !Action)
+	{
+		return;
+	}
+	CloseShows();
+	ClosePassport();
+	bAskOpen = true;
+	AskOpenedAt = FPlatformTime::Seconds();
+	AskAction = Id;
+	if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+	{
+		Character->bTyping = true;
+	}
+	Menu->ShowAsk(Action);
+	FInputModeGameAndUI Mode;
+	Mode.SetWidgetToFocus(Menu->GetAskInput());
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(Mode);
+	PC->bShowMouseCursor = true;
+	FSlateApplication::Get().SetKeyboardFocus(Menu->GetAskInput(), EFocusCause::SetDirectly);
+}
+
+void AEarthWalkHUD::AskDone(const FString& Typed)
+{
+	if (!bAskOpen)
+	{
+		return;
+	}
+	const FString Id = AskAction;
+	bAskOpen = false;
+	AskAction.Reset();
+	ChatClosedAt = FPlatformTime::Seconds(); // the Enter that answered is not also "open the chat"
+	if (Menu.IsValid())
+	{
+		Menu->ShowAsk(nullptr);
+	}
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+		{
+			Character->bTyping = bShowsOpen;
+		}
+		ApplyGameInputMode(PC);
+	}
+	const FEarthAction* Action = EarthMenu::Find(Id);
+	if (Action && !Typed.IsEmpty())
+	{
+		RunCommand(Action->Command, Typed);
+	}
+}
+
 void AEarthWalkHUD::UpdateWhere()
 {
 	const APlayerController* PC = GetOwningPlayerController();
@@ -2102,8 +2359,30 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	APlayerController* PC = GetOwningPlayerController();
 	AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
 
-	if (Command == TEXT("help"))
+	if (Command == TEXT("menu"))
 	{
+		if (bMenuOpen)
+		{
+			CloseMenu();
+		}
+		else
+		{
+			OpenMenu();
+		}
+	}
+	else if (Command == TEXT("buttons"))
+	{
+		ToggleStrip();
+	}
+	else if (Command == TEXT("do"))
+	{
+		// One thing from the menu by its name there ("/do goto"): what a button of the strip does.
+		MenuAction(Argument.ToLower());
+	}
+	else if (Command == TEXT("help"))
+	{
+		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; H hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("The same things as typed commands, for those who like typing:"), NoticeColor);
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);
 		AddLine(TEXT("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>"), NoticeColor);
