@@ -81,6 +81,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Look")
 	TMap<FString, float> InkTuning;
 
+	/**
+	 * The painted sky: a drawn sun and cartoon clouds (M_EarthSky, AEarthSky). Off shows the engine's
+	 * own sky and clouds.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Look")
+	bool bPaintedSky = true;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Player")
 	bool bInvertMouseY = false;
 

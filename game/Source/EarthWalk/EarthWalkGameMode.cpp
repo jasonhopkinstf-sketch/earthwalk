@@ -1,11 +1,13 @@
 #include "EarthWalkGameMode.h"
 
+#include "EarthSky.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkHUD.h"
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
 #include "EarthWorld.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/VolumetricCloudComponent.h"
@@ -37,7 +39,8 @@ void AEarthWalkGameMode::InitGame(const FString& MapName, const FString& Options
 
 	// Sky and lighting. The startup map is empty, so everything is created here.
 	// A warm sun, a little lower than midday, so walls and roofs each get their own level of light.
-	if (ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector::ZeroVector, FRotator(-36.0, 135.0, 0.0)))
+	const FRotator SunAngle(-36.0, 135.0, 0.0);
+	if (ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector::ZeroVector, SunAngle))
 	{
 		if (UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(Sun->GetLightComponent()))
 		{
@@ -58,11 +61,23 @@ void AEarthWalkGameMode::InitGame(const FString& MapName, const FString& Options
 			Light->MarkRenderStateDirty();
 		}
 	}
-	World->SpawnActor<AExponentialHeightFog>();
-	World->SpawnActor<AVolumetricCloud>();
+	AExponentialHeightFog* Fog = World->SpawnActor<AExponentialHeightFog>();
+	// The painted sky with its drawn clouds; the engine's own clouds when that is off or not built.
+	const UEarthWalkSettings* Settings = GetDefault<UEarthWalkSettings>();
+	if (Settings->bPaintedSky && AEarthSky::Make(World, SunAngle.Vector()))
+	{
+		// The haze is for far land. The sky is painted with its own, and is the only thing this far away.
+		if (Fog && Fog->GetComponent())
+		{
+			Fog->GetComponent()->SetFogCutoffDistance(static_cast<float>(AEarthSky::RadiusCm * 0.5));
+		}
+	}
+	else
+	{
+		World->SpawnActor<AVolumetricCloud>();
+	}
 
 	// The drawn look: M_EarthInk (built by game\Tools\build-assets.cmd) over the whole view.
-	const UEarthWalkSettings* Settings = GetDefault<UEarthWalkSettings>();
 	UMaterialInterface* Ink = Settings->bInkOutlines ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/EarthWalk/Materials/M_EarthInk.M_EarthInk")) : nullptr;
 	if (APostProcessVolume* Volume = Ink ? World->SpawnActor<APostProcessVolume>() : nullptr)
 	{
