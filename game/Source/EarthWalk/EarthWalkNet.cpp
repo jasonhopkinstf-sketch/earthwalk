@@ -340,6 +340,26 @@ void UEarthWalkNet::SendFavourDrop(const FString& Id)
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendGarage(const FString& What, const FString& Id)
+{
+	if (!bJoined)
+	{
+		OnNotice.Broadcast(TEXT("Not connected to the meetup server, so your car cannot come yet."));
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("garage"));
+	if (What == TEXT("paint") || What == TEXT("body"))
+	{
+		Message->SetStringField(What, Id);
+	}
+	else
+	{
+		Message->SetBoolField(What, true); // call, away
+	}
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendTaxi(const FString& Place)
 {
 	if (!bJoined)
@@ -669,6 +689,22 @@ namespace
 		return Out.Path.Num() > 0;
 	}
 
+	bool ReadOwnCar(const FJsonObject& Json, FEarthOwnCar& Out)
+	{
+		double Paint = 0.0;
+		if (!ReadThing(Json, Out.Thing) || !Json.TryGetNumberField(TEXT("lat"), Out.Lat) || !Json.TryGetNumberField(TEXT("lon"), Out.Lon))
+		{
+			return false;
+		}
+		Json.TryGetStringField(TEXT("body"), Out.Body);
+		Json.TryGetNumberField(TEXT("yaw"), Out.Yaw);
+		if (Json.TryGetNumberField(TEXT("paint"), Paint) && Paint >= 0.0 && Paint <= 16777215.0)
+		{
+			Out.Paint = static_cast<uint32>(Paint);
+		}
+		return true;
+	}
+
 	bool StaysInForce(const FEarthOrder& Order)
 	{
 		return Order.Act == TEXT("follow") || Order.Act == TEXT("come") || Order.Act == TEXT("stay");
@@ -786,6 +822,20 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			OnSay.Broadcast(Said);
 		}
 	}
+	else if (Type == TEXT("car"))
+	{
+		// A member's own car stands here, with this body and paint; or has gone.
+		const FString Id = Json->GetStringField(TEXT("id"));
+		FEarthOwnCar Car;
+		if (ReadOwnCar(*Json, Car))
+		{
+			Cars.Add(Id, Car);
+		}
+		else
+		{
+			Cars.Remove(Id);
+		}
+	}
 	else if (Type == TEXT("hat"))
 	{
 		// Somebody has put a hat on, or taken it off.
@@ -853,6 +903,7 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 	}
 	else if (Type == TEXT("leave"))
 	{
+		Cars.Remove(Json->GetStringField(TEXT("id"))); // their car goes with them
 		FEarthPeer Gone;
 		if (Peers.RemoveAndCopyValue(Json->GetStringField(TEXT("id")), Gone))
 		{
@@ -999,6 +1050,20 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 				if (Row.IsValid() && Row->TryGetObject(Object) && ReadOrder(**Object, Order) && StaysInForce(Order))
 				{
 					Orders.Add(Order.Thing, Order);
+				}
+			}
+		}
+		Cars.Reset();
+		if (Json->TryGetArrayField(TEXT("cars"), Rows))
+		{
+			for (const TSharedPtr<FJsonValue>& Row : *Rows)
+			{
+				const TSharedPtr<FJsonObject>* Object = nullptr;
+				FEarthOwnCar Car;
+				FString Owner;
+				if (Row.IsValid() && Row->TryGetObject(Object) && (*Object)->TryGetStringField(TEXT("id"), Owner) && ReadOwnCar(**Object, Car))
+				{
+					Cars.Add(Owner, Car);
 				}
 			}
 		}

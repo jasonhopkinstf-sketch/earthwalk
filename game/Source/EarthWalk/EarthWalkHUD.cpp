@@ -669,6 +669,69 @@ public:
 				State == TEXT("open") ? Button(TEXT("Set out"), TEXT("start"), Id) : State == TEXT("active") ? Button(TEXT("Give up"), TEXT("drop"), Id) : SNullWidget::NullWidget);
 		}
 
+		// ---- the garage: my own car, its paint and its body, and a button to bring it here
+		const TSharedPtr<FJsonObject> Garage = Object(TEXT("garage"));
+		if (Garage.IsValid())
+		{
+			Heading(TEXT("Your car"));
+			PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Bring my car here"), TEXT("car-call"), FString())]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(8.f, 0.f, 0.f, 0.f)[Button(TEXT("Send it away"), TEXT("car-away"), FString())]
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(12.f, 0.f, 0.f, 0.f)
+				[
+					WrappedLine(TEXT("It draws up beside you; press E next to it to get in. Typing /car brings it too. Only you can drive it, and friends can ride along."), TEXT("Regular"), 10, DimColor, 500.f)
+				]
+			];
+			const FString PaintOn = JsonStr(Garage, TEXT("paint")), BodyOn = JsonStr(Garage, TEXT("body"));
+			const auto Choices = [&](const TCHAR* Field, const TCHAR* Action, const FString& Chosen, const TCHAR* ChosenWords, bool bSwatch)
+			{
+				const TSharedRef<SWrapBox> Wrap = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+				for (const TSharedPtr<FJsonObject>& Choice : JsonRows(Garage, Field))
+				{
+					const FString Id = JsonStr(Choice, TEXT("id"));
+					bool bOwned = false;
+					Choice->TryGetBoolField(TEXT("owned"), bOwned);
+					const double Price = JsonNum(Choice, TEXT("price"));
+					const bool bOn = Chosen == Id;
+					const bool bCanHave = bOwned || Coins >= Price;
+					const uint32 Hex = static_cast<uint32>(JsonNum(Choice, TEXT("hex")));
+					const FLinearColor Swatch = FLinearColor::FromSRGBColor(FColor((Hex >> 16) & 0xff, (Hex >> 8) & 0xff, Hex & 0xff));
+					Wrap->AddSlot()
+					[
+						SNew(SBox).WidthOverride(188.f)
+						[
+							SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bOn ? CardDoneColor : CardColor).Padding(FMargin(10.f, 7.f))
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, bSwatch ? 8.f : 0.f, 0.f)
+								[
+									SNew(SBox).WidthOverride(bSwatch ? 22.f : 0.f).HeightOverride(22.f)
+									[
+										SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(Swatch).Visibility(bSwatch ? EVisibility::HitTestInvisible : EVisibility::Collapsed)
+									]
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.f)
+								[
+									SNew(SVerticalBox)
+									+ SVerticalBox::Slot().AutoHeight()[TextLine(JsonStr(Choice, TEXT("name")), TEXT("Bold"), 12, FLinearColor::White)]
+									+ SVerticalBox::Slot().AutoHeight()[TextLine(bOn ? FString(ChosenWords) : bOwned ? FString(TEXT("Yours")) : FString::Printf(TEXT("%s coins"), *ShortCount(Price)), TEXT("Regular"), 10, DimColor)]
+									+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 0.f).HAlign(HAlign_Left)
+									[
+										bOn || !bCanHave ? SNullWidget::NullWidget : Button(bOwned ? TEXT("Choose it") : TEXT("Buy it"), Action, Id)
+									]
+								]
+							]
+						]
+					];
+				}
+				PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 8.f)[Wrap];
+			};
+			Choices(TEXT("paints"), TEXT("car-paint"), PaintOn, TEXT("On your car"), true);
+			Choices(TEXT("bodies"), TEXT("car-body"), BodyOn, TEXT("Yours is one"), false);
+		}
+
 		// ---- hats: bought with coins or won, one worn at a time. Friends see it on you.
 		Heading(TEXT("Hats"));
 		const FString Wearing = JsonStr(Journal, TEXT("hat"));
@@ -1320,6 +1383,17 @@ void AEarthWalkHUD::PassportAction(const FString& What, const FString& Id)
 	{
 		Net->SendFavourDrop(Id);
 	}
+	else if (What == TEXT("car-call") || What == TEXT("car-away"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallCar(What == TEXT("car-away"));
+		}
+	}
+	else if (What == TEXT("car-paint") || What == TEXT("car-body"))
+	{
+		Net->SendGarage(What == TEXT("car-paint") ? TEXT("paint") : TEXT("body"), Id);
+	}
 	Net->RequestJournal(); // the page is drawn again from what the server now has
 	if (FSlateApplication::IsInitialized())
 	{
@@ -1562,6 +1636,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
 		AddLine(TEXT("E   hop on what is nearest (horse, cow, sheep, camel, llama, kangaroo, deer, tractor, car, boat, train), or hop off"), NoticeColor);
+		AddLine(TEXT("    In a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake, and the mouse looks round the car."), NoticeColor);
+		AddLine(TEXT("/car   bring your own car to where you are (choose its paint in your passport); /car away sends it off"), NoticeColor);
 		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
 		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
 		AddLine(TEXT("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,"), NoticeColor);
@@ -1700,6 +1776,13 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(Where.IsEmpty()
 			? FString(TEXT("No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not."))
 			: FString::Printf(TEXT("The nearest house you can go into is %s. Look for the yellow COME IN sign over its front door, and press E there."), *Where), NoticeColor);
+	}
+	else if (Command == TEXT("car"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallCar(Argument.Equals(TEXT("away"), ESearchCase::IgnoreCase));
+		}
 	}
 	else if (Command == TEXT("clue"))
 	{

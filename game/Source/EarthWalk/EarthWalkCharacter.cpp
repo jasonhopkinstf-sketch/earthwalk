@@ -160,6 +160,39 @@ void AEarthWalkCharacter::PlaceFeetAt(const FVector& Feet)
 	bHasGoodSpot = false;
 }
 
+double AEarthWalkCharacter::FacingYaw() const
+{
+	if (IsDriving())
+	{
+		return FMath::RadiansToDegrees(Car.Heading);
+	}
+	const AController* Mind = GetController();
+	return Mind ? Mind->GetControlRotation().Yaw : GetActorRotation().Yaw;
+}
+
+/** The camera behind and above the car, with the figure in view on its roof. */
+void AEarthWalkCharacter::ApplyDriveView()
+{
+	Boom->bDoCollisionTest = true; // never behind a wall
+	Boom->bEnableCameraLag = false;
+	Boom->SocketOffset = FVector(0, 0, 60);
+	Boom->TargetOffset = FVector(0, 0, 30);
+	Figure->SetVisibility(true, true);
+}
+
+/** A car coasts and slides by its own sums, so the ground must not slow it as it does a walker. */
+void AEarthWalkCharacter::SetDriveFriction(bool bDriving)
+{
+	if (bDriving == bDriveFriction)
+	{
+		return;
+	}
+	bDriveFriction = bDriving;
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	Movement->GroundFriction = bDriving ? 0.f : 8.f;
+	Movement->BrakingDecelerationWalking = bDriving ? 0.f : 2048.f;
+}
+
 double AEarthWalkCharacter::SeatLiftCm() const
 {
 	return Mount ? Mount->Seat * 100.0 : 0.0;
@@ -176,9 +209,34 @@ void AEarthWalkCharacter::ApplySeat()
 
 void AEarthWalkCharacter::SetMount(const FEarthMount* InMount)
 {
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (IsDriving() && PC)
+	{
+		// Out of the car: looking the way it points, level.
+		PC->SetControlRotation(FRotator(0.0, FMath::RadiansToDegrees(Car.Heading), 0.0));
+	}
 	Mount = InMount;
 	bHasGoodSpot = false;
 	bAutopilot = false;
+	bHasWant = false;
+	SetDriveFriction(false);
+	bUseControllerRotationYaw = !IsDriving();
+	if (IsDriving())
+	{
+		// At the wheel: the car points the way the player was looking, and the camera goes behind it.
+		const FRotator Look = PC ? PC->GetControlRotation() : GetActorRotation();
+		Car = FEarthCar();
+		Car.Heading = Car.View = FMath::DegreesToRadians(Look.Yaw);
+		if (PC)
+		{
+			PC->SetControlRotation(FRotator(-14.0, Look.Yaw, 0.0));
+		}
+		ApplyDriveView();
+	}
+	else
+	{
+		ApplyView();
+	}
 	if (Mount)
 	{
 		bFlying = false;
@@ -225,8 +283,10 @@ void AEarthWalkCharacter::RideTick(float DeltaSeconds, APlayerController* PC)
 {
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	const auto Down = [this, PC](const FKey& Key) { return !bHandsOff && !bTyping && PC->IsInputKeyDown(Key); };
-	const float Forward = (Down(EKeys::W) ? 1.f : 0.f) - (Down(EKeys::S) ? 1.f : 0.f);
-	const float Right = (Down(EKeys::D) ? 1.f : 0.f) - (Down(EKeys::A) ? 1.f : 0.f);
+	// -EWWalk holds W down, and -EWSteer=<-1 to 1> holds the wheel over, for pictures of driving.
+	static const float TestSteer = []() { float Value = 0.f; FParse::Value(FCommandLine::Get(), TEXT("-EWSteer="), Value); return Value; }();
+	const float Forward = (Down(EKeys::W) || bAutoWalk ? 1.f : 0.f) - (Down(EKeys::S) ? 1.f : 0.f);
+	const float Right = (Down(EKeys::D) ? 1.f : 0.f) - (Down(EKeys::A) ? 1.f : 0.f) + (bAutoWalk ? TestSteer : 0.f);
 	bSteering = Forward != 0.f || Right != 0.f;
 	// Being taken somewhere: the mount finds its own way until the rider steers.
 	const bool bAuto = !bSteering && bAutopilot;
@@ -240,11 +300,18 @@ void AEarthWalkCharacter::RideTick(float DeltaSeconds, APlayerController* PC)
 	{
 		SetActorLocation(GoodSpot, false, nullptr, ETeleportType::TeleportPhysics);
 		Movement->StopMovementImmediately();
+		Car.Vx = Car.Vz = Car.Speed = 0.0; // the water's edge
+		bHasWant = false;
 	}
 	else
 	{
 		GoodSpot = Here;
 		bHasGoodSpot = true;
+	}
+	if (IsDriving())
+	{
+		DriveTick(DeltaSeconds, PC, Forward, Right, Down(EKeys::SpaceBar), bAuto);
+		return;
 	}
 
 	if (!bHandsOff && !bTyping && PC->WasInputKeyJustPressed(EKeys::Two))
@@ -273,6 +340,69 @@ void AEarthWalkCharacter::RideTick(float DeltaSeconds, APlayerController* PC)
 			AddMovementInput(FRotationMatrix(FRotator(0.0, Look.Yaw, 0.0)).GetUnitAxis(EAxis::Y), Right);
 		}
 	}
+	StopJumping();
+}
+
+/**
+ * At the wheel: the car's speed and heading move on by its own sums (EarthMounts::StepCar), and the
+ * player is carried at that velocity as far as the walls allow. A wall takes half of what is left: a
+ * bump, never a crash. When the car is taking its driver somewhere it follows the road by itself.
+ */
+void AEarthWalkCharacter::DriveTick(float DeltaSeconds, APlayerController* PC, float Throttle, float Steer, bool bHandbrake, bool bAuto)
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const double Dt = FMath::Min(0.1, static_cast<double>(DeltaSeconds));
+	FRotator Look = PC->GetControlRotation();
+	const FVector Going = GetVelocity();
+	if (bAuto)
+	{
+		SetDriveFriction(false);
+		Movement->MaxWalkSpeed = static_cast<float>(Mount->Speed * 100.0 * AutoPace);
+		AddMovementInput(FVector(AutoNorthEast.X, AutoNorthEast.Y, 0.0), 1.f);
+		// The car's own state follows, so that taking the wheel again starts from how it is going.
+		Car.Heading = Car.View = FMath::DegreesToRadians(Look.Yaw);
+		Car.Look = 0.0;
+		Car.Vx = Going.Y / 100.0;
+		Car.Vz = -Going.X / 100.0;
+		Car.Speed = FMath::Sqrt(Car.Vx * Car.Vx + Car.Vz * Car.Vz);
+		Car.Steer = Car.Turn = 0.0;
+		bHasWant = false;
+	}
+	else
+	{
+		SetDriveFriction(true);
+		// What the walls allowed of the last step: where a good part of it is gone, the car keeps half of what is left.
+		if (bHasWant)
+		{
+			const double GotVx = Going.Y / 100.0, GotVz = -Going.X / 100.0;
+			const double Wanted = FMath::Sqrt(WantVx * WantVx + WantVz * WantVz);
+			const double Lost = FMath::Sqrt((GotVx - WantVx) * (GotVx - WantVx) + (GotVz - WantVz) * (GotVz - WantVz));
+			if (Wanted > 1.0 && Lost > 0.25 * Wanted)
+			{
+				Car.Vx = GotVx * 0.5;
+				Car.Vz = GotVz * 0.5;
+				Car.Speed = Car.Vx * FMath::Sin(Car.Heading) - Car.Vz * FMath::Cos(Car.Heading);
+			}
+		}
+		EarthMounts::StepCar(Car, *Mount, Dt, Throttle, Steer, bHandbrake);
+		Movement->MaxWalkSpeed = static_cast<float>(Mount->Top * 130.0);
+		Movement->Velocity = FVector(-Car.Vz * 100.0, Car.Vx * 100.0, Movement->Velocity.Z);
+		WantVx = Car.Vx;
+		WantVz = Car.Vz;
+		bHasWant = true;
+		// The camera swings back behind the car once the mouse has been left alone and the car moves on.
+		Car.Idle += Dt;
+		if (Car.Idle > 1.2 && FMath::Abs(Car.Speed) > 1.5)
+		{
+			Car.Look *= FMath::Exp(-2.5 * Dt);
+		}
+		Car.View += FMath::FindDeltaAngleRadians(Car.View, Car.Heading + Car.Look) * (1.0 - FMath::Exp(-6.0 * Dt));
+		Look.Yaw = FMath::RadiansToDegrees(Car.View);
+		PC->SetControlRotation(Look);
+	}
+	SetActorRotation(FRotator(0.0, FMath::RadiansToDegrees(Car.Heading), 0.0));
+	Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, static_cast<float>((6.8 + FMath::Abs(Car.Speed) * 0.07) * 100.0), DeltaSeconds, 6.f);
+	bRunningNow = false;
 	StopJumping();
 }
 
@@ -391,16 +521,27 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		const float Tilt = (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Down) ? 1.f : 0.f);
 		Look.Yaw += Turn * TurnDegreesPerSecond * DeltaSeconds;
 		Pitch += Tilt * TiltDegreesPerSecond * DeltaSeconds;
+		if (IsDriving())
+		{
+			// At the wheel the mouse and the arrow keys look round the car; the car goes where it is steered.
+			const double Swung = FMath::FindDeltaAngleDegrees(PC->GetControlRotation().Yaw, Look.Yaw);
+			if (Swung != 0.0)
+			{
+				Car.Look += FMath::DegreesToRadians(Swung);
+				Car.Idle = 0.0;
+			}
+			Look.Yaw = PC->GetControlRotation().Yaw;
+		}
 		// Behind the figure, looking too far down would put the camera in the ground.
-		Look.Pitch = bThirdPerson ? FMath::Clamp(Pitch, -70.0, 60.0) : FMath::Clamp(Pitch, -88.0, 88.0);
+		Look.Pitch = IsDriving() ? FMath::Clamp(Pitch, -60.0, 8.0) : bThirdPerson ? FMath::Clamp(Pitch, -70.0, 60.0) : FMath::Clamp(Pitch, -88.0, 88.0);
 		Look.Roll = 0.0;
 		PC->SetControlRotation(Look);
 
-		if (PC->WasInputKeyJustPressed(EKeys::V))
+		if (PC->WasInputKeyJustPressed(EKeys::V) && !IsDriving())
 		{
 			CycleView();
 		}
-		if (bThirdPerson)
+		if (bThirdPerson && !IsDriving())
 		{
 			const float MinArm = View == EEarthView::Shoulder ? 120.f : 400.f;
 			const float MaxArm = View == EEarthView::Shoulder ? 500.f : 2500.f;
@@ -415,7 +556,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 			(View == EEarthView::Shoulder ? ShoulderDistance : FarDistance) = ArmTarget;
 		}
 	}
-	if (bThirdPerson)
+	if (bThirdPerson && !IsDriving())
 	{
 		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, ArmTarget, DeltaSeconds, 10.f);
 	}

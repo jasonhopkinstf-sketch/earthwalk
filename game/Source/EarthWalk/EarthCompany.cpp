@@ -38,9 +38,9 @@ namespace
 		{ TEXT("lion"), 9.0, 1.05, TEXT("lion"), 0.0, false },
 		{ TEXT("panda"), 3.0, 0.95, TEXT("panda"), 0.0, false },
 		{ TEXT("tortoise"), 0.6, 0.3, TEXT("tortoise"), 0.0, false },
-		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false },
-		{ TEXT("car"), 13.0, 0.95, TEXT("car"), 3.5, false }, // up on the roof, where the view is not all bonnet
-		{ TEXT("taxi"), 13.0, 0.95, TEXT("taxi"), 4.0, false }, // a browser player can call one (/taxi); here it can be shared and talked to
+		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false, 9.0, 3.5, 3.2, 9.0, 2.3, 10.0 },
+		{ TEXT("car"), 13.0, 0.95, TEXT("car"), 3.5, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 }, // up on the roof, where the view is not all bonnet
+		{ TEXT("taxi"), 13.0, 0.95, TEXT("taxi"), 4.0, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 },
 		{ TEXT("boat"), 2.5, 0.3, TEXT("rowing boat"), 4.0, true },
 		{ TEXT("sailboat"), 5.0, 0.75, TEXT("sailing boat"), 6.0, true },
 		{ TEXT("train"), 0.0, 3.5, TEXT("train"), 8.0, false },
@@ -157,6 +157,40 @@ const FEarthMount* EarthMounts::Find(const FString& Sp)
 		}
 	}
 	return nullptr;
+}
+
+void EarthMounts::StepCar(FEarthCar& Car, const FEarthMount& How, double Dt, double Throttle, double Steer, bool bHandbrake)
+{
+	const double Sin = std::sin(Car.Heading), Cos = std::cos(Car.Heading);
+	double Along = Car.Vx * Sin - Car.Vz * Cos; // forwards is (sin, -cos)
+	double Across = Car.Vx * Cos + Car.Vz * Sin;
+	const auto Sign = [](double V) { return V > 0.0 ? 1.0 : V < 0.0 ? -1.0 : 0.0; };
+	if (Throttle > 0.0)
+	{
+		Along += (Along < -0.5 ? How.Brake : How.Pull * FMath::Max(0.0, 1.0 - Along / How.Top)) * Dt;
+	}
+	else if (Throttle < 0.0)
+	{
+		Along -= (Along > 0.5 ? How.Brake : How.Pull * 0.7 * FMath::Max(0.0, 1.0 + Along / How.Reverse)) * Dt;
+	}
+	else
+	{
+		Along -= Sign(Along) * FMath::Min(FMath::Abs(Along), (1.4 + 0.012 * Along * Along) * Dt); // rolling to a stop
+	}
+	if (bHandbrake)
+	{
+		Along -= Sign(Along) * FMath::Min(FMath::Abs(Along), How.Brake * 0.3 * Dt);
+	}
+	Along = FMath::Clamp(Along, -How.Reverse, How.Top);
+	Across *= std::exp(-(bHandbrake ? How.Grip * 0.16 : How.Grip) * Dt);
+	// The faster it goes, the less the wheels are turned, and they take a moment to turn.
+	const double Lock = 0.62 / (1.0 + FMath::Abs(Along) / 6.0 + (Along / 16.0) * (Along / 16.0));
+	Car.Steer += (Steer * Lock - Car.Steer) * (1.0 - std::exp(-7.0 * Dt));
+	Car.Turn = (Along / How.Base) * std::tan(Car.Steer) * (bHandbrake ? 1.45 : 1.0);
+	Car.Heading += Car.Turn * Dt;
+	Car.Vx = Sin * Along + Cos * Across;
+	Car.Vz = -Cos * Along + Sin * Across;
+	Car.Speed = Along;
 }
 
 const TCHAR* EarthMounts::Called(const FString& Sp)
@@ -363,10 +397,9 @@ void UEarthCompany::Land()
 		return;
 	}
 	const FVector Feet = Me->FeetLocation();
+	const double Yaw = Me->FacingYaw(); // asked before the mount is given up: at the wheel it is the way the car points
 	Me->SetMount(nullptr);
 	Me->SetCarried(false);
-	const APlayerController* PC = Cast<APlayerController>(Me->GetController());
-	const double Yaw = PC ? PC->GetControlRotation().Yaw : Me->GetActorRotation().Yaw;
 	Me->PlaceFeetAt(Feet + FRotationMatrix(FRotator(0.0, Yaw, 0.0)).GetUnitAxis(EAxis::Y) * Side * 100.0 + FVector(0.0, 0.0, 20.0));
 }
 
@@ -462,9 +495,26 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	{
 		// My own mount stands on whatever I stand on: the road, a bridge, the field.
 		const FVector Feet = Me->FeetLocation();
-		const APlayerController* PC = Cast<APlayerController>(Me->GetController());
-		const double Yaw = PC ? PC->GetControlRotation().Yaw : Me->GetActorRotation().Yaw;
+		const double Yaw = Me->FacingYaw();
 		Ridden(TEXT("me"), Mine.Thing, Mine.Sp, Feet.Y / 100.0, -Feet.X / 100.0, Feet.Z / 100.0, (-Yaw * UE_DOUBLE_PI) / 180.0, Dt);
+		if (Me->IsDriving() && Mounts.Num() > 0)
+		{
+			// A driven car sits to the slope of the ground under its wheels, leans out of a bend, and dips its nose under braking.
+			FEarthThing& Mount = Mounts.Last();
+			const FEarthCar& Car = Me->GetCar();
+			const double Sin = std::sin(Car.Heading), Cos = std::cos(Car.Heading);
+			const auto HeightAt = [&](double Along, double Across)
+			{
+				double H = Mount.Y;
+				Earth->TerrainHeightAt(Mount.X + Sin * Along + Cos * Across, Mount.Z - Cos * Along + Sin * Across, H);
+				return H;
+			};
+			const double Slope = std::atan2(HeightAt(1.3, 0.0) - HeightAt(-1.3, 0.0), 2.6);
+			const double Bank = std::atan2(HeightAt(0.0, 0.8) - HeightAt(0.0, -0.8), 1.6);
+			const double Lean = FMath::Clamp(Car.Turn * Car.Speed * 0.006, -0.09, 0.09);
+			Mount.Pitch = FMath::Clamp(Slope, -0.5, 0.5);
+			Mount.Roll = FMath::Clamp(-Bank, -0.4, 0.4) + Lean;
+		}
 	}
 	for (const TPair<FString, FEarthPeer>& Pair : Room->GetPeers())
 	{
@@ -521,6 +571,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	}
 	OrdersFrame(Dt, T); // and everything doing as it was told
 	TaxiFrame(T); // and taxis on their way to whoever called them
+	GarageFrame(); // and players' own cars, standing or driven, in their paint
 
 	// ---- what would E hop on?
 	bNear = false;
@@ -1139,6 +1190,69 @@ void UEarthCompany::OrdersFrame(double Dt, double T)
 // Taxis
 // ------------------------------------------------------------------------------------------------
 
+void UEarthCompany::CallCar(bool bAway)
+{
+	if (UEarthWalkNet* Room = Net.Get())
+	{
+		Room->SendGarage(bAway ? TEXT("away") : TEXT("call"));
+		if (Room->IsConnected())
+		{
+			Notice(bAway ? TEXT("Your car has gone back to its garage.") : TEXT("Your car is on its way. Press E beside it to get in."));
+		}
+	}
+}
+
+/**
+ * Players' own cars (garage.js). Each that nobody is driving stands where it was called to, or left;
+ * and whether standing or driven it keeps its owner's body and paint.
+ */
+void UEarthCompany::GarageFrame()
+{
+	const UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	for (const TPair<FString, FEarthOwnCar>& Pair : Room->GetCars())
+	{
+		const FEarthOwnCar& Car = Pair.Value;
+		bool bDrawn = false;
+		for (FEarthThing& Mount : Mounts)
+		{
+			if (Mount.Thing == Car.Thing)
+			{
+				// Being driven: it is drawn under its driver, in its own look.
+				Mount.bOwnLook = true;
+				Mount.Body = Car.Body;
+				Mount.Paint = Car.Paint;
+				bDrawn = true;
+			}
+		}
+		if (bDrawn || Hidden.Contains(Car.Thing))
+		{
+			continue;
+		}
+		Hidden.Add(Car.Thing);
+		double X = 0.0, Z = 0.0, Y = 0.0;
+		GeoToScene(Car.Lat, Car.Lon, X, Z);
+		if (GroundFor(TEXT("car"), X, Z, Y))
+		{
+			FEarthThing Mount;
+			Mount.Thing = Car.Thing;
+			Mount.Sp = TEXT("car");
+			Mount.X = X;
+			Mount.Y = Y;
+			Mount.Z = Z;
+			Mount.Yaw = (-Car.Yaw * UE_DOUBLE_PI) / 180.0;
+			Mount.bOutOfPlace = true;
+			Mount.bOwnLook = true;
+			Mount.Body = Car.Body;
+			Mount.Paint = Car.Paint;
+			Mounts.Add(Mount);
+		}
+	}
+}
+
 void UEarthCompany::CallTaxi(const FString& Place)
 {
 	if (UEarthWalkNet* Room = Net.Get())
@@ -1429,6 +1543,13 @@ void UEarthCompany::TestAids(double Dt)
 			double Lat = 0.0, Lon = 0.0, Alt = 0.0;
 			World->WorldToGeo(Me->GetActorLocation(), Lat, Lon, Alt);
 			OnTreasure(Lat, Lon);
+		}
+		// -EWCar calls the player's own car.
+		static bool bCarCalled = false;
+		if (!bCarCalled && TestClock > 2.0 && FParse::Param(FCommandLine::Get(), TEXT("EWCar")))
+		{
+			bCarCalled = true;
+			CallCar();
 		}
 		if (!TaxiPlace.IsEmpty() && !bTaxiCalled && TestClock > 2.0)
 		{

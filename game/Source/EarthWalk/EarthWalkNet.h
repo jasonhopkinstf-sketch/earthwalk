@@ -59,6 +59,17 @@ struct FEarthTaxi
 	double Until = 0.0; // when it gives up waiting
 };
 
+/** A player's own car, standing where it was called to or left (docs/PROTOCOL.md, "The garage"). */
+struct FEarthOwnCar
+{
+	uint32 Thing = 0;
+	FString Body;     // "car" or "van"
+	uint32 Paint = 0; // 0xRRGGBB
+	double Lat = 0.0;
+	double Lon = 0.0;
+	double Yaw = 0.0;
+};
+
 /** A thing spoke: to me, or to somebody near me. */
 struct FEarthSay
 {
@@ -188,6 +199,13 @@ public:
 	void SendExpedition(const FString& Id, bool bStart);
 	/** Gives up a favour I was asked; my journal comes back without it. */
 	void SendFavourDrop(const FString& Id);
+	/**
+	 * The garage: "call" brings my car to stand beside me, "away" sends it off, and "paint" or "body" with
+	 * an id chooses one (paying for it in coins the first time). The room hears of the car with a car message.
+	 */
+	void SendGarage(const FString& What, const FString& Id = FString());
+	/** Everyone's own car that is standing in the room, by its owner's member id. */
+	const TMap<FString, FEarthOwnCar>& GetCars() const { return Cars; }
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
 	void SendTaxi(const FString& Place);
 	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
@@ -247,6 +265,7 @@ private:
 	TMap<uint32, FEarthLeft> Left;
 	TMap<uint32, FEarthOrder> Orders;
 	TMap<uint32, FEarthTaxi> Taxis;
+	TMap<FString, FEarthOwnCar> Cars;
 	FEarthHome Home;
 	FString MyId;
 	FString MyName;

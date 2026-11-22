@@ -617,7 +617,7 @@ void AEarthWorld::Tick(float DeltaSeconds)
 			const FVector Feet = Player->GetActorLocation() - FVector(0, 0, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - (Rider ? Rider->SeatLiftCm() : 0.0));
 			double Lat, Lon, Alt;
 			WorldToGeo(Feet, Lat, Lon, Alt);
-			Net->SendPosition(Lat, Lon, Alt, Controller->GetControlRotation().Yaw);
+			Net->SendPosition(Lat, Lon, Alt, Rider ? Rider->FacingYaw() : Controller->GetControlRotation().Yaw);
 		}
 	}
 

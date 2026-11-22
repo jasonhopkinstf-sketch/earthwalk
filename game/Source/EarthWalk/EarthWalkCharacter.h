@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EarthMounts.h"
 #include "GameFramework/Character.h"
 #include "EarthWalkCharacter.generated.h"
 
@@ -69,6 +70,14 @@ public:
 	/** Carried by a train or by the friend who is steering: the player is put where that has got to, every frame. */
 	void SetCarried(bool bInCarried);
 	bool IsCarried() const { return bCarried; }
+	/**
+	 * At the wheel of a car, a taxi or a tractor: W and S are the pedals, A and D the steering, Space
+	 * the handbrake, and the camera sits behind the car, swung round by the mouse.
+	 */
+	bool IsDriving() const { return Mount && Mount->Top > 0.0; }
+	const FEarthCar& GetCar() const { return Car; }
+	/** The compass heading the player faces, in degrees: the way the car points when driving, else the way they look. */
+	double FacingYaw() const;
 	/** How far above the ground under the player the seat is, in engine units: what other players are told, so the figure they see sits on top. */
 	double SeatLiftCm() const;
 	/** Being taken somewhere: the way to go (north and east, one unit long) and how much of the mount's pace to use. Cleared and set again each frame. */
@@ -88,6 +97,9 @@ private:
 	void ApplyView();
 	void ApplySeat();
 	void RideTick(float DeltaSeconds, APlayerController* PC);
+	void DriveTick(float DeltaSeconds, APlayerController* PC, float Throttle, float Steer, bool bHandbrake, bool bAuto);
+	void ApplyDriveView();
+	void SetDriveFriction(bool bDriving);
 
 	UPROPERTY()
 	TObjectPtr<USpringArmComponent> Boom;
@@ -111,6 +123,11 @@ private:
 	bool bRunningNow = false;
 
 	const FEarthMount* Mount = nullptr;
+	FEarthCar Car;
+	bool bHasWant = false; // the velocity asked for last frame, to tell when a wall took some of it
+	double WantVx = 0.0;
+	double WantVz = 0.0;
+	bool bDriveFriction = false;
 	bool bCarried = false;
 	bool bSteering = false;
 	bool bAutopilot = false;

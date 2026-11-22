@@ -213,12 +213,12 @@ whoever set it up presses R again to start: a countdown, then every gate in turn
 horse or in a car. A panel shows who is where; finishing pays coins and winning pays more. Nothing
 runs out, and a race alone is against the clock (`server/src/race.ts`, `server/public/js/race.js`).
 
-The garage (in the browser so far): everyone has a car of their own. `/car`, or a button in the
+The garage: everyone has a car of their own. `/car`, or a button in the
 passport, brings it to stand beside you, and only you can drive it; friends ride along. Its paint
 and body are chosen in the passport: four paints are free, nine more and a van are bought with the
 coins that tasks, favours and treasure pay (`server/src/garage.ts`, `server/public/js/garage.js`).
 
-Driving (in the browser so far): a car, a taxi or a tractor is driven, not ridden. W and S are the
+Driving: a car, a taxi or a tractor is driven, not ridden. W and S are the
 pedals, A and D steer, Space is the handbrake, and the view moves to behind the car, where the
 mouse looks round it. Speed builds and brakes, the steering is gentler the faster you go, the car
 slides a little in a hard bend and a lot with the handbrake on, and a wall is a gentle bump
@@ -323,8 +323,11 @@ the labels give the doors, and `OpenHouse` fetches the inside of a house the fir
 goes in and builds it inside the house's own walls, each sheet with a second face. The Windows passport has the same pages as the browser's (today's tasks, favours, the treasure hunt
 and expeditions, hats, riddles), with buttons for the mouse; hats are built in
 `EarthAnimalFigure.cpp` from the shapes of `hats.js`, and the treasure chest is `EarthTreasure.cpp`.
+Driving is `EarthMounts::StepCar` (the sums of `cardrive.js`) and `AEarthWalkCharacter::DriveTick`,
+which carries the player at the car's velocity and puts the camera behind it; players' own cars are
+drawn by `UEarthCompany::GarageFrame`, and the garage is a page of the passport.
 Not in the Windows game yet: companions (so a lost animal being taken home is not seen walking
-along), driving with pedals, and the garage.
+along), and races.
 
 ## Art assets and the look
 
@@ -404,7 +407,8 @@ cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs 
 is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRide=<kind>`
 hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
 `-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
-says that to it, and `-EWPassport` opens the passport. `-EWHat=<id>` puts a hat on the player's own figure, `-EWPassportDo=<what>:<id>` presses one of the
+says that to it, and `-EWPassport` opens the passport. `-EWCar` calls the player's own car, `-EWWalk` holds the accelerator down when driving and
+`-EWSteer=<-1 to 1>` the wheel over. `-EWHat=<id>` puts a hat on the player's own figure, `-EWPassportDo=<what>:<id>` presses one of the
 passport's buttons (`start:hunt`), `-EWPassportScroll=<distance>` scrolls it, and `-EWTreasure`
 stands a treasure chest in front of the player. `-EWDoor` walks to the nearest front door that opens and goes
 in, and `-EWTaxi=<place_with_underscores>` calls a taxi (with `-EWRide=taxi` the game hops on when
