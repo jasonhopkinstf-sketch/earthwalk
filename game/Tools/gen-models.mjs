@@ -1,5 +1,6 @@
-// Turns ready-made car models into a C++ table the Windows game builds its meshes from
-// (game/Source/EarthWalk/EarthModels.gen.inl), so no editor import is needed.
+// Turns ready-made car models into the tables both games build their meshes from: C++ for the Windows
+// game (game/Source/EarthWalk/EarthModels.gen.inl, so no editor import is needed) and packed numbers
+// for the browser (server/public/js/models.gen.js).
 //
 //   node game/Tools/gen-models.mjs            (reads game/Models/kenney-car-kit)
 //   node game/Tools/gen-models.mjs <folder>   (reads another folder of .glb files and colormap.png)
@@ -8,8 +9,6 @@
 // them. Each is a body and four wheels painted from one small palette picture. Here they are joined
 // into one mesh, the palette colour is written onto every corner, and the corners that carry the car's
 // main paint are marked, so the game can give each car its own colour as it does for its own cars.
-//
-// A trial (2026-11): the game only draws them when started with -EWModels=free.
 import { readFileSync, writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { dirname, join } from "node:path";
@@ -131,6 +130,8 @@ let text = `// Made by game/Tools/gen-models.mjs from Kenney's Car Kit 3.1 (www.
 // then 255 where the car's own paint goes and 0 elsewhere. I: three corners to a triangle.
 `;
 const table = [];
+const forBrowser = [];
+const base64 = (typed) => Buffer.from(typed.buffer, typed.byteOffset, typed.byteLength).toString("base64");
 for (const model of MODELS) {
   const parts = readGlb(join(folder, model.file));
   // The car's main paint: the most-used strongly coloured swatch on its body.
@@ -173,9 +174,27 @@ for (const model of MODELS) {
   const name = ident(model.rig);
   text += `static const int16 ${name}_P[] = {\n${rows(P, 30)}\n};\nstatic const int8 ${name}_N[] = {\n${rows(N, 45)}\n};\nstatic const uint8 ${name}_C[] = {\n${rows(C, 40)}\n};\nstatic const uint16 ${name}_I[] = {\n${rows(I, 36)}\n};\n`;
   table.push(`\t{ TEXT("${model.rig}"), ${name}_P, ${name}_N, ${name}_C, ${P.length / 3}, ${name}_I, ${I.length} },`);
+  // The browser's axes are x east, y up, z south with the car facing north: the engine's (Y, Z, -X).
+  const turned = (v) => v.flatMap((_, k) => (k % 3 === 0 ? [v[k + 1], v[k + 2], -v[k]] : []));
+  forBrowser.push(`  ${model.rig}: {\n    p: "${base64(Int16Array.from(turned(P)))}",\n    n: "${base64(Int8Array.from(turned(N)))}",\n    c: "${base64(Uint8Array.from(C))}",\n    i: "${base64(Uint16Array.from(I))}",\n  },`);
   const size = [0, 1, 2].map((k) => ((hi[k] - lo[k]) * SCALE).toFixed(2));
   console.log(`${model.rig} <- ${model.file}: ${P.length / 3} corners, ${I.length / 3} triangles, ${size[2]} m long, ${size[0]} wide, ${size[1]} high, own paint on swatch ${paint} (${paint >= 0 ? colourAt([((paint % 8) + 0.25) / 8, (Math.floor(paint / 8) + 0.5) / 4]) : "none"})`);
 }
 text += `static const FModel Models[] = {\n${table.join("\n")}\n};\n`;
 writeFileSync(out, text.replace(/\n/g, "\r\n"));
 console.log("wrote", out, `${Math.round(text.length / 1024)} KB`);
+
+// The same models for the browser game (life.js): packed numbers, as text.
+const web = join(here, "..", "..", "server", "public", "js", "models.gen.js");
+const webText = `// Made by game/Tools/gen-models.mjs from Kenney's Car Kit 3.1 (www.kenney.nl, CC0). Do not edit by hand.
+// Ready-made models that stand in for some of the vehicles of liferigs.js, by the vehicle's name. Each
+// is one mesh, facing north with its wheels on the ground at the origin, packed as base64:
+// p: every corner's place (x east, y up, z south) in millimetres, 16-bit. n: its normal times 127,
+// 8-bit. c: its colour (sRGB) and then 255 where the car's own paint goes, 0 elsewhere. i: three
+// corners to a triangle, 16-bit.
+export const MODELS = {
+${forBrowser.join("\n")}
+};
+`;
+writeFileSync(web, webText);
+console.log("wrote", web, `${Math.round(webText.length / 1024)} KB`);

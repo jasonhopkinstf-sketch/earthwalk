@@ -302,7 +302,7 @@ void AEarthLife::Clear()
 	bDirty = true;
 }
 
-/** -EWModels=free: builds the ready-made cars, each as one instanced mesh, and notes which vehicle each stands in for. */
+/** Builds the ready-made cars, each as one instanced mesh, and notes which vehicle each stands in for (not with -EWModels=ours). */
 void AEarthLife::MakeModels()
 {
 	bModelsMade = true;
@@ -335,7 +335,7 @@ void AEarthLife::MakeModels()
 		ModelTransforms.AddDefaulted();
 		ModelColours.AddDefaulted();
 	}
-	UE_LOG(LogTemp, Display, TEXT("EarthWalk: %d ready-made models in use (-EWModels=free)%s"), ModelShapes.Num(), Material ? TEXT("") : TEXT(", without M_EarthModel"));
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: %d ready-made models in use%s"), ModelShapes.Num(), Material ? TEXT("") : TEXT(", without M_EarthModel"));
 }
 
 void AEarthLife::HomeCirclesIn(const FBox2D& Area, TArray<FVector>& OutCentreAndRadius) const

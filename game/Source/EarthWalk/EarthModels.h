@@ -5,9 +5,10 @@
 class UStaticMesh;
 
 /**
- * Ready-made models that can stand in for the game's own vehicles: a trial (2026-11) of whether bought
- * or free models look better than the shapes the game builds itself. Only when the game is started
- * with -EWModels=free; without it nothing here is used.
+ * Ready-made models that stand in for some of the game's own vehicles: cars, vans and taxis look far
+ * more like themselves than the boxes the game builds from its four basic shapes. Started with
+ * -EWModels=ours, the game draws its own shapes as before. The browser game has the same models
+ * (server/public/js/models.gen.js, drawn by life.js).
  *
  * The models are three cars from Kenney's Car Kit (www.kenney.nl, public domain), turned into the table
  * EarthModels.gen.inl by game/Tools/gen-models.mjs. Each becomes one mesh, already the right way round
@@ -16,7 +17,7 @@ class UStaticMesh;
  */
 namespace EarthModels
 {
-	/** True when this run was started with -EWModels=free. */
+	/** True unless this run was started with -EWModels=ours. */
 	bool On();
 
 	int32 Num();

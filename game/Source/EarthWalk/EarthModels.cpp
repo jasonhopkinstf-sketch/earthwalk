@@ -27,7 +27,7 @@ bool EarthModels::On()
 	static const bool bOn = []
 	{
 		FString Which;
-		return FParse::Value(FCommandLine::Get(), TEXT("-EWModels="), Which) && Which.Equals(TEXT("free"), ESearchCase::IgnoreCase);
+		return !(FParse::Value(FCommandLine::Get(), TEXT("-EWModels="), Which) && Which.Equals(TEXT("ours"), ESearchCase::IgnoreCase));
 	}();
 	return bOn;
 }

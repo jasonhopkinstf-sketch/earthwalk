@@ -36,8 +36,8 @@ export const MOUNTS = {
   panda: { speed: 3, seat: 0.95, name: "panda" },
   tortoise: { speed: 0.6, seat: 0.3, name: "tortoise" },
   tractor: { speed: 5, seat: 1.35, name: "tractor", reach: 4, drive: { top: 9, reverse: 3.5, pull: 3.2, brake: 9, base: 2.3, grip: 10 } },
-  car: { speed: 13, seat: 0.95, name: "car", reach: 3.5, drive: { top: 27, reverse: 7, pull: 7.5, brake: 17, base: 2.6, grip: 7 } }, // the rider sits up on the roof
-  taxi: { speed: 13, seat: 0.95, name: "taxi", reach: 4, drive: { top: 27, reverse: 7, pull: 7.5, brake: 17, base: 2.6, grip: 7 } },
+  car: { speed: 13, seat: 1.5, name: "car", reach: 3.5, drive: { top: 27, reverse: 7, pull: 7.5, brake: 17, base: 2.6, grip: 7 } }, // the rider sits up on the roof
+  taxi: { speed: 13, seat: 1.5, name: "taxi", reach: 4, drive: { top: 27, reverse: 7, pull: 7.5, brake: 17, base: 2.6, grip: 7 } },
   boat: { speed: 2.5, seat: 0.3, name: "rowing boat", reach: 4, afloat: true },
   sailboat: { speed: 5, seat: 0.75, name: "sailing boat", reach: 6, afloat: true },
   train: { seat: 3.5, name: "train", reach: 8 },

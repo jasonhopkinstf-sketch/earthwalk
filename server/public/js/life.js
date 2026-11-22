@@ -5,11 +5,13 @@
 // already have. What each animal looks like is in liferigs.js.
 //
 // All animals are drawn with four instanced meshes (one per basic shape), whatever their number.
+// Cars, vans and taxis are ready-made models (models.gen.js), one instanced mesh each.
 
 import * as THREE from "three";
 import { xToLon, yToLat } from "./geo.js";
 import { CALL_SLOT, callTime, creatureAt, hash32, memberId, SPECIES } from "./lifemotion.js";
 import { RIGS, VEHICLES } from "./liferigs.js";
+import { MODELS } from "./models.gen.js";
 
 const SHOW_M = 220; // homes further off than this are not drawn
 const HEAR_M = 70;
@@ -45,6 +47,41 @@ for (const rig of [...Object.values(RIGS), ...Object.values(VEHICLES)]) {
     return { shape, colour: typeof colour === "number" ? new THREE.Color(colour) : colour, rest: o.matrix.clone(), role, pivot: pivot && new THREE.Vector3(...pivot) };
   });
   rig.palette = rig.coats.map(([a, b]) => ({ a: new THREE.Color(a), b: new THREE.Color(b) }));
+}
+
+// The ready-made models: three cars from Kenney's Car Kit (public domain), in place of the shapes above
+// for the vehicles that have one. ?models=ours in the address draws our own shapes again.
+const MODEL_CAPACITY = 512;
+const bytes = (text) => Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
+/** One model as a geometry: each corner has its own colour, and `own` is 1 where the car's paint goes. */
+function modelGeometry(model) {
+  const p = new Int16Array(bytes(model.p).buffer), n = new Int8Array(bytes(model.n).buffer), c = bytes(model.c);
+  const count = p.length / 3;
+  const position = new Float32Array(count * 3), normal = new Float32Array(count * 3), color = new Float32Array(count * 3), own = new Float32Array(count);
+  const paint = new THREE.Color();
+  for (let k = 0; k < count; k++) {
+    for (let a = 0; a < 3; a++) {
+      position[k * 3 + a] = p[k * 3 + a] / 1000;
+      normal[k * 3 + a] = n[k * 3 + a] / 127;
+    }
+    paint.setRGB(c[k * 4] / 255, c[k * 4 + 1] / 255, c[k * 4 + 2] / 255, THREE.SRGBColorSpace);
+    color[k * 3] = paint.r;
+    color[k * 3 + 1] = paint.g;
+    color[k * 3 + 2] = paint.b;
+    own[k] = c[k * 4 + 3] / 255;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(position, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(color, 3));
+  geometry.setAttribute("own", new THREE.BufferAttribute(own, 1));
+  geometry.setIndex(new THREE.BufferAttribute(new Uint16Array(bytes(model.i).buffer), 1));
+  return geometry;
+}
+if (new URLSearchParams(globalThis.location?.search ?? "").get("models") !== "ours") {
+  for (const [name, model] of Object.entries(MODELS)) {
+    if (VEHICLES[name]) VEHICLES[name].model = { key: `model:${name}`, geometry: modelGeometry(model) };
+  }
 }
 
 const unit = (a, b) => hash32(a, b) / 4294967296;
@@ -86,6 +123,20 @@ export class Life {
       mesh.setColorAt(0, new THREE.Color(0xffffff));
       scene.add(mesh);
       this.meshes[name] = mesh;
+    }
+    // The ready-made models: a corner keeps its own colour, except where `own` says the car's paint goes.
+    const modelMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
+    modelMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = "attribute float own;\n" + shader.vertexShader.replace("#include <color_vertex>", "#include <color_vertex>\n#ifdef USE_INSTANCING_COLOR\n\tvColor.xyz = mix( color.xyz, instanceColor.xyz, own );\n#endif");
+    };
+    for (const rig of Object.values(VEHICLES)) {
+      if (!rig.model) continue;
+      const mesh = new THREE.InstancedMesh(rig.model.geometry, modelMaterial, MODEL_CAPACITY);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.setColorAt(0, new THREE.Color(0xffffff));
+      scene.add(mesh);
+      this.meshes[rig.model.key] = mesh;
     }
     this.base = new THREE.Matrix4();
     this.tmp = new THREE.Matrix4();
@@ -141,7 +192,8 @@ export class Life {
    * (this player's feet and the other players' figures).
    */
   update(dt, t, players, camera) {
-    const counts = { sphere: 0, cyl: 0, cone: 0, box: 0 };
+    const counts = {};
+    for (const name in this.meshes) counts[name] = 0;
     const slot = Math.floor(t / CALL_SLOT);
     this.rideable.length = 0;
     this.nearby.length = 0;
@@ -295,6 +347,17 @@ export class Life {
 
   /** Writes one animal's shapes: each part where its role puts it, in the animal's colours. `this.base` places the animal. */
   put(rig, coat, counts, st, flap, swing, t, beat, wag = 1, together = false) {
+    if (rig.model) {
+      // A vehicle with a ready-made model is that one mesh, its bodywork in the vehicle's own paint.
+      const mesh = this.meshes[rig.model.key];
+      const i = counts[rig.model.key];
+      if (i < MODEL_CAPACITY) {
+        counts[rig.model.key] = i + 1;
+        mesh.setMatrixAt(i, this.base);
+        mesh.setColorAt(i, coat.a);
+      }
+      return;
+    }
     for (const part of rig.built) {
       const mesh = this.meshes[part.shape];
       const i = counts[part.shape];

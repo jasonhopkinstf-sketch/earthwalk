@@ -41,8 +41,8 @@ namespace
 		{ TEXT("panda"), 3.0, 0.95, TEXT("panda"), 0.0, false },
 		{ TEXT("tortoise"), 0.6, 0.3, TEXT("tortoise"), 0.0, false },
 		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false, 9.0, 3.5, 3.2, 9.0, 2.3, 10.0 },
-		{ TEXT("car"), 13.0, 0.95, TEXT("car"), 3.5, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 }, // up on the roof, where the view is not all bonnet
-		{ TEXT("taxi"), 13.0, 0.95, TEXT("taxi"), 4.0, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 },
+		{ TEXT("car"), 13.0, 1.5, TEXT("car"), 3.5, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 }, // up on the roof, where the view is not all bonnet
+		{ TEXT("taxi"), 13.0, 1.5, TEXT("taxi"), 4.0, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 },
 		{ TEXT("boat"), 2.5, 0.3, TEXT("rowing boat"), 4.0, true },
 		{ TEXT("sailboat"), 5.0, 0.75, TEXT("sailing boat"), 6.0, true },
 		{ TEXT("train"), 0.0, 3.5, TEXT("train"), 8.0, false },

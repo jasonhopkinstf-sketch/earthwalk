@@ -234,7 +234,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> FigureMaterial;
 
-	/** Ready-made models standing in for some vehicles (EarthModels.h, a trial): only with -EWModels=free. */
+	/** Ready-made models standing in for some vehicles (EarthModels.h); none with -EWModels=ours. */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMesh>> ModelMeshes;
 

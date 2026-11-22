@@ -461,10 +461,11 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
 is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
-(`look_flat`, `quit`). `-EWModels=free` is a trial: cars, vans and taxis are drawn as ready-made
+(`look_flat`, `quit`). Cars, vans and taxis are ready-made
 models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
-`EarthModels.gen.inl` by `node game/Tools/gen-models.mjs`) in place of the game's own shapes,
-each still in its own paint; Windows only, and off unless asked for. `-EWRide=<kind>`
+`EarthModels.gen.inl` and `server/public/js/models.gen.js` by `node game/Tools/gen-models.mjs`),
+each still in its own paint; `-EWModels=ours` (and `?models=ours` in the browser) draws the game's
+own shapes as before. `-EWRide=<kind>`
 hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
 `-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
 says that to it, and `-EWPassport` opens the passport. `-EWRace` sets a race up and starts it, `-EWCar` calls the player's own car, `-EWWalk` holds the accelerator down when driving and
@@ -483,5 +484,5 @@ Terrain from the Terrain Tiles open dataset on AWS (Mapzen/Tilezen; sources incl
 SRTM, USGS 3DEP and others). The game shows the OpenStreetMap credit on screen; keep
 it there if you change the interface.
 
-The car models of the `-EWModels=free` trial are from Kenney's Car Kit (www.kenney.nl), public
+The car, van and taxi models are from Kenney's Car Kit (www.kenney.nl), public
 domain (Creative Commons CC0); the licence is beside them in `game/Models/kenney-car-kit`.
