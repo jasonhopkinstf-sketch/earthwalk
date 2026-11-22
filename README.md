@@ -207,6 +207,12 @@ the world, joins them into runs and timetables a train along each, stopping at s
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
 
+Driving (in the browser so far): a car, a taxi or a tractor is driven, not ridden. W and S are the
+pedals, A and D steer, Space is the handbrake, and the view moves to behind the car, where the
+mouse looks round it. Speed builds and brakes, the steering is gentler the faster you go, the car
+slides a little in a hard bend and a lot with the handbrake on, and a wall is a gentle bump
+(`server/public/js/cardrive.js`, `player.js`).
+
 Riding: press E beside a horse, a cow, a tractor, a boat, a parked car or a
 passing train to hop on, and E again to hop off. You steer what you ride; a friend can hop on behind
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of

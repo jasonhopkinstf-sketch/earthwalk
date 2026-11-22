@@ -230,6 +230,7 @@ function start(me) {
   renderer.setAnimationLoop(frame);
 }
 
+const speedo = $("speedo");
 /** Scene positions of all players, this one first: the animals watch them. */
 const everyone = [player.position];
 let last = performance.now();
@@ -238,6 +239,12 @@ function frame(now) {
   last = now;
   orders.steer(dt);
   player.update(dt);
+  // At the wheel: the speed in the corner, the engine's note, and my own figure on the car, now that I can see it.
+  const car = player.mount ? player.car : null;
+  speedo.hidden = !car;
+  if (car) speedo.textContent = `${Math.round(Math.abs(car.speed) * 3.6)} km/h`;
+  sounds.engine(car ? Math.min(1, Math.abs(car.speed) / player.mount.drive.top) : null, !!car && !player.typing && player.keys.has("KeyW"));
+  avatars.showSelf(dt, car ? meetup.me : null, player.position, -player.yaw);
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
   talk.frame(dt);
@@ -406,6 +413,8 @@ async function command(name, arg) {
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
     notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
     notice("E   at the front door of a house: go in, and E again just inside it to come out");
+    notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");
+    notice("    and the mouse looks round the car");
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
     notice("    and tell it what to do: follow me, come here, stay, go home, do a trick, make your noise;");
     notice("    riding it, say where to: take me to the beach");

@@ -49,6 +49,44 @@ export class Sounds {
   }
 
   /**
+   * The engine of what the player is driving. `revs` is 0 (ticking over) to 1 (flat out), or null to switch it
+   * off; `pedal` is true while the accelerator is down. One note that follows the speed up through four gears.
+   */
+  engine(revs, pedal = false) {
+    if (revs === null || !this.ready) {
+      const m = this.motor;
+      if (!m) return;
+      this.motor = null;
+      m.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.08);
+      setTimeout(() => { m.a.stop(); m.b.stop(); m.gain.disconnect(); }, 600);
+      return;
+    }
+    const ctx = this.ctx;
+    if (!this.motor) {
+      const a = ctx.createOscillator(), b = ctx.createOscillator(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+      a.type = "sawtooth";
+      b.type = "square";
+      filter.type = "lowpass";
+      filter.frequency.value = 400;
+      gain.gain.value = 0;
+      a.connect(filter);
+      b.connect(filter);
+      filter.connect(gain).connect(this.master);
+      a.start();
+      b.start();
+      this.motor = { a, b, filter, gain };
+    }
+    // Through the gears: the note climbs, drops back at each change, and climbs again.
+    const gear = Math.min(3, Math.floor(revs * 4));
+    const hz = 42 + 16 * gear + 62 * (revs * 4 - gear);
+    const now = ctx.currentTime;
+    this.motor.a.frequency.setTargetAtTime(hz, now, 0.06);
+    this.motor.b.frequency.setTargetAtTime(hz / 2, now, 0.06);
+    this.motor.filter.frequency.setTargetAtTime(300 + 900 * revs + (pedal ? 250 : 0), now, 0.1);
+    this.motor.gain.gain.setTargetAtTime(0.05 + (pedal ? 0.05 : 0) + 0.03 * revs, now, 0.1);
+  }
+
+  /**
    * Plays one call at a place in the scene. `pitch` near 1 makes each animal's voice its own.
    * @param {string} kind  one of the voices below: moo, baa, neigh, cluck, squawk, quack, coo, caw, woof, meow, bray, toot, chug, whistle
    * @returns {boolean} false when sound is off, not yet allowed, or too much is already playing

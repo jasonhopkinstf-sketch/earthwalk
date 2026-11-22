@@ -195,6 +195,33 @@ export class Avatars {
     this.shown = new Map(); // peer id -> { group, target, yaw, name, avatar }
   }
 
+  /**
+   * My own figure. The game is seen through its eyes, so it is only drawn when the camera stands back from it:
+   * at the wheel of a car. `me` is null to put it away; `yaw` is its rotation about the upright.
+   */
+  showSelf(dt, me, position, yaw) {
+    const own = this.own;
+    if (!me || own?.avatar !== me.avatar) {
+      if (own) this.scene.remove(own.group);
+      this.own = null;
+      if (!me) return;
+    }
+    if (!this.own) {
+      this.own = { group: makeAnimal(me.avatar), avatar: me.avatar, hat: null, hatMesh: null };
+      this.scene.add(this.own.group);
+    }
+    const mine = this.own;
+    if ((me.hat ?? null) !== mine.hat) {
+      mine.hatMesh?.removeFromParent();
+      mine.hat = me.hat ?? null;
+      mine.hatMesh = mine.hat ? makeHat(mine.hat) : null;
+      if (mine.hatMesh) wearHat(mine.group, mine.hatMesh);
+    }
+    mine.group.position.copy(position);
+    mine.group.rotation.y = yaw;
+    if (dt > 0) animateAnimal(mine.group, dt, { speed: 0, turn: 0, inAir: false, flying: false, seated: true });
+  }
+
   remove(id) {
     const entry = this.shown.get(id);
     if (!entry) return;

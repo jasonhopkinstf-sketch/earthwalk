@@ -5,9 +5,14 @@
 // The server only keeps track of who is on what, and of things left standing where a rider got off
 // (docs/PROTOCOL.md, "Riding"). A train is different: it keeps to its timetable and carries you.
 
+import { newCar } from "./cardrive.js";
+
 /**
  * What can be ridden: pace in metres a second (hold Shift for all of it), how high the rider sits,
  * what to call it, and how near you must be to hop on. `afloat` keeps to water; the rest keep off it.
+ * `drive` is for things with an engine, which are driven, not ridden (player.js): top speed forwards and
+ * in reverse (metres a second), how hard it pulls and brakes (metres a second, each second), the distance
+ * between its axles, and its grip (how quickly a slide sideways is taken up).
  */
 export const MOUNTS = {
   horse: { speed: 10, seat: 1.55, name: "horse" },
@@ -30,9 +35,9 @@ export const MOUNTS = {
   lion: { speed: 9, seat: 1.05, name: "lion" },
   panda: { speed: 3, seat: 0.95, name: "panda" },
   tortoise: { speed: 0.6, seat: 0.3, name: "tortoise" },
-  tractor: { speed: 5, seat: 1.35, name: "tractor", reach: 4 },
-  car: { speed: 13, seat: 0.95, name: "car", reach: 3.5 }, // up on the roof, where the view is not all bonnet
-  taxi: { speed: 13, seat: 0.95, name: "taxi", reach: 4 },
+  tractor: { speed: 5, seat: 1.35, name: "tractor", reach: 4, drive: { top: 9, reverse: 3.5, pull: 3.2, brake: 9, base: 2.3, grip: 10 } },
+  car: { speed: 13, seat: 0.95, name: "car", reach: 3.5, drive: { top: 27, reverse: 7, pull: 7.5, brake: 17, base: 2.6, grip: 7 } }, // the rider sits up on the roof
+  taxi: { speed: 13, seat: 0.95, name: "taxi", reach: 4, drive: { top: 27, reverse: 7, pull: 7.5, brake: 17, base: 2.6, grip: 7 } },
   boat: { speed: 2.5, seat: 0.3, name: "rowing boat", reach: 4, afloat: true },
   sailboat: { speed: 5, seat: 0.75, name: "sailing boat", reach: 6, afloat: true },
   train: { seat: 3.5, name: "train", reach: 8 },
@@ -96,8 +101,12 @@ export class Riding {
         p.position.z = from.z;
         p.yaw = -from.yaw;
       }
+      // Something with an engine is driven: it has a heading and a speed of its own, and the camera stands back.
+      if (mount.drive) p.car = newCar(p.yaw);
     }
-    this.say(ride.seat > 0 && ride.sp !== "train" ? `You are riding along on the ${mount.name}. Press E to hop off.` : `You are on the ${mount.name}. Press E to hop off.`);
+    this.say(ride.seat > 0 && ride.sp !== "train" ? `You are riding along on the ${mount.name}. Press E to hop off.`
+      : mount.drive && ride.seat === 0 ? `You are driving the ${mount.name}: W and S for the pedals, A and D to steer, Space for the handbrake, the mouse to look round. Press E to get out.`
+      : `You are on the ${mount.name}. Press E to hop off.`);
   }
 
   /** Hop off, and tell everyone. */
@@ -113,6 +122,7 @@ export class Riding {
     this.mine = null;
     p.mount = null;
     p.carried = false;
+    if (p.car) { p.yaw = p.car.heading; p.pitch = 0; p.car = null; }
     p.position.x += Math.cos(p.yaw) * side;
     p.position.z += Math.sin(p.yaw) * side;
     p.grounded = false;
@@ -154,7 +164,10 @@ export class Riding {
       this.hidden.add(thing);
       this.mounts.push({ key, thing, sp, x, z, y: world.groundHeight(x, z) ?? fallbackY, yaw, gait: g.d, moving: dt > 0 && step / dt > 0.2 });
     };
-    if (me && me.seat === 0 && me.sp !== "train") ridden("me", me.thing, me.sp, p.position.x, p.position.z, p.position.y - me.mount.seat, -p.yaw);
+    if (me && me.seat === 0 && me.sp !== "train") {
+      ridden("me", me.thing, me.sp, p.position.x, p.position.z, p.position.y - me.mount.seat, -p.yaw);
+      if (p.car) this.tilt(this.mounts[this.mounts.length - 1], p.car);
+    }
     for (const [id, peer] of meetup.peers) {
       const r = peer.ride;
       if (!r || r.seat !== 0 || r.sp === "train" || !MOUNTS[r.sp]) continue;
@@ -188,6 +201,18 @@ export class Riding {
       for (const m of this.mounts) if (m.key !== "me") consider(m); // one left standing, or a friend's, to ride along on
     }
     this.hint(me ? `E: hop off the ${me.mount.name}` : this.near ? `E: ${this.near.key ? "ride along on" : "hop on"} the ${MOUNTS[this.near.sp].name}` : "");
+  }
+
+  /** A driven car sits to the slope of the ground under its wheels, leans out of a bend, and dips its nose under braking. */
+  tilt(m, car) {
+    const { world } = this;
+    const sin = Math.sin(car.heading), cos = Math.cos(car.heading);
+    const h = (along, across) => world.groundHeight(m.x + sin * along + cos * across, m.z - cos * along + sin * across) ?? m.y;
+    const slope = Math.atan2(h(1.3, 0) - h(-1.3, 0), 2.6);
+    const bank = Math.atan2(h(0, 0.8) - h(0, -0.8), 1.6);
+    const lean = Math.max(-0.09, Math.min(0.09, car.turn * car.speed * 0.006));
+    m.pitch = Math.max(-0.5, Math.min(0.5, slope));
+    m.roll = Math.max(-0.4, Math.min(0.4, -bank)) + lean;
   }
 
   /** From Life.update: draws everything in `mounts` through Life's meshes. */

@@ -1,6 +1,7 @@
-// The local player: first-person walking and flying.
+// The local player: first-person walking and flying, and driving, seen from behind the car.
 
 import * as THREE from "three";
+import { stepCar } from "./cardrive.js";
 
 const EYE_HEIGHT = 1.6;
 const WALK = 4.5;
@@ -12,6 +13,11 @@ const JUMP = 7;
 const BODY_RADIUS = 0.45;
 const LOOK = 0.0022; // radians per pixel of mouse movement
 const RIDING_EYE = 0.85; // eyes above the seat
+/** A car is wider than a walker, and its bumper is lower than a chest. */
+const CAR_RADIUS = 1.25;
+const CAR_BUMPER = 0.6;
+/** What a car keeps of its speed when it meets a wall: a bump, never a crash. */
+const BUMP_KEEPS = 0.5;
 
 export class Player {
   constructor(camera, world, canvas) {
@@ -32,6 +38,11 @@ export class Player {
     this.carried = false;
     /** Metres ridden on the present mount, for its legs. */
     this.travelled = 0;
+    /**
+     * Set while driving something with an engine (riding.js): which way it points and how it is moving.
+     * { heading, vx, vz, speed, steer, turn, look, idle, view }. The camera then follows behind it.
+     */
+    this.car = null;
     this.ray = new THREE.Raycaster();
     this.ray.firstHitOnly = true;
     camera.rotation.order = "YXZ";
@@ -57,7 +68,8 @@ export class Player {
   }
 
   look(dx, dy) {
-    this.yaw += dx * LOOK;
+    // At the wheel the mouse looks round the car, and the car goes where it is steered.
+    if (this.car) { this.car.look += dx * LOOK; this.car.idle = 0; } else this.yaw += dx * LOOK;
     this.pitch = Math.min(1.5, Math.max(-1.5, this.pitch - dy * LOOK));
   }
 
@@ -84,14 +96,14 @@ export class Player {
     return this.ray.intersectObjects(this.world.solids, false)[0] ?? null;
   }
 
-  /** Moves horizontally, sliding along building walls instead of passing through them. */
-  moveHorizontally(move) {
-    const chest = this.position.clone().setY(this.position.y + 0.9);
+  /** Moves horizontally, sliding along building walls instead of passing through them. `radius` is how wide the mover is, `lift` how high above `position` it meets things. */
+  moveHorizontally(move, radius = BODY_RADIUS, lift = 0.9) {
+    const chest = this.position.clone().setY(this.position.y + lift);
     for (let attempt = 0; attempt < 2; attempt++) {
       const length = move.length();
       if (length < 1e-6) return;
       const direction = move.clone().divideScalar(length);
-      const wall = this.hit(chest, direction, length + BODY_RADIUS);
+      const wall = this.hit(chest, direction, length + radius);
       if (!wall) {
         this.position.add(move);
         return;
@@ -103,12 +115,51 @@ export class Player {
     }
   }
 
+  /**
+   * One step of driving: the car's speed and heading move on (cardrive.js), and then the car itself does, as far
+   * as the walls allow. `d` is how the vehicle handles (riding.js); `throttle` and `steer` are -1 to 1.
+   */
+  drive(car, d, seat, dt, throttle, steer, handbrake) {
+    stepCar(car, d, dt, throttle, steer, handbrake);
+    const want = new THREE.Vector3(car.vx * dt, 0, car.vz * dt);
+    const before = this.position.clone();
+    this.moveHorizontally(want.clone(), CAR_RADIUS, CAR_BUMPER - seat);
+    const gotX = this.position.x - before.x, gotZ = this.position.z - before.z;
+    if (dt > 0 && Math.hypot(gotX - want.x, gotZ - want.z) > 1e-4) { // a wall: slide along it, with less speed
+      car.vx = (gotX / dt) * BUMP_KEEPS;
+      car.vz = (gotZ / dt) * BUMP_KEEPS;
+      car.speed = car.vx * Math.sin(car.heading) - car.vz * Math.cos(car.heading);
+    }
+  }
+
+  /** The camera behind and above the car, swung round by the mouse and swinging back when the car moves on. */
+  chase(dt) {
+    const car = this.car;
+    car.idle += dt;
+    if (car.idle > 1.2 && Math.abs(car.speed) > 1.5) car.look *= Math.exp(-2.5 * dt);
+    const want = car.heading + car.look;
+    car.view += ((((want - car.view) % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI) * (1 - Math.exp(-6 * dt));
+    const back = 6.8 + Math.abs(car.speed) * 0.07;
+    const up = Math.max(0.7, Math.min(9, 2.3 - this.pitch * 5));
+    const eye = new THREE.Vector3(this.position.x, this.position.y + 0.9, this.position.z);
+    const at = new THREE.Vector3(this.position.x - Math.sin(car.view) * back, this.position.y + up, this.position.z + Math.cos(car.view) * back);
+    // Never behind a wall, and never under the ground.
+    const reach = at.clone().sub(eye);
+    const far = reach.length();
+    const wall = this.hit(eye, reach.clone().divideScalar(far), far + 0.4);
+    if (wall) at.copy(eye).addScaledVector(reach, Math.max(0.15, (wall.distance - 0.4) / far));
+    const ground = this.world.groundHeight(at.x, at.z);
+    if (ground !== null && at.y < ground + 0.6) at.y = ground + 0.6;
+    this.camera.position.copy(at);
+    this.camera.lookAt(this.position.x + Math.sin(car.heading) * 2, this.position.y + 0.7, this.position.z - Math.cos(car.heading) * 2);
+  }
+
   update(dt) {
     const k = this.keys;
     const turn = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
     const tilt = (k.has("ArrowUp") ? 1 : 0) - (k.has("ArrowDown") ? 1 : 0);
     if (!this.typing) {
-      this.yaw += turn * 1.8 * dt;
+      if (this.car) { this.car.look += turn * 1.8 * dt; if (turn) this.car.idle = 0; } else this.yaw += turn * 1.8 * dt;
       this.pitch = Math.min(1.5, Math.max(-1.5, this.pitch + tilt * 1.2 * dt));
     }
 
@@ -132,13 +183,19 @@ export class Player {
         // Nothing to do: riding.js puts us where the train, or our friend, has got to.
       } else if (this.mount) {
         const m = this.mount;
-        move.set(sin * forward + cos * strafe, 0, -cos * forward + sin * strafe);
-        if (move.lengthSq() > 1) move.normalize();
+        const car = this.car;
         // Being taken somewhere (orders.js): the mount finds its own way until the rider steers.
         const auto = !forward && !strafe ? this.autopilot : null;
-        if (auto) move.set(auto.dx, 0, auto.dz);
         const from = this.position.clone();
-        this.moveHorizontally(move.multiplyScalar(m.speed * (auto ? auto.pace : fast ? 1 : 0.55) * dt));
+        if (car && !auto) {
+          // At the wheel: W and S are the pedals, A and D the steering, Space the handbrake.
+          this.drive(car, m.drive, m.seat, dt, forward, strafe, !this.typing && k.has("Space"));
+        } else {
+          move.set(sin * forward + cos * strafe, 0, -cos * forward + sin * strafe);
+          if (move.lengthSq() > 1) move.normalize();
+          if (auto) move.set(auto.dx, 0, auto.dz);
+          this.moveHorizontally(move.multiplyScalar(m.speed * (auto ? auto.pace : fast ? 1 : 0.55) * dt));
+        }
         // A boat keeps to the water, and everything else keeps off it.
         const wet = this.world.waterAt(this.position.x, this.position.z);
         let ground = this.world.groundHeight(this.position.x, this.position.z);
@@ -146,7 +203,17 @@ export class Player {
         if (ground === null || (!auto && wet !== null && wet !== !!m.afloat)) {
           this.position.copy(from);
           ground = this.world.groundHeight(from.x, from.z) ?? from.y - m.seat;
+          if (car) car.vx = car.vz = car.speed = 0; // the water's edge, or the edge of the world so far
         }
+        if (car && auto) {
+          // Driven by somebody else's hands: it points where it is taken (orders.js turns us that way).
+          car.heading = this.yaw;
+          car.vx = dt > 0 ? (this.position.x - from.x) / dt : 0;
+          car.vz = dt > 0 ? (this.position.z - from.z) / dt : 0;
+          car.speed = Math.hypot(car.vx, car.vz);
+          car.steer = car.turn = 0;
+        }
+        if (car) this.yaw = car.heading; // what friends are told, and which way the car is drawn
         this.travelled += Math.hypot(this.position.x - from.x, this.position.z - from.z);
         this.position.y = ground + m.seat;
         this.velocityY = 0;
@@ -196,6 +263,7 @@ export class Player {
       }
     }
 
+    if (this.car && this.mount && !this.waitingForGround) return this.chase(dt);
     this.camera.position.set(this.position.x, this.position.y + (this.mount || this.carried ? RIDING_EYE : EYE_HEIGHT), this.position.z);
     this.camera.rotation.set(this.pitch, -this.yaw, 0);
   }
