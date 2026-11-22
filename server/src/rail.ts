@@ -1,18 +1,21 @@
 // Trains. A railway runs for many kilometres, far beyond the piece of map a chunk is built from, so
-// the tracks are fetched on their own for a wide square of the world (a zoom-13 tile, 8 by 8 chunks)
-// and joined into runs there. Every chunk in the square gets its trains from the same tracks, which
-// is what lets every player see the same train.
+// the tracks are taken for a wider square of the world (a zoom-14 tile, 4 by 4 chunks) and joined into
+// runs there. Every chunk in the square gets its trains from the same tracks, which is what lets every
+// player see the same train.
+//
+// The square is one block of the map download (osm.ts), so the tracks come with the map the chunk is
+// built from anyway. They used to be asked for separately, from the Overpass servers alone, and on
+// those servers' bad days there were simply no trains.
 //
 // A train shuttles along its run: out, a wait, and back, pausing at stations. As with cars
 // (traffic.ts), the server works out where the train is at each second of the trip and clients
 // replay it from the shared clock (docs/PROTOCOL.md, "Trains").
 
-import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.ts";
-import { cacheRead, cacheWrite, InFlight } from "./cache.ts";
+import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile } from "./geo.ts";
 import { clipPolyline } from "./chunk.ts";
-import { askOverpass, type OsmJson, type Pt } from "./osm.ts";
+import { BLOCK_Z, DATA_Z, fetchOsmTile, type OsmJson, type Pt } from "./osm.ts";
 
-export const RAIL_Z = 13;
+export const RAIL_Z = BLOCK_Z;
 /** Chunks along one side of a rail square. */
 export const RAIL_SPAN = 2 ** (CHUNK_Z - RAIL_Z);
 export const TRAINS_PER_SQUARE = 6;
@@ -31,19 +34,24 @@ const STATION_STOP_S = 14;
 
 // ---------------------------------------------------------------- the tracks of a square
 
-const inflight = new InFlight<OsmJson>();
-
-/** Raw OpenStreetMap railway tracks and stations for one rail square, cached on disk. */
-export function fetchRail(rx: number, ry: number): Promise<OsmJson> {
-  const rel = `rail/${RAIL_Z}/${rx}/${ry}.json`;
-  return inflight.get(rel, async () => {
-    const cached = await cacheRead(rel);
-    if (cached) return JSON.parse(cached.toString("utf8")) as OsmJson;
-    const bb = `(${yToLat(ry + 1, RAIL_Z)},${xToLon(rx, RAIL_Z)},${yToLat(ry, RAIL_Z)},${xToLon(rx + 1, RAIL_Z)})`;
-    const json = await askOverpass(`[out:json][timeout:25];(way["railway"="rail"]${bb};node["railway"~"^(station|halt)$"]${bb};);out body;>;out skel qt;`);
-    await cacheWrite(rel, JSON.stringify(json));
-    return json;
-  });
+/** The railway tracks and stations of one rail square, out of the map of its four data tiles. */
+export async function fetchRail(rx: number, ry: number): Promise<OsmJson> {
+  const per = 2 ** (DATA_Z - RAIL_Z);
+  const tiles: Promise<OsmJson>[] = [];
+  for (let j = 0; j < per; j++) for (let i = 0; i < per; i++) tiles.push(fetchOsmTile(rx * per + i, ry * per + j));
+  const seen = new Set<number>();
+  const elements: OsmJson["elements"] = [];
+  for (const tile of await Promise.all(tiles)) {
+    for (const el of tile.elements) {
+      // A track that crosses from one tile into the next is in both, whole: once is enough.
+      if (el.type === "node") elements.push(el);
+      else if (el.type === "way" && el.tags?.railway === "rail" && !seen.has(el.id)) {
+        seen.add(el.id);
+        elements.push(el);
+      }
+    }
+  }
+  return { elements };
 }
 
 /** Main-line tracks that are drawn (not in tunnels, not sidings) and the stations, in world coordinates. */

@@ -300,7 +300,8 @@ export class World {
     try {
       const wrapped = ((x % TILES) + TILES) % TILES;
       const res = await fetch(`/v1/chunk/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {} });
-      if (!res.ok) throw new Error(res.status === 429 ? "Exploring too fast; the server asked us to slow down" : res.status === 401 ? "The access code was not accepted" : `The server could not build part of this area (${res.status})`);
+      if (!res.ok) throw new Error(res.status === 429 ? "You are exploring faster than the world can be built. It will catch up in a moment..." : res.status === 401 ? "The access code was not accepted"
+        : res.status === 502 ? "The map servers the world is built from are slow just now. Still trying..." : `The world server could not build part of this area just now (${res.status}). Still trying...`);
       const data = decodeChunk(await res.arrayBuffer());
       if (generation !== this.generation) return; // the player travelled away meanwhile
       this.add(x, y, key, data);

@@ -56,6 +56,8 @@ settings (environment variables):
 | `EARTHWALK_CONTACT` | Contact shown to the OpenStreetMap services in the User-Agent, as their usage policies ask |
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
+| `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
+| `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |
 | `ANTHROPIC_API_KEY`, `EARTHWALK_TALK_MONTHLY_USD`, `EARTHWALK_TALK_MODEL` | Optional and paid: let the things players talk to answer through Claude, under a monthly limit (see [docs/HOSTING.md](docs/HOSTING.md)) |
 
 For family in other homes to join, the server has to be reachable from the internet.
@@ -306,6 +308,27 @@ use their own stock of lines. `server/public/js/talk.js`; docs/PROTOCOL.md, "Tal
 
 Both games show where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.
+
+**Show me (G, browser).** For showing the world to somebody: G opens a list of things to see and do
+(catch a train, meet the farm animals, ride a horse, drive a car, walk into a house, sail a boat,
+ride a camel at the Pyramids, go on safari...). Pick one, by clicking or by its number, and you are
+taken straight to it and stood beside the thing itself: where the train is about to stop, next to
+the horse, at a parked car, at a door that opens. `/show` does the same, and `/show train` goes at
+once. The list and its places are the server's (`server/src/showcase.ts`, `GET /v1/showcase`), and
+the server keeps those places built so that a show starts in a couple of seconds.
+`server/public/js/showcase.js`; docs/PROTOCOL.md, "Things to show".
+
+**Where the map comes from, and why the world keeps up with you.** The world is built from
+OpenStreetMap, downloaded as you go from free public servers that are some days quick and some days
+very slow (`server/src/osm.ts`). The server asks for a block of two by two data tiles at a time,
+asks the Overpass servers first and, if they have said nothing after a few seconds, the main
+OpenStreetMap service as well, and uses whichever answers first. A server that fails is rested for a
+while. The main service allows each caller only so much an hour, and says when to come back; the
+server does as it is told. The server also looks ahead (`server/src/ahead.ts`): it hears where every
+player is, works out which way each is travelling and how fast, and quietly downloads the map for the
+ground they will reach in the next two minutes, so a train or a car does not run off the edge of
+what is built. What each map server did is written in the log ("map: ..."), since "the world is slow
+today" is nearly always one of them.
 
 The Windows game shows the same animals, cars, tractors, boats and trains in the same places as the
 browser, and makes the same sounds. `game/Source/EarthWalk/EarthLifeMotion.cpp` is the movement

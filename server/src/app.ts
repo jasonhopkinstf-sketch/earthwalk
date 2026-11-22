@@ -20,6 +20,8 @@ import { type HuntStop, planHunt } from "./hunt.ts";
 import { generateInterior, INTERIOR_REV } from "./interior.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
+import { LookAhead } from "./ahead.ts";
+import { SHOWS } from "./showcase.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -62,6 +64,12 @@ export interface AppOptions {
   journalStore?: JournalStore | null;
   /** Makes treasure hunts (hunt.ts); replaceable for tests. */
   planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
+  /**
+   * Sees that the map for one data tile is downloaded, without waiting (osm.ts, warmOsmTile). When given,
+   * the server fetches the map ahead of anyone who is travelling (ahead.ts). Not given in tests, which
+   * must never reach for the real map.
+   */
+  warm?: (dx: number, dy: number) => void;
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
@@ -80,7 +88,11 @@ export interface AppOptions {
 /** The server version, from package.json, shown by clients so a deploy can be told apart. */
 export const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
-export interface App { server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; journals: Journals; close(): void }
+export interface App {
+  server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; journals: Journals; close(): void;
+  /** Builds one chunk (mesh and labels) into the cache if it is not there: for keeping the showcase ready. */
+  prepare(x: number, y: number): Promise<void>;
+}
 
 const PENDING_MS = 10 * 60 * 1000; // sign-ins and game links wait at most this long
 const COOKIE_DAYS = 180;
@@ -161,7 +173,9 @@ export function createApp(options: AppOptions = {}): App {
     }
     return { dest, pickup };
   };
+  const ahead = options.warm ? new LookAhead(options.warm) : null;
   const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs,
+    ...(ahead ? { moved: (id: string, lat: number, lon: number) => ahead.moved(id, lat, lon) } : {}),
     course: (lat, lon, seed) => planCourse(lat, lon, seed, (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon)),
   });
   const presence = new Presence(accounts, rooms, placeName);
@@ -337,6 +351,22 @@ export function createApp(options: AppOptions = {}): App {
     res.end(data);
   };
 
+  const chunkRel = (x: number, y: number): string => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`;
+  const labelsRel = (x: number, y: number): string => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`;
+  const keepLabels = (built: Buffer): boolean => !partialLabels.has(built);
+
+  const prepare = async (x: number, y: number): Promise<void> => {
+    const pieces: [string, (x: number, y: number) => Promise<Buffer>, (built: Buffer) => boolean][] = [[chunkRel(x, y), buildChunk, () => true], [labelsRel(x, y), buildLabels, keepLabels]];
+    for (const [rel, build, keep] of pieces) {
+      if (await readCache(rel)) continue;
+      await building.get(rel, async () => {
+        const built = await build(x, y);
+        if (keep(built)) await writeCache(rel, built);
+        return built;
+      });
+    }
+  };
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -348,13 +378,11 @@ export function createApp(options: AppOptions = {}): App {
       // rejection goes unhandled and takes the whole server down with everyone in it.
       const chunk = /^\/v1\/chunk\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (chunk) {
-        return await serveBuilt(req, res, url, chunk, (x, y) => `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}/${CHUNK_Z}/${x}/${y}.ewc`,
-          buildChunk, "application/octet-stream");
+        return await serveBuilt(req, res, url, chunk, chunkRel, buildChunk, "application/octet-stream");
       }
       const labels = /^\/v1\/labels\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (labels) {
-        return await serveBuilt(req, res, url, labels, (x, y) => `labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`,
-          buildLabels, "application/json; charset=utf-8", (built) => !partialLabels.has(built));
+        return await serveBuilt(req, res, url, labels, labelsRel, buildLabels, "application/json; charset=utf-8", keepLabels);
       }
       const interior = /^\/v1\/interior\/(\d+)\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
       if (interior) {
@@ -376,6 +404,11 @@ export function createApp(options: AppOptions = {}): App {
         }
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": data.length, "Cache-Control": "private, max-age=86400" });
         return void res.end(data);
+      }
+      if (p === "/v1/showcase") {
+        // Things to show people, each with a place where it is right there (showcase.ts).
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        return json(res, 200, { shows: SHOWS });
       }
       if (p === "/v1/geocode") {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
@@ -407,5 +440,5 @@ export function createApp(options: AppOptions = {}): App {
     rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req));
   });
 
-  return { server, rooms, accounts, presence, journals, close: () => { presence.close(); rooms.close(); void journals.close(); server.close(); } };
+  return { server, rooms, accounts, presence, journals, prepare, close: () => { presence.close(); rooms.close(); void journals.close(); server.close(); } };
 }

@@ -10,8 +10,8 @@ import { buildTrains, parseRail, RAIL_SPAN, trainsFor, TRAINS_PER_SQUARE } from 
 import { pointAt, prepare, trainPose } from "../public/js/trafficmotion.js";
 
 // The rail square that holds the Eiffel Tower's chunk.
-const RX = 33185 >> 3;
-const RY = 22545 >> 3;
+const RX = 33185 >> 2;
+const RY = 22545 >> 2;
 const X0 = RX * RAIL_SPAN;
 const Y0 = RY * RAIL_SPAN;
 const S = metersPerTile(Y0 + RAIL_SPAN / 2);
@@ -24,7 +24,7 @@ const empty = (): Features => ({ buildings: [], roads: [], areas: [], trees: [],
 function railway(): OsmJson {
   let id = 0;
   const node = (x: number, y: number, tags?: Record<string, string>) => ({ type: "node" as const, id: ++id, lon: xToLon(X0 + x), lat: yToLat(Y0 + y), tags });
-  const n = [node(-1, 4), node(3, 4), node(6, 4.2), node(9, 4.2), node(3.6, 5.4), node(1, 1), node(2, 1), node(5, 6), node(6, 7), node(4.5, 4.1, { railway: "station", name: "Middle" })];
+  const n = [node(-0.5, 2), node(1.5, 2), node(3, 2.1), node(4.5, 2.1), node(1.8, 3.2), node(0.5, 0.5), node(1, 0.5), node(2.5, 3), node(3, 3.5), node(2.25, 2.05, { railway: "station", name: "Middle" })];
   const way = (wid: number, nodes: number[], tags: Record<string, string> = {}) => ({ type: "way" as const, id: wid, nodes: nodes.map((i) => n[i].id), tags: { railway: "rail", ...tags } });
   return { elements: [...n, way(11, [0, 1]), way(12, [1, 2]), way(13, [2, 3]), way(14, [1, 4]), way(15, [5, 6], { service: "siding" }), way(16, [7, 8], { tunnel: "yes" })] };
 }
@@ -51,14 +51,14 @@ test("tracks are joined into runs, straight on at points, cut at the edge of the
   for (let i = 1; i < main.path.length; i++) {
     const [x, y, t] = main.path[i];
     const [px, py, pt] = main.path[i - 1];
-    assert.ok(x >= X0 - 1e-9 && x <= X0 + RAIL_SPAN + 1e-9 && y > Y0 + 3.9 && y < Y0 + 4.3, "on the main line, inside the square");
+    assert.ok(x >= X0 - 1e-9 && x <= X0 + RAIL_SPAN + 1e-9 && y > Y0 + 1.95 && y < Y0 + 2.15, "on the main line, inside the square");
     const step = Math.hypot(x - px, y - py) * S;
     length += step;
     assert.ok(t > pt, "time moves on");
     if (step === 0) {
       stopped++;
       assert.ok(Math.abs(t - pt - 14) < 0.11, "it stands at the station for 14 s");
-      assert.ok(Math.hypot(x - (X0 + 4.5), y - (Y0 + 4.1)) * S < 80, "beside the station");
+      assert.ok(Math.hypot(x - (X0 + 2.25), y - (Y0 + 2.05)) * S < 80, "beside the station");
     } else {
       assert.ok(step / (t - pt) <= 14.6, `${(step / (t - pt)).toFixed(1)} m/s`);
     }
@@ -68,20 +68,20 @@ test("tracks are joined into runs, straight on at points, cut at the edge of the
   assert.ok((Math.hypot(main.path[1][0] - first[0], main.path[1][1] - first[1]) * S) / main.path[1][2] < 3, "it sets off slowly");
   assert.ok(main.wa >= 20 && main.wb >= 20);
 
-  assert.ok(branch.path.every(([x, y]) => x > X0 + 2.9 && x < X0 + 3.7 && y > Y0 + 3.9 && y < Y0 + 5.5), "the branch has a train of its own");
+  assert.ok(branch.path.every(([x, y]) => x > X0 + 1.45 && x < X0 + 1.85 && y > Y0 + 1.95 && y < Y0 + 3.25), "the branch has a train of its own");
   assert.deepEqual(buildTrains(RX, RY, parseRail(railway())), trains, "the same every time");
 });
 
 test("every chunk on a run gets the very same train, and chunks off it get none", async () => {
   const load = async () => railway();
-  const onLine = await trainsFor(X0 + 5, Y0 + 4, load);
+  const onLine = await trainsFor(X0 + 2, Y0 + 2, load);
   assert.ok(onLine.length >= 1);
   const main = onLine.find((t) => t.path.length > 100)!;
-  for (const cx of [X0, X0 + 2, X0 + 7]) {
-    const here = (await trainsFor(cx, Y0 + 4, load)).find((t) => t.id === main.id);
+  for (const cx of [X0, X0 + 1, X0 + 3]) {
+    const here = (await trainsFor(cx, Y0 + 2, load)).find((t) => t.id === main.id);
     assert.deepEqual(here, main, "identical in every chunk it passes through");
   }
-  assert.deepEqual(await trainsFor(X0 + 5, Y0 + 1, load), [], "none where there is no track");
+  assert.deepEqual(await trainsFor(X0 + 2, Y0, load), [], "none where there is no track");
 });
 
 test("a train replayed by a client: out, a stop at the station, the far end, and back, without turning round", () => {
@@ -104,13 +104,13 @@ test("a train replayed by a client: out, a stop at the station, the far end, and
   assert.deepEqual([...legs].sort(), [0, 1, 2, 3]);
   assert.ok(stoodMidway > 200, `it stands at the station both ways (${stoodMidway} tenths of a second)`);
   const p = pointAt(train, train.length / 2);
-  assert.ok(p[1] > 3.9 * S && p[1] < 4.3 * S);
+  assert.ok(p[1] > 1.95 * S && p[1] < 2.15 * S);
   assert.deepEqual(trainPose(train, t0 + 55.5), trainPose(prepare({ ...train }), t0 + 55.5), "the same for everyone");
 });
 
 test("labels carry the trains; without the tracks they are sent anyway, marked as not worth keeping", async () => {
-  const cx = X0 + 5;
-  const cy = Y0 + 4;
+  const cx = X0 + 3;
+  const cy = Y0 + 2;
   const elev = new Elevation(async () => new Float32Array(256 * 256).fill(40));
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
   const trains = await trainsFor(cx, cy, async () => railway());
@@ -119,7 +119,7 @@ test("labels carry the trains; without the tracks they are sent anyway, marked a
   for (const it of items) {
     assert.ok(it.pts!.length % 3 === 0 && it.pts!.length > 300 && it.da! >= 20 && it.db! >= 20 && it.id! > 0);
     assert.equal(it.text, undefined, "older games skip an item with no text");
-    assert.ok(Math.abs(it.pts![0] - (X0 - cx)) < 1e-4, "the path is measured from this chunk, and starts five chunks to the west");
+    assert.ok(Math.abs(it.pts![0] - (X0 - cx)) < 1e-4, "the path is measured from this chunk, and starts three chunks to the west");
   }
 
   const whole = await generateLabels(cx, cy, elev, async () => empty(), async () => trains);

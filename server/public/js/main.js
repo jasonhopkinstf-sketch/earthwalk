@@ -16,6 +16,7 @@ import { Garage } from "./garage.js";
 import { Races } from "./race.js";
 import { Play } from "./play.js";
 import { Treasure } from "./treasure.js";
+import { Showcase } from "./showcase.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
@@ -85,6 +86,9 @@ const pets = new Pets({ world, player, meetup, avatars, riding });
 const garage = new Garage({ world, meetup, riding, traffic });
 const play = new Play({ scene, world, meetup, player, avatars, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
 const races = new Races({ scene, world, meetup, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
+// "Show me...": straight to a train, a horse, a car to drive, for showing the world to somebody (G).
+const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, riding, meetup, say: (text) => notice(text), problem: (text) => problem(text) });
+$("showme").addEventListener("click", (e) => { e.currentTarget.blur(); void showcase.toggle(); });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -253,6 +257,7 @@ function frame(now) {
   avatars.showSelf(dt, car ? meetup.me : null, player.position, -player.yaw);
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
+  showcase.frame();
   talk.frame(dt);
   houses.frame(dt);
   treasure.frame(dt);
@@ -375,9 +380,14 @@ addEventListener("keydown", (e) => {
   } else if (e.code === "Escape") {
     if (document.activeElement === say) say.blur();
     passport.close();
+    showcase.close();
     talk.stop(); // and stop talking to whatever it was
   } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
     if (talk.begin()) { e.preventDefault(); say.focus(); } // say hello, then type
+  } else if (showcase.open && document.activeElement !== say && showcase.key(e.code)) {
+    e.preventDefault(); // a number chose something from the list
+  } else if (e.code === "KeyG" && document.activeElement !== say && !e.repeat) {
+    void showcase.toggle(); // things to show somebody
   } else if (e.code === "KeyP" && document.activeElement !== say && !e.repeat) {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
@@ -413,6 +423,8 @@ async function findPlace(query) {
 
 async function command(name, arg) {
   if (name === "help") {
+    notice("G   show me: a list of things to see and do, and you are taken straight to the one you pick");
+    notice("    (or /show, and /show train goes at once)");
     notice("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square");
     notice("/join <name>   go to someone        /who   who is online and where");
     notice("/home   make where you stand your home (or /home <place>); you start there next time");
@@ -444,6 +456,9 @@ async function command(name, arg) {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     notice(`Calling a taxi to take you to ${arg}...`);
     meetup.sendTaxi(arg);
+  } else if (name === "show" || name === "showme") {
+    if (arg) void showcase.go(arg);
+    else void showcase.toggle();
   } else if (name === "passport" || name === "journal") {
     passport.toggle();
   } else if (name === "tag" || name === "hide") {
@@ -551,4 +566,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, garage, races, play, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

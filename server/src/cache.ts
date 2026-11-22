@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const CACHE_DIR = path.resolve(process.env.EARTHWALK_CACHE ?? "cache");
@@ -9,6 +9,11 @@ export async function cacheRead(rel: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
+}
+
+/** Is it in the cache? (Without reading it: some pieces are many megabytes.) */
+export async function cacheHas(rel: string): Promise<boolean> {
+  return access(path.join(CACHE_DIR, rel)).then(() => true, () => false);
 }
 
 let complained = 0;

@@ -147,6 +147,8 @@ export interface RoomsOptions {
   playLot?: () => number;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
   journal?: JournalKeeper;
+  /** Told where each player is, every time they say (ahead.ts fetches the map ahead of whoever is travelling). */
+  moved?: (id: string, lat: number, lon: number) => void;
 }
 
 const clean = (s: unknown, max: number): string =>
@@ -321,6 +323,7 @@ export class Rooms {
         me.hasPos = true;
         me.dirty = true;
         this.journal?.moved(me.id, me.lat, me.lon);
+        this.options.moved?.(me.id, me.lat, me.lon);
         // In a race, this may take them through their next gate, or over the line.
         const race = room?.race;
         if (race && room) {

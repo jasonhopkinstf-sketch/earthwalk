@@ -6,7 +6,9 @@ import { AccountDirectory } from "./people.ts";
 import { FORMAT_VERSION, GENERATOR_REV } from "./chunk.ts";
 import { LABELS_REV } from "./labels.ts";
 import { INTERIOR_REV } from "./interior.ts";
-import { keepRoom } from "./prune.ts";
+import { keepRoom, removeRetired } from "./prune.ts";
+import { RETIRED_CACHE, warmOsmTile } from "./osm.ts";
+import { keepShowsBuilt } from "./showcase.ts";
 
 // One thing going wrong for one player must never stop the world for everyone. Left alone, Node ends the
 // process when a promise fails with nobody waiting on it, or an error escapes a timer; here it is written down
@@ -31,12 +33,19 @@ const app = createApp({
   journalStore: new FileJournalStore(path.join(CACHE_DIR, "journal")),
   google: clientId && clientSecret ? { clientId, clientSecret } : undefined,
   baseUrl: process.env.EARTHWALK_BASE_URL,
+  // The map ahead of anyone travelling is downloaded before they get there (ahead.ts).
+  warm: (dx, dy) => void warmOsmTile(dx, dy),
 });
 // The cache only ever grew, and a full disk once stopped the server: old versions' leftovers go at start-up, and
 // room is kept free from then on (prune.ts). Accounts and journals are never touched.
 keepRoom(CACHE_DIR, [
   `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}`, `labels/v1.${LABELS_REV}`, `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}`,
 ]);
+
+// What an older way of downloading the map left behind is of no use now.
+void removeRetired(CACHE_DIR, RETIRED_CACHE).then((gone) => { if (gone.length) console.log(`cache: removed what is no longer read (${gone.join(", ")})`); });
+// The places in "Show me..." are kept built, so that showing the world to somebody starts at once.
+if (process.env.EARTHWALK_SHOWCASE !== "0") keepShowsBuilt(app.prepare, warmOsmTile);
 
 // A restart (every deploy is one) must not lose the last half minute of anyone's journal.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {

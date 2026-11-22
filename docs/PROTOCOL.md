@@ -261,8 +261,10 @@ animals' reactions. It then runs a little late and makes up the time. Cars do no
 
 ## Trains
 
-A railway runs far beyond the piece of map a chunk is built from, so the server fetches the tracks
-separately for a wide square (a zoom-13 tile, 8 by 8 chunks: `server/src/rail.ts`). Inside a square it
+A railway runs far beyond the piece of map a chunk is built from, so the server takes the tracks
+for a wider square (a zoom-14 tile, 4 by 4 chunks: `server/src/rail.ts`). That square is one block of
+the map download, so the tracks come with the map the chunk is built from, and there are trains
+whenever there is a world. Inside a square it
 joins main-line tracks end to end, keeping straight on at points and cutting them at the square's
 edge, and puts one train on each run of 400 m or more (the six longest at most). Tunnels and sidings
 are left out. Every chunk of the square builds its trains from the same tracks, and a `train` item is
@@ -325,6 +327,32 @@ Walls and ceilings are single sheets, so draw these surfaces from both sides. Th
 thirty layouts (`LAYOUTS` in `server/src/interior.ts`) stretched to the house; which layout, the
 paints and the furniture all follow from the building's identity, so a house is the same inside
 for everyone. Only the ground floor is built.
+
+## Things to show: `GET /v1/showcase`
+
+A short list of what the world can do, for showing it to somebody, each with a real place where the
+thing is right there (`server/src/showcase.ts`). Needs the access code or a player token, like the
+chunks. The server keeps these places built, so a show starts at once.
+
+```json
+{"shows": [{"id": "train", "title": "Catch a train", "text": "Trains run through Glen Eden, and stop at its station.",
+  "how": "When the train stops beside you, press E to hop on. E again hops off.",
+  "find": "train", "place": {"name": "Glen Eden station, Auckland", "lat": -36.9109, "lon": 174.6568}, "keep": 3}]}
+```
+
+`find` says what to stand the player beside once the world at `place` has arrived:
+
+- `train`: beside the track where a train is about to stand still (a station, or an end of its run),
+  or failing that where one is about to pass. A game works this out from the trains in its labels and
+  the shared clock; if none is due at the place within half a minute it goes along the line to one.
+- `home`: the nearest `home` label whose `sp` is one of the show's `sp`. With `ride`, within reach
+  of the animal (or boat, or tractor) itself.
+- `car`: beside the nearest parked `car` label. `door`: on the path at the nearest `door` label.
+- `air`: nothing to find: up in the air over the place, flying.
+
+A game may use a thing of the same kind that is already near its player, and not travel at all.
+`title`, `text` (what will be seen) and `how` (what to press) are for showing to the player. A game
+should skip a show whose `find` it does not know.
 
 ## Place search: `GET /v1/geocode?q=...`
 

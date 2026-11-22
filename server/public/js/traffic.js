@@ -215,6 +215,78 @@ export class Traffic {
     life.put(rig, coat, counts, null, 0, 0, t, 0);
   }
 
+  /**
+   * Where to stand to catch a train near a spot: for each train this game has that comes within `reach`
+   * metres of `from`, the first moment from shared time `t` on when it stands still there for a good while
+   * (at a station, or at an end of its run); or, if it does not within `within` seconds, the next time it
+   * passes the nearest point of its track, marked `passing`. `x`, `z` are where its middle will be then,
+   * `in` how many seconds off that is, and `heading` the compass way the track runs there.
+   */
+  boarding(t, from, reach, within = 90) {
+    const out = [];
+    for (const { train } of this.trains) {
+      const middle = (along) => TRAIN_M / 2 + (along * (train.length - TRAIN_M)) / train.length;
+      const away = (d) => {
+        const [x, z] = pointAt(train, d);
+        return Math.hypot(x - from.x, z - from.z);
+      };
+      let found = null;
+      for (let dt = 0; dt <= within && !found; dt++) {
+        const a = trainPose(train, t + dt);
+        if (a.moving) continue;
+        const b = trainPose(train, t + dt + 12);
+        if (!b.moving && Math.abs(a.along - b.along) < 0.01 && away(middle(a.along)) <= reach) found = { in: dt, d: middle(a.along), passing: false };
+      }
+      if (!found) {
+        // The point of its track nearest the spot, and when its middle next goes by there.
+        let near = -1;
+        let nearest = reach;
+        for (let d = TRAIN_M / 2; d <= train.length - TRAIN_M / 2; d += 10) {
+          const m = away(d);
+          if (m <= nearest) { nearest = m; near = d; }
+        }
+        if (near < 0) continue; // this one never comes near
+        for (let dt = 8; dt <= within * 4 && !found; dt++) {
+          const a = trainPose(train, t + dt);
+          if (a.moving && Math.abs(middle(a.along) - near) < 14) found = { in: dt, d: near, passing: true };
+        }
+        if (!found) continue;
+      }
+      // Opposite the middle of a carriage, not the gap between two: within reach of a door, so to speak.
+      const beside = Math.min(train.length, found.d + (CARRIAGE_M + COUPLING_M) / 2);
+      const [x, z] = pointAt(train, beside);
+      out.push({ id: train.id, x, z, heading: headingAt(train, beside, 6), in: found.in, passing: found.passing });
+    }
+    return out;
+  }
+
+  /**
+   * Where to go to meet each train this game has soonest, wherever on its run that is: where it will be
+   * standing still within `wait` seconds, or failing that where it will be `lead` seconds from now.
+   */
+  soonest(t, wait = 30, lead = 20) {
+    const out = [];
+    for (const { train } of this.trains) {
+      const middle = (along) => TRAIN_M / 2 + (along * (train.length - TRAIN_M)) / train.length;
+      let found = null;
+      for (let dt = 0; dt <= wait && !found; dt++) {
+        const a = trainPose(train, t + dt);
+        if (a.moving) continue;
+        const b = trainPose(train, t + dt + 12);
+        if (!b.moving && Math.abs(a.along - b.along) < 0.01) found = { in: dt, d: middle(a.along), passing: false };
+      }
+      if (!found) {
+        const a = trainPose(train, t + lead);
+        found = { in: lead, d: middle(a.along), passing: a.moving };
+      }
+      // Opposite the middle of a carriage, not the gap between two: within reach of a door, so to speak.
+      const beside = Math.min(train.length, found.d + (CARRIAGE_M + COUPLING_M) / 2);
+      const [x, z] = pointAt(train, beside);
+      out.push({ id: train.id, x, z, heading: headingAt(train, beside, 6), in: found.in, passing: found.passing });
+    }
+    return out;
+  }
+
   /** Where carriage `k` of a train is at shared time `t`, for a passenger on its roof; null if this game does not have the train. */
   carriageAt(id, k, t) {
     const item = this.trains.find((x) => x.train.id === id);

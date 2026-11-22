@@ -45,6 +45,17 @@ export async function removeOldVersions(cacheDir: string, current: string[]): Pr
   return removed;
 }
 
+/** Removes whole folders of the cache that nothing reads any more (given as "osm/15", "rail"). Returns those that were there. */
+export async function removeRetired(cacheDir: string, retired: string[]): Promise<string[]> {
+  const gone: string[] = [];
+  for (const rel of retired) {
+    const dir = path.join(cacheDir, rel);
+    if (!(await stat(dir).then((s) => s.isDirectory(), () => false))) continue;
+    await rm(dir, { recursive: true, force: true }).then(() => gone.push(rel), () => undefined);
+  }
+  return gone;
+}
+
 /** Every file under a folder, with when it was last written. */
 async function filesUnder(dir: string, out: { file: string; at: number; size: number }[] = []): Promise<{ file: string; at: number; size: number }[]> {
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
