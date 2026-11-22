@@ -14,6 +14,7 @@ import { Taxis } from "./taxi.js";
 import { Pets } from "./pets.js";
 import { Garage } from "./garage.js";
 import { Races } from "./race.js";
+import { Play } from "./play.js";
 import { Treasure } from "./treasure.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
@@ -82,6 +83,7 @@ const orders = new Orders({ world, player, meetup, avatars, life, traffic, ridin
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 const pets = new Pets({ world, player, meetup, avatars, riding });
 const garage = new Garage({ world, meetup, riding, traffic });
+const play = new Play({ scene, world, meetup, player, avatars, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
 const races = new Races({ scene, world, meetup, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
@@ -211,7 +213,7 @@ meetup.addEventListener("journal", (e) => {
 });
 // A treasure found: the chest stands a few steps ahead of me, where I am looking.
 meetup.addEventListener("stamp", (e) => { if (e.detail.at) treasure.show(e.detail.at.lat, e.detail.at.lon, Math.sin(player.yaw) * 3.5, -Math.cos(player.yaw) * 3.5); });
-meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : e.detail.kind === "favour" ? "A favour" : e.detail.kind === "hunt" ? "Treasure hunt" : e.detail.kind === "expedition" ? "Expedition" : e.detail.kind === "race" ? "Race" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" || e.detail.kind === "hunt" ? "" : " (P opens your passport)"}`));
+meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : e.detail.kind === "favour" ? "A favour" : e.detail.kind === "hunt" ? "Treasure hunt" : e.detail.kind === "expedition" ? "Expedition" : e.detail.kind === "race" ? "Race" : e.detail.kind === "play" ? "Game over" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" || e.detail.kind === "hunt" ? "" : " (P opens your passport)"}`));
 meetup.addEventListener("home", (e) => { if (e.detail) notice(`Home set to ${e.detail.name}. You will start there next time.`); });
 
 // ---------------------------------------------------------------- the world
@@ -255,6 +257,7 @@ function frame(now) {
   houses.frame(dt);
   treasure.frame(dt);
   races.frame();
+  play.frame(meetup.now());
   everyone.length = 1;
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
@@ -378,7 +381,7 @@ addEventListener("keydown", (e) => {
   } else if (e.code === "KeyP" && document.activeElement !== say && !e.repeat) {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
-    races.key(); // set a race up, join one, or (if it is mine) start it
+    if (!play.key()) races.key(); // join or start the game that is set up here; failing one, a race
   } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
     // A door within reach, and nothing to ride: go in or out. Otherwise hop on whatever is nearest, or hop off.
     if (houses.near && !riding.mine && !riding.near) void houses.use();
@@ -430,6 +433,8 @@ async function command(name, arg) {
     notice("    your coins and hats, countries, places, friends,");
     notice("/clue   hear again the clue of the treasure hunt you are on");
     notice("/car    bring your own car to where you are (choose its paint in your passport)");
+    notice("/tag and /hide   set up a game of tag, or of hide and seek, where you stand: friends press R to join, and you");
+    notice("    press R to start. It takes two. (/tag stop leaves it, or ends your own.)");
     notice("R   a race along the roads here: R sets one up, R joins one a friend has set up, and R starts yours");
     notice("    (/race stop leaves it, or ends your own). Go on foot, on a horse or in a car: every gate in turn.");
     notice("    stamps, your level, riddles to solve");
@@ -441,6 +446,10 @@ async function command(name, arg) {
     meetup.sendTaxi(arg);
   } else if (name === "passport" || name === "journal") {
     passport.toggle();
+  } else if (name === "tag" || name === "hide") {
+    if (!meetup.joined) return problem("Not connected to the meetup server.");
+    if (arg.toLowerCase() === "stop") play.stop();
+    else play.make(name);
   } else if (name === "race") {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     races.key(arg.toLowerCase());
@@ -542,4 +551,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, garage, races, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, garage, races, play, sounds, command, isStarted: () => started };

@@ -79,6 +79,9 @@ export interface JournalDoc {
   /** Races finished, and those won against somebody else (race.ts). */
   races: number;
   racesWon: number;
+  /** Games of tag and of hide and seek played, and those won (play.ts). */
+  games: number;
+  gamesWon: number;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -122,7 +125,7 @@ export interface JournalView {
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play";
   /** For a treasure just found: where its finder stood, so that their game can show it there. */
   at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
@@ -273,6 +276,7 @@ const STAMPS: StampRule[] = [
   { id: "hunts", title: "Treasures found", unit: "treasures", steps: [1, 5, 20, 50], count: (d) => d.huntsDone ?? 0, say: (n) => `You have found ${one(n, "treasure")}` },
   { id: "races", title: "Races run", unit: "races", steps: [1, 5, 20, 50], count: (d) => d.races ?? 0, say: (n) => `You have finished ${one(n, "race")}` },
   { id: "wins", title: "Races won", unit: "races", steps: [1, 5, 20], count: (d) => d.racesWon ?? 0, say: (n) => `You have won ${one(n, "race")}` },
+  { id: "games", title: "Games played", unit: "games", steps: [1, 5, 20, 50], count: (d) => d.games ?? 0, say: (n) => `You have played ${one(n, "game")} of tag or hide and seek` },
   { id: "expeditions", title: "Expeditions", unit: "expeditions", steps: [1, 3, 6, 10, 15], count: (d) => Object.keys(d.expeditionsDone ?? {}).length, say: (n) => `You have finished ${one(n, "expedition")}` },
   { id: "tree", title: "Tree talker", unit: "", steps: [1], count: (d) => (d.talked.tree ? 1 : 0), say: () => "You have talked to a tree" },
   { id: "train", title: "All aboard", unit: "", steps: [1], count: (d) => (d.ridden.train ? 1 : 0), say: () => "You have ridden a train" },
@@ -287,7 +291,7 @@ export function pointsOf(d: JournalDoc): number {
   return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
     + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6
     + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4 + (d.huntsDone ?? 0) * 6 + Object.keys(d.expeditionsDone ?? {}).length * 8
-    + (d.races ?? 0) * 3 + (d.racesWon ?? 0) * 4;
+    + (d.races ?? 0) * 3 + (d.racesWon ?? 0) * 4 + (d.games ?? 0) * 3 + (d.gamesWon ?? 0) * 3;
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -300,7 +304,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0,
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0,
   };
 }
 
@@ -644,6 +648,19 @@ export class Journals {
       d.races = (d.races ?? 0) + 1;
       if (won) d.racesWon = (d.racesWon ?? 0) + 1;
       d.coins += coins;
+    });
+  }
+
+  /** A game of tag or of hide and seek is over: whether this player won, what it paid, and the words to tell them. */
+  played(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void {
+    const w = this.walkers.get(key);
+    if (!w) return;
+    this.note(w.open, "play", { kind, won: o.won });
+    this.tell(key, { kind: "play", title: o.title, text: `${o.text}: ${o.coins} coins` });
+    this.change(key, w, (d) => {
+      d.games = (d.games ?? 0) + 1;
+      if (o.won) d.gamesWon = (d.gamesWon ?? 0) + 1;
+      d.coins += o.coins;
     });
   }
 

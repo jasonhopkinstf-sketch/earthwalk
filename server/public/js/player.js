@@ -228,7 +228,7 @@ export class Player {
         const ground = this.world.groundHeight(this.position.x, this.position.z);
         if (ground !== null && this.position.y < ground) this.position.y = ground;
       } else {
-        const speed = (fast ? RUN : WALK) * dt;
+        const speed = (fast ? RUN : WALK) * (this.boost ?? 1) * dt; // whoever is "it" at tag is a little quicker (play.js)
         move.set(sin * forward + cos * strafe, 0, -cos * forward + sin * strafe);
         if (move.lengthSq() > 1) move.normalize();
         this.moveHorizontally(move.multiplyScalar(speed));

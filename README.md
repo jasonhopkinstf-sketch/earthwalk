@@ -207,6 +207,13 @@ the world, joins them into runs and timetables a train along each, stopping at s
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
 
+Tag, and hide and seek (in the browser so far): `/tag` or `/hide` (or a button in the passport) sets
+a game up inside a ring of orange flags where you stand; friends press R to join and you press R to
+start. At tag an arrow hangs over whoever is it, who runs a little faster; whoever was it least in
+three minutes wins. At hide and seek the seeker's screen goes dark for half a minute while the
+others hide, then names stop hanging over the hiders, and houses you can walk into are fair game.
+The server is the judge (`server/src/play.ts`, `server/public/js/play.js`).
+
 Races: press R beside a street and the server lays a course along the real
 roads, a few hundred metres to a mile, with a gate about every 120 m. Friends press R to join, and
 whoever set it up presses R again to start: a countdown, then every gate in turn, on foot, on a
@@ -328,7 +335,7 @@ which carries the player at the car's velocity and puts the camera behind it; pl
 drawn by `UEarthCompany::GarageFrame`, and the garage is a page of the passport.
 Companions are `UEarthCompany::PetFrame` (the sums of `pets.js`): each trots after its player, and
 can be talked to and, if big enough, ridden. Races are in `UEarthCompany` too (R, the countdown and the list of runners), with the gates stood up
-by `AEarthRaceCourse`.
+by `AEarthRaceCourse`. Not in the Windows game yet: tag, and hide and seek.
 
 ## Art assets and the look
 

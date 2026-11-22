@@ -17,6 +17,7 @@ export class Meetup extends EventTarget {
     this.taxis = new Map(); // thing -> a taxi on its way to whoever called it (taxi.js)
     this.cars = new Map(); // member id -> their own car, where it stands (garage.js)
     this.race = null; // the race set up in this room, if any (race.js)
+    this.play = null; // the game of tag or of hide and seek in this room, if any (play.js)
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
     this.clockOffset = 0;
     this.clockTrip = Infinity;
@@ -162,6 +163,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "race", [what]: true });
   }
 
+  /** Tag, and hide and seek: { make: "tag" | "hide" } sets one up where I stand; { join }, { go } (its maker) and { stop } as for a race. */
+  sendPlay(what) {
+    this.send({ t: "play", ...what });
+  }
+
   callCar() {
     this.send({ t: "garage", call: true });
   }
@@ -220,6 +226,8 @@ export class Meetup extends EventTarget {
         this.cars = new Map((msg.cars ?? []).map((c) => [c.id, c]));
         this.race = msg.race ?? null;
         this.emit("race", this.race);
+        this.play = msg.play ?? null;
+        this.emit("play", this.play);
         if (this.ride) {
           this.ride = null; // a new connection starts on foot
           this.emit("ride", null);
@@ -253,6 +261,11 @@ export class Meetup extends EventTarget {
         }
         break;
       }
+      case "play":
+        // The game of tag or of hide and seek in this room, whole, each time anything about it changes.
+        this.play = msg.play ?? null;
+        this.emit("play", this.play);
+        break;
       case "race":
         // The race in this room, whole, each time anything about it changes; null when it is over and cleared away.
         this.race = msg.race ?? null;
