@@ -544,7 +544,13 @@ bool AEarthWorld::BuildInterior(FIntPoint Key, int64 Id, const TArray<uint8>& Da
 			Triangles.Add(static_cast<int32>(C + NumVerts));
 			Triangles.Add(static_cast<int32>(B + NumVerts));
 		}
-		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, NoUVs, NoUVs, NoUVs, NoUVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
+		// The ceiling (surface 42) comes without collision, and the camera of the views from behind would
+		// then rise through it and show the world outside over the top of the room. Solid here, the
+		// camera's own test keeps it under. Nobody reaches a ceiling on foot: the lowest is 2.3 m.
+		// (-EWOpenCeiling leaves it as it comes, to see the difference in a test.)
+		static const bool bOpenCeiling = FParse::Param(FCommandLine::Get(), TEXT("EWOpenCeiling"));
+		const bool bSolid = (Flags & FlagCollision) != 0 || (SurfaceId == 42 && !bOpenCeiling);
+		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, NoUVs, NoUVs, NoUVs, NoUVs, NoColors, NoTangents, bSolid);
 		Mesh->SetMaterial(Section, MaterialForSurface(SurfaceId, Color));
 	}
 	if (!bOk)

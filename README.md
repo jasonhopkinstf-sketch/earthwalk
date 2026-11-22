@@ -471,7 +471,8 @@ says that to it, and `-EWPassport` opens the passport. `-EWRace` sets a race up 
 `-EWSteer=<-1 to 1>` the wheel over. `-EWHat=<id>` puts a hat on the player's own figure, `-EWPassportDo=<what>:<id>` presses one of the
 passport's buttons (`start:hunt`), `-EWPassportScroll=<distance>` scrolls it, and `-EWTreasure`
 stands a treasure chest in front of the player. `-EWDoor` walks to the nearest front door that opens and goes
-in, and `-EWTaxi=<place_with_underscores>` calls a taxi (with `-EWRide=taxi` the game hops on when
+in (`-EWDoorTurn` then looks back at the door and a little down, which lifts the camera of the views
+from behind to the ceiling; `-EWOpenCeiling` lets it through, as it was before 0.2.42), and `-EWTaxi=<place_with_underscores>` calls a taxi (with `-EWRide=taxi` the game hops on when
 it has pulled up). While a screenshot is pending the game ignores the keyboard and
 mouse, so typing in another window cannot move the player.
 

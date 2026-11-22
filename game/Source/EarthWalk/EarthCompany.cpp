@@ -10,6 +10,7 @@
 #include "EarthWorld.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 
@@ -1881,6 +1882,16 @@ void UEarthCompany::TestAids(double Dt)
 		{
 			DoorTestStep = 3;
 			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: after the door: near %d, inside %d, hint \"%s\", feet at %.2f m"), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint, Me->FeetLocation().Z / 100.0);
+			// -EWDoorTurn then looks back at the door from inside and a little down, which puts the camera of
+			// the views from behind out in the middle of the room and high, where only the ceiling can stop it.
+			APlayerController* PC = Cast<APlayerController>(Me->GetController());
+			if (PC && FParse::Param(FCommandLine::Get(), TEXT("EWDoorTurn")))
+			{
+				FRotator Facing = PC->GetControlRotation();
+				Facing.Yaw += 180.0;
+				Facing.Pitch = -25.0;
+				PC->SetControlRotation(Facing);
+			}
 		}
 		else if (bDoorTest && DoorTestStep == 3 && TestClock > 16.0)
 		{
@@ -1894,7 +1905,9 @@ void UEarthCompany::TestAids(double Dt)
 		else if (bDoorTest && DoorTestStep == 4 && TestClock > 18.0)
 		{
 			DoorTestStep = 5;
-			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: later at the door: near %d, inside %d, hint \"%s\", feet at %.2f m"), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint, Me->FeetLocation().Z / 100.0);
+			const APlayerController* PC = Cast<APlayerController>(Me->GetController());
+			const double CameraM = PC && PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation().Z / 100.0 : 0.0;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: later at the door: near %d, inside %d, hint \"%s\", feet at %.2f m, camera at %.2f m"), bDoorNear ? 1 : 0, bDoorInside ? 1 : 0, *DoorHint, Me->FeetLocation().Z / 100.0, CameraM);
 		}
 	}
 	if ((RideKind.IsEmpty() && TalkKind.IsEmpty()) || TestStep > 3 || !Me || !Room || !Life || !Room->IsConnected() || Me->IsWaitingForGround() || !PlayerAt(Px, Pz))
