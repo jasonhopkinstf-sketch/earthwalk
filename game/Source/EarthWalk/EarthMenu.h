@@ -61,9 +61,22 @@ public:
 	void ShowStrip(bool bShow);
 	TSharedPtr<SEditableTextBox> GetAskInput() const { return AskInput; }
 
+	/**
+	 * The conversation with a thing: a speech bubble at the foot of the screen with its name, what it
+	 * last said, a few things to say with one click, and a line to type on. `Replies` are those few
+	 * things, as what the button says and what is said ("Follow me" / "follow me"); one whose words
+	 * are "..." asks where to first ("Take me to...").
+	 */
+	void ShowTalk(bool bShow, const FString& Name = FString(), const TArray<TPair<FString, FString>>& Replies = TArray<TPair<FString, FString>>());
+	void SetTalkName(const FString& Name);
+	void SetTalkWords(const FString& Text);
+	void SetTalkMine(const FString& Text);
+	TSharedPtr<SEditableTextBox> GetTalkInput() const { return TalkInput; }
+
 private:
 	TSharedRef<SWidget> ActionButton(const FEarthAction& Action, bool bOnStrip);
 	void HandleAsked(const FText& Text, ETextCommit::Type How);
+	void HandleTalked(const FText& Text, ETextCommit::Type How);
 
 	TWeakObjectPtr<AEarthWalkHUD> Owner;
 	TSharedPtr<SBorder> MenuPanel;
@@ -71,6 +84,18 @@ private:
 	TSharedPtr<STextBlock> AskTitle;
 	TSharedPtr<SEditableTextBox> AskInput;
 	TSharedPtr<SWidget> Strip;
+	TSharedPtr<SBorder> TalkPanel;
+	TSharedPtr<STextBlock> TalkName;
+	TSharedPtr<STextBlock> TalkWords;
+	TSharedPtr<STextBlock> TalkMine;
+	TSharedPtr<class SWrapBox> TalkReplies;
+	TSharedPtr<SEditableTextBox> TalkInput;
+	// Cream paper with an ink line round it, like the bubbles over the things themselves.
+	FSlateRoundedBoxBrush TalkBrush = FSlateRoundedBoxBrush(FLinearColor(FColor(255, 253, 244, 250)), 16.f, FLinearColor(FColor(38, 34, 31)), 2.5f);
+	FButtonStyle ReplyButton = FButtonStyle()
+		.SetNormal(FSlateRoundedBoxBrush(FLinearColor(FColor(38, 34, 31, 28)), 9.f))
+		.SetHovered(FSlateRoundedBoxBrush(FLinearColor(FColor(245, 197, 24, 255)), 9.f))
+		.SetPressed(FSlateRoundedBoxBrush(FLinearColor(FColor(220, 170, 10, 255)), 9.f));
 
 	FSlateRoundedBoxBrush PanelBrush = FSlateRoundedBoxBrush(FLinearColor::White, 12.f);
 	FSlateRoundedBoxBrush KeyBrush = FSlateRoundedBoxBrush(FLinearColor(FColor(245, 197, 24)), 5.f);

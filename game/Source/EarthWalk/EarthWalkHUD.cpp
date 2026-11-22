@@ -1506,6 +1506,41 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			FSlateApplication::Get().SetKeyboardFocus(Menu->GetAskInput(), EFocusCause::SetDirectly);
 		}
 	}
+	else if (bTalkOpen && Menu.IsValid() && FSlateApplication::IsInitialized())
+	{
+		// The conversation: it ends when the thing has been left behind, or on Esc; its name appears once
+		// it has introduced itself; and its line keeps the keyboard, wherever the pointer clicks.
+		const UEarthCompany* Talk = Company();
+		if (!Talk || !Talk->IsTalking())
+		{
+			CloseTalk(false);
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			CloseTalk(true);
+			bMenuTookEsc = true;
+		}
+		else
+		{
+			if (Talk->TalkingTo() != TalkNameShown)
+			{
+				TalkNameShown = Talk->TalkingTo();
+				Menu->SetTalkName(TalkNameShown);
+			}
+			if (FSlateApplication::Get().IsActive() && !Menu->GetTalkInput()->HasKeyboardFocus())
+			{
+				FSlateApplication::Get().SetKeyboardFocus(Menu->GetTalkInput(), EFocusCause::SetDirectly);
+			}
+		}
+	}
+	if (!Typing())
+	{
+		// A conversation begun some other way (a test switch) gets its bubble all the same.
+		if (const UEarthCompany* Begun = Company(); Begun && Begun->IsTalking())
+		{
+			OpenTalk();
+		}
+	}
 	if (!Typing())
 	{
 		if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
@@ -1596,10 +1631,16 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 	if (!bCompanyBound)
 	{
 		bCompanyBound = true;
-		// What somebody asked a thing, and what it answered, go in the log as well as in its bubble.
-		Friends->OnLine.AddWeakLambda(this, [this](const FString& Who, const FString& Text, bool bFromThing)
+		// What a thing says is in the bubble over its head, for everybody near; when it is the thing I am
+		// talking to, it is in the conversation's own bubble too. None of it goes in the chat window,
+		// which is for people.
+		Friends->OnLine.AddWeakLambda(this, [this](const FString&, const FString& Text, bool bFromThing)
 		{
-			AddLine(FString::Printf(TEXT("%s: %s"), *Who, *Text), bFromThing ? ThingColor : FLinearColor::White);
+			const UEarthCompany* Talk = Company();
+			if (bTalkOpen && bFromThing && Menu.IsValid() && Talk && Talk->LastSpoke() == Talk->TalkingThing())
+			{
+				Menu->SetTalkWords(Text);
+			}
 		});
 		// Where "Show me" is taking the player, and what to press there.
 		const AEarthWorld* ShowWorld = AEarthWorld::Get(this);
@@ -1641,8 +1682,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			if (Friends->KeyTalk())
 			{
-				Overlay->SetInputHint(FString::Printf(TEXT("Say something to %s..."), *Friends->TalkingTo()));
-				OpenChat(); // say hello, then type
+				OpenTalk(); // it says hello in its bubble, and there is a line there to answer on
 			}
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::R))
@@ -1685,13 +1725,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 			}
 		}
 	}
-	// What is typed goes to the thing being talked to, and the box says so.
-	const FString TalkingTo = Friends->IsTalking() ? Friends->TalkingTo() : FString();
-	if (TalkingTo != TalkingToShown)
-	{
-		TalkingToShown = TalkingTo;
-		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Tab shows everything you can do. Esc twice to quit.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
-	}
+	// (What is said to a thing is typed in its own bubble: the chat box is for people.)
 	Overlay->SetHint(Friends->GetHint());
 	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
 	Overlay->SetBubbles(Friends->GetBubbles(), PC);
@@ -2103,10 +2137,13 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	}
 	else if (Id == TEXT("talk"))
 	{
-		if (Friends && Friends->KeyTalk() && Overlay.IsValid())
+		if (Friends && Friends->KeyTalk())
 		{
-			Overlay->SetInputHint(FString::Printf(TEXT("Say something to %s..."), *Friends->TalkingTo()));
-			OpenChat();
+			OpenTalk();
+		}
+		else
+		{
+			AddLine(TEXT("There is nothing near enough to talk to. Walk up to an animal, a car, a tree or a house."), NoticeColor);
 		}
 	}
 	else if (Id == TEXT("race"))
@@ -2203,9 +2240,124 @@ void AEarthWalkHUD::AskDone(const FString& Typed)
 		ApplyGameInputMode(PC);
 	}
 	const FEarthAction* Action = EarthMenu::Find(Id);
-	if (Action && !Typed.IsEmpty())
+	if (Id == TEXT("taketo"))
+	{
+		// Said to whatever I am on (or in): "take me to the beach". It answers in its bubble.
+		UEarthCompany* Friends = Company();
+		if (Typed.IsEmpty())
+		{
+			return;
+		}
+		if (Friends && Friends->IsRiding() && (Friends->IsRidingIt() || Friends->KeyTalk()))
+		{
+			OpenTalk();
+			TalkSay(FString::Printf(TEXT("take me to %s"), *Typed));
+		}
+		else
+		{
+			AddLine(TEXT("Hop on something first (E beside an animal or a car), then ask it to take you. Or call a taxi: it comes to you."), NoticeColor);
+		}
+	}
+	else if (Action && !Typed.IsEmpty())
 	{
 		RunCommand(Action->Command, Typed);
+	}
+}
+
+void AEarthWalkHUD::OpenTalk()
+{
+	APlayerController* PC = GetOwningPlayerController();
+	const UEarthCompany* Friends = Company();
+	if (!PC || !Menu.IsValid() || !Friends || !Friends->IsTalking())
+	{
+		return;
+	}
+	if (bTalkOpen)
+	{
+		return; // already in it: "Take me to..." from its own button
+	}
+	CloseShows();
+	ClosePassport();
+	CloseMenu();
+	CloseChat();
+	bTalkOpen = true;
+	TalkNameShown = Friends->TalkingTo();
+	if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+	{
+		Character->bTyping = true;
+	}
+	// A few things to say with one click, by what it is: a car is told where to go, an animal what to do.
+	const FString Kind = Friends->TalkingKind();
+	TArray<TPair<FString, FString>> Replies;
+	const bool bDriven = Kind == TEXT("car") || Kind == TEXT("taxi") || Kind == TEXT("tractor");
+	const bool bStands = Kind == TEXT("tree") || Kind == TEXT("house") || Kind == TEXT("train") || Kind == TEXT("railcar");
+	if (Friends->IsRidingIt() || bDriven)
+	{
+		Replies.Emplace(TEXT("Take me to..."), TEXT("..."));
+	}
+	if (bDriven)
+	{
+		Replies.Emplace(TEXT("Stay here"), TEXT("stay"));
+		Replies.Emplace(TEXT("Go home"), TEXT("go home"));
+		Replies.Emplace(TEXT("Toot!"), TEXT("make your noise"));
+	}
+	else if (!bStands)
+	{
+		Replies.Emplace(TEXT("Follow me"), TEXT("follow me"));
+		Replies.Emplace(TEXT("Come here"), TEXT("come here"));
+		Replies.Emplace(TEXT("Stay"), TEXT("stay"));
+		Replies.Emplace(TEXT("Go home"), TEXT("go home"));
+		Replies.Emplace(TEXT("Do a trick"), TEXT("do a trick"));
+	}
+	Replies.Emplace(TEXT("Can I help?"), TEXT("can I help?"));
+	Replies.Emplace(TEXT("Tell me about here"), TEXT("tell me about this place"));
+	Menu->ShowTalk(true, TalkNameShown, Replies);
+	FInputModeGameAndUI Mode;
+	Mode.SetWidgetToFocus(Menu->GetTalkInput());
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(Mode);
+	PC->bShowMouseCursor = true;
+	FSlateApplication::Get().SetKeyboardFocus(Menu->GetTalkInput(), EFocusCause::SetDirectly);
+}
+
+void AEarthWalkHUD::CloseTalk(bool bStopTalking)
+{
+	if (!bTalkOpen)
+	{
+		return;
+	}
+	bTalkOpen = false;
+	ChatClosedAt = FPlatformTime::Seconds();
+	if (Menu.IsValid())
+	{
+		Menu->ShowTalk(false);
+	}
+	if (UEarthCompany* Friends = bStopTalking ? Company() : nullptr)
+	{
+		Friends->StopTalking();
+	}
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+		{
+			Character->bTyping = bShowsOpen;
+		}
+		ApplyGameInputMode(PC);
+	}
+}
+
+void AEarthWalkHUD::TalkSay(const FString& Text)
+{
+	UEarthCompany* Friends = Company();
+	if (!Friends || !Friends->IsTalking() || Text.IsEmpty())
+	{
+		return;
+	}
+	Friends->Say(Text);
+	if (Menu.IsValid())
+	{
+		Menu->SetTalkMine(FString::Printf(TEXT("You: %s"), *Text));
+		Menu->SetTalkWords(TEXT("..."));
 	}
 }
 
@@ -2335,12 +2487,8 @@ void AEarthWalkHUD::Submit(const FString& Text)
 {
 	if (!Text.StartsWith(TEXT("/")))
 	{
-		UEarthCompany* Friends = Company();
-		if (Friends && Friends->IsTalking())
-		{
-			Friends->Say(Text); // to the cow, not to the room
-		}
-		else if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+		// To the room. (A thing is spoken to on the line of its own bubble: TalkSay.)
+		if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 		{
 			Net->SendChat(Text);
 		}
@@ -2405,8 +2553,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/car   bring your own car to where you are (choose its paint in your passport); /car away sends it off"), NoticeColor);
 		AddLine(TEXT("R   a race along the roads here: R sets one up, R joins one a friend has set up, and R starts yours"), NoticeColor);
 		AddLine(TEXT("    (/race stop leaves it, or ends your own). Go on foot, on a horse or in a car: every gate in turn."), NoticeColor);
-		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
-		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
+		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses): it answers in a bubble with a line to type on. Esc finishes."), NoticeColor);
+		AddLine(TEXT("    Tell it what to do, with the buttons in the bubble or in your own words: follow me, come here, stay, go home, do a trick. Riding it: take me to the beach"), NoticeColor);
 		AddLine(TEXT("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,"), NoticeColor);
 		AddLine(TEXT("    your coins and hats, riddles, countries, places, friends, stamps and your level. Its buttons work with the mouse."), NoticeColor);
 		AddLine(TEXT("/clue   hear again the clue of the treasure hunt you are on"), NoticeColor);

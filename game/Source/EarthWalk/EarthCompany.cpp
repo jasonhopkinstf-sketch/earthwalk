@@ -731,7 +731,7 @@ void UEarthCompany::TalkFrame(double Dt)
 		{
 			StopTalking();
 		}
-		TalkHint = bTalking ? FString::Printf(TEXT("Talking to %s  ·  Enter to speak  ·  Esc to stop"), *Title(To))
+		TalkHint = bTalking ? FString()
 			: bTalkNear ? FString::Printf(TEXT("T: talk to %s"), *Title(TalkNear))
 			: FString();
 	}
@@ -751,6 +751,7 @@ void UEarthCompany::OnSay(const FEarthSay& Said)
 		return;
 	}
 	Names.Add(Said.Thing, Said.Name);
+	Spoke = Said.Thing;
 	const FEarthPeer* Asker = Room->GetPeers().Find(Said.By);
 	const FString Who = Said.By == Room->GetMyId() ? Room->GetMyName() : Asker ? Asker->Name : FString(TEXT("Someone"));
 	if (!Said.Asked.IsEmpty())

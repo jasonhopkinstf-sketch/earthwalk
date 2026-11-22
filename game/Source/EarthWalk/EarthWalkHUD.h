@@ -72,6 +72,10 @@ public:
 	void ToggleMenu();
 	/** The box that asked "where to?" has its answer; nothing typed is a change of mind. */
 	void AskDone(const FString& Typed);
+	/** Says something to the thing being talked to: typed on the bubble's line, or one of its buttons. */
+	void TalkSay(const FString& Text);
+	/** Esc on the bubble's line: the conversation is over. */
+	void EndTalk() { CloseTalk(true); }
 
 private:
 
@@ -81,7 +85,12 @@ private:
 	/** Z: the strip of buttons along the bottom, on or off, and remembered. */
 	void ToggleStrip();
 	/** Typing into the chat box or into the box that asks "where to?": the keys are letters, not commands. */
-	bool Typing() const { return bChatOpen || bAskOpen; }
+	bool Typing() const { return bChatOpen || bAskOpen || bTalkOpen; }
+	/** The conversation with a thing, in its bubble at the foot of the screen (EarthMenu.h): T starts one. */
+	void OpenTalk();
+	void CloseTalk(bool bStopTalking);
+	bool bTalkOpen = false;
+	FString TalkNameShown;
 
 	TSharedPtr<SEarthMenu> Menu;
 	bool bMenuOpen = false;
@@ -106,7 +115,6 @@ private:
 	double QuitAskedAt = -100.0; // when Esc last asked "leave?"; Esc again within a few seconds leaves
 	bool bCluePending = false; // /clue asked for the journal, to read the clue out when it comes
 	double StartedAt = 0.0;
-	FString TalkingToShown;
 	bool bChatOpen = false;
 	double ChatClosedAt = 0.0;
 	float StatusTimer = 0.f;

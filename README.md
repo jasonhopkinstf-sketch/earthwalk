@@ -105,6 +105,7 @@ Controls (Unreal):
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
 | `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `T` | Talk to what is nearest. In the Windows game the conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; Esc finishes. Nothing a thing says goes in the chat window |
 | `Esc`, `Esc` | Leave the game (Windows; it fills the screen, so there is no window to close). `/quit` does the same |
 | `P` | Your passport (`/passport` does the same) |
 | `G` | Show me: a list of things to show somebody; pick one and you are taken straight to it (`/show` does the same) |

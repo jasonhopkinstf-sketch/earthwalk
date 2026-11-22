@@ -18,6 +18,9 @@ namespace
 	const FLinearColor DimColor(1.f, 1.f, 1.f, 0.62f);
 	const FLinearColor KeyInk(FColor(38, 34, 31));
 	const FLinearColor GoldColor(FColor(245, 197, 24));
+	const FLinearColor PaperInk(FColor(38, 34, 31));
+	const FLinearColor PaperDim(FColor(38, 34, 31, 150));
+	const FLinearColor PaperName(FColor(138, 79, 45));
 
 	// Everything a player can do, in the order the menu shows it. A new thing to do is one line here
 	// (and, when it is not a chat command already, a few in AEarthWalkHUD::MenuAction).
@@ -33,6 +36,7 @@ namespace
 		{ TEXT("ride"), TEXT("Ride and drive"), TEXT("Hop on, or hop off"), TEXT("The nearest animal, car, tractor, boat or train. At a door with a COME IN sign, go in."), TEXT("E"), TEXT(""), TEXT(""), TEXT(""), TEXT("Ride") },
 		{ TEXT("car"), TEXT("Ride and drive"), TEXT("Call my car"), TEXT("Your own car drives to where you are."), TEXT(""), TEXT("car"), TEXT(""), TEXT(""), TEXT("My car") },
 		{ TEXT("caraway"), TEXT("Ride and drive"), TEXT("Send my car away"), TEXT("It goes back to wherever it waits."), TEXT(""), TEXT("car away"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("taketo"), TEXT("Ride and drive"), TEXT("Take me to..."), TEXT("On an animal or in a car: tell it where, and it carries you there by itself."), TEXT(""), TEXT(""), TEXT("Where should it take you?"), TEXT("the beach"), TEXT("") },
 		{ TEXT("taxi"), TEXT("Ride and drive"), TEXT("Call a taxi..."), TEXT("It comes to you and drives you there. Press E beside it to get in."), TEXT(""), TEXT("taxi"), TEXT("Where should the taxi take you?"), TEXT("the beach"), TEXT("Taxi...") },
 
 		{ TEXT("talk"), TEXT("Talk"), TEXT("Talk to what is nearest"), TEXT("Animals, cars, trains, trees and houses all answer. Tell one what to do: follow me, stay, take me to the beach."), TEXT("T"), TEXT(""), TEXT(""), TEXT(""), TEXT("Talk") },
@@ -226,6 +230,49 @@ void SEarthMenu::Construct(const FArguments&, AEarthWalkHUD* InOwner)
 				]
 			]
 		]
+		// The conversation with a thing: a speech bubble at the foot of the screen.
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 84.f)
+		[
+			SAssignNew(TalkPanel, SBorder)
+			.BorderImage(&TalkBrush)
+			.BorderBackgroundColor(FLinearColor::White)
+			.Padding(FMargin(20.f, 12.f, 20.f, 14.f))
+			.Visibility(EVisibility::Collapsed)
+			[
+				SNew(SBox).WidthOverride(560.f)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().FillWidth(1.f)
+						[
+							SAssignNew(TalkName, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 15)).ColorAndOpacity(PaperName)
+						]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Line(TEXT("Esc to finish"), TEXT("Regular"), 10, PaperDim)]
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 0.f)
+					[
+						SAssignNew(TalkWords, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 16)).ColorAndOpacity(PaperInk).WrapTextAt(556.f)
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
+					[
+						SAssignNew(TalkMine, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Italic", 11)).ColorAndOpacity(PaperDim).WrapTextAt(556.f)
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 8.f, 0.f, 0.f)
+					[
+						SAssignNew(TalkReplies, SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(6.0, 6.0))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 10.f, 0.f, 0.f)
+					[
+						SAssignNew(TalkInput, SEditableTextBox)
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 14))
+						.ClearKeyboardFocusOnCommit(false)
+						.OnTextCommitted(this, &SEarthMenu::HandleTalked)
+					]
+				]
+			]
+		]
 		// The question an action asks: where to, who, which.
 		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, 170.f, 0.f, 0.f)
 		[
@@ -282,6 +329,90 @@ void SEarthMenu::ShowAsk(const FEarthAction* Action)
 		AskTitle->SetText(FText::FromString(Action->Ask));
 		AskInput->SetText(FText::GetEmpty());
 		AskInput->SetHintText(FText::FromString(FString::Printf(TEXT("for example: %s"), Action->AskHint)));
+	}
+}
+
+void SEarthMenu::ShowTalk(bool bShow, const FString& Name, const TArray<TPair<FString, FString>>& Replies)
+{
+	TalkPanel->SetVisibility(bShow ? EVisibility::Visible : EVisibility::Collapsed);
+	if (!bShow)
+	{
+		return;
+	}
+	SetTalkName(Name);
+	TalkWords->SetText(FText::FromString(TEXT("...")));
+	SetTalkMine(FString());
+	TalkInput->SetText(FText::GetEmpty());
+	TalkReplies->ClearChildren();
+	const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+	for (const TPair<FString, FString>& Reply : Replies)
+	{
+		const FString Words = Reply.Value;
+		TalkReplies->AddSlot()
+		[
+			SNew(SButton)
+			.IsFocusable(false) // the typing line keeps the keyboard
+			.ButtonStyle(&ReplyButton)
+			.ContentPadding(FMargin(10.f, 4.f))
+			.OnClicked_Lambda([Hud, Words]()
+			{
+				if (AEarthWalkHUD* Screen = Hud.Get())
+				{
+					if (Words == TEXT("..."))
+					{
+						Screen->MenuAction(TEXT("taketo"));
+					}
+					else
+					{
+						Screen->TalkSay(Words);
+					}
+				}
+				return FReply::Handled();
+			})
+			[
+				Line(Reply.Key, TEXT("Bold"), 11, PaperInk)
+			]
+		];
+	}
+}
+
+void SEarthMenu::SetTalkName(const FString& Name)
+{
+	TalkName->SetText(FText::FromString(Name));
+	TalkInput->SetHintText(FText::FromString(FString::Printf(TEXT("Say something to %s, and press Enter"), *Name)));
+}
+
+void SEarthMenu::SetTalkWords(const FString& Text)
+{
+	TalkWords->SetText(FText::FromString(Text));
+}
+
+void SEarthMenu::SetTalkMine(const FString& Text)
+{
+	TalkMine->SetVisibility(Text.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+	TalkMine->SetText(FText::FromString(Text));
+}
+
+void SEarthMenu::HandleTalked(const FText& Text, ETextCommit::Type How)
+{
+	AEarthWalkHUD* Hud = Owner.Get();
+	if (!Hud)
+	{
+		return;
+	}
+	// Enter says it and leaves the line ready for the next thing; Esc ends the conversation.
+	if (How == ETextCommit::OnEnter)
+	{
+		const FString Typed = Text.ToString().TrimStartAndEnd();
+		TalkInput->SetText(FText::GetEmpty());
+		if (!Typed.IsEmpty())
+		{
+			Hud->TalkSay(Typed);
+		}
+	}
+	else if (How == ETextCommit::OnCleared)
+	{
+		Hud->EndTalk();
 	}
 }
 

@@ -64,6 +64,12 @@ public:
 	bool IsTalking() const { return bTalking; }
 	/** "Daisy the cow", or "the cow" until she has introduced herself. */
 	FString TalkingTo() const { return Title(To); }
+	/** What kind of thing is being talked to ("cow", "car", "taxi", "tree"...), which thing it is, and whether I am riding it. */
+	FString TalkingKind() const { return To.Sp; }
+	uint32 TalkingThing() const { return To.Thing; }
+	bool IsRidingIt() const { return bTalking && Mine.bOn && Mine.Thing == To.Thing; }
+	/** The thing that spoke last, as OnLine is being told of it. */
+	uint32 LastSpoke() const { return Spoke; }
 
 	/** What E and T would do just now, for the line at the foot of the screen; empty when nothing is near. */
 	const FString& GetHint() const { return Hint; }
@@ -81,6 +87,9 @@ public:
 
 	/** A line for the chat log: what somebody asked a thing, and what it answered. */
 	FOnEarthThingLine OnLine;
+
+private:
+	uint32 Spoke = 0;
 
 private:
 	// ---- riding
