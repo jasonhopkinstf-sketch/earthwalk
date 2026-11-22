@@ -5,7 +5,7 @@
 // "Daily tasks, coins and hats").
 
 import * as THREE from "three";
-import { makeAnimal } from "./avatars.js";
+import { makeAnimal, wearHat } from "./avatars.js";
 import { HAT_IDS, makeHat } from "./hats.js";
 import { CALLED } from "./talk.js";
 
@@ -92,7 +92,7 @@ export class Passport {
     const w = close ? 144 : 300, h = close ? 144 : 380;
     const figure = makeAnimal(avatar);
     const worn = hat ? makeHat(hat) : null;
-    if (worn) figure.add(worn);
+    if (worn) wearHat(figure, worn);
     figure.rotation.y = 0.45; // turned a little, so a hat's shape shows
     scene.add(figure);
     renderer.setSize(w, h, false);
