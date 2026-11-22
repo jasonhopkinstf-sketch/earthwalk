@@ -599,6 +599,8 @@ each thing (a cow milk, a hen an egg, one tree in three its fruit); so does a fa
 | `{"t":"food","eat":"milk"}` | Eat one of these from my lunch box. |
 | `{"t":"food","menu":"food"}` | What is sold where I am: `"shop"` for a shop, `"food"` for somewhere to eat. |
 | `{"t":"food","buy":"sushi","at":"food"}` | Buy one, from a shop or (`at` `"food"`) somewhere to eat, into my lunch box. It must be on that menu. |
+| `{"t":"food","cook":"sandwich"}` | Cook a recipe from what is in my lunch box: two helpings of the meal come in place of what it needs. Only within 40 m of the door of a house of my own, and only a recipe I know. |
+| `{"t":"food","give":"sandwich","to":"<member id>"}` | Give one of these to a player in my room who is within 20 m. Both are sent their `journal`, and both a `stamp` of kind `food`. |
 
 The answers: after eating, `{"t":"pep","on":true}` (true once all five hearts are full today: the
 player may then go about a tenth quicker on foot; it is also sent, true, on joining later the same
@@ -610,7 +612,10 @@ day) and the `journal`; after buying, the `journal`; and for a menu
 
 A café's menu begins with the dishes of the country the player is in. News of food comes as `stamp`
 messages of kind `food`. The journal's `food` has `hearts` (the five, each `group`, `title`, `full`),
-`full`, `healthyDays`, `coinsFull`, `larder` (each `id`, `name`, `groups`, `n`) and `room`. A `sign`
+`full`, `healthyDays`, `coinsFull`, `larder` (each `id`, `name`, `groups`, `n`), `room`, and `recipes`
+(each `id`, the meal's `name` and `groups`, `makes`, `needs` as words with whether the lunch box `have`s
+each, `known`, `can` and `times`; three are known at first, and each cooked for the first time makes
+the next one known). A `sign`
 label of a shop or of somewhere to eat carries `use`: `"shop"` or `"food"`. Clients are expected to
 show the hearts, let the player eat from the lunch box, and offer the menu beside such a sign.
 

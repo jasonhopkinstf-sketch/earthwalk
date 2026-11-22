@@ -131,6 +131,9 @@ export interface JournalKeeper {
   pepOf?(key: string): boolean;
   menuOf?(key: string, use: "shop" | "food"): { country: string | null; items: { id: string; name: string; groups: string[]; price: number }[] };
   buyFood?(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown";
+  /** Cooking a recipe from the lunch box, and giving one thing from it to another player. */
+  cook?(key: string, id: string): "ok" | "locked" | "missing" | "unknown";
+  giveFood?(key: string, to: string, id: string, fromName: string, toName: string): "ok" | "none" | "full";
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -468,7 +471,7 @@ export class Rooms {
       } else if (msg.t === "food" && room) {
         // Food (food.ts): eat something from my lunch box (`eat`), ask what a shop or a café sells where I am
         // (`menu`: "shop" or "food"), or buy something there (`buy`, with `at` saying which of the two it is).
-        const eat = clean(msg.eat, 16), buy = clean(msg.buy, 16);
+        const eat = clean(msg.eat, 16), buy = clean(msg.buy, 16), cook = clean(msg.cook, 16), give = clean(msg.give, 16);
         const use = msg.menu === "food" || msg.at === "food" ? "food" : "shop";
         if (eat) {
           if (this.journal?.eat?.(me.id, eat) !== "ok") { send({ t: "error", code: "locked", text: "There is none of that in your lunch box" }); return; }
@@ -478,6 +481,23 @@ export class Rooms {
           const got = this.journal?.buyFood?.(me.id, use, buy) ?? "unknown";
           if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : got === "full" ? "Your lunch box is full: eat something first" : "That is not sold here" }); return; }
           send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (cook) {
+          // Cooking is done at home: in, or just outside, a house of my own.
+          const mine = this.options.homes?.of(me.personId ?? me.id);
+          const metres = mine && me.hasPos ? Math.hypot((mine.lat - me.lat) * 111_320, (mine.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) : Infinity;
+          if (metres > 40) { send({ t: "error", code: "far", text: mine ? "Cooking is done in your own kitchen: H takes you home" : "Cooking needs a kitchen of your own: go into a house nobody lives in and press H" }); return; }
+          const got = this.journal?.cook?.(me.id, cook) ?? "unknown";
+          if (got !== "ok") { send({ t: "error", code: "locked", text: got === "missing" ? "Something that recipe needs is not in your lunch box" : got === "locked" ? "You have not learnt that recipe yet" : "There is no such recipe" }); return; }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (give) {
+          // One thing from my lunch box to a friend who is standing by.
+          const friend = room.members.get(clean(msg.to, 64));
+          if (!friend || friend === me || !me.hasPos || !friend.hasPos
+            || Math.hypot((friend.lat - me.lat) * 111_320, (friend.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) > 20) { send({ t: "error", code: "far", text: "Stand beside the friend you want to give it to" }); return; }
+          const got = this.journal?.giveFood?.(me.id, friend.id, give, me.name, friend.name) ?? "none";
+          if (got !== "ok") { send({ t: "error", code: "locked", text: got === "full" ? `${friend.name}'s lunch box is full` : "There is none of that in your lunch box" }); return; }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+          if (friend.ws.readyState === friend.ws.OPEN) friend.ws.send(JSON.stringify({ t: "journal", journal: this.journal?.view(friend.id) ?? null }));
         } else if (msg.menu === "shop" || msg.menu === "food") {
           const menu = this.journal?.menuOf?.(me.id, use);
           send({ t: "menu", use, country: menu?.country ?? null, items: (menu?.items ?? []).map((x) => ({ id: x.id, name: x.name, groups: x.groups, price: x.price })) });

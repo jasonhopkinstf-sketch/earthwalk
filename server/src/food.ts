@@ -65,6 +65,10 @@ export const FOODS: Food[] = [
   f("cinnamonbun", "a cinnamon bun", ["grain"], 9), f("fondue", "a pot of cheese fondue", ["dairy", "grain"], 16),
   f("tagine", "a tagine", ["protein", "veg"], 16), f("stew", "a bowl of stew", ["protein", "veg"], 14),
   f("waffle", "a waffle", ["grain"], 9), f("nata", "a custard tart", ["dairy"], 9),
+  // and what is only ever cooked at home
+  f("fruitbowl", "a bowl of fruit and cream", ["fruit", "dairy"], 12), f("heartysoup", "a pot of hearty soup", ["veg", "protein"], 14),
+  f("breakfast", "a big breakfast bowl", ["grain", "dairy", "fruit"], 16), f("fishpie", "a fish pie", ["protein", "veg", "dairy"], 18),
+  f("feast", "a feast", ["fruit", "veg", "grain", "protein", "dairy"], 30),
 ];
 const BY_ID = new Map(FOODS.map((x) => [x.id, x]));
 export const foodById = (id: string): Food | undefined => BY_ID.get(id);
@@ -134,6 +138,64 @@ export function giftOf(sp: string, thing: number, lat: number): string | null {
 /** Something to give in thanks for a favour: good plain food, by who was helped. */
 export function thanksFood(thing: number): string {
   return pickOf(["apple", "bread", "cheese", "nuts", "carrot", "cake", "yoghurt", "berries"], thing, 0x5448);
+}
+
+/**
+ * Cooking, in the kitchen of a house of one's own: a recipe turns things from the lunch box into a meal, two
+ * helpings of it (one to eat and one to give away). Each thing needed is a food by name, one of several
+ * ("honey|chocolate"), or anything plain of a kind ("any:fruit"). The first three recipes are known from the
+ * start, and each recipe cooked for the first time teaches the next.
+ */
+export interface Recipe { id: string; makes: string; needs: string[] }
+export const RECIPES: Recipe[] = [
+  { id: "sandwich", makes: "sandwich", needs: ["bread", "any:dairy"] },
+  { id: "omelette", makes: "omelette", needs: ["egg", "any:dairy"] },
+  { id: "fruitbowl", makes: "fruitbowl", needs: ["any:fruit", "any:dairy"] },
+  { id: "heartysoup", makes: "heartysoup", needs: ["any:veg", "any:veg", "any:protein"] },
+  { id: "breakfast", makes: "breakfast", needs: ["any:grain", "milk", "any:fruit"] },
+  { id: "pancakes", makes: "pancakes", needs: ["egg", "milk", "any:grain"] },
+  { id: "pizza", makes: "pizza", needs: ["bread", "cheese", "tomato"] },
+  { id: "fishpie", makes: "fishpie", needs: ["fish", "potato", "milk"] },
+  { id: "cake", makes: "cake", needs: ["egg", "milk", "honey|chocolate"] },
+  { id: "feast", makes: "feast", needs: ["any:fruit", "any:veg", "any:grain", "any:protein", "any:dairy"] },
+];
+export const recipeById = (id: string): Recipe | undefined => RECIPES.find((r) => r.id === id);
+export const HELPINGS = 2;
+export const RECIPES_AT_FIRST = 3;
+/** How many recipes somebody knows who has cooked these (by recipe, how many times). */
+export const recipesKnown = (cooked: Record<string, number>): number => Math.min(RECIPES.length, RECIPES_AT_FIRST + RECIPES.filter((r) => cooked[r.id] > 0).length);
+
+/** A thing a recipe needs, in words: "a loaf of bread", "any fruit", "a pot of honey or a bar of chocolate". */
+export function needName(need: string): string {
+  if (need.startsWith("any:")) return `any ${GROUPS.find((g) => g.id === need.slice(4))?.title.toLowerCase() ?? "food"}`;
+  return need.split("|").map((id) => foodById(id)?.name ?? id).join(" or ");
+}
+
+/** What in a lunch box would do for one thing a recipe needs: plain foods only where any of a kind will do, so that no meal is cooked into another. */
+function fits(need: string, larder: Record<string, number>): string | null {
+  const have = (id: string): boolean => (larder[id] ?? 0) > 0;
+  if (need.startsWith("any:")) {
+    const group = need.slice(4);
+    return FOODS.find((x) => have(x.id) && x.groups.length === 1 && x.groups[0] === group)?.id ?? null;
+  }
+  return need.split("|").find(have) ?? null;
+}
+
+/**
+ * The things from a lunch box that a recipe would use, one for each thing it needs (null where there is
+ * nothing that will do). The named things are taken first, so that "any dairy" does not use up the milk
+ * that the recipe asks for by name.
+ */
+export function ingredients(recipe: Recipe, larder: Record<string, number>): (string | null)[] {
+  const left = { ...larder };
+  const out: (string | null)[] = recipe.needs.map(() => null);
+  const order = recipe.needs.map((need, i) => ({ need, i })).sort((a, b) => Number(a.need.startsWith("any:")) - Number(b.need.startsWith("any:")));
+  for (const { need, i } of order) {
+    const id = fits(need, left);
+    out[i] = id;
+    if (id) left[id]--;
+  }
+  return out;
 }
 
 /** The hearts that a set of eaten groups fills, in order. */

@@ -3,10 +3,14 @@
 // the map, what it sells. The server keeps all of it (docs/PROTOCOL.md, "Food and hearts"): the journal
 // says what is in the lunch box and which hearts are full, `menu` what is sold here, and `pep` whether all
 // five hearts are full, which makes the player a little quicker on their feet for the rest of the day.
+// In a house of one's own the lunch box is also a kitchen: recipes turn what is carried into meals, two
+// helpings at a time. And anything in it can be given to a friend who is standing by.
 
 const ICON = { fruit: "🍎", veg: "🥕", grain: "🍞", protein: "🥚", dairy: "🥛" };
 /** How near a shop's name board you must stand to buy there. */
 const SHOP_M = 14;
+/** How near a friend must stand to be given something. */
+const GIVE_M = 12;
 /** How much quicker on foot with all five hearts full (the server's PEP). */
 const PEP = 1.12;
 
@@ -21,7 +25,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 export class Lunch {
   /**
    * @param {{ panel: HTMLElement, hud: HTMLElement, meetup: import("./net.js").Meetup, world: import("./world.js").World,
-   *   player: import("./player.js").Player, hint: (text: string) => void }} parts
+   *   player: import("./player.js").Player, atHome: () => boolean, hint: (text: string) => void }} parts
    */
   constructor(parts) {
     Object.assign(this, parts);
@@ -29,6 +33,8 @@ export class Lunch {
     this.shop = null; // the shop or café within reach: { text, use }
     this.menu = null; // what it sells: { use, country, items }
     this.sinceScan = 0;
+    this.friend = null; // the friend near enough to be given something: { id, name }
+    this.home = false; // in my own house, where there is a kitchen
     const { meetup } = this;
     meetup.addEventListener("journal", (e) => { this.journal = e.detail; this.drawHearts(); if (this.open) this.draw(); });
     meetup.addEventListener("menu", (e) => { this.menu = e.detail; if (this.open) this.draw(); });
@@ -81,10 +87,23 @@ export class Lunch {
         }
       }
     }
+    // And is a friend near enough to be given something, or am I in my own kitchen?
+    let friend = null;
+    let friendD = GIVE_M;
+    for (const [id, peer] of this.meetup.peers) {
+      if (!peer.hasPosition) continue;
+      const at = world.geoToScene(peer.lat, peer.lon);
+      const d = Math.hypot(at.x - p.position.x, at.z - p.position.z);
+      if (d < friendD) { friendD = d; friend = { id, name: peer.name }; }
+    }
+    const home = this.atHome();
+    const changed = friend?.id !== this.friend?.id || home !== this.home;
+    this.friend = friend;
+    this.home = home;
     if (best?.text !== this.shop?.text || best?.use !== this.shop?.use) {
       this.shop = best ? { text: best.text, use: best.use } : null;
       if (this.open) { this.askMenu(); this.draw(); }
-    }
+    } else if (changed && this.open) this.draw();
     this.hint(this.shop ? `B: buy food at ${this.shop.text}` : "");
   }
 
@@ -134,10 +153,43 @@ export class Lunch {
       b.type = "button";
       b.append(el("b", "", `${cap(f.name)}${f.n > 1 ? ` ×${f.n}` : ""}`), el("span", "small", `Eat it · ${dots(f.groups)}`));
       b.addEventListener("click", () => this.meetup.sendFood({ eat: f.id }));
-      list.append(b);
+      if (this.friend) {
+        // With a friend standing by, each thing can be eaten or given.
+        const pair = el("div", "pair");
+        const give = el("button", "give", `Give to ${this.friend.name}`);
+        give.type = "button";
+        const to = this.friend.id;
+        give.addEventListener("click", () => this.meetup.sendFood({ give: f.id, to }));
+        pair.append(b, give);
+        list.append(pair);
+      } else list.append(b);
     }
     if (!food.larder.length) list.append(el("p", "small", "Empty. Talk (T) to a cow, a hen, a fruit tree, a tractor or a boat and it may give you something; or buy food at a real shop or café."));
     box.append(list);
+
+    // At home: the kitchen, and the recipes that are known.
+    if (this.home && food.recipes) {
+      const known = food.recipes.filter((r) => r.known);
+      box.append(el("h3", "", `Your kitchen (${known.length} of ${food.recipes.length} recipes)`));
+      const book = el("div", "recipes");
+      for (const r of known) {
+        const b = el("button", r.can ? "recipe can" : "recipe");
+        b.type = "button";
+        b.disabled = !r.can;
+        const needs = el("span", "small");
+        r.needs.forEach((need, i) => {
+          if (i) needs.append(" + ");
+          needs.append(el("span", need.have ? "have" : "want", need.name));
+        });
+        b.append(el("b", "", `${cap(r.name)} ×${r.makes} · ${dots(r.groups)}`), needs);
+        b.addEventListener("click", () => this.meetup.sendFood({ cook: r.id }));
+        book.append(b);
+      }
+      box.append(book);
+      if (known.length < food.recipes.length) box.append(el("p", "small", "Cook something you have not cooked before, and you learn the next recipe in the book."));
+    } else if (food.recipes && !this.shop) {
+      box.append(el("p", "small", "In a house of your own (H) this is a kitchen too: recipes turn what you carry into meals, two helpings at a time."));
+    }
 
     // Beside a shop or a café: what it sells.
     if (this.shop) {

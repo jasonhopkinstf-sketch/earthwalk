@@ -76,6 +76,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #lunch .food.buy { border-color: #c9bd9a; }
 #lunch .food b { font-weight: 600; }
 #lunch .food:disabled { cursor: default; opacity: .6; }
+#lunch .pair { display: flex; flex-direction: column; gap: 2px; }
+#lunch .pair .food { border-radius: 10px 10px 4px 4px; }
+#lunch .give { background: #2b2620; color: #f6efd9; border: 0; border-radius: 4px 4px 10px 10px; padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lunch .recipes { display: flex; flex-direction: column; gap: 5px; }
+#lunch .recipe { display: flex; flex-direction: column; text-align: left; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 13px; }
+#lunch .recipe.can { border-color: #d08a1e; background: #fdf1d8; cursor: pointer; }
+#lunch .recipe b { font-weight: 600; }
+#lunch .recipe .have { color: #2f6b3c; font-weight: 600; }
+#lunch .recipe .want { opacity: .75; text-decoration: underline dotted; }
+#lunch .recipe:disabled { opacity: .8; }
 #stamp.food { border-color: #3f7f4f; }
 #passport .homebox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #passport .homebox .go { background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }

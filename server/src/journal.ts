@@ -20,7 +20,7 @@ import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
 import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
 import { type Feat, howWon, pieceById, PIECES } from "./home.ts";
-import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, LARDER_MAX, menuFor, thanksFood } from "./food.ts";
+import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, HELPINGS, ingredients, LARDER_MAX, menuFor, needName, recipeById, RECIPES, recipesKnown, thanksFood } from "./food.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
@@ -89,6 +89,8 @@ export interface JournalDoc {
   /** Food (food.ts): what is in their lunch box, by food, and the days on which all five hearts were filled. */
   larder: Record<string, number>;
   healthyDays: number;
+  /** Meals cooked at home, by recipe, with how many times. */
+  cooked: Record<string, number>;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -132,7 +134,9 @@ export interface JournalView {
   /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
   house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
   /** Today's five hearts, whether all are full, and the lunch box: each food with the hearts it fills and how many are carried. */
-  food: { hearts: { group: string; title: string; full: boolean }[]; full: boolean; healthyDays: number; coinsFull: number; larder: { id: string; name: string; groups: string[]; n: number }[]; room: number };
+  food: { hearts: { group: string; title: string; full: boolean }[]; full: boolean; healthyDays: number; coinsFull: number; larder: { id: string; name: string; groups: string[]; n: number }[]; room: number;
+    /** The recipes there are: what each makes and needs (`have` says whether the lunch box has it), whether it is known yet, and whether it can be cooked now. */
+    recipes: { id: string; name: string; groups: string[]; makes: number; needs: { name: string; have: boolean }[]; known: boolean; can: boolean; times: number }[] };
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
@@ -294,6 +298,7 @@ const STAMPS: StampRule[] = [
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
   { id: "halves", title: "Both halves", unit: "", steps: [1], count: (d) => (d.north !== null && d.south !== null && d.north > 0 && d.south < 0 ? 1 : 0), say: () => "You have stood on both halves of the world" },
   { id: "north", title: "Far north", unit: "", steps: [1], count: (d) => (d.north !== null && d.north > 66.5 ? 1 : 0), say: () => "You have been north of the Arctic Circle" },
+  { id: "cooked", title: "Meals cooked", unit: "meals", steps: [1, 5, 20, 50], count: (d) => Object.values(d.cooked ?? {}).reduce((a, b) => a + b, 0), say: (n) => `You have cooked ${one(n, "meal")}` },
   { id: "healthy", title: "Healthy days", unit: "days", steps: [1, 3, 7, 14, 30, 100], count: (d) => d.healthyDays ?? 0, say: (n) => `You have filled all five hearts on ${one(n, "day")}` },
   { id: "south", title: "Far south", unit: "", steps: [1], count: (d) => (d.south !== null && d.south < -40 ? 1 : 0), say: () => "You have been to the far south" },
 ];
@@ -316,7 +321,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0,
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {},
   };
 }
 
@@ -386,6 +391,12 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       hearts: heartsOf(ate), full: ate.length >= GROUPS.length, healthyDays: d.healthyDays ?? 0, coinsFull: HEALTHY_COINS,
       larder: Object.entries(larder).filter(([id, n]) => n > 0 && foodById(id)).map(([id, n]) => ({ id, name: foodById(id)!.name, groups: foodById(id)!.groups, n })),
       room: Math.max(0, LARDER_MAX - Object.values(larder).reduce((a, b) => a + b, 0)),
+      recipes: RECIPES.map((r, i) => {
+        const using = ingredients(r, larder);
+        const known = i < recipesKnown(d.cooked ?? {});
+        const meal = foodById(r.makes)!;
+        return { id: r.id, name: meal.name, groups: meal.groups, makes: HELPINGS, needs: r.needs.map((need, k) => ({ name: needName(need), have: using[k] !== null })), known, can: known && using.every((x) => x !== null), times: (d.cooked ?? {})[r.id] ?? 0 };
+      }),
     }))(today.ate ?? [], d.larder ?? {}),
     house: { pieces: PIECES.map((p) => ({ id: p.id, slot: p.slot, name: p.name, price: p.price ?? null, how: howWon(p), owned: (d.pieces ?? []).includes(p.id), hex: p.hex })) },
     kept: d.personId !== null,
@@ -687,6 +698,52 @@ export class Journals {
         });
       }
     });
+    return "ok";
+  }
+
+  /**
+   * Cooks a recipe from what is in the lunch box: the things it needs go, and two helpings of the meal come.
+   * "locked" when the recipe is not known yet, "missing" when something it needs is not in the lunch box.
+   * (Whether the player is in their own kitchen is for the rooms to say.)
+   */
+  cook(key: string, id: string): "ok" | "locked" | "missing" | "unknown" {
+    const w = this.walkers.get(key);
+    const recipe = recipeById(id);
+    const meal = recipe ? foodById(recipe.makes) : undefined;
+    if (!w || !recipe || !meal) return "unknown";
+    const d = w.open.doc;
+    if (RECIPES.indexOf(recipe) >= recipesKnown(d.cooked ?? {})) return "locked";
+    const using = ingredients(recipe, d.larder ?? {});
+    if (using.some((x) => x === null)) return "missing";
+    this.note(w.open, "cook", { id });
+    this.change(key, w, (doc) => {
+      for (const used of using as string[]) if (--doc.larder[used] <= 0) delete doc.larder[used];
+      for (let i = 0; i < HELPINGS; i++) this.stock(doc, meal.id);
+      const cooked = (doc.cooked ??= {});
+      const before = recipesKnown(cooked);
+      cooked[recipe.id] = (cooked[recipe.id] ?? 0) + 1;
+      // A recipe cooked for the first time teaches the next one in the book.
+      const learnt = recipesKnown(cooked) > before ? foodById(RECIPES[recipesKnown(cooked) - 1].makes) : undefined;
+      this.tell(key, { kind: "food", title: `You cooked ${meal.name}`, text: `Two helpings, in your lunch box: one to eat and one to give a friend${learnt ? `. And you have learnt a new recipe: ${learnt.name}` : ""}` });
+    });
+    return "ok";
+  }
+
+  /**
+   * Gives one thing from a lunch box to somebody else's. "none" when there is none of it, "full" when their
+   * lunch box is. Both are told.
+   */
+  giveFood(key: string, to: string, id: string, fromName: string, toName: string): "ok" | "none" | "full" {
+    const giver = this.walkers.get(key), taker = this.walkers.get(to);
+    const food = foodById(id);
+    if (!giver || !taker || !food || giver.open === taker.open || !((giver.open.doc.larder ?? {})[id] > 0)) return "none";
+    if (!this.stock(taker.open.doc, id)) return "full";
+    taker.open.doc.updated = this.now();
+    taker.open.dirty = true;
+    this.change(key, giver, (d) => { if (--d.larder[id] <= 0) delete d.larder[id]; });
+    this.note(giver.open, "give", { id, to: toName });
+    this.tell(key, { kind: "food", title: `You gave ${toName} ${food.name}`, text: "That was kind" });
+    this.tell(to, { kind: "food", title: `${fromName} gave you ${food.name}`, text: "It is in your lunch box (B)" });
     return "ok";
   }
 

@@ -168,3 +168,126 @@ test("in a room: eating, the menu of where I am, and buying", async () => {
     rooms.wss.close();
   }
 });
+
+test("cooking: a recipe takes what it needs from the lunch box and makes two helpings; each new one teaches the next", async () => {
+  const { RECIPES, ingredients, recipesKnown, needName, HELPINGS } = await import("../src/food.ts");
+  for (const r of RECIPES) {
+    assert.ok(foodById(r.makes), r.id);
+    for (const need of r.needs) assert.ok(need.startsWith("any:") ? GROUPS.some((g) => g.id === need.slice(4)) : need.split("|").every((id) => foodById(id)), `${r.id}: ${need}`);
+  }
+  assert.equal(new Set(RECIPES.map((r) => r.id)).size, RECIPES.length);
+  assert.deepEqual([recipesKnown({}), recipesKnown({ sandwich: 2 }), recipesKnown(Object.fromEntries(RECIPES.map((r) => [r.id, 1])))], [3, 4, RECIPES.length]);
+  assert.deepEqual([needName("bread"), needName("any:fruit"), needName("honey|chocolate")], ["a loaf of bread", "any fruit", "a pot of honey or a bar of chocolate"]);
+  // The milk a recipe names is not used up as "any dairy"; a meal is never cooked into another.
+  const breakfast = RECIPES.find((r) => r.id === "breakfast")!, sandwich = RECIPES.find((r) => r.id === "sandwich")!;
+  assert.deepEqual(ingredients(breakfast, { rice: 1, milk: 1, apple: 1 }), ["rice", "milk", "apple"]);
+  assert.deepEqual(ingredients(sandwich, { bread: 1, milk: 1 }), ["bread", "milk"]);
+  assert.deepEqual(ingredients(sandwich, { bread: 1, omelette: 3 }), ["bread", null]);
+  assert.deepEqual(ingredients(RECIPES.find((r) => r.id === "heartysoup")!, { carrot: 1, egg: 1 }), ["carrot", null, "egg"]);
+
+  const journals = new Journals({ startCoins: 1000 });
+  const told: string[] = [];
+  journals.listen((_key, news) => { if (news.kind === "food") told.push(`${news.title}. ${news.text}`); });
+  await journals.joined("a", null, "family");
+  let v = journals.view("a") as JournalView;
+  assert.deepEqual(v.food.recipes.map((r) => [r.id, r.known, r.can]).slice(0, 4), [["sandwich", true, false], ["omelette", true, false], ["fruitbowl", true, false], ["heartysoup", false, false]]);
+  assert.deepEqual([journals.cook("a", "sandwich"), journals.cook("a", "heartysoup"), journals.cook("a", "nonsense")], ["missing", "locked", "unknown"]);
+  for (const id of ["bread", "cheese", "egg", "milk"]) assert.equal(journals.buyFood("a", "shop", id), "ok");
+  v = journals.view("a") as JournalView;
+  assert.deepEqual(v.food.recipes[0], { id: "sandwich", name: "a cheese sandwich", groups: ["grain", "dairy"], makes: HELPINGS, needs: [{ name: "a loaf of bread", have: true }, { name: "any dairy", have: true }], known: true, can: true, times: 0 });
+  assert.equal(journals.cook("a", "sandwich"), "ok");
+  v = journals.view("a") as JournalView;
+  // (The first dairy on the shelf is the milk; the cheese is still there for the omelette.)
+  assert.deepEqual(v.food.larder.map((f) => [f.id, f.n]).sort(), [["cheese", 1], ["egg", 1], ["sandwich", 2]]);
+  assert.ok(told.some((t) => /You cooked a cheese sandwich/.test(t) && /new recipe: a pot of hearty soup/.test(t)), told.join(" | "));
+  assert.deepEqual([v.food.recipes[3].known, v.food.recipes[4].known, v.stamps.find((s) => s.id === "cooked")!.have], [true, false, 1]);
+  told.length = 0;
+  for (const id of ["bread", "milk"]) journals.buyFood("a", "shop", id);
+  assert.equal(journals.cook("a", "sandwich"), "ok");
+  assert.ok(told.every((t) => !/new recipe/.test(t)), "cooked before: nothing new learnt");
+  assert.equal(journals.cook("a", "omelette"), "ok");
+  assert.equal((journals.view("a") as JournalView).food.recipes[4].known, true);
+
+  // Giving: one thing from my lunch box to a friend's, and both are told.
+  await journals.joined("b", null, "family");
+  told.length = 0;
+  assert.deepEqual([journals.giveFood("a", "b", "sandwich", "Sam", "Kim"), journals.giveFood("a", "b", "pizza", "Sam", "Kim"), journals.giveFood("a", "a", "sandwich", "Sam", "Sam"), journals.giveFood("a", "nobody", "sandwich", "Sam", "?")], ["ok", "none", "none", "none"]);
+  assert.deepEqual([(journals.view("b") as JournalView).food.larder.map((f) => [f.id, f.n]), (journals.view("a") as JournalView).food.larder.find((f) => f.id === "sandwich")!.n], [[["sandwich", 1]], 3]);
+  assert.deepEqual(told, ["You gave Kim a cheese sandwich. That was kind", "Sam gave you a cheese sandwich. It is in your lunch box (B)"]);
+  await journals.close();
+});
+
+test("in a room: cooking wants a kitchen of one's own, and food is given to a friend standing by", async () => {
+  const { Homes } = await import("../src/home.ts");
+  const homes = new Homes(null, () => 0);
+  const done: string[] = [];
+  const journal: JournalKeeper = {
+    listen: () => {}, joined: async () => {}, left: () => {}, moved: () => {}, rode: () => {}, talked: () => {}, view: (key) => ({ of: key.length > 0 }),
+    cook: (_key, id) => (id === "sandwich" ? (done.push("cook"), "ok") : id === "pizza" ? "locked" : "missing"),
+    giveFood: (_from, _to, id, fromName, toName) => (id === "sandwich" ? (done.push(`${fromName} to ${toName}`), "ok") : "full"),
+  };
+  const rooms = new Rooms(new GuestDirectory(""), {
+    journal, homes, findHome: async (_x, _y, id) => ({ home: { id, corners: [[0, 0], [0, -7], [10, -7], [10, 0]], x: 5, y: 0, along: [-1, 0], out: [0, 1], floor: 1, height: 5, seed: 1, wall: 0, porch: false }, lat: 52.01, lon: 4.71, yaw: 0 }),
+  });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const url = `ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`;
+  const join = async (name: string) => {
+    const ws = new WebSocket(url);
+    const inbox: Msg[] = [];
+    ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    ws.send(JSON.stringify({ t: "hello", name, room: "family", avatar: "fox" }));
+    const next = async (t: string): Promise<Msg> => {
+      for (let i = 0; i < 300; i++) {
+        const at = inbox.findIndex((m) => m.t === t);
+        if (at >= 0) return inbox.splice(at, 1)[0];
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`timed out waiting for "${t}"`);
+    };
+    const welcome = await next("welcome");
+    return { ws, inbox, next, id: welcome.id as string, send: (m: Msg) => ws.send(JSON.stringify(m)) };
+  };
+  try {
+    const sam = await join("Sam");
+    const kim = await join("Kim");
+    sam.send({ t: "pos", lat: 52.01, lon: 4.71, alt: 0, yaw: 0 });
+    kim.send({ t: "pos", lat: 52.0101, lon: 4.71, alt: 0, yaw: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    sam.send({ t: "food", cook: "sandwich" });
+    assert.match((await sam.next("error")).text, /kitchen of your own/);
+    await new Promise((r) => setTimeout(r, 2100));
+    sam.send({ t: "house", claim: { x: 1, y: 2, id: 77 } });
+    await sam.next("house");
+    sam.send({ t: "food", cook: "sandwich" });
+    await sam.next("journal");
+    sam.send({ t: "food", cook: "pizza" });
+    assert.equal((await sam.next("error")).text, "You have not learnt that recipe yet");
+    sam.send({ t: "food", cook: "feast" });
+    assert.equal((await sam.next("error")).text, "Something that recipe needs is not in your lunch box");
+    // Away from home there is no cooking.
+    sam.send({ t: "pos", lat: 52.02, lon: 4.71, alt: 0, yaw: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    sam.send({ t: "food", cook: "sandwich" });
+    assert.match((await sam.next("error")).text, /H takes you home/);
+    // Giving: to a friend close by, not to one a kilometre off.
+    sam.send({ t: "food", give: "sandwich", to: kim.id });
+    assert.equal((await sam.next("error")).code, "far");
+    sam.send({ t: "pos", lat: 52.01011, lon: 4.71, alt: 0, yaw: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    sam.send({ t: "food", give: "sandwich", to: kim.id });
+    await Promise.all([sam.next("journal"), kim.next("journal")]);
+    sam.send({ t: "food", give: "cake", to: kim.id });
+    assert.equal((await sam.next("error")).text, "Kim's lunch box is full");
+    sam.send({ t: "food", give: "sandwich", to: sam.id });
+    assert.equal((await sam.next("error")).code, "far");
+    assert.deepEqual(done, ["cook", "Sam to Kim"]);
+    sam.ws.close();
+    kim.ws.close();
+  } finally {
+    server.close();
+    rooms.wss.close();
+  }
+});

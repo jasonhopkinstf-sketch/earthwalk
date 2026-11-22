@@ -245,7 +245,11 @@ it, a hen an egg, a boat a fish, a tractor something from its field, one tree in
 something to eat; and beside a real shop or café on the map (its name is on a board) B shows what it
 sells for coins: groceries in a shop, and in a café the dishes of the country you are in (sushi in
 Japan, a cheese roll in the Netherlands, a meat pie in New Zealand). The foods, the gifts and the
-menus are `server/src/food.ts`; the journal keeps the lunch box.
+menus are `server/src/food.ts`; the journal keeps the lunch box. In a house of your own the lunch box
+is a kitchen too: ten recipes (`RECIPES`) turn what you carry into meals that fill several hearts, two
+helpings at a time. Three are known from the start, and each one cooked for the first time teaches
+the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
+lunch box has a button to give it to them.
 
 A house of your own (in the browser so far): go into any house nobody lives in (E at a door with a
 COME IN board) and press H. It is yours: your name goes up over the door for everybody, friends can

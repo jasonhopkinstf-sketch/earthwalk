@@ -84,7 +84,7 @@ const houses = new Houses({
   hint: (text) => { if (hints.door !== text) { hints.door = text; showHints(); } },
 });
 const lunch = new Lunch({
-  panel: $("lunch"), hud: $("hearts"), meetup, world, player,
+  panel: $("lunch"), hud: $("hearts"), meetup, world, player, atHome: () => houses.mine(),
   hint: (text) => { if (hints.food !== text) { hints.food = text; showHints(); } },
 });
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
