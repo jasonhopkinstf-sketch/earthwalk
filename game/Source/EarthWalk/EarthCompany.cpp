@@ -1267,23 +1267,8 @@ void UEarthCompany::DoorFrame(double Dt)
 		}
 	}
 	DoorHint = bDoorNear ? FString(bDoorInside ? TEXT("E: go out") : TEXT("E: go in")) : FString();
-	if (!bDoorNear && Me && World.IsValid() && !Me->IsWaitingForGround() && !Me->GetMount() && !Me->IsCarried() && PlayerAt(Px, Pz))
-	{
-		// Not at a door, but beside a house that opens: most do not, so say which way its door is.
-		TArray<FEarthDoor> Close;
-		World->DoorsNear(Px, Pz, 14.0, Close);
-		const double FeetM = Me->FeetLocation().Z / 100.0;
-		for (const FEarthDoor& Candidate : Close)
-		{
-			const double Out = (Candidate.Yaw * UE_DOUBLE_PI) / 180.0;
-			const bool bOutside = (Px - Candidate.X) * std::sin(Out) + (Pz - Candidate.Z) * -std::cos(Out) > -0.5 || FMath::Abs(FeetM - Candidate.H) > 1.5;
-			if (bOutside && std::hypot(Candidate.X - Px, Candidate.Z - Pz) < 14.0)
-			{
-				DoorHint = TEXT("You can go into this house: walk up to the door with the yellow COME IN sign");
-				break;
-			}
-		}
-	}
+	// (When one house in sixteen opened, a line here said so beside each that did. Most open now, since
+	// 0.2.25 of the server, so the yellow board over the door is all the telling that is needed.)
 }
 
 FString UEarthCompany::NearestHouse() const
@@ -1421,11 +1406,14 @@ void UEarthCompany::TestAids(double Dt)
 		{
 			DoorTestStep = 1;
 			TArray<FEarthDoor> DoorsHere;
-			World->DoorsNear(Px, Pz, 400.0, DoorsHere);
+			// -EWDoorId=<building> goes to that house, if it is within a kilometre and a half; otherwise the nearest.
+			int64 WantedId = 0;
+			FParse::Value(FCommandLine::Get(), TEXT("-EWDoorId="), WantedId);
+			World->DoorsNear(Px, Pz, WantedId ? 1500.0 : 400.0, DoorsHere);
 			const FEarthDoor* Best = nullptr;
 			for (const FEarthDoor& Candidate : DoorsHere)
 			{
-				if (!Best || std::hypot(Candidate.X - Px, Candidate.Z - Pz) < std::hypot(Best->X - Px, Best->Z - Pz))
+				if (WantedId ? Candidate.Id == WantedId : (!Best || std::hypot(Candidate.X - Px, Candidate.Z - Pz) < std::hypot(Best->X - Px, Best->Z - Pz)))
 				{
 					Best = &Candidate;
 				}

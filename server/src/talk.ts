@@ -128,6 +128,9 @@ const THEORIES = [
 
 export interface Persona { name: string; kind: string; a: string; mood: Mood; quirk: string; twist: string }
 
+/** What a kind of thing is called, with its article: "a cow", "an otter", "a hen". */
+export const aKind = (sp: string): string => (KINDS[sp] ?? KINDS.tree).a;
+
 /** Who a thing is. The same identity always gives the same character. */
 export function persona(thing: number, sp: string): Persona {
   const k = KINDS[sp] ?? KINDS.tree;
@@ -365,9 +368,10 @@ export class Talker {
 
   /**
    * What a thing answers, and anything it was asked to do. `speaker` is the animal the player is, never
-   * their name; `riding` says whether they are on its back (or in its seat) as they speak.
+   * their name; `riding` says whether they are on its back (or in its seat) as they speak. `notes` tell it what
+   * has just happened between them (favours.ts), for it to put in its own words.
    */
-  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false): Promise<Said> {
+  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false, notes: string[] = []): Promise<Said> {
     const p = persona(thing, sp);
     const key = `${room}/${sp}/${thing}`;
     const now = this.now();
@@ -393,7 +397,9 @@ export class Talker {
     const who = `${/^[aeiou]/.test(speaker) ? "An" : "A"} ${speaker}`;
     const line = `${who}${riding ? ", who is riding you," : ""} says: ${said.slice(0, MAX_SAID)}`;
     try {
-      const answer = await this.ask(this.model, systemPrompt(p, place, sp), [...talk.turns, { role: "user", content: line }], deeds);
+      // `notes` are things that have just happened between this visitor and this thing (a favour asked, a favour done).
+      const system = notes.length ? `${systemPrompt(p, place, sp)}\nRight now:\n${notes.map((n) => `- ${n}`).join("\n")}` : systemPrompt(p, place, sp);
+      const answer = await this.ask(this.model, system, [...talk.turns, { role: "user", content: line }], deeds);
       await this.spent(answer.inputTokens, answer.outputTokens);
       const act = answer.act;
       const deed = typeof act?.action === "string" ? (act.action as Deed) : null;

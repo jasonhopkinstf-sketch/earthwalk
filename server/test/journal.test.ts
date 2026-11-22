@@ -116,7 +116,7 @@ test("a signed-in person's journal is kept on disk, with a log of everything; a 
 
     assert.deepEqual((await readdir(dir)).sort(), ["abc123.json", "abc123.log"], "one summary and one log, and nothing for the guest");
     const log = (await readFile(path.join(dir, "abc123.log"), "utf8")).trim().split("\n").map((l) => JSON.parse(l) as Msg);
-    assert.deepEqual([...new Set(log.map((l) => l.k))].sort(), ["at", "go", "join", "leave", "place", "riddle", "stamp", "talk"]);
+    assert.deepEqual([...new Set(log.map((l) => l.k))].filter((k) => k !== "task" && k !== "day").sort(), ["at", "go", "join", "leave", "place", "riddle", "stamp", "talk"]);
     const talk = log.find((l) => l.k === "talk")!;
     assert.deepEqual([talk.sp, talk.thing, talk.name, talk.said, talk.reply], ["cow", 42, "Daisy", "what do you eat?", "Grass, mostly."]);
     assert.ok(log.filter((l) => l.k === "at").length >= 8, "a point of the trail about every hundred metres");
@@ -167,7 +167,8 @@ test("in a room: each player can read their own journal and hears only their own
     const kid = await join("Kid");
     await new Promise((r) => setTimeout(r, 50));
     mum.ws.send(JSON.stringify({ t: "pos", lat: 48.85, lon: 2.35, alt: 0, yaw: 0 }));
-    const stamp = await mum.next("stamp");
+    let stamp = await mum.next("stamp");
+    while (stamp.kind === "task") stamp = await mum.next("stamp"); // today's tasks are told first
     assert.ok(["Countries: 1", "France"].includes(stamp.title));
     mum.ws.send(JSON.stringify({ t: "ride", thing: 7, sp: "horse" }));
     mum.ws.send(JSON.stringify({ t: "talk", thing: 42, sp: "cow" }));
@@ -179,7 +180,7 @@ test("in a room: each player can read their own journal and hears only their own
     kid.ws.send(JSON.stringify({ t: "journal" }));
     const theirs = (await kid.next("journal")).journal as JournalView;
     assert.deepEqual([theirs.totals.countries, theirs.totals.friends, theirs.riddenKinds], [0, 0, []], "the other player's journal has none of it");
-    assert.equal(kid.inbox.filter((m) => m.t === "stamp").length, 0, "and they were told about none of the stamps");
+    assert.equal(kid.inbox.filter((m) => m.t === "stamp" && m.kind !== "task").length, 0, "and they were told about none of the stamps");
     mum.ws.close();
     kid.ws.close();
   } finally {
@@ -233,7 +234,7 @@ test("riddles unlock with the levels, are solved out in the world, and each one 
   assert.deepEqual(v.riddles.find((r) => r.id === "cow"), { id: "cow", text: v.riddles[0].text, solved: true, answer: "a cow" });
   assert.deepEqual(v.pets, ["cow"]);
   const told = news.get("a")!.filter((n) => n.kind === "riddle");
-  assert.ok(told.some((n) => n.title === "Riddle solved!" && /It was a cow. Now a cow will keep you company/.test(n.text)), `told so (heard ${told.map((n) => n.title + ": " + n.text).join(" | ")})`);
+  assert.ok(told.some((n) => n.title === "Riddle solved!" && /It was a cow: 15 coins. Now a cow will keep you company/.test(n.text)), `told so (heard ${told.map((n) => n.title + ": " + n.text).join(" | ")})`);
   assert.deepEqual([journals.setPet("a", "cow"), journals.petOf("a"), journals.setPet("a", "elephant"), journals.petOf("a")], [true, "cow", false, "cow"]);
 
   // More friends, a higher level, more riddles; and the crab must be met again now that its riddle is out.

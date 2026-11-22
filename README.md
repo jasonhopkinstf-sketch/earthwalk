@@ -232,6 +232,20 @@ the front door. Inside are rooms laid out from thirty recipes of our own
 bedrooms, bathrooms, studies and playrooms, with doorways, windows and furniture. A house is the same inside for everyone, and friends who go in together see each other.
 `server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
+Favours (in the browser so far): ask anything you talk to "can I help?" and it may ask a favour to
+do with what it is. A horse wants a run, a cat a walk, a house has a parcel for another house, and
+a tree that cannot leave its spot wants to hear what is down the road. Some ask without being
+asked. Each pays coins, up to three can be open at once, and none can be failed
+(`server/src/favours.ts`).
+
+Daily tasks, coins and hats (in the browser so far): the passport lists three small tasks each day,
+the same for everyone ("talk to a tree", "ride a kilometre on anything"). A task pays coins, all
+three pay more, and coins buy hats that friends see on you; two hats can only be won, by doing all
+three tasks on one day and on seven. Nothing can be failed and nothing runs out
+(`server/src/daily.ts`, `server/public/js/hats.js`). This is the first of the games planned on top of
+the passport: favours for the things you talk to, treasure hunts, races and a house of your own come
+next.
+
 Riddles and companions (in the browser so far): the passport has riddles, a few more at each level
 ("I carry my house on my back and leave a silver road behind me"). A riddle is solved out in the
 world, by finding its answer and talking to it or riding it, and each one solved wins that animal

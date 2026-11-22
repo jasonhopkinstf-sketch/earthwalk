@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import { newFigureState, restPose, stepFigure } from "./figuremotion.js";
+import { makeHat } from "./hats.js";
 
 export const ANIMALS = [
   { id: "fox", label: "Fox", emoji: "🦊", body: 0xd9682b, belly: 0xf4ede2, ears: "pointed", tail: "bushy" },
@@ -132,6 +133,11 @@ export function makeAnimal(id) {
   return g;
 }
 
+/** Puts a hat (hats.js, made in the figure's own measure) on a figure's head, so it nods and leans with it. */
+export function wearHat(figure, hat) {
+  put(figure.userData.rig.head, hat);
+}
+
 /**
  * Moves a figure made by makeAnimal on by `dt` seconds. `motion`: speed (metres a second), turn
  * (radians a second, to its right), inAir, flying, seated (see figuremotion.js).
@@ -216,8 +222,16 @@ export class Avatars {
         group.add(label);
         group.position.copy(target);
         this.scene.add(group);
-        entry = { group, label, name: peer.name, avatar: peer.avatar, before: new THREE.Vector3() };
+        entry = { group, label, name: peer.name, avatar: peer.avatar, hat: null, hatMesh: null, before: new THREE.Vector3() };
         this.shown.set(id, entry);
+      }
+      // The hat they are wearing, if any.
+      if ((peer.hat ?? null) !== entry.hat) {
+        entry.hatMesh?.removeFromParent();
+        entry.hat = peer.hat ?? null;
+        entry.hatMesh = entry.hat ? makeHat(entry.hat) : null;
+        if (entry.hatMesh) wearHat(entry.group, entry.hatMesh);
+        entry.label.position.y = entry.hatMesh ? 2.08 : 1.85; // the name clears the tallest hat
       }
       // Glide to the latest reported position; jump if they travelled.
       const g = entry.group;

@@ -1,7 +1,12 @@
 // The passport: a player's own journal, as the server keeps it (docs/PROTOCOL.md, "Journal"). Where
 // they have been, what they have ridden and talked to, the stamps that earns, and a level that rises
 // with all of it. P opens and closes it. New stamps pop up for a moment as they are earned.
+// It also has today's three tasks, the coins they pay, and the hats coins buy (docs/PROTOCOL.md,
+// "Daily tasks, coins and hats").
 
+import * as THREE from "three";
+import { makeAnimal } from "./avatars.js";
+import { HAT_IDS, makeHat } from "./hats.js";
 import { CALLED } from "./talk.js";
 
 const el = (tag, cls, text) => {
@@ -24,6 +29,8 @@ export class Passport {
     this.meetup = meetup;
     this.queue = [];
     this.showing = false;
+    this.pictures = new Map(); // "fox:cap:1" -> a picture of that figure in that hat
+    this.studio = null;
     meetup.addEventListener("journal", (e) => { if (!this.panel.hidden) this.draw(e.detail); });
     meetup.addEventListener("stamp", (e) => this.stamp(e.detail));
     panel.addEventListener("click", (e) => { if (e.target === panel || e.target.closest(".close")) this.close(); });
@@ -57,7 +64,7 @@ export class Passport {
     this.showing = !!news;
     if (!news) { this.toast.hidden = true; return; }
     this.toast.replaceChildren(
-      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : "New stamp"),
+      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : "New stamp"),
       el("div", "title", news.title), el("div", "text", news.text ?? ""));
     this.toast.className = news.kind ?? "stamp";
     this.toast.hidden = false;
@@ -65,6 +72,39 @@ export class Passport {
     void this.toast.offsetWidth; // start the pop again for each one
     this.toast.style.animation = "";
     setTimeout(() => this.next(), 4200);
+  }
+
+  /** A picture of a player's figure in a hat (or in none): the whole figure, or just its head. Each is made once. */
+  picture(avatar, hat, close) {
+    const key = `${avatar}:${hat ?? ""}:${close ? 1 : 0}`;
+    let url = this.pictures.get(key);
+    if (url) return url;
+    if (!this.studio) {
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      const scene = new THREE.Scene();
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xb0a890, 2.2));
+      const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+      sun.position.set(-1.5, 3, -3);
+      scene.add(sun);
+      this.studio = { renderer, scene, camera: new THREE.PerspectiveCamera(30, 1, 0.1, 20) };
+    }
+    const { renderer, scene, camera } = this.studio;
+    const w = close ? 144 : 300, h = close ? 144 : 380;
+    const figure = makeAnimal(avatar);
+    const worn = hat ? makeHat(hat) : null;
+    if (worn) figure.add(worn);
+    figure.rotation.y = 0.45; // turned a little, so a hat's shape shows
+    scene.add(figure);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    if (close) { camera.position.set(0, 1.66, -1.85); camera.lookAt(0, 1.42, 0); }
+    else { camera.position.set(0, 1.25, -4.4); camera.lookAt(0, 0.95, 0); }
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    url = renderer.domElement.toDataURL("image/png");
+    scene.remove(figure);
+    this.pictures.set(key, url);
+    return url;
   }
 
   draw(j) {
@@ -146,7 +186,75 @@ export class Passport {
       for (const sp of j.pets) choice(kind(sp), sp);
     } else pets.append(el("p", "small", "Solve a riddle and its answer will keep you company."));
 
-    page.append(close, head, totals, el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
+    // Today: three tasks, the same for everyone whose day it is.
+    const coins = el("div", "coins", `${j.coins ?? 0} coins`);
+    const tasks = el("div", "tasks");
+    for (const t of j.today?.tasks ?? []) {
+      const card = el("div", t.done ? "task done" : "task");
+      const bar = el("div", "bar");
+      const fill = el("div", "fill");
+      fill.style.width = `${Math.round((t.have / t.goal) * 100)}%`;
+      bar.append(fill);
+      card.append(el("div", "text", t.text), bar,
+        el("div", "small", t.done ? `Done: ${j.today.coinsEach} coins` : t.goal > 1 ? `${t.have} of ${t.goal}${t.unit === "m" ? " m" : ""}` : "Not yet"));
+      tasks.append(card);
+    }
+    const days = j.today?.fullDays ?? 0;
+    const tasksNote = el("p", "small", j.today?.all
+      ? `All three done today. There will be three new tasks tomorrow. Full days so far: ${days}.`
+      : `Each task pays ${j.today?.coinsEach} coins, and doing all three pays ${j.today?.coinsAll} more. Nothing runs out: tomorrow simply brings three new ones.${days ? ` Full days so far: ${days}.` : ""}`);
+
+    // Favours: asked by things you have talked to. They wait until they are done, or until you say never mind.
+    const favours = el("div", "tasks");
+    for (const f of j.favours ?? []) {
+      const card = el("div", "task favour");
+      const bar = el("div", "bar");
+      const fill = el("div", "fill");
+      fill.style.width = `${Math.round((f.have / f.goal) * 100)}%`;
+      bar.append(fill);
+      const drop = el("button", "drop", "Never mind");
+      drop.type = "button";
+      drop.addEventListener("click", () => this.meetup.dropFavour(f.id));
+      card.append(el("div", "text", f.text), bar, el("div", "small", `${f.unit === "m" ? `${f.have} of ${f.goal} m. ` : ""}${f.next} Pays ${f.coins} coins.`), drop);
+      favours.append(card);
+    }
+    const favoursNote = el("p", "small", (j.favours ?? []).length
+      ? `A favour waits until it is done: nothing runs out. Favours done so far: ${j.favoursDone ?? 0}.`
+      : `Nobody is waiting on a favour from you. Talk to anything (T) and ask "can I help?"; some ask without being asked. Favours done so far: ${j.favoursDone ?? 0}.`);
+
+    // Hats: bought with coins or won, one worn at a time. Friends see it on you.
+    const avatar = this.meetup.me?.avatar ?? "fox";
+    const wardrobe = el("div", "wardrobe");
+    const me = document.createElement("img");
+    me.className = "me";
+    me.alt = j.hat ? "You, in your hat" : "You, bareheaded";
+    me.src = this.picture(avatar, j.hat ?? null, false);
+    const hats = el("div", "hats");
+    const hatCard = (hat, name, note, cls, disabled, act) => {
+      const b = el("button", cls);
+      b.type = "button";
+      b.disabled = disabled;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = this.picture(avatar, hat, true);
+      b.append(img, el("b", "", name), el("span", "small", note));
+      b.addEventListener("click", () => { act(); this.meetup.requestJournal(); });
+      hats.append(b);
+    };
+    hatCard(null, "No hat", j.hat ? "Take it off" : "As you are", j.hat ? "hat owned" : "hat on", false, () => this.meetup.wearHat(null));
+    for (const h of j.hats ?? []) {
+      if (!HAT_IDS.includes(h.id)) continue; // a hat this game cannot draw yet
+      const wearing = j.hat === h.id;
+      const canBuy = !h.owned && h.price !== null && (j.coins ?? 0) >= h.price;
+      hatCard(h.id, h.name,
+        wearing ? "You are wearing it" : h.owned ? "Yours: put it on" : h.price !== null ? (canBuy ? `Buy for ${h.price} coins` : `${h.price} coins`) : `A prize. ${h.how}`,
+        wearing ? "hat on" : h.owned ? "hat owned" : "hat", !h.owned && !canBuy,
+        () => (h.owned ? this.meetup.wearHat(h.id) : this.meetup.buyHat(h.id)));
+    }
+    wardrobe.append(me, hats);
+
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Hats"), wardrobe,
+      el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }
 }
