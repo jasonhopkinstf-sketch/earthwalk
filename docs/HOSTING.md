@@ -30,7 +30,7 @@ from `server/Dockerfile` on Render without changes).
      Without it, anyone who finds the address can use your server.
    - `EARTHWALK_CONTACT`: an email address or web page for you. It is sent to the
      OpenStreetMap services with each request, as their usage policies ask.
-5. **Disk** (under Advanced): add one, 1 GB is plenty to start, mounted at `/data`.
+5. **Disk** (under Advanced): add one of 5 GB or more, mounted at `/data`. (A 1 GB disk is believed to have filled within a few weeks of play, and a save that failed then stopped the server. The server now survives that, and clears the oldest map cache itself when room runs short, and what older versions built at start-up, but a roomier disk means less is built twice.)
 6. Create the service and wait for the first deploy to finish.
 7. Open `https://<your-service>.onrender.com/health`. You should see
    `{"ok":true, ..., "codeRequired":true}`.

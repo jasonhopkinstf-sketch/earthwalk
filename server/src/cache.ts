@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const CACHE_DIR = path.resolve(process.env.EARTHWALK_CACHE ?? "cache");
@@ -11,12 +11,25 @@ export async function cacheRead(rel: string): Promise<Buffer | null> {
   }
 }
 
+let complained = 0;
+/**
+ * Keeps something in the cache. The cache is a convenience: when it cannot be written (a full disk), the
+ * thing is still served, only not kept, and the half-written file is cleared away. It never throws.
+ */
 export async function cacheWrite(rel: string, data: Buffer | string): Promise<void> {
   const file = path.join(CACHE_DIR, rel);
-  await mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, data);
-  await rename(tmp, file);
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(tmp, data);
+    await rename(tmp, file);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    if (Date.now() - complained > 60_000) {
+      complained = Date.now();
+      console.error(`cache: could not keep ${rel} (${err instanceof Error ? err.message : String(err)}); carrying on without`);
+    }
+  }
 }
 
 /** De-duplicates concurrent loads of the same key. */

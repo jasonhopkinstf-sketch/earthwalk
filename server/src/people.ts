@@ -135,7 +135,12 @@ export class AccountDirectory implements PeopleDirectory {
         await writeFile(tmp, JSON.stringify(data, null, 1));
         await rename(tmp, file);
       }
-    })().finally(() => { this.saving = null; });
+    })().catch((err: unknown) => {
+      // A save that fails (a full disk, most likely) must never stop the server: saves are started from all
+      // over without being waited for, and a rejection nobody catches ends the whole process. The file on disk
+      // is still the last good one, and the next change tries again.
+      console.error(`people: could not save ${file} (${err instanceof Error ? err.message : String(err)})`);
+    }).finally(() => { this.saving = null; });
     return this.saving;
   }
 

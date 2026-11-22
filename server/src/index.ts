@@ -3,6 +3,16 @@ import { createApp } from "./app.ts";
 import { CACHE_DIR } from "./cache.ts";
 import { FileJournalStore } from "./journal.ts";
 import { AccountDirectory } from "./people.ts";
+import { FORMAT_VERSION, GENERATOR_REV } from "./chunk.ts";
+import { LABELS_REV } from "./labels.ts";
+import { INTERIOR_REV } from "./interior.ts";
+import { keepRoom } from "./prune.ts";
+
+// One thing going wrong for one player must never stop the world for everyone. Left alone, Node ends the
+// process when a promise fails with nobody waiting on it, or an error escapes a timer; here it is written down
+// (where the host's log shows it) and the server carries on.
+process.on("unhandledRejection", (err) => console.error("carrying on after a failure nobody caught:", err));
+process.on("uncaughtException", (err) => console.error("carrying on after an error nobody caught:", err));
 
 const PORT = Number(process.env.PORT ?? 8787);
 const accessCode = process.env.EARTHWALK_ACCESS_CODE ?? "";
@@ -22,6 +32,12 @@ const app = createApp({
   google: clientId && clientSecret ? { clientId, clientSecret } : undefined,
   baseUrl: process.env.EARTHWALK_BASE_URL,
 });
+// The cache only ever grew, and a full disk once stopped the server: old versions' leftovers go at start-up, and
+// room is kept free from then on (prune.ts). Accounts and journals are never touched.
+keepRoom(CACHE_DIR, [
+  `chunks/v${FORMAT_VERSION}.${GENERATOR_REV}`, `labels/v1.${LABELS_REV}`, `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}`,
+]);
+
 // A restart (every deploy is one) must not lose the last half minute of anyone's journal.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
