@@ -10,8 +10,8 @@ class UEarthCompany;
 
 /**
  * On-screen overlay: a status line, the chat log and the chat/command box, the header that names the
- * place, what E and T would do just now, the speech bubbles of things that have spoken, and the
- * passport (P).
+ * place, what E and T would do just now, the speech bubbles of things that have spoken, the
+ * passport (P) and the list of things to show somebody (G).
  *
  * Anything typed that starts with "/" is a command (see /help); everything else is chat.
  */
@@ -52,8 +52,15 @@ private:
 	/** The passport: the player's own journal, as the server keeps it. P opens and closes it. */
 	void TogglePassport();
 	void ClosePassport();
+	/** "Show me...": the list of things to show somebody. G opens and closes it. */
+	void ToggleShows();
+	void CloseShows();
+	/** Makes the player another animal (/animal bear, or the six in the passport): saved, and told to the room. */
+	void BecomeAnimal(const FString& Animal);
 
 public:
+	/** One of the things to show was picked, with the mouse or by its number: the list goes away and the player is taken there. */
+	void ShowChosen(const FString& Id);
 	/** A button in the passport was pressed: buy or wear a hat, start or give up a hunt or an expedition, drop a favour. */
 	void PassportAction(const FString& What, const FString& Id);
 
@@ -68,6 +75,8 @@ private:
 	bool bCompanyBound = false;
 	bool bPassportOpen = false;
 	bool bPassportTested = false;
+	bool bShowsOpen = false;
+	bool bShowsTested = false;
 	bool bCluePending = false; // /clue asked for the journal, to read the clue out when it comes
 	double StartedAt = 0.0;
 	FString TalkingToShown;

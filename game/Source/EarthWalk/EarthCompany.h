@@ -53,6 +53,8 @@ public:
 	/** Calls a taxi to take the player to a place (/taxi the beach). */
 	void CallTaxi(const FString& Place);
 	bool IsRiding() const { return Mine.bOn; }
+	/** Steps down from whatever is being ridden, if anything: before being taken somewhere else, or becoming another animal. */
+	void HopOff() { Off(); }
 
 	/** The T key: say hello to whatever is nearest. True if there was something to talk to. */
 	bool KeyTalk();

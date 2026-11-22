@@ -104,6 +104,7 @@ Controls (Unreal):
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `P` | Your passport (`/passport` does the same) |
+| `G` | Show me: a list of things to show somebody; pick one and you are taken straight to it (`/show` does the same) |
 | `Enter` | Chat and commands |
 
 In the editor, click the game viewport once so it has the keyboard; `Shift+F1` gives the
@@ -120,7 +121,8 @@ Chat commands:
 | `/login`, `/logout` | Sign in with Google (the game opens your browser; the browser version has a button on its join screen) and forget the sign-in |
 | `/home`, `/home <place>` | Signed in only: make where you stand (or a place) your home. You start there next time, on any device |
 | `/invite` | Browser only: copy a link that lets someone join your room |
-| `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in) |
+| `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in). The passport has the six animals to choose from too |
+| `/show`, `/show <words>` | The list of things to show somebody (the `G` key), or straight to one: `/show train` |
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
 | `/where`, `/fly`, `/help` | Coordinates, toggle flying, list commands |
 | `/sound on`, `/sound off` | The animals' voices, car horns and train whistles |
@@ -314,14 +316,15 @@ use their own stock of lines. `server/public/js/talk.js`; docs/PROTOCOL.md, "Tal
 Both games show where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.
 
-**Show me (G, browser).** For showing the world to somebody: G opens a list of things to see and do
+**Show me (G).** For showing the world to somebody: G opens a list of things to see and do
 (catch a train, meet the farm animals, ride a horse, drive a car, walk into a house, sail a boat,
 ride a camel at the Pyramids, go on safari...). Pick one, by clicking or by its number, and you are
 taken straight to it and stood beside the thing itself: where the train is about to stop, next to
 the horse, at a parked car, at a door that opens. `/show` does the same, and `/show train` goes at
 once. The list and its places are the server's (`server/src/showcase.ts`, `GET /v1/showcase`), and
 the server keeps those places built so that a show starts in a couple of seconds.
-`server/public/js/showcase.js`; docs/PROTOCOL.md, "Things to show".
+`server/public/js/showcase.js`, and `EarthShowcase.cpp` in the Windows game; docs/PROTOCOL.md,
+"Things to show".
 
 **Where the map comes from, and why the world keeps up with you.** The world is built from
 OpenStreetMap, downloaded as you go from free public servers that are some days quick and some days
@@ -363,7 +366,10 @@ which carries the player at the car's velocity and puts the camera behind it; pl
 drawn by `UEarthCompany::GarageFrame`, and the garage is a page of the passport.
 Companions are `UEarthCompany::PetFrame` (the sums of `pets.js`): each trots after its player, and
 can be talked to and, if big enough, ridden. Races are in `UEarthCompany` too (R, the countdown and the list of runners), with the gates stood up
-by `AEarthRaceCourse`. Not in the Windows game yet: tag, and hide and seek.
+by `AEarthRaceCourse`. Show me (G) is `UEarthShowcase`, which follows `showcase.js` line for line; where
+a train will next stand still comes from `AEarthLife::Boarding` and `Soonest` (the sums of
+`traffic.js`). The Windows passport has a "Your animal" row with the six animals: choosing one does
+what `/animal` does. Not in the Windows game yet: tag, and hide and seek.
 
 ## Art assets and the look
 

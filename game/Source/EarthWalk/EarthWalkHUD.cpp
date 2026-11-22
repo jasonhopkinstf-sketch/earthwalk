@@ -3,6 +3,7 @@
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
+#include "EarthShowcase.h"
 #include "EarthSounds.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkNet.h"
@@ -272,6 +273,21 @@ public:
 					]
 				]
 			]
+			// Show me: the things to show somebody, in the middle of the screen while the list is open.
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+			[
+				SAssignNew(ShowsPanel, SBorder)
+				.BorderImage(&WhereBrush)
+				.BorderBackgroundColor(PassportPanel)
+				.Padding(FMargin(26.f, 20.f))
+				.Visibility(EVisibility::Collapsed)
+				[
+					SNew(SBox).WidthOverride(800.f).MaxDesiredHeight(720.f)
+					[
+						SAssignNew(ShowsBody, SScrollBox)
+					]
+				]
+			]
 			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f)
 			[
 				SAssignNew(Status, STextBlock)
@@ -445,11 +461,91 @@ public:
 		}
 	}
 	void ScrollPassport(float By) { PassportBody->SetScrollOffset(FMath::Max(0.f, PassportBody->GetScrollOffset() + By)); }
+	/** Draws the passport again from the journal it was last given: the player has become another animal. */
+	void RedrawPassport()
+	{
+		if (LastJournal.IsValid())
+		{
+			const float Offset = PassportBody->GetScrollOffset();
+			SetPassport(LastJournal);
+			PassportBody->SetScrollOffset(Offset);
+		}
+	}
+
+	/** The list of things to show: up or away, with a line to read while it is being asked for (or when it did not come). */
+	void ShowShows(bool bShow, const FString& Message = FString())
+	{
+		ShowsPanel->SetVisibility(bShow ? EVisibility::Visible : EVisibility::Collapsed);
+		bShowsInteractive = bShow;
+		ApplyInteractive();
+		if (bShow)
+		{
+			ShowsBody->ClearChildren();
+			ShowsBody->AddSlot()[WrappedLine(Message, TEXT("Regular"), 14, FLinearColor::White, 780.f)];
+		}
+	}
+	/** Fills the list: a card for each thing, to click, with the number that picks it. */
+	void SetShows(const TArray<FEarthShow>& List)
+	{
+		ShowsBody->ClearChildren();
+		ShowsBody->AddSlot()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.f)[TextLine(TEXT("Show me..."), TEXT("Bold"), 26, FLinearColor::White)]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[TextLine(TEXT("G or Esc to close"), TEXT("Regular"), 10, DimColor)]
+		];
+		ShowsBody->AddSlot().Padding(0.f, 2.f, 0.f, 12.f)
+		[
+			TextLine(TEXT("Pick one, and you are taken straight to it. Click it, or press its number."), TEXT("Regular"), 12, DimColor)
+		];
+		const TSharedRef<SWrapBox> Cards = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+		const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+		for (int32 i = 0; i < List.Num(); ++i)
+		{
+			const FEarthShow& Show = List[i];
+			const FString Id = Show.Id;
+			const FString Number = i < 9 ? FString::FromInt(i + 1) : i == 9 ? FString(TEXT("0")) : FString();
+			Cards->AddSlot()
+			[
+				SNew(SBox).WidthOverride(388.f)
+				[
+					SNew(SButton)
+					.IsFocusable(false) // a click must not take the keyboard from the game
+					.ButtonStyle(&ShowButton)
+					.ContentPadding(FMargin(10.f, 7.f))
+					.OnClicked_Lambda([Hud, Id]()
+					{
+						if (AEarthWalkHUD* Screen = Hud.Get())
+						{
+							Screen->ShowChosen(Id);
+						}
+						return FReply::Handled();
+					})
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 10.f, 0.f)
+						[
+							SNew(SBox).WidthOverride(24.f).HAlign(HAlign_Center)[TextLine(Number, TEXT("Bold"), 18, GoldColor)]
+						]
+						+ SHorizontalBox::Slot().FillWidth(1.f)
+						[
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot().AutoHeight()[TextLine(Show.Title, TEXT("Bold"), 13, FLinearColor::White)]
+							+ SVerticalBox::Slot().AutoHeight()[WrappedLine(Show.Text, TEXT("Regular"), 11, FLinearColor::White, 320.f)]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 2.f, 0.f, 0.f)[TextLine(Show.Place, TEXT("Regular"), 10, DimColor)]
+						]
+					]
+				]
+			];
+		}
+		ShowsBody->AddSlot()[Cards];
+	}
 
 	/** Fills the passport from the journal the server sent (docs/PROTOCOL.md, "Journal"); null when the server keeps none. */
 	void SetPassport(const TSharedPtr<FJsonObject>& Journal)
 	{
 		PassportBody->ClearChildren();
+		LastJournal = Journal;
 		if (!Journal.IsValid())
 		{
 			PassportBody->AddSlot()[TextLine(TEXT("Passport"), TEXT("Bold"), 22, FLinearColor::White)];
@@ -567,6 +663,61 @@ public:
 			PassportBody->AddSlot().Padding(0.f, 4.f, 0.f, 0.f)[WrappedLine(Text, TEXT("Regular"), 10, DimColor, 780.f)];
 		};
 		const double Coins = JsonNum(Journal, TEXT("coins"));
+
+		// ---- which animal I am: the six to choose from. Friends see the change at once.
+		{
+			Heading(TEXT("Your animal"));
+			struct FAnimalChoice
+			{
+				const TCHAR* Id;
+				const TCHAR* Label;
+				uint32 Coat;
+				uint32 Front;
+			};
+			// The same six, in the same colours, as ANIMALS in server/public/js/avatars.js.
+			static const FAnimalChoice Six[] = {
+				{ TEXT("fox"), TEXT("Fox"), 0xd9682b, 0xf4ede2 }, { TEXT("bear"), TEXT("Bear"), 0x7a5234, 0xb08a63 }, { TEXT("rabbit"), TEXT("Rabbit"), 0xe6e0d6, 0xffffff },
+				{ TEXT("cat"), TEXT("Cat"), 0x5d6270, 0xc9ccd4 }, { TEXT("owl"), TEXT("Owl"), 0x8a6b4a, 0xd9c7a8 }, { TEXT("frog"), TEXT("Frog"), 0x5fae4e, 0xd8e8a8 },
+			};
+			const auto Paint = [](uint32 Hex) { return FLinearColor::FromSRGBColor(FColor((Hex >> 16) & 0xff, (Hex >> 8) & 0xff, Hex & 0xff)); };
+			const FString Mine = FEarthWalkConfig::Avatar();
+			const TSharedRef<SWrapBox> Animals = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+			for (const FAnimalChoice& Animal : Six)
+			{
+				const bool bOn = Mine == Animal.Id;
+				const FString Kind = FString(Animal.Label).ToLower();
+				const bool bVowel = Kind.StartsWith(TEXT("a")) || Kind.StartsWith(TEXT("e")) || Kind.StartsWith(TEXT("i")) || Kind.StartsWith(TEXT("o")) || Kind.StartsWith(TEXT("u"));
+				Animals->AddSlot()
+				[
+					SNew(SBox).WidthOverride(122.f)
+					[
+						SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bOn ? CardDoneColor : CardColor).Padding(FMargin(10.f, 8.f))
+						[
+							SNew(SVerticalBox)
+							// Its coat, with the paler colour of its front let into it.
+							+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left)
+							[
+								SNew(SBox).WidthOverride(46.f).HeightOverride(32.f)
+								[
+									SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(Paint(Animal.Coat)).Padding(FMargin(13.f, 13.f, 13.f, 0.f))
+									[
+										SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(Paint(Animal.Front))
+									]
+								]
+							]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 5.f, 0.f, 0.f)[TextLine(Animal.Label, TEXT("Bold"), 12, FLinearColor::White)]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 3.f, 0.f, 0.f).HAlign(HAlign_Left)
+							[
+								bOn ? StaticCastSharedRef<SWidget>(TextLine(TEXT("This is you"), TEXT("Regular"), 10, DimColor))
+									: Button(FString::Printf(TEXT("Be %s %s"), bVowel ? TEXT("an") : TEXT("a"), *Kind), TEXT("animal"), Animal.Id)
+							]
+						]
+					]
+				];
+			}
+			PassportBody->AddSlot()[Animals];
+			Note(TEXT("Choose one and you are that animal from then on, for everyone, and the next time you come."));
+		}
 
 		// ---- today: three tasks, the same for everyone whose day it is
 		const TSharedPtr<FJsonObject> Today = Object(TEXT("today"));
@@ -1071,7 +1222,7 @@ public:
 	}
 	void ApplyInteractive()
 	{
-		SetVisibility(bChatInteractive || bPassportInteractive ? EVisibility::Visible : EVisibility::HitTestInvisible);
+		SetVisibility(bChatInteractive || bPassportInteractive || bShowsInteractive ? EVisibility::Visible : EVisibility::HitTestInvisible);
 		ChatColumn->SetVisibility(bChatInteractive ? EVisibility::Visible : EVisibility::HitTestInvisible);
 	}
 
@@ -1146,6 +1297,15 @@ private:
 
 	TSharedPtr<SBorder> Passport;
 	TSharedPtr<SScrollBox> PassportBody;
+	TSharedPtr<FJsonObject> LastJournal;
+	TSharedPtr<SBorder> ShowsPanel;
+	TSharedPtr<SScrollBox> ShowsBody;
+	bool bShowsInteractive = false;
+	// A thing to show: a card that lights up under the pointer.
+	FButtonStyle ShowButton = FButtonStyle()
+		.SetNormal(FSlateRoundedBoxBrush(FLinearColor(FColor(255, 255, 255, 20)), 8.f))
+		.SetHovered(FSlateRoundedBoxBrush(FLinearColor(FColor(70, 130, 220, 150)), 8.f))
+		.SetPressed(FSlateRoundedBoxBrush(FLinearColor(FColor(70, 130, 220, 210)), 8.f));
 	TSharedPtr<SBox> ChatColumn;
 	bool bChatInteractive = false;
 	bool bPassportInteractive = false;
@@ -1230,6 +1390,12 @@ void AEarthWalkHUD::BeginPlay()
 			{
 				Character->RefreshFigure();
 			}
+			// Back in the room (as another animal, perhaps): an open passport is drawn again from what the server now has.
+			UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+			if (Room && bPassportOpen)
+			{
+				Room->RequestJournal();
+			}
 		});
 	}
 
@@ -1237,6 +1403,7 @@ void AEarthWalkHUD::BeginPlay()
 	StartedAt = FPlatformTime::Seconds();
 	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly, Enter to chat. Try /goto Sydney Opera House."), NoticeColor);
 	AddLine(TEXT("Walk up to an animal, a car or a train: E hops on, T talks to it (trees and houses too). P opens your passport."), NoticeColor);
+	AddLine(TEXT("Showing it to somebody? Press G for a list of things to see: catch a train, ride a horse, drive a car..."), NoticeColor);
 }
 
 void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
@@ -1356,8 +1523,37 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			AddLine(FString::Printf(TEXT("%s: %s"), *Who, *Text), bFromThing ? ThingColor : FLinearColor::White);
 		});
+		// Where "Show me" is taking the player, and what to press there.
+		const AEarthWorld* ShowWorld = AEarthWorld::Get(this);
+		if (UEarthShowcase* Showcase = ShowWorld ? ShowWorld->GetShowcase() : nullptr)
+		{
+			Showcase->OnLine.AddWeakLambda(this, [this](const FString& Text, bool bProblem)
+			{
+				AddLine(Text, bProblem ? ErrorColor : NoticeColor);
+			});
+		}
 	}
-	if (!bChatOpen)
+	if (!bChatOpen && bShowsOpen)
+	{
+		// The list of things to show is up: a number picks one, G or Esc puts it away, and nothing else is listening.
+		static const FKey Row[10] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five, EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine, EKeys::Zero };
+		static const FKey Pad[10] = { EKeys::NumPadOne, EKeys::NumPadTwo, EKeys::NumPadThree, EKeys::NumPadFour, EKeys::NumPadFive, EKeys::NumPadSix, EKeys::NumPadSeven, EKeys::NumPadEight, EKeys::NumPadNine, EKeys::NumPadZero };
+		const AEarthWorld* ShowWorld = AEarthWorld::Get(this);
+		const UEarthShowcase* Showcase = ShowWorld ? ShowWorld->GetShowcase() : nullptr;
+		for (int32 i = 0; i < 10 && bShowsOpen && Showcase; ++i)
+		{
+			if ((PC->WasInputKeyJustPressed(Row[i]) || PC->WasInputKeyJustPressed(Pad[i])) && Showcase->GetShows().IsValidIndex(i))
+			{
+				const FString Picked = Showcase->GetShows()[i].Id;
+				ShowChosen(Picked);
+			}
+		}
+		if (bShowsOpen && (PC->WasInputKeyJustPressed(EKeys::G) || PC->WasInputKeyJustPressed(EKeys::Escape)))
+		{
+			CloseShows();
+		}
+	}
+	else if (!bChatOpen)
 	{
 		if (PC->WasInputKeyJustPressed(EKeys::E))
 		{
@@ -1374,6 +1570,10 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		else if (PC->WasInputKeyJustPressed(EKeys::R))
 		{
 			Friends->KeyRace(); // set a race up, join one, or (if it is mine) start it
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::G))
+		{
+			ToggleShows(); // things to show somebody, and straight to the one picked
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::P))
 		{
@@ -1407,7 +1607,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 
 	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
 	// P and Esc still close it. If a click has left the keyboard somewhere else, give it back.
-	if (bPassportOpen && !bChatOpen && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
+	if ((bPassportOpen || bShowsOpen) && !bChatOpen && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
 	{
 		const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetUserFocusedWidget(0);
 		const TSharedPtr<SWidget> Viewport = GEngine->GameViewport->GetGameViewportWidget();
@@ -1444,6 +1644,29 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		Overlay->ScrollPassport(ScrollBy);
 	}
 
+	// -EWShow=<id or words> goes to one of the things to show by itself, and -EWShowList opens the list, for pictures and tests.
+	static bool bDidShow = false;
+	FString ShowWhat;
+	if (!bDidShow && FPlatformTime::Seconds() - StartedAt > 9.0 && FParse::Value(FCommandLine::Get(), TEXT("-EWShow="), ShowWhat))
+	{
+		const AEarthWalkCharacter* Walker = Cast<AEarthWalkCharacter>(PC->GetPawn());
+		const AEarthWorld* ShowWorld = AEarthWorld::Get(this);
+		UEarthShowcase* Showcase = ShowWorld ? ShowWorld->GetShowcase() : nullptr;
+		if (Showcase && Walker && !Walker->IsWaitingForGround())
+		{
+			bDidShow = true;
+			Showcase->Go(ShowWhat.Replace(TEXT("_"), TEXT(" ")));
+		}
+	}
+	if (!bShowsTested && FPlatformTime::Seconds() - StartedAt > 12.0)
+	{
+		bShowsTested = true;
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWShowList")))
+		{
+			ToggleShows();
+		}
+	}
+
 	// -EWPassport opens the passport by itself a few seconds in, for pictures.
 	if (!bPassportTested && FPlatformTime::Seconds() - StartedAt > 12.0)
 	{
@@ -1457,6 +1680,16 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 
 void AEarthWalkHUD::PassportAction(const FString& What, const FString& Id)
 {
+	if (What == TEXT("animal"))
+	{
+		// Becoming another animal is a quick leaving and coming back; the page is drawn again once we are back in.
+		BecomeAnimal(Id);
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().SetAllUserFocusToGameViewport();
+		}
+		return;
+	}
 	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
 	if (!Net)
 	{
@@ -1527,6 +1760,122 @@ void AEarthWalkHUD::ClosePassport()
 	}
 }
 
+void AEarthWalkHUD::ToggleShows()
+{
+	if (bShowsOpen)
+	{
+		CloseShows();
+		return;
+	}
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	UEarthShowcase* Showcase = Earth ? Earth->GetShowcase() : nullptr;
+	if (!Showcase || !Overlay.IsValid())
+	{
+		return;
+	}
+	ClosePassport();
+	bShowsOpen = true;
+	// While the list is up the number keys choose from it, so they must not also set the player running.
+	APlayerController* PC = GetOwningPlayerController();
+	if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
+	{
+		Character->bTyping = true;
+	}
+	Overlay->ShowShows(true, TEXT("Looking for things to show..."));
+	const TWeakObjectPtr<AEarthWalkHUD> Weak(this);
+	const TWeakObjectPtr<UEarthShowcase> WeakShows(Showcase);
+	Showcase->Load([Weak, WeakShows](bool bOk)
+	{
+		AEarthWalkHUD* Self = Weak.Get();
+		const UEarthShowcase* Shows = WeakShows.Get();
+		if (!Self || !Shows || !Self->bShowsOpen || !Self->Overlay.IsValid())
+		{
+			return;
+		}
+		if (bOk)
+		{
+			Self->Overlay->SetShows(Shows->GetShows());
+		}
+		else
+		{
+			Self->Overlay->ShowShows(true, TEXT("The world server is not answering just now. Press G to close this, and G again to try once more."));
+		}
+	});
+}
+
+void AEarthWalkHUD::CloseShows()
+{
+	if (!bShowsOpen)
+	{
+		return;
+	}
+	bShowsOpen = false;
+	if (Overlay.IsValid())
+	{
+		Overlay->ShowShows(false);
+	}
+	APlayerController* PC = GetOwningPlayerController();
+	if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
+	{
+		Character->bTyping = bChatOpen;
+	}
+}
+
+void AEarthWalkHUD::ShowChosen(const FString& Id)
+{
+	const FString Picked = Id; // the card that was clicked goes away with the list
+	CloseShows();
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	if (UEarthShowcase* Showcase = Earth ? Earth->GetShowcase() : nullptr)
+	{
+		Showcase->Go(Picked);
+	}
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport();
+	}
+}
+
+void AEarthWalkHUD::BecomeAnimal(const FString& Animal)
+{
+	static const TCHAR* Six[] = { TEXT("fox"), TEXT("bear"), TEXT("rabbit"), TEXT("cat"), TEXT("owl"), TEXT("frog") };
+	const FString Id = Animal.TrimStartAndEnd().ToLower();
+	bool bKnown = false;
+	for (const TCHAR* One : Six)
+	{
+		bKnown = bKnown || Id == One;
+	}
+	if (!bKnown)
+	{
+		AddLine(TEXT("Pick one of: fox, bear, rabbit, cat, owl, frog. Like this: /animal bear (or choose one in your passport, P)."), ErrorColor);
+		return;
+	}
+	if (Id == FEarthWalkConfig::Avatar())
+	{
+		AddLine(FString::Printf(TEXT("You are %s %s already."), Id == TEXT("owl") ? TEXT("an") : TEXT("a"), *Id), NoticeColor);
+		return;
+	}
+	if (UEarthCompany* Friends = Company())
+	{
+		Friends->HopOff(); // step down first: the change is a quick leaving and coming back
+	}
+	FEarthWalkConfig::Save(TEXT("Avatar"), Id);
+	AddLine(FString::Printf(TEXT("You are %s %s now."), Id == TEXT("owl") ? TEXT("an") : TEXT("a"), *Id), NoticeColor);
+	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+	{
+		Net->Connect();
+	}
+	APlayerController* PC = GetOwningPlayerController();
+	if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
+	{
+		Character->RefreshFigure();
+	}
+	if (bPassportOpen && Overlay.IsValid())
+	{
+		Overlay->RedrawPassport();
+	}
+}
+
 void AEarthWalkHUD::OpenChat()
 {
 	APlayerController* PC = GetOwningPlayerController();
@@ -1534,6 +1883,7 @@ void AEarthWalkHUD::OpenChat()
 	{
 		return;
 	}
+	CloseShows(); // the list and the chat box both want the number keys
 	bChatOpen = true;
 	if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
 	{
@@ -1564,7 +1914,7 @@ void AEarthWalkHUD::CloseChat()
 	{
 		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
 		{
-			Character->bTyping = false;
+			Character->bTyping = bShowsOpen; // "/show" has just put the list up: the number keys are its own
 		}
 		ApplyGameInputMode(PC);
 	}
@@ -1726,6 +2076,9 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);
 		AddLine(TEXT("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>"), NoticeColor);
+		AddLine(TEXT("    (your passport, P, has the six animals to choose from too: \"Your animal\")"), NoticeColor);
+		AddLine(TEXT("G   Show me: a list of things to show somebody (catch a train, ride a horse, drive a car, walk into a house...)."), NoticeColor);
+		AddLine(TEXT("    Click one, or press its number, and you are taken straight to it. /show train does the same without the list."), NoticeColor);
 		AddLine(TEXT("/server <address>   /code <access code>"), NoticeColor);
 		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
@@ -1870,6 +2223,26 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		TogglePassport();
 	}
+	else if (Command == TEXT("show") || Command == TEXT("showme"))
+	{
+		const AEarthWorld* Earth = AEarthWorld::Get(this);
+		UEarthShowcase* Showcase = Earth ? Earth->GetShowcase() : nullptr;
+		if (Argument.IsEmpty())
+		{
+			if (!bShowsOpen)
+			{
+				ToggleShows();
+			}
+		}
+		else if (Showcase)
+		{
+			Showcase->Go(Argument);
+		}
+	}
+	else if (Command == TEXT("animal"))
+	{
+		BecomeAnimal(Argument);
+	}
 	else if (Command == TEXT("house") || Command == TEXT("houses"))
 	{
 		const UEarthCompany* Friends = Company();
@@ -1922,18 +2295,14 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			Character->SetFlying(!Character->IsFlying());
 		}
 	}
-	else if ((Command == TEXT("name") || Command == TEXT("animal") || Command == TEXT("room") || Command == TEXT("server") || Command == TEXT("code")) && !Argument.IsEmpty())
+	else if ((Command == TEXT("name") || Command == TEXT("room") || Command == TEXT("server") || Command == TEXT("code")) && !Argument.IsEmpty())
 	{
-		const TCHAR* Key = Command == TEXT("name") ? TEXT("Name") : Command == TEXT("animal") ? TEXT("Avatar") : Command == TEXT("room") ? TEXT("Room") : Command == TEXT("server") ? TEXT("Server") : TEXT("Code");
+		const TCHAR* Key = Command == TEXT("name") ? TEXT("Name") : Command == TEXT("room") ? TEXT("Room") : Command == TEXT("server") ? TEXT("Server") : TEXT("Code");
 		FEarthWalkConfig::Save(Key, Argument);
 		AddLine(TEXT("Saved. Reconnecting..."), NoticeColor);
 		if (Net)
 		{
 			Net->Connect();
-		}
-		if (Command == TEXT("animal") && Character)
-		{
-			Character->RefreshFigure();
 		}
 		if ((Command == TEXT("server") || Command == TEXT("code")) && Character)
 		{

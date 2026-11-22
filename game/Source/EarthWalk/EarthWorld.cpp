@@ -8,6 +8,7 @@
 #include "EarthLifeMotion.h"
 #include "EarthSounds.h"
 #include "EarthPhotoWorld.h"
+#include "EarthShowcase.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkNet.h"
@@ -92,6 +93,8 @@ void AEarthWorld::BeginPlay()
 	Life = GetWorld()->SpawnActor<AEarthLife>();
 	Company = NewObject<UEarthCompany>(this);
 	Company->Setup(this);
+	Showcase = NewObject<UEarthShowcase>(this);
+	Showcase->Setup(this);
 	FString Sound;
 	if (Life && Life->GetSounds() && FEarthWalkConfig::HasOverride(TEXT("Sound"), Sound) && Sound.Equals(TEXT("off"), ESearchCase::IgnoreCase))
 	{
@@ -622,6 +625,14 @@ void AEarthWorld::Tick(float DeltaSeconds)
 	}
 
 	UpdateAvatars();
+
+	// "Show me": a player on the way to something to show is stood beside it once the world there has arrived.
+	if (Showcase)
+	{
+		const UEarthWalkNet* ShowClock = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+		static const double ShowShift = []() { double Shift = 0.0; FParse::Value(FCommandLine::Get(), TEXT("-EWTimeShift="), Shift); return Shift; }();
+		Showcase->Frame(Cast<AEarthWalkCharacter>(Controller->GetPawn()), (ShowClock ? ShowClock->Now() : UEarthWalkNet::LocalNow()) + ShowShift);
+	}
 
 	// The living world moves every frame, by the room's clock. It keeps to the ground, so it is put
 	// away while the photographic view from the air is up.

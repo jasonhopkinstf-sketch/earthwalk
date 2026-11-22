@@ -1008,6 +1008,199 @@ bool AEarthLife::CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double
 	return false;
 }
 
+void AEarthLife::EachTrain(TFunctionRef<void(const EarthLife::FTrip&)> Do) const
+{
+	TSet<uint32> Seen;
+	for (const TPair<FIntPoint, FChunk>& Pair : Chunks)
+	{
+		for (const FTrain& Train : Pair.Value.Trains)
+		{
+			bool bAlready = false;
+			Seen.Add(Train.Trip.Id, &bAlready);
+			if (!bAlready)
+			{
+				Do(Train.Trip);
+			}
+		}
+	}
+}
+
+namespace
+{
+	/** Opposite the middle of a carriage, not the gap between two: within reach of a door, so to speak. */
+	FEarthSpot TrainStop(const EarthLife::FTrip& Trip, double D, double In, bool bPassing)
+	{
+		const double Beside = FMath::Min(Trip.Length, D + (CarriageM + CouplingM) / 2.0);
+		const FVector2D At = EarthLife::PointAt(Trip, Beside);
+		FEarthSpot Stop;
+		Stop.X = At.X;
+		Stop.Z = At.Y;
+		Stop.Sp = TEXT("train");
+		Stop.Heading = EarthLife::HeadingAt(Trip, Beside, 6.0);
+		Stop.In = In;
+		Stop.bPassing = bPassing;
+		return Stop;
+	}
+	/** Where the middle of the train is when the timetable has it this far along. */
+	double TrainMiddle(const EarthLife::FTrip& Trip, double Along)
+	{
+		return TrainM / 2.0 + (Along * (Trip.Length - TrainM)) / Trip.Length;
+	}
+}
+
+void AEarthLife::Boarding(double T, double FromX, double FromZ, double Reach, TArray<FEarthSpot>& Out, double Within) const
+{
+	EachTrain([&](const EarthLife::FTrip& Trip)
+	{
+		const auto Away = [&](double D)
+		{
+			const FVector2D At = EarthLife::PointAt(Trip, D);
+			return FMath::Sqrt(FMath::Square(At.X - FromX) + FMath::Square(At.Y - FromZ));
+		};
+		bool bFound = false, bPassing = false;
+		double In = 0.0, Where = 0.0;
+		for (int32 Dt = 0; Dt <= Within && !bFound; ++Dt)
+		{
+			const EarthLife::FTrainPose A = EarthLife::TrainPose(Trip, T + Dt);
+			if (A.bMoving)
+			{
+				continue;
+			}
+			const EarthLife::FTrainPose B = EarthLife::TrainPose(Trip, T + Dt + 12.0);
+			if (!B.bMoving && FMath::Abs(A.Along - B.Along) < 0.01 && Away(TrainMiddle(Trip, A.Along)) <= Reach)
+			{
+				bFound = true;
+				In = Dt;
+				Where = TrainMiddle(Trip, A.Along);
+			}
+		}
+		if (!bFound)
+		{
+			// The point of its track nearest the spot, and when its middle next goes by there.
+			double Near = -1.0, Nearest = Reach;
+			for (double D = TrainM / 2.0; D <= Trip.Length - TrainM / 2.0; D += 10.0)
+			{
+				const double M = Away(D);
+				if (M <= Nearest)
+				{
+					Nearest = M;
+					Near = D;
+				}
+			}
+			if (Near < 0.0)
+			{
+				return; // this one never comes near
+			}
+			for (int32 Dt = 8; Dt <= Within * 4.0 && !bFound; ++Dt)
+			{
+				const EarthLife::FTrainPose A = EarthLife::TrainPose(Trip, T + Dt);
+				if (A.bMoving && FMath::Abs(TrainMiddle(Trip, A.Along) - Near) < 14.0)
+				{
+					bFound = true;
+					bPassing = true;
+					In = Dt;
+					Where = Near;
+				}
+			}
+			if (!bFound)
+			{
+				return;
+			}
+		}
+		Out.Add(TrainStop(Trip, Where, In, bPassing));
+	});
+}
+
+void AEarthLife::Soonest(double T, TArray<FEarthSpot>& Out, double Wait, double Lead) const
+{
+	EachTrain([&](const EarthLife::FTrip& Trip)
+	{
+		bool bFound = false, bPassing = false;
+		double In = 0.0, Where = 0.0;
+		for (int32 Dt = 0; Dt <= Wait && !bFound; ++Dt)
+		{
+			const EarthLife::FTrainPose A = EarthLife::TrainPose(Trip, T + Dt);
+			if (A.bMoving)
+			{
+				continue;
+			}
+			const EarthLife::FTrainPose B = EarthLife::TrainPose(Trip, T + Dt + 12.0);
+			if (!B.bMoving && FMath::Abs(A.Along - B.Along) < 0.01)
+			{
+				bFound = true;
+				In = Dt;
+				Where = TrainMiddle(Trip, A.Along);
+			}
+		}
+		// Failing that, where it will be on the move: a train standing now but about to leave is met as it sets off.
+		for (int32 Dt = FMath::RoundToInt32(Lead); Dt <= Lead + 120.0 && !bFound; ++Dt)
+		{
+			const EarthLife::FTrainPose A = EarthLife::TrainPose(Trip, T + Dt);
+			if (A.bMoving)
+			{
+				bFound = true;
+				bPassing = true;
+				In = Dt;
+				Where = TrainMiddle(Trip, A.Along);
+			}
+		}
+		if (bFound)
+		{
+			Out.Add(TrainStop(Trip, Where, In, bPassing));
+		}
+	});
+}
+
+bool AEarthLife::NearestHome(const TArray<FString>& Kinds, double FromX, double FromZ, double Within, FEarthSpot& Out) const
+{
+	bool bFound = false;
+	double Best = Within;
+	for (const TPair<FIntPoint, FChunk>& Pair : Chunks)
+	{
+		for (const FHerd& Herd : Pair.Value.Herds)
+		{
+			const double D = FMath::Sqrt(FMath::Square(Herd.X - FromX) + FMath::Square(Herd.Z - FromZ));
+			if (D > Best || !Herd.Home.Species || !Kinds.Contains(FString(Herd.Home.Species->Name)))
+			{
+				continue;
+			}
+			bFound = true;
+			Best = D;
+			Out = FEarthSpot();
+			Out.X = Herd.X;
+			Out.Z = Herd.Z;
+			Out.Sp = Herd.Home.Species->Name;
+			Out.R = Herd.Home.R;
+		}
+	}
+	return bFound;
+}
+
+bool AEarthLife::NearestParked(double FromX, double FromZ, double Within, FEarthSpot& Out) const
+{
+	bool bFound = false;
+	double Best = Within;
+	for (const TPair<FIntPoint, FChunk>& Pair : Chunks)
+	{
+		for (const FParked& Car : Pair.Value.Parked)
+		{
+			const double D = FMath::Sqrt(FMath::Square(Car.X - FromX) + FMath::Square(Car.Z - FromZ));
+			if (D > Best || Taken.Contains(Car.Id)) // somebody has driven it off
+			{
+				continue;
+			}
+			bFound = true;
+			Best = D;
+			Out = FEarthSpot();
+			Out.X = Car.X;
+			Out.Z = Car.Z;
+			Out.Sp = TEXT("car");
+			Out.Yaw = Car.Yaw;
+		}
+	}
+	return bFound;
+}
+
 void AEarthLife::Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z)
 {
 	const FEarthRig* Rig = EarthRigs::Find(Sp);

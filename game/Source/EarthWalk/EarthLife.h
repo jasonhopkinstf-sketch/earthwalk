@@ -14,6 +14,19 @@ class UInstancedStaticMeshComponent;
 class UMaterialInterface;
 class UStaticMesh;
 
+/** Somewhere to stand a player beside a thing (UEarthShowcase): where the thing is, in metres east and south of the origin. */
+struct FEarthSpot
+{
+	double X = 0.0;
+	double Z = 0.0;
+	FString Sp;
+	double R = 4.0;        // a home: how far its animals roam
+	double Yaw = 0.0;      // a parked car or a door: its compass heading, in degrees
+	double Heading = 0.0;  // a train: the compass way the track runs there
+	double In = 0.0;       // a train: how many seconds until its middle is there
+	bool bPassing = false; // a train: it goes by without stopping
+};
+
 /**
  * The living world: farm animals, ducks, birds, pets and wild creatures, tractors and boats, cars
  * parked and on their trips, and trains, wherever the server's labels say one lives (docs/PROTOCOL.md,
@@ -70,6 +83,26 @@ public:
 	void Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z);
 	/** The trees and houses within eight metres of a spot (metres east and south of the origin): they can be talked to. */
 	void FixedNear(double X, double Z, TArray<FEarthThing>& Out) const;
+
+	// ---- for "Show me" (UEarthShowcase; boarding and soonest of server/public/js/traffic.js). All of
+	// these look through every chunk this game holds, not only what is near enough to be drawn.
+
+	/**
+	 * Where to stand to catch a train near a spot: for each train that comes within Reach metres of it,
+	 * the first moment from shared time T on when it stands still there for a good while (at a station,
+	 * or at an end of its run); or, if it does not within Within seconds, the next time it passes the
+	 * nearest point of its track, marked bPassing.
+	 */
+	void Boarding(double T, double FromX, double FromZ, double Reach, TArray<FEarthSpot>& Out, double Within = 90.0) const;
+	/**
+	 * Where to go to meet each train soonest, wherever on its run that is: where it will be standing
+	 * still within Wait seconds, or failing that where it will be Lead seconds from now.
+	 */
+	void Soonest(double T, TArray<FEarthSpot>& Out, double Wait = 30.0, double Lead = 20.0) const;
+	/** The nearest home of one of these kinds of animal (or machine) to a spot, within so many metres. */
+	bool NearestHome(const TArray<FString>& Kinds, double FromX, double FromZ, double Within, FEarthSpot& Out) const;
+	/** The nearest parked car that nobody has driven off. */
+	bool NearestParked(double FromX, double FromZ, double Within, FEarthSpot& Out) const;
 
 	UEarthSounds* GetSounds() const { return Sounds; }
 	int32 NumShown() const { return Shown; }
@@ -175,6 +208,8 @@ private:
 	};
 
 	static FLooks LooksOf(uint32 Id);
+	/** Every train this game has, one of each, whichever chunk it came with. */
+	void EachTrain(TFunctionRef<void(const EarthLife::FTrip&)> Do) const;
 	void Sync(const FVector2D& Me);
 	/** Draws one animal. Returns how: Whole (alive to who is about), Simple (a far-off stand-in), Flying, or Unseen. */
 	enum class EDrawn : uint8 { Unseen, Whole, Simple, Flying };

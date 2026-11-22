@@ -10,6 +10,7 @@ class AEarthGroundCover;
 class AEarthLife;
 class AEarthWalkAvatar;
 class UEarthCompany;
+class UEarthShowcase;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class ACharacter;
@@ -142,6 +143,10 @@ public:
 	void OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done);
 	/** Riding, talking and telling things what to do (EarthCompany.h). */
 	UEarthCompany* GetCompany() const { return Company; }
+	/** "Show me...": the list of things to show somebody, and the going to them (EarthShowcase.h). */
+	UEarthShowcase* GetShowcase() const { return Showcase; }
+	/** True once the animals, cars, doors and trains of the chunk under a position have arrived: they come a moment after the ground does. */
+	bool HasLabelsAt(const FVector& Position) const { return Labels.Contains(ChunkAt(Position)); }
 	/** The figure of someone else in the room, by their id; null when this game is not showing them. */
 	AEarthWalkAvatar* FindAvatar(const FString& Id) const;
 
@@ -205,6 +210,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UEarthCompany> Company;
+
+	UPROPERTY()
+	TObjectPtr<UEarthShowcase> Showcase;
 
 	/** The insides of houses somebody has gone into, by "chunk x/chunk y/building". They leave with their chunk. */
 	UPROPERTY()
