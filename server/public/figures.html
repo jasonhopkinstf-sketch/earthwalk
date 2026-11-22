@@ -23,10 +23,11 @@
 // A look at how the players' animals move (avatars.js, figuremotion.js): pick what they are doing.
 // ?motion=walk starts on that one; ?view=side or ?view=front looks from there. ?strip=fox shows one
 // animal eight times over, each a moment later than the one before (?step=0.05 seconds), standing still:
-// a film strip of the movement.
+// a film strip of the movement. ?hat=cap puts that hat on them all.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { ANIMALS, animateAnimal, makeAnimal } from "/js/avatars.js";
+import { ANIMALS, animateAnimal, makeAnimal, wearHat } from "/js/avatars.js";
+import { makeHat } from "/js/hats.js";
 
 const MOTIONS = {
   stand: { label: "Stand", speed: 0 },
@@ -66,6 +67,8 @@ const cast = strip ? Array.from({ length: 8 }, () => ({ id: strip })) : ANIMALS;
 const figures = cast.map((a, i) => {
   const g = makeAnimal(a.id);
   g.scale.setScalar(1.2);
+  const hat = params.get("hat") ? makeHat(params.get("hat")) : null;
+  if (hat) wearHat(g, hat);
   g.userData.home = (i - (cast.length - 1) / 2) * 1.5;
   // Side by side, or one behind another when looked at from the side.
   if (view === "side") g.position.z = g.userData.home * 1.3;

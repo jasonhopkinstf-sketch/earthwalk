@@ -875,7 +875,8 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
 	}
 	const int32 RequestGeneration = Generation;
-	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, RequestGeneration](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	const double Asked = FPlatformTime::Seconds();
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, RequestGeneration, Asked](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
 	{
 		if (RequestGeneration != Generation)
 		{
@@ -888,17 +889,26 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 			RetryAfter.Remove(Key);
 			return;
 		}
+		// Say what is really going on: every case below is tried again in ten seconds.
 		if (!bConnected || !Response.IsValid())
 		{
-			LastError = FString::Printf(TEXT("Cannot reach the world server at %s"), *FEarthWalkConfig::ServerUrl());
+			// No answer after a long wait is a server that is there but busy (building a place nobody has
+			// been to, or waking up); no answer at once is no server, or no internet.
+			LastError = FPlatformTime::Seconds() - Asked > 30.0
+				? FString(TEXT("The world server is slow just now: a new place can take a minute or two to build. Still trying..."))
+				: FString::Printf(TEXT("Cannot reach the world server at %s. Is the internet working? Still trying..."), *FEarthWalkConfig::ServerUrl());
 		}
 		else if (Response->GetResponseCode() == 401)
 		{
 			LastError = TEXT("The world server needs an access code. Type /code <code>");
 		}
+		else if (Response->GetResponseCode() == 429)
+		{
+			LastError = TEXT("You are exploring faster than the world can be built. It will catch up in a moment...");
+		}
 		else
 		{
-			LastError = FString::Printf(TEXT("The world server could not build part of this area (HTTP %d)"), Response->GetResponseCode());
+			LastError = FString::Printf(TEXT("The world server could not build part of this area just now (HTTP %d). Still trying..."), Response->GetResponseCode());
 		}
 		RetryAfter.Add(Key, FPlatformTime::Seconds() + 10.0);
 	});

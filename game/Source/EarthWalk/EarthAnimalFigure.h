@@ -44,6 +44,13 @@ public:
 	/** Advances the pose. Call every frame. */
 	void Animate(float DeltaSeconds, const FEarthFigureMotion& Motion);
 
+	/**
+	 * The joint the head turns on, for hanging something on the head (a hat) so that it nods and leans
+	 * with it. It is at the neck: 0.88 m up the unscaled figure, so a thing placed in the figure's own
+	 * measure goes that much lower here. Rebuilt by SetAnimal; null before the first.
+	 */
+	USceneComponent* HeadJoint() const { return Head.Node; }
+
 private:
 	enum class EEars : uint8 { None, Pointed, Round, Long, Tuft };
 	enum class ETail : uint8 { None, Bushy, Stub, Thin };
