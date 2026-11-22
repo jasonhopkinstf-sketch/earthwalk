@@ -17,7 +17,8 @@ import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./p
 import { Talker } from "./talk.ts";
 import { Journals, type JournalStore } from "./journal.ts";
 import { type HuntStop, planHunt } from "./hunt.ts";
-import { generateInterior, INTERIOR_REV } from "./interior.ts";
+import { findHome, furnishedInterior, generateInterior, INTERIOR_REV } from "./interior.ts";
+import { Homes } from "./home.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 import { LookAhead } from "./ahead.ts";
@@ -62,6 +63,8 @@ export interface AppOptions {
   placeDetail?: (lat: number, lon: number) => Promise<PlaceDetail>;
   /** Where each player's journal is kept. Without one, journals last only as long as the visit. */
   journalStore?: JournalStore | null;
+  /** A test aid: coins every new journal starts with. */
+  startCoins?: number;
   /** Makes treasure hunts (hunt.ts); replaceable for tests. */
   planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
   /**
@@ -75,6 +78,9 @@ export interface AppOptions {
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
   /** The inside of a home, or null when the chunk has no such home to walk into. */
   buildInterior?: (x: number, y: number, id: number) => Promise<Buffer | null>;
+  /** Who lives where (home.ts); without one, houses are kept only while the server runs. And a way to measure a house, for tests. */
+  homes?: Homes;
+  findHome?: (x: number, y: number, id: number) => ReturnType<typeof findHome>;
   readCache?: (rel: string) => Promise<Buffer | null>;
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
@@ -144,12 +150,16 @@ export function createApp(options: AppOptions = {}): App {
   const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
   const buildInterior = options.buildInterior ?? ((x, y, id) => generateInterior(x, y, id, elevation));
+  const homes = options.homes ?? new Homes();
+  const measureHome = options.findHome ?? ((x: number, y: number, id: number) => findHome(x, y, id, elevation));
+  /** The insides of lived-in houses, as last built: a few, by house and by how often it has changed. */
+  const furnished = new Map<string, Buffer>();
   const accounts = options.accounts ?? new AccountDirectory(undefined, { accessCode, invited: options.invited });
   const placeName = options.placeName ?? reversePlace;
   const givenName = options.placeName;
   const placeDetail = options.placeDetail ?? (givenName ? async (lat: number, lon: number) => ({ name: await givenName(lat, lon), country: null }) : reverseDetail);
   const talker = options.talker ?? new Talker();
-  const journals = new Journals({ store: options.journalStore ?? null, placeDetail, planHunt: options.planHunt ?? ((lat, lon, day) => planHunt(lat, lon, day)) });
+  const journals = new Journals({ store: options.journalStore ?? null, startCoins: options.startCoins, placeDetail, planHunt: options.planHunt ?? ((lat, lon, day) => planHunt(lat, lon, day)) });
   const findNear = options.findNear ?? geocodeNear;
   const routeBetween = options.planRoute ?? planRoute;
   /** Where a rider asked to go, and for a car or tractor the way there by road when it is close. Slow map downloads are not waited for. */
@@ -177,6 +187,7 @@ export function createApp(options: AppOptions = {}): App {
   };
   const ahead = options.warm ? new LookAhead(options.warm) : null;
   const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs,
+    homes, findHome: measureHome, worldRev: GENERATOR_REV,
     ...(ahead ? { moved: (id: string, lat: number, lon: number) => ahead.moved(id, lat, lon) } : {}),
     course: (lat, lon, seed) => planCourse(lat, lon, seed, (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon)),
   });
@@ -396,6 +407,20 @@ export function createApp(options: AppOptions = {}): App {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
         const [z, x, y, id] = [Number(interior[1]), Number(interior[2]), Number(interior[3]), Number(interior[4])];
         if (z !== CHUNK_Z || x >= 2 ** CHUNK_Z || y >= 2 ** CHUNK_Z || !Number.isSafeInteger(id)) return json(res, 400, { error: `homes exist only at zoom ${CHUNK_Z}` });
+        // Somebody lives there: it is built from what is kept of it (home.ts), furnished their way, and not from the map.
+        const lived = homes.at(x, y, id);
+        if (lived) {
+          if (lived.gen !== GENERATOR_REV) homes.measured(lived, await measureHome(x, y, id).catch(() => null), GENERATOR_REV); // the world was made again since
+          const key = `${x}/${y}/${id}/${lived.rev}`;
+          let inside = furnished.get(key);
+          if (!inside) {
+            inside = furnishedInterior(x, y, lived.home, lived.decor);
+            if (furnished.size >= 40) furnished.delete(furnished.keys().next().value!);
+            furnished.set(key, inside);
+          }
+          res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": inside.length, "Cache-Control": "no-store" });
+          return void res.end(inside);
+        }
         const rel = `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}/${CHUNK_Z}/${x}/${y}/${id}.ewc`;
         let data = await readCache(rel);
         if (!data) {

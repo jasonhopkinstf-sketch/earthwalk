@@ -247,8 +247,26 @@ export class World {
     return m;
   }
 
-  /** Adds the inside of a house (in the chunk format) to its chunk; it leaves with the chunk. */
-  addInterior(chunk, id, data) {
+  /** Takes the inside of a house out of its chunk again: it has changed, and will be fetched afresh. */
+  removeInterior(chunk, id) {
+    const had = chunk.interiors?.get(id);
+    if (!had) return;
+    for (const mesh of had.meshes) {
+      chunk.group.remove(mesh);
+      mesh.geometry.disposeBoundsTree?.();
+      mesh.geometry.dispose();
+    }
+    this.solids = this.solids.filter((m) => !had.meshes.includes(m));
+    chunk.interiors.delete(id);
+  }
+
+  /**
+   * Adds the inside of a house (in the chunk format) to its chunk, in place of any that was there; it leaves
+   * with the chunk. `rev` says which furnishing of a lived-in house this is (0 for a house nobody lives in).
+   */
+  addInterior(chunk, id, data, rev = 0) {
+    this.removeInterior(chunk, id);
+    const meshes = [];
     const S = this.tileM;
     for (const section of data.sections) {
       const n = section.uvh.length / 3;
@@ -270,13 +288,53 @@ export class World {
       const mesh = new THREE.Mesh(geometry, section.materialId === 42 ? this.ceilingMaterial(section.color) : this.insideMaterial(section.color));
       mesh.matrixAutoUpdate = false;
       chunk.group.add(mesh);
+      meshes.push(mesh);
       mesh.updateMatrixWorld(true);
       if (section.collision) {
         geometry.computeBoundsTree();
         this.solids.push(mesh);
       }
     }
-    (chunk.interiors ??= new Set()).add(id);
+    (chunk.interiors ??= new Map()).set(id, { rev, meshes });
+  }
+
+  /**
+   * The houses somebody lives in (net.js `homes`): each gets its owner's name on a board over the door, above
+   * the COME IN board. Called when the list changes, and for each chunk when its doors arrive.
+   */
+  nameHomes(homes = this.homes) {
+    this.homes = homes;
+    for (const chunk of this.chunks.values()) this.nameHomesOf(chunk);
+  }
+
+  nameHomesOf(chunk) {
+    const homes = this.homes;
+    const boards = (chunk.homeBoards ??= new Map());
+    const S = this.tileM;
+    const wrapped = ((chunk.x % TILES) + TILES) % TILES;
+    const wanted = new Map();
+    if (homes) for (const door of chunk.doors ?? []) {
+      const home = homes.get(`${wrapped}/${chunk.y}/${door.id}`);
+      if (home) wanted.set(door.id, { door, text: /s$/i.test(home.name) ? `${home.name}' house` : `${home.name}'s house` });
+    }
+    for (const [id, board] of boards) {
+      if (wanted.get(id)?.text === board.userData.text) { wanted.delete(id); continue; }
+      chunk.group.remove(board);
+      board.geometry.dispose();
+      boards.delete(id);
+    }
+    for (const [id, { door, text }] of wanted) {
+      const width = Math.min(3.4, Math.max(1.4, 0.2 * text.length + 0.5));
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(width, NAME_SIGN_M), nameSignMaterial(text, width));
+      const yaw = THREE.MathUtils.degToRad(door.yaw || 0); // the way out, as a compass heading
+      board.rotation.set(0, Math.PI - yaw, 0);
+      const out = door.porch ? 1.03 : 0.11, up = (door.porch ? 2.91 : 2.66) + 0.5;
+      board.position.set(door.u * S + Math.sin(yaw) * out, (door.g ?? door.h) + up, door.v * S - Math.cos(yaw) * out);
+      board.userData.text = text;
+      chunk.group.add(board);
+      board.updateMatrixWorld(true);
+      boards.set(id, board);
+    }
   }
 
   /** The same paint for a wall, with windows in it. */
@@ -410,6 +468,7 @@ export class World {
       chunk.trains = items.filter((it) => it.kind === "train"); // and the trains, each sent with every chunk on its run
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
       this.signDoors(chunk, chunk.doors);
+      this.nameHomesOf(chunk);
       this.nameBuildings(chunk, items.filter((it) => it.kind === "sign"));
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);

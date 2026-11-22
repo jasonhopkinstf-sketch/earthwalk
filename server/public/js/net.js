@@ -16,6 +16,8 @@ export class Meetup extends EventTarget {
     this.orders = new Map(); // thing -> what it has been told to keep doing (orders.js)
     this.taxis = new Map(); // thing -> a taxi on its way to whoever called it (taxi.js)
     this.cars = new Map(); // member id -> their own car, where it stands (garage.js)
+    this.homes = new Map(); // "x/y/id" -> a house somebody lives in: { x, y, id, lat, lon, yaw, name, rev } (houses.js)
+    this.house = null; // my own house, with how it is furnished (`decor`)
     this.race = null; // the race set up in this room, if any (race.js)
     this.play = null; // the game of tag or of hide and seek in this room, if any (play.js)
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
@@ -168,6 +170,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "play", ...what });
   }
 
+  /** A house of my own: `claim` the one I am in, `leave` mine, or `put` a piece in it. */
+  sendHouse(what) {
+    this.send({ t: "house", ...what });
+  }
+
   callCar() {
     this.send({ t: "garage", call: true });
   }
@@ -224,6 +231,10 @@ export class Meetup extends EventTarget {
         this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
         this.taxis = new Map((msg.taxis ?? []).map((x) => [x.thing, x]));
         this.cars = new Map((msg.cars ?? []).map((c) => [c.id, c]));
+        this.homes = new Map((msg.lived ?? []).map((h) => [`${h.x}/${h.y}/${h.id}`, h]));
+        this.house = msg.house ?? null;
+        this.emit("homes", null);
+        this.emit("house", this.house);
         this.race = msg.race ?? null;
         this.emit("race", this.race);
         this.play = msg.play ?? null;
@@ -270,6 +281,18 @@ export class Meetup extends EventTarget {
         // The race in this room, whole, each time anything about it changes; null when it is over and cleared away.
         this.race = msg.race ?? null;
         this.emit("race", this.race);
+        break;
+      case "lived": {
+        // A house somebody has moved into or furnished anew, or (`gone`) one that is empty again.
+        const key = `${msg.x}/${msg.y}/${msg.id}`;
+        if (msg.gone) this.homes.delete(key);
+        else this.homes.set(key, msg);
+        this.emit("lived", msg);
+        break;
+      }
+      case "house":
+        this.house = msg.house ?? null;
+        this.emit("house", this.house);
         break;
       case "car":
         // Somebody's own car has been called, moved or repainted; or (with no `thing`) has gone.

@@ -10,6 +10,7 @@ import { Sounds } from "./sounds.js";
 import { Passport } from "./passport.js";
 import { Orders } from "./orders.js";
 import { Houses } from "./houses.js";
+import { Decor } from "./decor.js";
 import { Taxis } from "./taxi.js";
 import { Pets } from "./pets.js";
 import { Garage } from "./garage.js";
@@ -75,8 +76,9 @@ const talk = new Talk({
 });
 life.riding = riding;
 traffic.riding = riding;
+const decor = new Decor({ panel: $("decor"), meetup, moveOut: () => houses.moveOut() });
 const houses = new Houses({
-  world, player,
+  world, player, meetup, decor,
   say: (text) => notice(text),
   hint: (text) => { if (hints.door !== text) { hints.door = text; showHints(); } },
 });
@@ -205,7 +207,7 @@ meetup.addEventListener("welcome", (e) => {
   for (const line of history) addLine(line.text, "", line.name);
 });
 meetup.addEventListener("people", (e) => showPeople(e.detail));
-const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup, animal: (id) => void command("animal", id) });
+const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup, animal: (id) => void command("animal", id), goHome: () => houses.goHome() });
 const treasure = new Treasure({ scene, world });
 // "/clue" asks for my journal and reads out the clue I am on.
 let wantClue = false;
@@ -381,6 +383,7 @@ addEventListener("keydown", (e) => {
     if (document.activeElement === say) say.blur();
     passport.close();
     showcase.close();
+    decor.close();
     talk.stop(); // and stop talking to whatever it was
   } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
     if (play.lead()) e.preventDefault(); // in a round-up, the animal beside me follows at once
@@ -393,6 +396,8 @@ addEventListener("keydown", (e) => {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
     if (!play.key()) races.key(); // join or start the game that is set up here; failing one, a race
+  } else if (e.code === "KeyH" && document.activeElement !== say && !e.repeat) {
+    houses.home(); // make this house mine, furnish my own, or go home
   } else if (e.code === "KeyV" && document.activeElement !== say && !e.repeat) {
     // Riding or being carried: the seat, the view from above, the view from high up.
     const view = player.nextView();
@@ -445,6 +450,8 @@ async function command(name, arg) {
     notice("    then back to your seat; the mouse swings the camera round and the wheel brings it nearer or further");
     notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
     notice("E   at the front door of a house: go in, and E again just inside it to come out");
+    notice("H   a house of your own: inside a house nobody lives in, H makes it yours and puts your name over the door;");
+    notice("    inside your own, H opens the furniture, paint and prizes; anywhere else, H takes you home (/house moveout gives it up)");
     notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");
     notice("    and the mouse looks round the car");
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
@@ -488,6 +495,9 @@ async function command(name, arg) {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     wantClue = true;
     meetup.requestJournal();
+  } else if (name === "house") {
+    if (/^(move ?out|leave)$/i.test(arg ?? "")) houses.moveOut();
+    else houses.home();
   } else if (name === "goto" && arg) {
     notice(`Looking for "${arg}"...`);
     try {
@@ -579,4 +589,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

@@ -19,6 +19,7 @@ import { aKind } from "./talk.ts";
 import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
 import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
+import { type Feat, howWon, pieceById, PIECES } from "./home.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
@@ -82,6 +83,8 @@ export interface JournalDoc {
   /** Games of tag and of hide and seek played, and those won (play.ts). */
   games: number;
   gamesWon: number;
+  /** Pieces for a house of their own (home.ts): those bought, and the prizes won. */
+  pieces: string[];
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -122,6 +125,8 @@ export interface JournalView {
   passenger: string | null;
   /** Their car: what is chosen, and every paint and body there is with its price and whether it is theirs. */
   garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
+  /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
+  house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
@@ -304,7 +309,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0,
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [],
   };
 }
 
@@ -315,6 +320,21 @@ const todayOf = (d: JournalDoc, now: number): Daily => {
 };
 const hatHow = (h: { days?: number; hunts?: number }): string | null =>
   h.days ? (h.days === 1 ? "Do all three tasks in one day" : `Do all three tasks on ${h.days} days`) : h.hunts ? (h.hunts === 1 ? "Find the treasure at the end of a treasure hunt" : `Find ${h.hunts} treasures`) : null;
+/** How much of something a player has done, for the prizes that are won by it (home.ts). */
+export function featOf(d: JournalDoc, feat: Feat): number {
+  switch (feat) {
+    case "hunts": return d.huntsDone ?? 0;
+    case "races": return d.races ?? 0;
+    case "wins": return d.racesWon ?? 0;
+    case "countries": return Object.keys(d.countries).length;
+    case "days": return d.days ?? 0;
+    case "favours": return d.favoursDone ?? 0;
+    case "games": return d.games ?? 0;
+    case "expeditions": return Object.keys(d.expeditionsDone ?? {}).length;
+    case "riddles": return Object.keys(d.solved).length;
+    case "friends": return d.friendCount;
+  }
+}
 /** The lost animal a player is taking home, if any. */
 const passengerOf = (d: JournalDoc): string | null => {
   for (const id of Object.keys(d.expeditions)) { const e = expeditionById(id); if (e?.sort === "home") return e.passenger; }
@@ -355,6 +375,7 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
       bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
     }))(d.car ?? emptyGarage()),
+    house: { pieces: PIECES.map((p) => ({ id: p.id, slot: p.slot, name: p.name, price: p.price ?? null, how: howWon(p), owned: (d.pieces ?? []).includes(p.id), hex: p.hex })) },
     kept: d.personId !== null,
     since: d.since,
     level: levelOf(pointsOf(d)),
@@ -413,6 +434,8 @@ export interface JournalsOptions {
   now?: () => number;
   /** Makes the treasure hunt of a neighbourhood on a day (hunt.ts). Without it there are no hunts. */
   planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
+  /** A test aid: coins a brand-new journal starts with, so that things to buy can be tried without earning them. */
+  startCoins?: number;
 }
 
 export class Journals {
@@ -420,6 +443,7 @@ export class Journals {
   private readonly placeDetail: ((lat: number, lon: number) => Promise<PlaceDetail>) | null;
   private readonly now: () => number;
   private readonly planHunt: JournalsOptions["planHunt"] | null;
+  private readonly startCoins: number;
   private readonly walkers = new Map<string, Walker>(); // member id -> their journal
   private readonly byPerson = new Map<string, Open>();
   private tell: (key: string, news: StampNews) => void = () => {};
@@ -432,6 +456,7 @@ export class Journals {
     this.placeDetail = options.placeDetail ?? null;
     this.now = options.now ?? Date.now;
     this.planHunt = options.planHunt ?? null;
+    this.startCoins = Math.max(0, Math.floor(options.startCoins ?? 0)) || 0;
     this.timer = setInterval(() => void this.flush(), SAVE_EVERY_MS);
     this.timer.unref();
   }
@@ -524,6 +549,18 @@ export class Journals {
       open.dirty = true;
       this.tell(key, { kind: "prize", title: `You have won the ${h.name}`, text: "Put it on in your passport (P)" });
     }
+    // Prizes for a house of their own, won by what has been done (home.ts). Several at once are told as one.
+    const pieces = (d.pieces ??= []);
+    const won = PIECES.filter((p) => p.feat && !pieces.includes(p.id) && featOf(d, p.feat) >= (p.n ?? 1));
+    if (won.length) {
+      for (const p of won) pieces.push(p.id);
+      open.dirty = true;
+      const names = won.map((p) => `the ${p.name}`);
+      this.tell(key, {
+        kind: "prize", title: won.length === 1 ? `For your house: ${names[0]}` : `${won.length} prizes for your house`,
+        text: won.length === 1 ? "A prize to stand in a house of your own (H)" : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}, to stand in a house of your own (H)`,
+      });
+    }
     const level = levelOf(pointsOf(d));
     if (level.n > levelBefore) {
       this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}` });
@@ -593,6 +630,27 @@ export class Journals {
       this.note(w.open, "hat", { id, price: hat.price });
     }
     d.hat = id;
+    d.updated = this.now();
+    w.open.dirty = true;
+    return "ok";
+  }
+
+  /**
+   * Takes a piece for the player's house, buying it first if it is not theirs yet. "poor" when there are not
+   * enough coins, "prize" when it can only be won, "unknown" when there is no such piece.
+   */
+  takePiece(key: string, id: string): "ok" | "poor" | "prize" | "unknown" {
+    const w = this.walkers.get(key);
+    const piece = pieceById(id);
+    if (!w || !piece) return "unknown";
+    const d = w.open.doc;
+    const pieces = (d.pieces ??= []);
+    if (pieces.includes(id)) return "ok";
+    if (piece.price === undefined) return "prize";
+    if (d.coins - d.spent < piece.price) return "poor";
+    d.spent += piece.price;
+    pieces.push(id);
+    this.note(w.open, "piece", { id, price: piece.price });
     d.updated = this.now();
     w.open.dirty = true;
     return "ok";
@@ -693,7 +751,7 @@ export class Journals {
     if (!open) {
       const kept = personId && this.store ? await this.store.load(personId).catch(() => null) : null;
       open = (personId ? this.byPerson.get(personId) : undefined) // another window may have opened it while we read
-        ?? { doc: kept ? { ...emptyJournal(personId, now), ...kept } : emptyJournal(personId, now), dirty: false, log: [], keys: new Set(), busy: Promise.resolve() };
+        ?? { doc: kept ? { ...emptyJournal(personId, now), ...kept } : { ...emptyJournal(personId, now), coins: this.startCoins }, dirty: false, log: [], keys: new Set(), busy: Promise.resolve() };
       if (personId) this.byPerson.set(personId, open);
     }
     open.keys.add(key);

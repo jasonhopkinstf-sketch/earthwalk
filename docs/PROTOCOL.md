@@ -586,6 +586,39 @@ finished the state is `over` and the results stay for a minute. `stop` takes a r
 its maker (or when its maker leaves the room) it ends the race. A race nobody starts is cleared
 after ten minutes, and one nobody finishes after twenty.
 
+### A house of your own
+
+Any house that opens (see "Inside houses") can be made a player's own. One house a person; a guest's
+is theirs until they leave. Houses are in the world, not in a room: everybody connected is told of them.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"house","claim":{"x":33638,"y":21638,"id":269982566}}` | Make this house mine: the chunk it is in and its number there (the `id` of its `door` label). The sender must be within 80 m of its door. A house they had before is given up, and its furnishing comes along. |
+| `{"t":"house","leave":true}` | Give my house up. |
+| `{"t":"house","put":{"slot":"sofa","id":"royal"}}` | Swap a piece: `slot` is `walls`, `floor`, `sofa`, `bed` or `rug`, and `id` a piece of that slot (bought now with coins if it is not theirs yet); without `id`, what the house came with goes back. |
+| `{"t":"house","put":{"slot":"prize","id":"piano","on":true}}` | Put a prize on show, or (`on` false) away. Six at most stand in a house. |
+
+The server answers the sender with `{"t":"house","house":…}`: null, or their house as below with
+`decor` (`{walls?, floor?, sofa?, bed?, rug?, prizes: []}`), and after a `put` with their `journal`
+again (the coins have changed). Everybody, in every room, is sent
+
+```json
+{"t":"lived","x":33638,"y":21638,"id":269982566,"lat":52.0310154,"lon":4.7796697,"yaw":332.3,"name":"Sam","rev":3}
+```
+
+when a house is moved into or furnished anew (`lat`, `lon` its front door, `yaw` the compass heading
+that leads out of it, `name` its owner's, `rev` counting its changes), and
+`{"t":"lived","x":…,"y":…,"id":…,"gone":true}` when it is empty again. `welcome` carries the same list
+as `lived`, and the player's own as `house`. Errors: `nowhere`, `nohome` (no such house, or none of
+their own), `far`, `taken`, `many`, `poor`, `locked` (no such piece, or a prize not won yet), `busy`.
+
+The pieces there are come in the journal as `house.pieces`: `id`, `slot`, `name`, `price` (null for a
+prize that is won, with `how` in words), `owned`, and `hex`, its colours.
+
+`GET /v1/interior/16/x/y/id` of a house somebody lives in gives its rooms furnished their way, and is
+not to be cached: fetch it again when `rev` changes (the browser adds `?r=<rev>`). Clients are
+expected to put the owner's name over the door ("Sam's house"), and to let its owner choose pieces.
+
 ### The garage
 
 Every player has a car of their own (`server/src/garage.ts`). `garage` with `call` brings it to

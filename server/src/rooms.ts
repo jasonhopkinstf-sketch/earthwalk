@@ -11,6 +11,8 @@ import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
 import type { TalkNews } from "./journal.ts";
+import { cleanDecor, type Homes, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
+import type { HomeDoor } from "./chunk.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -61,6 +63,8 @@ interface Member {
   /** The animal that keeps this member company, with an identity of its own (so it can be talked to). */
   pet: { sp: string; thing: number } | null;
   hat: string | null;
+  /** When they last asked for a house, so that the map is not searched over and over. */
+  houseAt: number;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -120,6 +124,8 @@ export interface JournalKeeper {
   raced?(key: string, place: number, of: number, ms: number): void;
   /** A game of tag or of hide and seek over: how it came out for this player. */
   played?(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void;
+  /** A piece for a house of their own: theirs already, or bought now. */
+  takePiece?(key: string, id: string): "ok" | "poor" | "prize" | "unknown";
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -147,6 +153,11 @@ export interface RoomsOptions {
   playLot?: () => number;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
   journal?: JournalKeeper;
+  /** Who lives where (home.ts), and a way to find a house that opens: its measurements, its door on Earth, the way out. */
+  homes?: Homes;
+  findHome?: (x: number, y: number, id: number) => Promise<{ home: HomeDoor; lat: number; lon: number; yaw: number } | null>;
+  /** The making of the world the houses are measured in (GENERATOR_REV). */
+  worldRev?: number;
   /** Told where each player is, every time they say (ahead.ts fetches the map ahead of whoever is travelling). */
   moved?: (id: string, lat: number, lon: number) => void;
 }
@@ -283,7 +294,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0,
         };
         clearTimeout(helloTimer);
         send({
@@ -298,6 +309,8 @@ export class Rooms {
           history: r.history,
           signedIn: me.personId !== null,
           ...(me.personId !== null ? { personId: me.personId, home: me.home } : {}),
+          lived: this.options.homes?.list() ?? [],
+          house: this.houseOf(me),
           now: Date.now(),
         });
         this.broadcast(r, { t: "join", id: me.id, name: me.name, avatar: me.avatar });
@@ -446,6 +459,62 @@ export class Rooms {
         else if (drop) this.journal?.dropExpedition?.(me.id, drop);
         this.walkWith(me);
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+      } else if (msg.t === "house" && room) {
+        // A house of my own (home.ts): make the one I am at mine (`claim`), give mine up (`leave`), or swap a
+        // piece in it (`put`: a slot and a piece, or no piece for what the house came with; a prize goes `on` or off).
+        const homes = this.options.homes;
+        if (!homes) { send({ t: "error", code: "locked", text: "Houses cannot be kept here" }); return; }
+        const owner = me.personId ?? me.id;
+        const c = msg.claim as { x?: unknown; y?: unknown; id?: unknown } | undefined;
+        if (c && typeof c === "object") {
+          const x = Number(c.x), y = Number(c.y), id = Number(c.id);
+          if (![x, y, id].every(Number.isSafeInteger) || x < 0 || y < 0) return;
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          const there = homes.at(x, y, id);
+          if (there) { send({ t: "error", code: "taken", text: there.owner === owner ? "This is your house already" : `${there.name} lives here` }); return; }
+          if (Date.now() - me.houseAt < 2000) { send({ t: "error", code: "busy", text: "One moment" }); return; }
+          me.houseAt = Date.now();
+          let found: Awaited<ReturnType<NonNullable<RoomsOptions["findHome"]>>> = null;
+          try { found = (await this.options.findHome?.(x, y, id)) ?? null; } catch { /* the map would not say */ }
+          if (!room.members.has(me.id)) return; // left meanwhile
+          if (!found) { send({ t: "error", code: "nohome", text: "That house cannot be moved into" }); return; }
+          const metres = Math.hypot((found.lat - me.lat) * 111_320, (found.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180));
+          if (metres > 80) { send({ t: "error", code: "far", text: "Go into the house first" }); return; }
+          const { got, left } = homes.claim(owner, me.name, me.personId !== null, { x, y, id, ...found, gen: this.options.worldRev ?? 0 });
+          if (got !== "ok") { send({ t: "error", code: got === "full" ? "many" : "taken", text: got === "full" ? "There are no more houses to be had just now" : "Somebody lives here" }); return; }
+          if (left) this.broadcastAll({ t: "lived", x: left.x, y: left.y, id: left.id, gone: true });
+          this.broadcastAll({ t: "lived", ...viewOfLived(homes.of(owner)!) });
+          send({ t: "house", house: this.houseOf(me) });
+        } else if (msg.leave === true) {
+          const left = homes.leave(owner);
+          if (left) this.broadcastAll({ t: "lived", x: left.x, y: left.y, id: left.id, gone: true });
+          send({ t: "house", house: null });
+        } else if (msg.put && typeof msg.put === "object") {
+          const mine = homes.of(owner);
+          if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }
+          const put = msg.put as { slot?: unknown; id?: unknown; on?: unknown };
+          const slot = clean(put.slot, 12), id = clean(put.id, 16);
+          const piece = id ? pieceById(id) : undefined;
+          if ((id && piece?.slot !== slot) || !["walls", "floor", "sofa", "bed", "rug", "prize"].includes(slot)) { send({ t: "error", code: "locked", text: "There is no such piece" }); return; }
+          if (piece) {
+            const got = this.journal?.takePiece?.(me.id, piece.id) ?? "unknown";
+            if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : got === "prize" ? "That is a prize: it has to be won" : "There is no such piece" }); return; }
+          }
+          const decor = cleanDecor(mine.decor);
+          if (slot === "prize") {
+            if (!piece) return;
+            decor.prizes = decor.prizes.filter((p) => p !== piece.id);
+            if (put.on !== false) {
+              if (decor.prizes.length >= PRIZES_SHOWN) { send({ t: "error", code: "many", text: `A house shows ${PRIZES_SHOWN} prizes at once: put one away first` }); return; }
+              decor.prizes.push(piece.id);
+            }
+          } else if (piece) decor[slot as "walls" | "floor" | "sofa" | "bed" | "rug"] = piece.id;
+          else delete decor[slot as "walls" | "floor" | "sofa" | "bed" | "rug"];
+          homes.change(owner, { decor });
+          this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+          send({ t: "house", house: this.houseOf(me) });
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        }
       } else if (msg.t === "hat" && room) {
         // Buy a hat with my coins (`buy`), put on one I own (`wear`), or take it off (neither).
         const buy = clean(msg.buy, 16), wear = clean(msg.wear, 16) || null;
@@ -577,6 +646,9 @@ export class Rooms {
       this.leaveRace(room, me.id);
       this.leavePlay(room, me.id);
       for (const x of [...room.taxis.values()]) if (x.by === me.id && !x.aboard) this.dismiss(room, x.thing); // and their taxi drives off
+      // A guest's house is theirs for the visit only.
+      const lent = me.personId === null ? this.options.homes?.leave(me.id) : null;
+      if (lent) this.broadcastAll({ t: "lived", x: lent.x, y: lent.y, id: lent.id, gone: true });
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
       room.members.delete(me.id);
@@ -783,6 +855,18 @@ export class Rooms {
     room.orders.set(thing, order);
     if (order.act === "follow") this.journal?.following?.(m.id, thing, true);
     this.broadcast(room, { t: "order", ...order });
+  }
+
+  /** My own house, as I am told of it: where it is and how I have furnished it. */
+  private houseOf(m: Member): (ReturnType<typeof viewOfLived> & { decor: Lived["decor"] }) | null {
+    const mine = this.options.homes?.of(m.personId ?? m.id);
+    return mine ? { ...viewOfLived(mine), decor: mine.decor } : null;
+  }
+
+  /** Tells everybody, in every room: houses are in the world, not in a room. */
+  private broadcastAll(obj: unknown): void {
+    const text = JSON.stringify(obj);
+    for (const m of this.everyone.values()) if (m.ws.readyState === m.ws.OPEN) m.ws.send(text);
   }
 
   private broadcast(room: Room, obj: unknown): void {

@@ -235,6 +235,20 @@ passport, brings it to stand beside you, and only you can drive it; friends ride
 and body are chosen in the passport: four paints are free, nine more and a van are bought with the
 coins that tasks, favours and treasure pay (`server/src/garage.ts`, `server/public/js/garage.js`).
 
+A house of your own (in the browser so far): go into any house nobody lives in (E at a door with a
+COME IN board) and press H. It is yours: your name goes up over the door for everybody, friends can
+walk in, and H anywhere else takes you home. Inside it, H opens a panel at the side where the paint
+on the walls, the floors, the sofa, the beds and the rugs can each be swapped for another, bought
+with coins, and where prizes are put on show: some bought (a piano, a fish tank), most won out in
+the world (a treasure chest for a treasure hunt, a globe for three countries, a golden cup for
+winning a race). The rooms change round you as you choose. One house a person; moving (H twice in
+another empty house) takes the furnishing along, and `/house moveout` gives it up. A guest's house
+lasts for the visit. The catalogue and who lives where are `server/src/home.ts` (kept in
+`people/homes.json` beside the accounts); the rooms are built again with the owner's choices by
+`buildInterior` in `server/src/interior.ts`, from measurements kept with the house, so the map is
+not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
+things on a developer's own machine; it is not set on the live server.
+
 The view from above (in the browser so far): riding anything, or being carried by a train, a taxi or a
 friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
 rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken

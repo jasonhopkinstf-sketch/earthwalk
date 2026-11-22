@@ -12,11 +12,12 @@
 // its left-hand corner as you face out of the door, `b` runs back into the house, `z` is up from
 // the floor.
 
-import { hash32, metersPerTile } from "./geo.ts";
+import { hash32, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { CHUNK_Z } from "./geo.ts";
 import { type ChunkMesh, encodeChunk, face, featuresForChunk, type HomeDoor, homesOf, type MaterialDef, painted, Section } from "./chunk.ts";
 import type { Elevation } from "./elevation.ts";
 import { loadFeatures, type Features } from "./osm.ts";
+import type { Decor } from "./home.ts";
 
 /** Bump when interiors change, so cached ones are rebuilt. */
 export const INTERIOR_REV = 2;
@@ -158,8 +159,28 @@ const WHITE = 0xf7f5ef;
 const STEEL = 0xb9c0c6;
 const LEAF = 0x3f9a45;
 
-/** The inside of one home, in its chunk's coordinates. */
-export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
+/** The paints a house's owner can choose for its walls (home.ts): the colour, and for some a pattern over it. */
+const WALLS: Record<string, { hex: number; over?: number; kind?: "stripes" | "stars" }> = {
+  sun: { hex: 0xf6dc7a }, sky: { hex: 0xa9d3ee }, mint: { hex: 0xb5e3c3 }, rose: { hex: 0xf2b8c6 }, lilac: { hex: 0xcdb8ea }, peach: { hex: 0xf7c6a0 },
+  night: { hex: 0x2c3a6b, over: 0xf2e394, kind: "stars" },
+  stripes: { hex: 0xf7f5ef, over: 0xd94a3a, kind: "stripes" },
+};
+/** And the floors: one colour, or two in squares (which go down in kitchens and bathrooms too). */
+const FLOORS: Record<string, { hex: number; check?: number }> = {
+  oak: { hex: 0xd9a75a }, walnut: { hex: 0x6b4630 }, white: { hex: 0xefeae0 }, check: { hex: 0x2b2b2f, check: 0xf2f0ea }, redcarpet: { hex: 0xb5372e }, lawn: { hex: 0x5fae4a },
+};
+const RAINBOW = [0xd9382e, 0xe8935a, 0xf2cc74, 0x3f9a45, 0x3f6fb0, 0x7a4f9a];
+const GOLD = 0xe0b23c;
+const BLACK = 0x26262b;
+const RED = 0xd9382e;
+/** Where prizes are stood, the likeliest rooms first; never the bathroom. */
+const PRIZE_ROOMS: RoomKind[] = ["L", "D", "H", "P", "S", "B", "K", "U"];
+
+/**
+ * The inside of one home, in its chunk's coordinates. `decor` is what its owner has chosen (home.ts); without
+ * it the house is as it was built.
+ */
+export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = null): ChunkMesh {
   const sections = new Map<string, Section>();
   const sec = (m: MaterialDef, hex: number): Section => {
     const mat = painted(m, hex);
@@ -213,16 +234,48 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
   const pick = <T>(list: T[], salt: number): T => list[hash32(home.seed, salt) % list.length];
 
   top(sec(INSIDE.ceiling, 0xfbf9f3), inset, width - inset, inset, depth - inset, ROOM_M, -1);
-  const partition = sec(INSIDE.wall, 0xf7f3ea);
+  // What the owner has chosen for the walls and the floors, if anything.
+  const walls = decor?.walls ? WALLS[decor.walls] : undefined;
+  const laid = decor?.floor ? FLOORS[decor.floor] : undefined;
+  const partition = sec(INSIDE.wall, walls?.hex ?? 0xf7f3ea);
   const frame = sec(INSIDE.glass, WHITE);
   const glass = sec(INSIDE.glass, 0xa9d4ee);
+  type Put = (c0: number, c1: number, z0: number, z1: number, proud: number, s: Section) => void;
 
   plan.rooms.forEach((r, i) => {
     const wet = r.kind === "K" || r.kind === "T" || r.kind === "U";
-    top(sec(INSIDE.floor, wet ? pick(TILES, 0x464c + i) : pick(WOODS, 0x464c + (r.kind === "H" ? 99 : i))), r.a0, r.a1, r.b0, r.b1, 0);
+    if (laid?.check !== undefined) {
+      // Squares of two colours, on one grid for the whole house so that they meet in the doorways.
+      const T = 0.6;
+      for (let ia = Math.floor(r.a0 / T); ia * T < r.a1; ia++) {
+        for (let ib = Math.floor(r.b0 / T); ib * T < r.b1; ib++) {
+          top(sec(INSIDE.floor, (ia + ib) & 1 ? laid.hex : laid.check), Math.max(r.a0, ia * T), Math.min(r.a1, (ia + 1) * T), Math.max(r.b0, ib * T), Math.min(r.b1, (ib + 1) * T), 0);
+        }
+      }
+    } else if (laid && !wet) {
+      top(sec(INSIDE.floor, laid.hex), r.a0, r.a1, r.b0, r.b1, 0);
+    } else {
+      top(sec(INSIDE.floor, wet ? pick(TILES, 0x464c + i) : pick(WOODS, 0x464c + (r.kind === "H" ? 99 : i))), r.a0, r.a1, r.b0, r.b1, 0);
+    }
     // The lining of the outside walls, in this room's own paint, with a window in each long enough stretch.
-    const paint = sec(INSIDE.wall, PAINTS[hash32(home.seed, 0x5041494e + i) % PAINTS.length]);
-    const window = (lo: number, hi: number, put: (c0: number, c1: number, z0: number, z1: number, proud: number, s: Section) => void, clear: [number, number] | null): void => {
+    const paint = sec(INSIDE.wall, walls?.hex ?? PAINTS[hash32(home.seed, 0x5041494e + i) % PAINTS.length]);
+    let wallNo = 0;
+    const window = (lo: number, hi: number, put: Put, clear: [number, number] | null): void => {
+      // A pattern over the paint goes on first, and the window over that.
+      wallNo++;
+      if (walls?.kind === "stripes") {
+        const over = sec(INSIDE.glass, walls.over!);
+        for (let c0 = Math.ceil(lo / 0.8) * 0.8; c0 + 0.4 <= hi; c0 += 0.8) put(c0, c0 + 0.4, 0, ROOM_M, 0.005, over);
+      } else if (walls?.kind === "stars") {
+        const over = sec(INSIDE.glass, walls.over!);
+        for (let k = 0; k < Math.floor((hi - lo) * 1.3); k++) {
+          const h = hash32(home.seed, 0x53544152 + i * 977 + k * 31 + wallNo * 7919);
+          const c0 = lo + 0.2 + ((h % 1000) / 1000) * Math.max(0, hi - lo - 0.5);
+          const z0 = 1.0 + (((h >>> 10) % 1000) / 1000) * (ROOM_M - 1.3);
+          const size = 0.06 + ((h >>> 20) % 3) * 0.03;
+          put(c0, c0 + size, z0, z0 + size, 0.005, over);
+        }
+      }
       if (hi - lo < 2.4) return;
       const mid = (lo + hi) / 2;
       if (clear && mid + 0.9 > clear[0] && mid - 0.9 < clear[1]) return; // the front door is here
@@ -278,6 +331,9 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
   }
 
   // ---- furniture. Each piece stands against a wall of its room, clear of every doorway.
+  type Box = (s: Section, w0: number, w1: number, d0: number, d1: number, z0: number, z1: number) => void;
+  const col = (hex: number): Section => sec(INSIDE.furniture, hex);
+  const standers: { kind: RoomKind; against: (w: number, d: number, salt: number, make: (box: Box) => void) => boolean }[] = [];
   plan.rooms.forEach((r, i) => {
     /** Points to keep clear: the doorways of this room, and the front door. */
     const ways: [number, number][] = [];
@@ -298,7 +354,7 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
      * order of this room's own. `make` is given a way to place boxes in the piece's own frame: across its width,
      * out from the wall, and up.
      */
-    const against = (w: number, d: number, salt: number, make: (box: (s: Section, w0: number, w1: number, d0: number, d1: number, z0: number, z1: number) => void) => void): boolean => {
+    const against = (w: number, d: number, salt: number, make: (box: Box) => void): boolean => {
       const start = hash32(home.seed, salt + i * 131) % 12;
       for (let n = 0; n < 12; n++) {
         const k = (start + n) % 12;
@@ -335,9 +391,146 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
     const wood = sec(INSIDE.furniture, pick(TIMBER, 0x574f4f44 + i));
     const cloth = sec(INSIDE.furniture, pick(CLOTHS, 0x434c4f54 + i));
     const white = sec(INSIDE.furniture, WHITE);
+    standers.push({ kind: r.kind, against });
     const rug = (w: number, d: number, salt: number): void => {
       const a0 = (r.a0 + r.a1 - w) / 2, b0 = (r.b0 + r.b1 - d) / 2;
-      if (a0 > r.a0 + 0.3 && b0 > r.b0 + 0.3) top(sec(INSIDE.soft, pick(CLOTHS, salt + i)), a0, a0 + w, b0, b0 + d, 0.015);
+      if (!(a0 > r.a0 + 0.3 && b0 > r.b0 + 0.3)) return;
+      const soft = (hex: number): Section => sec(INSIDE.soft, hex);
+      if (decor?.rug === "rainbow") {
+        RAINBOW.forEach((hex, k) => top(soft(hex), a0, a0 + w, b0 + (d * k) / 6, b0 + (d * (k + 1)) / 6, 0.015));
+      } else if (decor?.rug === "chess") {
+        const n = Math.max(2, Math.round(w / 0.3)), m = Math.max(2, Math.round(d / 0.3));
+        for (let p = 0; p < n; p++) for (let q = 0; q < m; q++) top(soft((p + q) & 1 ? 0x2b2b2f : 0xf2f0ea), a0 + (w * p) / n, a0 + (w * (p + 1)) / n, b0 + (d * q) / m, b0 + (d * (q + 1)) / m, 0.015);
+      } else if (decor?.rug === "target") {
+        for (let k = 0; k < 4; k++) {
+          const in_ = (k * Math.min(w, d)) / 8;
+          top(soft(k % 2 ? WHITE : RED), a0 + in_, a0 + w - in_, b0 + in_, b0 + d - in_, 0.015 + k * 0.004);
+        }
+      } else top(soft(pick(CLOTHS, salt + i)), a0, a0 + w, b0, b0 + d, 0.015);
+    };
+    /** The sofa: the one the house came with, or the one its owner chose. */
+    const sofa = (): boolean => against(2.0, 0.9, 0x534f4641, (box) => {
+      if (decor?.sofa === "royal") {
+        const purple = col(0x6a3d9a), gold = col(GOLD);
+        box(gold, 0.1, 1.9, 0.18, 0.9, 0, 0.12);
+        box(purple, 0.1, 1.9, 0.18, 0.9, 0.12, 0.48);
+        box(purple, 0.1, 1.9, 0, 0.22, 0.12, 1.15);
+        box(gold, 0.6, 1.4, 0, 0.22, 1.15, 1.3);
+        box(gold, 0, 0.2, 0.1, 0.9, 0, 0.7);
+        box(gold, 1.8, 2.0, 0.1, 0.9, 0, 0.7);
+        box(col(0xb5372e), 0.3, 0.9, 0.3, 0.85, 0.48, 0.56);
+        box(col(0xb5372e), 1.1, 1.7, 0.3, 0.85, 0.48, 0.56);
+      } else if (decor?.sofa === "cloud") {
+        const puff = col(0xf4f6fa), blue = col(0xa9d3ee);
+        box(puff, 0, 2.0, 0.15, 0.9, 0, 0.42);
+        box(puff, 0, 0.7, 0, 0.3, 0, 0.95);
+        box(puff, 0.65, 1.35, 0, 0.32, 0, 1.1);
+        box(puff, 1.3, 2.0, 0, 0.3, 0, 0.95);
+        box(puff, 0, 0.25, 0.25, 0.9, 0.42, 0.68);
+        box(puff, 1.75, 2.0, 0.25, 0.9, 0.42, 0.68);
+        box(blue, 0.35, 0.95, 0.35, 0.8, 0.42, 0.5);
+        box(blue, 1.05, 1.65, 0.35, 0.8, 0.42, 0.5);
+      } else if (decor?.sofa === "racer") {
+        const red = col(RED), black = col(BLACK);
+        box(black, 0, 2.0, 0.15, 0.9, 0, 0.2);
+        box(red, 0.08, 1.92, 0.18, 0.9, 0.2, 0.46);
+        box(red, 0.08, 1.92, 0, 0.2, 0.2, 1.0);
+        box(white, 0.9, 1.1, 0.18, 0.9, 0.46, 0.47);
+        box(white, 0.9, 1.1, 0.2, 0.215, 0.47, 1.0);
+        box(black, 0, 0.16, 0.2, 0.9, 0.2, 0.72);
+        box(black, 1.84, 2.0, 0.2, 0.9, 0.2, 0.72);
+      } else if (decor?.sofa === "bench") {
+        const log = col(0x8a5a3a), dark = col(0x6f4a30);
+        box(dark, 0.1, 0.35, 0.15, 0.8, 0, 0.38);
+        box(dark, 1.65, 1.9, 0.15, 0.8, 0, 0.38);
+        box(log, 0, 2.0, 0.1, 0.85, 0.38, 0.48);
+        box(dark, 0.05, 0.15, 0, 0.1, 0, 1.0);
+        box(dark, 1.85, 1.95, 0, 0.1, 0, 1.0);
+        box(log, 0, 2.0, 0, 0.1, 0.6, 0.75);
+        box(log, 0, 2.0, 0, 0.1, 0.85, 1.0);
+        box(col(0x5fae4a), 0.2, 1.8, 0.2, 0.8, 0.48, 0.54);
+      } else {
+        box(cloth, 0, 2.0, 0.18, 0.9, 0, 0.45);
+        box(cloth, 0, 2.0, 0, 0.2, 0, 0.92);
+        box(cloth, 0, 0.18, 0.18, 0.9, 0.45, 0.66);
+        box(cloth, 1.82, 2.0, 0.18, 0.9, 0.45, 0.66);
+      }
+    });
+    /** And the bed. Its head is at the wall. */
+    const bed = (): boolean => {
+      if (decor?.bed === "bunk") {
+        return against(1.5, 2.05, 0x424544, (box) => {
+          const blue = col(0x3f6fb0);
+          for (const [w0, d0] of [[0, 0], [1.42, 0], [0, 1.97], [1.42, 1.97]]) box(wood, w0, w0 + 0.08, d0, d0 + 0.08, 0, 1.8);
+          for (const z of [0.22, 1.12]) {
+            box(wood, 0, 1.5, 0, 2.05, z, z + 0.1);
+            box(white, 0.06, 1.44, 0.08, 1.99, z + 0.1, z + 0.24);
+            box(blue, 0.04, 1.46, 0.7, 2.0, z + 0.1, z + 0.26);
+            box(white, 0.4, 1.1, 0.14, 0.5, z + 0.24, z + 0.34);
+          }
+          box(wood, 0, 1.5, 1.99, 2.05, 1.36, 1.62);
+          box(wood, 0, 0.06, 0.5, 2.05, 1.36, 1.62);
+          for (const z of [0.5, 0.8, 1.1]) box(wood, 1.42, 1.5, 1.3, 1.75, z, z + 0.06);
+        });
+      }
+      if (decor?.bed === "poster") {
+        return against(1.5, 2.05, 0x424544, (box) => {
+          const dark = col(0x6f4a30), red = col(0xb5372e);
+          box(dark, 0, 1.5, 0, 2.05, 0, 0.32);
+          box(white, 0.04, 1.46, 0.08, 2.0, 0.32, 0.52);
+          box(red, 0.02, 1.48, 0.7, 2.03, 0.32, 0.55);
+          box(white, 0.2, 0.7, 0.14, 0.5, 0.52, 0.64);
+          box(white, 0.8, 1.3, 0.14, 0.5, 0.52, 0.64);
+          box(dark, 0, 1.5, 0, 0.1, 0.32, 1.2);
+          for (const [w0, d0] of [[0, 0], [1.42, 0], [0, 1.97], [1.42, 1.97]]) box(dark, w0, w0 + 0.08, d0, d0 + 0.08, 0.32, 2.02);
+          box(red, 0, 1.5, 0, 2.05, 2.02, 2.1);
+          box(col(GOLD), 0, 1.5, 2.0, 2.06, 1.88, 2.02);
+        });
+      }
+      if (decor?.bed === "racecar") {
+        return against(1.7, 2.05, 0x424544, (box) => {
+          const red = col(RED), black = col(BLACK);
+          box(red, 0.1, 0.22, 0, 2.05, 0, 0.5);
+          box(red, 1.48, 1.6, 0, 2.05, 0, 0.5);
+          box(red, 0.1, 1.6, 1.85, 2.05, 0, 0.42);
+          box(red, 0.1, 1.6, 0, 0.12, 0, 0.7);
+          box(black, 0.18, 0.26, 0.03, 0.11, 0.7, 0.86);
+          box(black, 1.44, 1.52, 0.03, 0.11, 0.7, 0.86);
+          box(black, 0.1, 1.6, 0, 0.16, 0.86, 0.93);
+          box(white, 0.22, 1.48, 0.12, 1.85, 0.2, 0.4);
+          box(white, 0.22, 1.48, 0.8, 1.85, 0.4, 0.43);
+          box(red, 0.75, 0.95, 0.8, 1.85, 0.43, 0.44);
+          box(white, 0.5, 1.2, 0.2, 0.6, 0.4, 0.5);
+          for (const d0 of [0.25, 1.35]) { box(black, 0, 0.1, d0, d0 + 0.45, 0, 0.45); box(black, 1.6, 1.7, d0, d0 + 0.45, 0, 0.45); }
+          box(col(0xf2cc74), 0.25, 0.5, 2.05, 2.06, 0.2, 0.34);
+          box(col(0xf2cc74), 1.2, 1.45, 2.05, 2.06, 0.2, 0.34);
+        });
+      }
+      if (decor?.bed === "boat") {
+        return against(1.5, 2.05, 0x424544, (box) => {
+          const blue = col(0x3f6fb0);
+          box(blue, 0, 0.12, 0.3, 1.75, 0, 0.55);
+          box(blue, 1.38, 1.5, 0.3, 1.75, 0, 0.55);
+          box(white, 0, 0.12, 0.3, 1.75, 0.55, 0.6);
+          box(white, 1.38, 1.5, 0.3, 1.75, 0.55, 0.6);
+          box(blue, 0, 1.5, 0, 0.3, 0, 0.7);
+          box(blue, 0.2, 1.3, 1.75, 1.92, 0, 0.6);
+          box(blue, 0.45, 1.05, 1.92, 2.05, 0, 0.66);
+          box(white, 0.12, 1.38, 0.3, 1.75, 0.2, 0.4);
+          box(col(RED), 0.12, 1.38, 0.9, 1.75, 0.4, 0.43);
+          box(white, 0.4, 1.1, 0.36, 0.72, 0.4, 0.5);
+          box(wood, 0.71, 0.79, 0.08, 0.16, 0.7, 2.0);
+          box(white, 0.2, 1.3, 0.11, 0.13, 1.0, 1.9);
+        });
+      }
+      return against(1.5, 2.05, 0x424544, (box) => {
+        box(wood, 0, 1.5, 0, 2.05, 0, 0.3);
+        box(white, 0.04, 1.46, 0.08, 2.0, 0.3, 0.5);
+        box(cloth, 0.02, 1.48, 0.7, 2.03, 0.3, 0.53);
+        box(white, 0.2, 0.7, 0.14, 0.5, 0.5, 0.62);
+        box(white, 0.8, 1.3, 0.14, 0.5, 0.5, 0.62);
+        box(wood, 0, 1.5, 0, 0.08, 0.3, 1.0);
+      });
     };
     const shelves = (salt: number): boolean => against(1.2, 0.34, salt, (box) => {
       box(wood, 0, 1.2, 0, 0.34, 0, 1.85);
@@ -361,12 +554,7 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
     });
 
     if (r.kind === "L") {
-      against(2.0, 0.9, 0x534f4641, (box) => {
-        box(cloth, 0, 2.0, 0.18, 0.9, 0, 0.45);
-        box(cloth, 0, 2.0, 0, 0.2, 0, 0.92);
-        box(cloth, 0, 0.18, 0.18, 0.9, 0.45, 0.66);
-        box(cloth, 1.82, 2.0, 0.18, 0.9, 0.45, 0.66);
-      });
+      sofa();
       rug(Math.min(2.4, r.a1 - r.a0 - 1.2), Math.min(1.6, r.b1 - r.b0 - 1.2), 0x525547);
       middle(1.0, 0.6, (a0, b0) => block(wood, a0, a0 + 1.0, b0, b0 + 0.6, 0, 0.4));
       shelves(0x424f4f4b);
@@ -383,14 +571,7 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
       against(0.7, 0.7, 0x46524944, (box) => box(white, 0, 0.7, 0, 0.7, 0, 1.8));
       tableAndChairs(1.1, 0.8);
     } else if (r.kind === "B") {
-      against(1.5, 2.05, 0x424544, (box) => {
-        box(wood, 0, 1.5, 0, 2.05, 0, 0.3);
-        box(white, 0.04, 1.46, 0.08, 2.0, 0.3, 0.5);
-        box(cloth, 0.02, 1.48, 0.7, 2.03, 0.3, 0.53);
-        box(white, 0.2, 0.7, 0.14, 0.5, 0.5, 0.62);
-        box(white, 0.8, 1.3, 0.14, 0.5, 0.5, 0.62);
-        box(wood, 0, 1.5, 0, 0.08, 0.3, 1.0);
-      });
+      bed();
       against(1.2, 0.6, 0x57415244, (box) => box(wood, 0, 1.2, 0, 0.6, 0, 1.95));
       against(0.45, 0.45, 0x53494445, (box) => { box(wood, 0, 0.45, 0, 0.45, 0, 0.5); box(sec(INSIDE.furniture, 0xf2cc74), 0.12, 0.33, 0.12, 0.33, 0.5, 0.85); });
       rug(1.4, 0.9, 0x525532);
@@ -431,7 +612,181 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
     }
   });
 
+  // ---- prizes on show: each stands against a wall where there is room, the living room first.
+  const PRIZES: Record<string, { w: number; d: number; make: (box: Box) => void }> = {
+    chest: { w: 0.9, d: 0.55, make: (box) => {
+      box(col(0x8a5a3a), 0, 0.9, 0, 0.55, 0, 0.42);
+      box(col(0x5a3a24), 0, 0.9, 0, 0.55, 0.42, 0.58);
+      for (const w0 of [0.12, 0.7]) box(col(GOLD), w0, w0 + 0.08, 0, 0.56, 0, 0.585);
+      box(col(GOLD), 0.4, 0.5, 0.55, 0.58, 0.3, 0.44);
+    } },
+    cup: { w: 0.5, d: 0.5, make: (box) => {
+      const gold = col(GOLD);
+      box(col(0x6f4a30), 0.05, 0.45, 0.05, 0.45, 0, 0.85);
+      box(gold, 0.17, 0.33, 0.17, 0.33, 0.85, 0.9);
+      box(gold, 0.22, 0.28, 0.22, 0.28, 0.9, 1.02);
+      box(gold, 0.13, 0.37, 0.13, 0.37, 1.02, 1.26);
+      box(gold, 0.07, 0.13, 0.22, 0.28, 1.08, 1.2);
+      box(gold, 0.37, 0.43, 0.22, 0.28, 1.08, 1.2);
+    } },
+    goldcup: { w: 0.6, d: 0.6, make: (box) => {
+      const gold = col(0xf2c94c);
+      box(col(BLACK), 0.05, 0.55, 0.05, 0.55, 0, 0.8);
+      box(gold, 0.2, 0.4, 0.2, 0.4, 0.8, 0.86);
+      box(gold, 0.26, 0.34, 0.26, 0.34, 0.86, 1.02);
+      box(gold, 0.14, 0.46, 0.14, 0.46, 1.02, 1.36);
+      box(gold, 0.11, 0.49, 0.11, 0.49, 1.36, 1.4);
+      box(gold, 0.05, 0.14, 0.26, 0.34, 1.1, 1.3);
+      box(gold, 0.46, 0.55, 0.26, 0.34, 1.1, 1.3);
+    } },
+    globe: { w: 0.55, d: 0.55, make: (box) => {
+      const sea = col(0x3f6fb0), land = col(0x3f9a45), stand = col(0x6f4a30);
+      box(stand, 0.12, 0.43, 0.12, 0.43, 0, 0.08);
+      box(stand, 0.25, 0.3, 0.25, 0.3, 0.08, 0.75);
+      box(sea, 0.14, 0.41, 0.14, 0.41, 0.75, 0.83);
+      box(sea, 0.07, 0.48, 0.07, 0.48, 0.83, 1.12);
+      box(sea, 0.14, 0.41, 0.14, 0.41, 1.12, 1.2);
+      box(land, 0.2, 0.4, 0.47, 0.495, 0.88, 1.05);
+      box(land, 0.47, 0.495, 0.15, 0.35, 0.9, 1.08);
+      box(land, 0.055, 0.08, 0.2, 0.38, 0.86, 1.0);
+      box(land, 0.2, 0.35, 0.2, 0.35, 1.2, 1.21);
+    } },
+    clock: { w: 0.6, d: 0.4, make: (box) => {
+      const timber = col(0x6f4a30), gold = col(GOLD);
+      box(timber, 0.06, 0.54, 0, 0.36, 0, 1.55);
+      box(timber, 0, 0.6, 0, 0.4, 1.55, 2.05);
+      box(col(0xf2e9c8), 0.14, 0.46, 0.4, 0.41, 1.65, 1.97);
+      box(col(BLACK), 0.285, 0.315, 0.41, 0.415, 1.8, 1.93);
+      box(col(BLACK), 0.3, 0.4, 0.41, 0.415, 1.79, 1.82);
+      box(col(BLACK), 0.2, 0.4, 0.36, 0.37, 0.5, 1.4);
+      box(gold, 0.27, 0.33, 0.37, 0.38, 0.7, 1.3);
+      box(gold, 0.23, 0.37, 0.37, 0.385, 0.56, 0.7);
+    } },
+    thanks: { w: 0.6, d: 0.6, make: (box) => {
+      const leaf = col(LEAF), red = col(RED);
+      box(col(GOLD), 0.15, 0.45, 0.15, 0.45, 0, 0.4);
+      box(col(0x8a5a3a), 0.27, 0.33, 0.27, 0.33, 0.4, 1.0);
+      box(leaf, 0.05, 0.55, 0.05, 0.55, 1.0, 1.35);
+      box(leaf, 0.12, 0.48, 0.12, 0.48, 1.35, 1.65);
+      box(leaf, 0.2, 0.4, 0.2, 0.4, 1.65, 1.85);
+      box(red, 0.1, 0.18, 0.55, 0.57, 1.1, 1.18);
+      box(red, 0.4, 0.48, 0.55, 0.57, 1.2, 1.28);
+      box(red, 0.55, 0.57, 0.2, 0.28, 1.15, 1.23);
+      box(red, 0.03, 0.05, 0.3, 0.38, 1.08, 1.16);
+    } },
+    games: { w: 1.0, d: 0.7, make: (box) => {
+      const leg = col(0x8a5a3a);
+      for (const [w0, d0] of [[0.05, 0.05], [0.87, 0.05], [0.05, 0.57], [0.87, 0.57]]) box(leg, w0, w0 + 0.08, d0, d0 + 0.08, 0, 0.7);
+      box(col(0x3f7f4f), 0, 1.0, 0, 0.7, 0.7, 0.76);
+      box(col(0xf2e9c8), 0.3, 0.7, 0.15, 0.55, 0.76, 0.775);
+      box(col(RED), 0.35, 0.41, 0.2, 0.26, 0.775, 0.85);
+      box(col(BLACK), 0.55, 0.61, 0.4, 0.46, 0.775, 0.85);
+      box(col(0x3f6fb0), 0.45, 0.51, 0.3, 0.36, 0.775, 0.85);
+      box(col(0xf2cc74), 0.8, 0.88, 0.1, 0.18, 0.76, 0.84);
+    } },
+    map: { w: 1.2, d: 0.8, make: (box) => {
+      const leg = col(0x8a5a3a), land = col(0x7fb069);
+      for (const [w0, d0] of [[0.05, 0.05], [1.07, 0.05], [0.05, 0.67], [1.07, 0.67]]) box(leg, w0, w0 + 0.08, d0, d0 + 0.08, 0, 0.7);
+      box(leg, 0, 1.2, 0, 0.8, 0.7, 0.76);
+      box(col(0xe8dcc8), 0.08, 1.12, 0.08, 0.72, 0.76, 0.77);
+      box(land, 0.2, 0.5, 0.2, 0.45, 0.77, 0.775);
+      box(land, 0.65, 1.0, 0.3, 0.6, 0.77, 0.775);
+      box(land, 0.3, 0.45, 0.5, 0.65, 0.77, 0.775);
+      box(col(RED), 0.3, 0.33, 0.3, 0.33, 0.775, 0.86);
+      box(col(0x3f6fb0), 0.8, 0.83, 0.42, 0.45, 0.775, 0.86);
+      box(col(GOLD), 0.95, 1.05, 0.1, 0.2, 0.77, 0.79);
+    } },
+    owl: { w: 0.5, d: 0.5, make: (box) => {
+      const grey = col(STEEL), gold = col(GOLD);
+      box(col(0x8d949a), 0.08, 0.42, 0.08, 0.42, 0, 0.7);
+      box(grey, 0.14, 0.36, 0.16, 0.36, 0.7, 1.05);
+      box(grey, 0.12, 0.38, 0.14, 0.38, 1.05, 1.3);
+      box(grey, 0.12, 0.18, 0.2, 0.3, 1.3, 1.38);
+      box(grey, 0.32, 0.38, 0.2, 0.3, 1.3, 1.38);
+      box(gold, 0.17, 0.24, 0.38, 0.39, 1.14, 1.22);
+      box(gold, 0.26, 0.33, 0.38, 0.39, 1.14, 1.22);
+      box(gold, 0.235, 0.265, 0.38, 0.4, 1.08, 1.14);
+    } },
+    friends: { w: 1.6, d: 0.1, make: (box) => {
+      box(col(WHITE), 0, 1.6, 0, 0.05, 1.0, 1.9);
+      for (let k = 0; k < 10; k++) {
+        const w0 = 0.1 + (k % 5) * 0.3, z0 = 1.08 + Math.floor(k / 5) * 0.42;
+        box(col(CLOTHS[(k * 3 + 1) % CLOTHS.length]), w0, w0 + 0.2, 0.05, 0.06, z0, z0 + 0.3);
+      }
+    } },
+    rocking: { w: 1.2, d: 0.45, make: (box) => {
+      const pale = col(0xd9b98a), runner = col(0x8a5a3a);
+      box(runner, 0, 1.2, 0.05, 0.12, 0, 0.08);
+      box(runner, 0, 1.2, 0.33, 0.4, 0, 0.08);
+      box(pale, 0.25, 0.33, 0.1, 0.35, 0.08, 0.5);
+      box(pale, 0.87, 0.95, 0.1, 0.35, 0.08, 0.5);
+      box(pale, 0.2, 1.0, 0.1, 0.35, 0.5, 0.8);
+      box(pale, 0.85, 1.0, 0.14, 0.31, 0.8, 1.1);
+      box(pale, 0.9, 1.2, 0.14, 0.31, 1.05, 1.25);
+      box(col(RED), 0.45, 0.75, 0.08, 0.37, 0.8, 0.86);
+      box(col(0x5a3a24), 0.14, 0.2, 0.18, 0.27, 0.5, 0.85);
+    } },
+    fishtank: { w: 1.0, d: 0.42, make: (box) => {
+      box(col(0x8a5a3a), 0, 1.0, 0, 0.42, 0, 0.7);
+      box(col(0x7fc4e8), 0.03, 0.97, 0.03, 0.39, 0.7, 1.25);
+      box(col(BLACK), 0, 1.0, 0, 0.42, 1.25, 1.3);
+      box(col(0xe8dcc8), 0.03, 0.97, 0.39, 0.395, 0.7, 0.78);
+      box(col(0xe8935a), 0.2, 0.34, 0.39, 0.4, 0.95, 1.03);
+      box(col(0xe8935a), 0.6, 0.72, 0.39, 0.4, 1.05, 1.12);
+      box(col(0xf2cc74), 0.42, 0.5, 0.39, 0.4, 0.85, 0.9);
+      box(col(LEAF), 0.8, 0.84, 0.39, 0.4, 0.78, 1.1);
+      box(col(LEAF), 0.12, 0.15, 0.39, 0.4, 0.78, 0.98);
+    } },
+    piano: { w: 1.5, d: 0.62, make: (box) => {
+      const black = col(BLACK);
+      box(black, 0, 1.5, 0, 0.34, 0, 1.25);
+      box(black, 0, 1.5, 0.34, 0.6, 0.62, 0.72);
+      box(col(WHITE), 0.05, 1.45, 0.36, 0.6, 0.72, 0.74);
+      for (let k = 0; k < 10; k++) box(black, 0.12 + k * 0.135, 0.18 + k * 0.135, 0.36, 0.5, 0.74, 0.76);
+      box(black, 0.03, 0.11, 0.5, 0.6, 0, 0.62);
+      box(black, 1.39, 1.47, 0.5, 0.6, 0, 0.62);
+      box(col(0xf2e9c8), 0.5, 1.0, 0.34, 0.35, 0.85, 1.15);
+    } },
+    telescope: { w: 0.6, d: 0.62, make: (box) => {
+      const leg = col(0x8a5a3a), tube = col(0xb98c5a);
+      box(leg, 0.05, 0.11, 0.05, 0.11, 0, 0.9);
+      box(leg, 0.49, 0.55, 0.05, 0.11, 0, 0.9);
+      box(leg, 0.27, 0.33, 0.49, 0.55, 0, 0.9);
+      box(leg, 0.2, 0.4, 0.2, 0.4, 0.9, 1.0);
+      box(tube, 0.24, 0.36, 0.05, 0.3, 1.0, 1.12);
+      box(tube, 0.24, 0.36, 0.25, 0.5, 1.1, 1.22);
+      box(col(GOLD), 0.22, 0.38, 0.45, 0.62, 1.2, 1.36);
+    } },
+  };
+  for (const [n, id] of (decor?.prizes ?? []).entries()) {
+    const prize = PRIZES[id];
+    if (!prize) continue;
+    const order = [...standers].sort((p, q) => PRIZE_ROOMS.indexOf(p.kind) - PRIZE_ROOMS.indexOf(q.kind));
+    for (const room of order) {
+      if (room.kind === "T") continue;
+      if (room.against(prize.w, prize.d, 0x5052495a + n * 17, prize.make)) break;
+    }
+  }
+
   return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((p, q) => p.mat.id - q.mat.id || p.mat.color - q.mat.color), metersPerTile: S };
+}
+
+/** The home `id` of a chunk, with where its front door is on Earth and the heading that leads out of it; null when there is none to walk into. */
+export async function findHome(cx: number, cy: number, id: number, elev: Elevation, load: (dx: number, dy: number) => Promise<Features> = loadFeatures): Promise<{ home: HomeDoor; lat: number; lon: number; yaw: number } | null> {
+  const features = await featuresForChunk(cx, cy, load);
+  await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
+  const home = homesOf(cx, cy, features, elev).find((h) => h.id === id);
+  if (!home) return null;
+  const S = metersPerTile(cy + 0.5, CHUNK_Z);
+  return {
+    home, lat: +yToLat(cy - home.y / S).toFixed(7), lon: +xToLon(cx + home.x / S).toFixed(7),
+    yaw: Math.round((((Math.atan2(home.out[0], home.out[1]) * 180) / Math.PI + 360) % 360) * 10) / 10,
+  };
+}
+
+/** The inside of a home somebody lives in, furnished their way, in the chunk format. Nothing is read from the map. */
+export function furnishedInterior(cx: number, cy: number, home: HomeDoor, decor: Decor): Buffer {
+  return encodeChunk(cx, cy, buildInterior(home, metersPerTile(cy + 0.5, CHUNK_Z), decor));
 }
 
 /** The inside of home `id` of a chunk, in the chunk format; null when that chunk has no such home to walk into. */

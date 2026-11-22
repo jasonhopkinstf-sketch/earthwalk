@@ -2,6 +2,7 @@ import path from "node:path";
 import { createApp } from "./app.ts";
 import { CACHE_DIR } from "./cache.ts";
 import { FileJournalStore } from "./journal.ts";
+import { FileHomesStore, Homes } from "./home.ts";
 import { AccountDirectory } from "./people.ts";
 import { FORMAT_VERSION, GENERATOR_REV } from "./chunk.ts";
 import { LABELS_REV } from "./labels.ts";
@@ -26,12 +27,19 @@ const invited = (process.env.EARTHWALK_INVITED ?? "").split(/[,\s]+/).filter(Boo
 // People and their tokens live beside the world cache, which hosts mount as a persistent disk.
 const accounts = await AccountDirectory.open(path.join(CACHE_DIR, "people", "people.json"), { accessCode, invited });
 
+const homes = new Homes(new FileHomesStore(path.join(CACHE_DIR, "people", "homes.json")));
+await homes.open();
+
 const app = createApp({
   accessCode,
   trustProxy: process.env.EARTHWALK_TRUST_PROXY === "1",
   accounts,
   // Journals live beside the accounts, one pair of files a person.
   journalStore: new FileJournalStore(path.join(CACHE_DIR, "journal")),
+  // And who lives in which house, in one file beside them.
+  homes,
+  // For trying things out on a developer's own machine: new players start with this many coins. Not set on the live server.
+  startCoins: Number(process.env.EARTHWALK_START_COINS) || 0,
   google: clientId && clientSecret ? { clientId, clientSecret } : undefined,
   baseUrl: process.env.EARTHWALK_BASE_URL,
   // The map ahead of anyone travelling is downloaded before they get there (ahead.ts).

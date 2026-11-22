@@ -29,6 +29,28 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #stamp.race { border-color: #26262b; border-style: solid; }
 #speedo { position: fixed; right: 16px; bottom: 34px; background: var(--panel); padding: 6px 14px; border-radius: 18px; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 #speedo[hidden] { display: none; }
+/* Furnishing a house of your own: a panel down the right-hand side, with the room still in view. */
+#decor { position: fixed; top: 84px; right: 12px; bottom: 12px; width: min(380px, calc(100vw - 24px)); z-index: 4; }
+#decor[hidden] { display: none; }
+#decor .page { position: relative; max-height: 100%; overflow-y: auto; background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); }
+#decor h2 { margin: 0 0 2px; font-size: 22px; }
+#decor h3 { margin: 12px 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #6b5d45; }
+#decor .coins { margin: 0; font-weight: 700; color: #8a6a12; }
+#decor .small { font-size: 12px; opacity: .8; }
+#decor p.small { margin: 12px 0 6px; }
+#decor .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: inherit; }
+#decor .pieces { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+#decor .piece { display: grid; grid-template-columns: 26px 1fr; column-gap: 8px; align-items: center; text-align: left; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 10px; padding: 4px 10px 4px 6px; font: inherit; font-size: 13px; cursor: pointer; }
+#decor .piece i { grid-row: 1 / span 2; width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .3); }
+#decor .piece i.plain { background: repeating-linear-gradient(45deg, #e8dcc8 0 4px, #fffaf0 4px 8px); }
+#decor .piece b { font-weight: 600; }
+#decor .piece .small { grid-column: 2; text-align: left; }
+#decor .piece.owned { border-color: #3f7f4f; }
+#decor .piece.on { border-color: #3f7f4f; background: #e2f0da; }
+#decor .piece:disabled { cursor: default; opacity: .62; }
+#decor .out { background: none; border: 1px solid #a9987a; color: #6b5d45; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+#passport .homebox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#passport .homebox .go { background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
 #hint { position: fixed; top: 12px; right: 12px; background: var(--panel); padding: 6px 10px; border-radius: 6px; font-size: 12px; opacity: .85; }
 /* "Show me...": things to show somebody, and the button that opens the list. */
 #showme { position: fixed; top: 46px; right: 12px; background: #f5c518; color: #26221f; border: 0; border-radius: 16px; padding: 6px 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
