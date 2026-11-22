@@ -844,9 +844,9 @@ export function signName(name: string | undefined): string | null {
   if (text.length <= 30) return text;
   const cut = text.slice(0, 30);
   // (And not left hanging on an "and" or a comma: one word or one run of punctuation at a time, a few times over.)
-  let name = cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut;
-  for (let i = 0; i < 4; i++) name = name.replace(/[\s,;:&/-]+$/, "").replace(/\s(and|of|the|et|de|und|y)$/i, "");
-  return name.trim();
+  let kept = cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut;
+  for (let i = 0; i < 4; i++) kept = kept.replace(/[\s,;:&/-]+$/, "").replace(/\s(and|of|the|et|de|und|y)$/i, "");
+  return kept.trim();
 }
 
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
