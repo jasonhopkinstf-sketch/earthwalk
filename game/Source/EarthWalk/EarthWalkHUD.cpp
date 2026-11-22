@@ -1,5 +1,6 @@
 #include "EarthWalkHUD.h"
 
+#include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
 #include "EarthSounds.h"
@@ -26,6 +27,7 @@
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -114,6 +116,35 @@ namespace
 		const FString* Single = One.Find(Unit);
 		return FString::Printf(TEXT("%s %s"), *ShortCount(N), N == 1.0 && Single ? **Single : *Unit);
 	}
+	/** What a piece of news is about, for the top of its card and its line in the log. */
+	const TCHAR* NewsLabel(const FString& Kind)
+	{
+		return Kind == TEXT("country") ? TEXT("New country") : Kind == TEXT("level") ? TEXT("Level up") : Kind == TEXT("riddle") ? TEXT("Riddles")
+			: Kind == TEXT("task") ? TEXT("Today") : Kind == TEXT("prize") ? TEXT("A prize") : Kind == TEXT("favour") ? TEXT("A favour")
+			: Kind == TEXT("hunt") ? TEXT("Treasure hunt") : Kind == TEXT("expedition") ? TEXT("Expedition") : Kind == TEXT("race") ? TEXT("Race") : TEXT("New stamp");
+	}
+	/** The objects in a list inside a JSON object; none when the field is missing or null. */
+	TArray<TSharedPtr<FJsonObject>> JsonRows(const TSharedPtr<FJsonObject>& Json, const TCHAR* Field)
+	{
+		TArray<TSharedPtr<FJsonObject>> Out;
+		const TArray<TSharedPtr<FJsonValue>>* Found = nullptr;
+		if (Json.IsValid() && Json->TryGetArrayField(Field, Found))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Found)
+			{
+				const TSharedPtr<FJsonObject>* Row = nullptr;
+				if (Value.IsValid() && Value->TryGetObject(Row))
+				{
+					Out.Add(*Row);
+				}
+			}
+		}
+		return Out;
+	}
+	TSharedRef<STextBlock> WrappedLine(const FString& Text, const TCHAR* Face, int32 Size, const FLinearColor& Color, float WrapAt)
+	{
+		return SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(Face, Size)).ColorAndOpacity(Color).WrapTextAt(WrapAt).Text(FText::FromString(Text));
+	}
 	TSharedRef<STextBlock> TextLine(const FString& Text, const TCHAR* Face, int32 Size, const FLinearColor& Color)
 	{
 		return SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(Face, Size)).ColorAndOpacity(Color).Text(FText::FromString(Text));
@@ -181,6 +212,27 @@ public:
 				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f))
 				.Visibility(EVisibility::Collapsed)
 			]
+			// The race: who is in and how far along, under the status line; and the countdown, large, in the middle.
+			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f, 44.f, 0.f, 0.f)
+			[
+				SAssignNew(RacePanel, SBorder)
+				.BorderImage(&WhereBrush)
+				.BorderBackgroundColor(PanelColor)
+				.Padding(FMargin(12.f, 8.f))
+				.Visibility(EVisibility::Collapsed)
+				[
+					SAssignNew(RaceText, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 12)).ColorAndOpacity(FLinearColor::White)
+				]
+			]
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(0.f, 0.f, 0.f, 120.f)
+			[
+				SAssignNew(RaceCount, STextBlock)
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 96))
+				.ColorAndOpacity(FLinearColor::White)
+				.ShadowOffset(FVector2D(3.0, 3.0))
+				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
+				.Visibility(EVisibility::Collapsed)
+			]
 			// A stamp just earned, for a few seconds.
 			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, 96.f, 0.f, 0.f)
 			[
@@ -242,7 +294,7 @@ public:
 			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom)
 			.Padding(TAttribute<FMargin>::CreateLambda([this]() { return FMargin(16.f, 16.f, 16.f, bPhotoCredit ? 44.f : 16.f); }))
 			[
-				SNew(SBox).WidthOverride(560.f)
+				SAssignNew(ChatColumn, SBox).WidthOverride(560.f).Visibility(EVisibility::HitTestInvisible)
 				[
 					SNew(SVerticalBox)
 					+ SVerticalBox::Slot().AutoHeight()
@@ -292,6 +344,21 @@ public:
 		Hint->SetText(FText::FromString(Text));
 	}
 	void SetInputHint(const FString& Text) { Input->SetHintText(FText::FromString(Text)); }
+	void SetRace(const FString& Panel, const FString& Count)
+	{
+		RacePanel->SetVisibility(Panel.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+		if (Panel != RaceShown)
+		{
+			RaceShown = Panel;
+			RaceText->SetText(FText::FromString(Panel));
+		}
+		RaceCount->SetVisibility(Count.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+		if (Count != CountShown)
+		{
+			CountShown = Count;
+			RaceCount->SetText(FText::FromString(Count));
+		}
+	}
 
 	/** The speech bubbles: one above each thing that has just spoken, the same size however far off it is. */
 	void SetBubbles(const TArray<UEarthCompany::FBubble>& Bubbles, const APlayerController* PC)
@@ -362,12 +429,15 @@ public:
 	/** A stamp just earned: shown for a few seconds, one at a time. */
 	void QueueToast(const FString& Kind, const FString& Title, const FString& Text)
 	{
-		Toasts.Add({ Kind == TEXT("country") ? TEXT("NEW COUNTRY") : Kind == TEXT("level") ? TEXT("LEVEL UP") : TEXT("NEW STAMP"), Title, Text });
+		Toasts.Add({ FString(NewsLabel(Kind)).ToUpper(), Title, Text });
 	}
 
 	void ShowPassport(bool bShow)
 	{
-		Passport->SetVisibility(bShow ? EVisibility::HitTestInvisible : EVisibility::Collapsed);
+		// The passport has buttons, so while it is open the pointer works on it.
+		Passport->SetVisibility(bShow ? EVisibility::Visible : EVisibility::Collapsed);
+		bPassportInteractive = bShow;
+		ApplyInteractive();
 		if (bShow)
 		{
 			PassportBody->ClearChildren();
@@ -420,9 +490,13 @@ public:
 			[
 				TextLine(FString::Printf(TEXT("LEVEL %d"), LevelN), TEXT("Bold"), 12, GoldColor)
 			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 18.f, 0.f)
+			[
+				TextLine(FString::Printf(TEXT("%s coins"), *ShortCount(JsonNum(Journal, TEXT("coins")))), TEXT("Bold"), 13, GoldColor)
+			]
 			+ SHorizontalBox::Slot().AutoWidth()
 			[
-				TextLine(TEXT("P or Esc to close  ·  PgUp and PgDn to scroll"), TEXT("Regular"), 10, DimColor)
+				TextLine(TEXT("P or Esc to close  ·  wheel, PgUp and PgDn to scroll"), TEXT("Regular"), 10, DimColor)
 			]
 		];
 		PassportBody->AddSlot()[TextLine(JsonStr(Level, TEXT("title")), TEXT("Bold"), 26, FLinearColor::White)];
@@ -455,6 +529,368 @@ public:
 		Total(JsonNum(Totals, TEXT("kmRidden")), TEXT("km ridden"));
 		Total(Friends, Friends == 1.0 ? TEXT("friend made") : TEXT("friends made"));
 		PassportBody->AddSlot().Padding(0.f, 14.f, 0.f, 10.f)[TotalsRow];
+
+		// ---- buttons, cards and bars for the pages that follow
+		const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+		const auto Button = [Hud](const FString& Text, const TCHAR* What, const FString& Id) -> TSharedRef<SWidget>
+		{
+			const FString Action = What;
+			return SNew(SButton)
+				.IsFocusable(false) // a click must not take the keyboard from the game
+				.ContentPadding(FMargin(9.f, 3.f))
+				.ButtonColorAndOpacity(FLinearColor(0.35f, 0.6f, 1.f))
+				.OnClicked_Lambda([Hud, Action, Id]()
+				{
+					if (AEarthWalkHUD* Screen = Hud.Get())
+					{
+						Screen->PassportAction(Action, Id);
+					}
+					return FReply::Handled();
+				})
+				[
+					TextLine(Text, TEXT("Bold"), 10, FLinearColor::White)
+				];
+		};
+		const auto Bar = [](double Have, double Goal) -> TSharedRef<SWidget>
+		{
+			return SNew(SBox).HeightOverride(7.f)
+				[
+					SNew(SProgressBar).Percent(static_cast<float>(FMath::Clamp(Have / FMath::Max(1.0, Goal), 0.0, 1.0))).FillColorAndOpacity(GoldColor)
+				];
+		};
+		const auto Heading = [this](const TCHAR* Title)
+		{
+			PassportBody->AddSlot().Padding(0.f, 14.f, 0.f, 4.f)[TextLine(Title, TEXT("Bold"), 14, FLinearColor::White)];
+		};
+		const auto Note = [this](const FString& Text)
+		{
+			PassportBody->AddSlot().Padding(0.f, 4.f, 0.f, 0.f)[WrappedLine(Text, TEXT("Regular"), 10, DimColor, 780.f)];
+		};
+		const double Coins = JsonNum(Journal, TEXT("coins"));
+
+		// ---- today: three tasks, the same for everyone whose day it is
+		const TSharedPtr<FJsonObject> Today = Object(TEXT("today"));
+		if (Today.IsValid())
+		{
+			Heading(TEXT("Today"));
+			const TSharedRef<SWrapBox> Tasks = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+			const FString CoinsEach = ShortCount(JsonNum(Today, TEXT("coinsEach")));
+			for (const TSharedPtr<FJsonObject>& Task : JsonRows(Today, TEXT("tasks")))
+			{
+				bool bDone = false;
+				Task->TryGetBoolField(TEXT("done"), bDone);
+				const double Have = JsonNum(Task, TEXT("have")), Goal = JsonNum(Task, TEXT("goal"));
+				const FString Progress = bDone ? FString::Printf(TEXT("Done: %s coins"), *CoinsEach)
+					: Goal > 1.0 ? FString::Printf(TEXT("%s of %s%s"), *ShortCount(Have), *ShortCount(Goal), JsonStr(Task, TEXT("unit")) == TEXT("m") ? TEXT(" m") : TEXT(""))
+					: FString(TEXT("Not yet"));
+				Tasks->AddSlot()
+				[
+					SNew(SBox).WidthOverride(254.f)
+					[
+						SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bDone ? CardDoneColor : CardColor).Padding(FMargin(10.f, 7.f))
+						[
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot().AutoHeight()[WrappedLine(JsonStr(Task, TEXT("text")), TEXT("Bold"), 12, FLinearColor::White, 232.f)]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 5.f, 0.f, 3.f)[Bar(Have, Goal)]
+							+ SVerticalBox::Slot().AutoHeight()[TextLine(Progress, TEXT("Regular"), 10, DimColor)]
+						]
+					]
+				];
+			}
+			PassportBody->AddSlot()[Tasks];
+			bool bAll = false;
+			Today->TryGetBoolField(TEXT("all"), bAll);
+			const double Days = JsonNum(Today, TEXT("fullDays"));
+			Note(bAll
+				? FString::Printf(TEXT("All three done today. There will be three new tasks tomorrow. Full days so far: %s."), *ShortCount(Days))
+				: FString::Printf(TEXT("Each task pays %s coins, and doing all three pays %s more. Nothing runs out: tomorrow simply brings three new ones.%s"), *CoinsEach,
+					*ShortCount(JsonNum(Today, TEXT("coinsAll"))), Days > 0.0 ? *FString::Printf(TEXT(" Full days so far: %s."), *ShortCount(Days)) : TEXT("")));
+		}
+
+		// ---- favours: asked by things you have talked to. They wait until they are done, or until you say never mind.
+		Heading(TEXT("Favours"));
+		const TArray<TSharedPtr<FJsonObject>> Favours = Rows(TEXT("favours"));
+		for (const TSharedPtr<FJsonObject>& Favour : Favours)
+		{
+			const double Have = JsonNum(Favour, TEXT("have")), Goal = JsonNum(Favour, TEXT("goal"));
+			const FString Detail = FString::Printf(TEXT("%s%s Pays %s coins."),
+				JsonStr(Favour, TEXT("unit")) == TEXT("m") ? *FString::Printf(TEXT("%s of %s m. "), *ShortCount(Have), *ShortCount(Goal)) : TEXT(""),
+				*JsonStr(Favour, TEXT("next")), *ShortCount(JsonNum(Favour, TEXT("coins"))));
+			PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(CardColor).Padding(FMargin(10.f, 7.f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().FillWidth(1.f)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()[WrappedLine(JsonStr(Favour, TEXT("text")), TEXT("Bold"), 12, FLinearColor::White, 620.f)]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 5.f, 0.f, 3.f)[Bar(Have, Goal)]
+						+ SVerticalBox::Slot().AutoHeight()[WrappedLine(Detail, TEXT("Regular"), 10, DimColor, 620.f)]
+					]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10.f, 0.f, 0.f, 0.f)[Button(TEXT("Never mind"), TEXT("favour"), JsonStr(Favour, TEXT("id")))]
+				]
+			];
+		}
+		const FString FavoursDone = ShortCount(JsonNum(Journal, TEXT("favoursDone")));
+		Note(Favours.Num() > 0
+			? FString::Printf(TEXT("A favour waits until it is done: nothing runs out. Favours done so far: %s."), *FavoursDone)
+			: FString::Printf(TEXT("Nobody is waiting on a favour from you. Talk to anything (T) and ask \"can I help?\"; some ask without being asked. Favours done so far: %s."), *FavoursDone));
+
+		// ---- the treasure hunt and the expeditions: begun here, done out in the world
+		Heading(TEXT("Expeditions"));
+		const auto Journey = [this](bool bActive, bool bFinished, const FString& Name, const FString& Text, const TSharedRef<SWidget>& Middle, const FString& Small, const TSharedRef<SWidget>& Act)
+		{
+			PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bActive ? CardDoneColor : CardColor).Padding(FMargin(10.f, 7.f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().FillWidth(1.f)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()[WrappedLine(Name, TEXT("Bold"), 12, bFinished ? DimColor : FLinearColor::White, 620.f)]
+						+ SVerticalBox::Slot().AutoHeight()[WrappedLine(Text, TEXT("Regular"), 12, bFinished ? DimColor : FLinearColor::White, 620.f)]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 3.f)[Middle]
+						+ SVerticalBox::Slot().AutoHeight()[WrappedLine(Small, TEXT("Regular"), 10, DimColor, 620.f)]
+					]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10.f, 0.f, 0.f, 0.f)[Act]
+				]
+			];
+		};
+		const TSharedPtr<FJsonObject> Hunt = Object(TEXT("hunt"));
+		if (Hunt.IsValid())
+		{
+			const FString Way = JsonStr(Hunt, TEXT("way"));
+			Journey(true, false, FString::Printf(TEXT("Treasure hunt: clue %d of %d"), FMath::RoundToInt32(JsonNum(Hunt, TEXT("at"))) + 1, FMath::RoundToInt32(JsonNum(Hunt, TEXT("of")))),
+				JsonStr(Hunt, TEXT("clue")), SNullWidget::NullWidget,
+				FString::Printf(TEXT("%s%s min so far, and nothing runs out. Type /clue to hear it again."), Way.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("It is %s. "), *Way), *ShortCount(JsonNum(Hunt, TEXT("minutes")))),
+				Button(TEXT("Give up this hunt"), TEXT("drop"), TEXT("hunt")));
+		}
+		else
+		{
+			const double Best = JsonNum(Journal, TEXT("huntBestMinutes"));
+			Journey(false, false, TEXT("A treasure hunt, here"), TEXT("A handful of riddles about real places near where you are standing, with treasure at the last."), SNullWidget::NullWidget,
+				FString::Printf(TEXT("Friends who start here today get the same hunt. Treasures found: %s%s."), *ShortCount(JsonNum(Journal, TEXT("huntsDone"))),
+					Best > 0.0 ? *FString::Printf(TEXT(", the quickest in %s min"), *ShortCount(Best)) : TEXT("")),
+				Button(TEXT("Start a treasure hunt"), TEXT("start"), TEXT("hunt")));
+		}
+		TArray<TSharedPtr<FJsonObject>> Expeditions = Rows(TEXT("expeditions"));
+		const auto StateOrder = [](const TSharedPtr<FJsonObject>& Expedition)
+		{
+			const FString State = JsonStr(Expedition, TEXT("state"));
+			return State == TEXT("active") ? 0 : State == TEXT("open") ? 1 : 2;
+		};
+		Expeditions.StableSort([&StateOrder](const TSharedPtr<FJsonObject>& A, const TSharedPtr<FJsonObject>& B) { return StateOrder(A) < StateOrder(B); });
+		for (const TSharedPtr<FJsonObject>& Expedition : Expeditions)
+		{
+			const FString State = JsonStr(Expedition, TEXT("state")), Sort = JsonStr(Expedition, TEXT("sort")), Id = JsonStr(Expedition, TEXT("id"));
+			const FString Pays = ShortCount(JsonNum(Expedition, TEXT("coins")));
+			// What there is to find, each ticked off in gold as it is.
+			const TSharedRef<SWrapBox> Chips = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(10.0, 2.0));
+			if (Sort != TEXT("home"))
+			{
+				for (const TSharedPtr<FJsonObject>& Item : JsonRows(Expedition, TEXT("items")))
+				{
+					bool bGot = false;
+					Item->TryGetBoolField(TEXT("got"), bGot);
+					Chips->AddSlot()[TextLine(JsonStr(Item, TEXT("name")), TEXT("Bold"), 10, bGot ? GoldColor : FLinearColor(1.f, 1.f, 1.f, 0.4f))];
+				}
+			}
+			const FString Small = State == TEXT("done") ? FString(TEXT("Done."))
+				: State == TEXT("active") ? (Sort == TEXT("home") ? FString::Printf(TEXT("It is walking with you. Pays %s coins."), *Pays)
+					: FString::Printf(TEXT("%s of %s so far. Pays %s coins."), *ShortCount(JsonNum(Expedition, TEXT("have"))), *ShortCount(JsonNum(Expedition, TEXT("need"))), *Pays))
+				: FString::Printf(TEXT("Pays %s coins."), *Pays);
+			Journey(State == TEXT("active"), State == TEXT("done"), JsonStr(Expedition, TEXT("title")), JsonStr(Expedition, TEXT("blurb")), Chips, Small,
+				State == TEXT("open") ? Button(TEXT("Set out"), TEXT("start"), Id) : State == TEXT("active") ? Button(TEXT("Give up"), TEXT("drop"), Id) : SNullWidget::NullWidget);
+		}
+
+		// ---- the garage: my own car, its paint and its body, and a button to bring it here
+		const TSharedPtr<FJsonObject> Garage = Object(TEXT("garage"));
+		if (Garage.IsValid())
+		{
+			Heading(TEXT("Your car"));
+			PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 6.f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Bring my car here"), TEXT("car-call"), FString())]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(8.f, 0.f, 0.f, 0.f)[Button(TEXT("Send it away"), TEXT("car-away"), FString())]
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(12.f, 0.f, 0.f, 0.f)
+				[
+					WrappedLine(TEXT("It draws up beside you; press E next to it to get in. Typing /car brings it too. Only you can drive it, and friends can ride along."), TEXT("Regular"), 10, DimColor, 500.f)
+				]
+			];
+			const FString PaintOn = JsonStr(Garage, TEXT("paint")), BodyOn = JsonStr(Garage, TEXT("body"));
+			const auto Choices = [&](const TCHAR* Field, const TCHAR* Action, const FString& Chosen, const TCHAR* ChosenWords, bool bSwatch)
+			{
+				const TSharedRef<SWrapBox> Wrap = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+				for (const TSharedPtr<FJsonObject>& Choice : JsonRows(Garage, Field))
+				{
+					const FString Id = JsonStr(Choice, TEXT("id"));
+					bool bOwned = false;
+					Choice->TryGetBoolField(TEXT("owned"), bOwned);
+					const double Price = JsonNum(Choice, TEXT("price"));
+					const bool bOn = Chosen == Id;
+					const bool bCanHave = bOwned || Coins >= Price;
+					const uint32 Hex = static_cast<uint32>(JsonNum(Choice, TEXT("hex")));
+					const FLinearColor Swatch = FLinearColor::FromSRGBColor(FColor((Hex >> 16) & 0xff, (Hex >> 8) & 0xff, Hex & 0xff));
+					Wrap->AddSlot()
+					[
+						SNew(SBox).WidthOverride(188.f)
+						[
+							SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bOn ? CardDoneColor : CardColor).Padding(FMargin(10.f, 7.f))
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, bSwatch ? 8.f : 0.f, 0.f)
+								[
+									SNew(SBox).WidthOverride(bSwatch ? 22.f : 0.f).HeightOverride(22.f)
+									[
+										SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(Swatch).Visibility(bSwatch ? EVisibility::HitTestInvisible : EVisibility::Collapsed)
+									]
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.f)
+								[
+									SNew(SVerticalBox)
+									+ SVerticalBox::Slot().AutoHeight()[TextLine(JsonStr(Choice, TEXT("name")), TEXT("Bold"), 12, FLinearColor::White)]
+									+ SVerticalBox::Slot().AutoHeight()[TextLine(bOn ? FString(ChosenWords) : bOwned ? FString(TEXT("Yours")) : FString::Printf(TEXT("%s coins"), *ShortCount(Price)), TEXT("Regular"), 10, DimColor)]
+									+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 0.f).HAlign(HAlign_Left)
+									[
+										bOn || !bCanHave ? SNullWidget::NullWidget : Button(bOwned ? TEXT("Choose it") : TEXT("Buy it"), Action, Id)
+									]
+								]
+							]
+						]
+					];
+				}
+				PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 8.f)[Wrap];
+			};
+			Choices(TEXT("paints"), TEXT("car-paint"), PaintOn, TEXT("On your car"), true);
+			Choices(TEXT("bodies"), TEXT("car-body"), BodyOn, TEXT("Yours is one"), false);
+		}
+
+		// ---- hats: bought with coins or won, one worn at a time. Friends see it on you.
+		Heading(TEXT("Hats"));
+		const FString Wearing = JsonStr(Journal, TEXT("hat"));
+		const TSharedRef<SWrapBox> Hats = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+		const auto HatCard = [this, &Hats](bool bOn, bool bOwned, const FString& Name, const FString& Small, const TSharedRef<SWidget>& Act)
+		{
+			Hats->AddSlot()
+			[
+				SNew(SBox).WidthOverride(188.f)
+				[
+					SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bOn ? CardDoneColor : CardColor).Padding(FMargin(10.f, 7.f))
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()[TextLine(Name, TEXT("Bold"), 12, bOn || bOwned ? FLinearColor::White : FLinearColor(1.f, 1.f, 1.f, 0.75f))]
+						+ SVerticalBox::Slot().AutoHeight()[WrappedLine(Small, TEXT("Regular"), 10, DimColor, 166.f)]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 0.f).HAlign(HAlign_Left)[Act]
+					]
+				]
+			];
+		};
+		HatCard(Wearing.IsEmpty(), true, TEXT("No hat"), Wearing.IsEmpty() ? TEXT("As you are") : TEXT(""),
+			Wearing.IsEmpty() ? SNullWidget::NullWidget : Button(TEXT("Take it off"), TEXT("hat-wear"), FString()));
+		for (const TSharedPtr<FJsonObject>& Hat : Rows(TEXT("hats")))
+		{
+			const FString Id = JsonStr(Hat, TEXT("id"));
+			if (!UEarthAnimalFigure::KnowsHat(Id))
+			{
+				continue; // a hat this game cannot draw yet
+			}
+			bool bOwned = false;
+			Hat->TryGetBoolField(TEXT("owned"), bOwned);
+			double Price = 0.0;
+			const bool bPriced = Hat->TryGetNumberField(TEXT("price"), Price);
+			const bool bOn = Wearing == Id;
+			const bool bCanBuy = !bOwned && bPriced && Coins >= Price;
+			const FString Small = bOn ? FString(TEXT("You are wearing it")) : bOwned ? FString(TEXT("Yours"))
+				: bPriced ? FString::Printf(TEXT("%s coins"), *ShortCount(Price)) : FString::Printf(TEXT("A prize. %s"), *JsonStr(Hat, TEXT("how")));
+			HatCard(bOn, bOwned, JsonStr(Hat, TEXT("name")), Small,
+				bOn ? SNullWidget::NullWidget : bOwned ? Button(TEXT("Put it on"), TEXT("hat-wear"), Id) : bCanBuy ? Button(TEXT("Buy it"), TEXT("hat-buy"), Id) : SNullWidget::NullWidget);
+		}
+		PassportBody->AddSlot()[Hats];
+
+		// ---- riddles: those unlocked so far, each with its answer once it is found
+		const TArray<TSharedPtr<FJsonObject>> Riddles = Rows(TEXT("riddles"));
+		const TSharedPtr<FJsonObject> MoreRiddles = Object(TEXT("moreRiddles"));
+		if (Riddles.Num() > 0 || MoreRiddles.IsValid())
+		{
+			Heading(TEXT("Riddles"));
+			const TSharedRef<SWrapBox> Cards = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+			for (const TSharedPtr<FJsonObject>& Riddle : Riddles)
+			{
+				bool bSolved = false;
+				Riddle->TryGetBoolField(TEXT("solved"), bSolved);
+				Cards->AddSlot()
+				[
+					SNew(SBox).WidthOverride(386.f)
+					[
+						SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bSolved ? CardDoneColor : CardColor).Padding(FMargin(10.f, 7.f))
+						[
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot().AutoHeight()[WrappedLine(JsonStr(Riddle, TEXT("text")), TEXT("Regular"), 12, FLinearColor::White, 364.f)]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 3.f, 0.f, 0.f)[WrappedLine(bSolved ? FString::Printf(TEXT("Solved: it was %s."), *JsonStr(Riddle, TEXT("answer")))
+								: FString(TEXT("Find the answer in the world, and talk to it or ride it.")), TEXT("Regular"), 10, DimColor, 364.f)]
+						]
+					]
+				];
+			}
+			PassportBody->AddSlot()[Cards];
+			if (MoreRiddles.IsValid())
+			{
+				const double More = JsonNum(MoreRiddles, TEXT("count"));
+				Note(FString::Printf(TEXT("%s more %s at level %s."), *ShortCount(More), More == 1.0 ? TEXT("riddle") : TEXT("riddles"), *ShortCount(JsonNum(MoreRiddles, TEXT("level")))));
+			}
+		}
+
+		// ---- companions: the answers of solved riddles, any one of which will follow you about
+		{
+			Heading(TEXT("Companions"));
+			TArray<FString> Won;
+			const TArray<TSharedPtr<FJsonValue>>* Pets = nullptr;
+			if (Journal->TryGetArrayField(TEXT("pets"), Pets))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Pets)
+				{
+					if (Value.IsValid() && !Value->AsString().IsEmpty())
+					{
+						Won.Add(Value->AsString());
+					}
+				}
+			}
+			const FString With = JsonStr(Journal, TEXT("pet"));
+			if (Won.Num() == 0)
+			{
+				Note(TEXT("Solve a riddle and its answer will keep you company."));
+			}
+			else
+			{
+				const TSharedRef<SWrapBox> Choices = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+				const auto Choice = [&](const FString& Name, const FString& Sp)
+				{
+					const bool bOn = With == Sp;
+					Choices->AddSlot()
+					[
+						SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bOn ? CardDoneColor : CardColor).Padding(FMargin(10.f, 6.f))
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[TextLine(Name, TEXT("Bold"), 12, FLinearColor::White)]
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8.f, 0.f, 0.f, 0.f)
+							[
+								bOn ? StaticCastSharedRef<SWidget>(TextLine(TEXT("with you"), TEXT("Regular"), 10, DimColor)) : Button(TEXT("Choose"), TEXT("pet"), Sp)
+							]
+						]
+					];
+				};
+				Choice(TEXT("Nobody"), FString());
+				for (const FString& Sp : Won)
+				{
+					const TCHAR* Kind = EarthMounts::Called(Sp);
+					Choice(Kind ? FString(Kind) : Sp, Sp);
+				}
+				PassportBody->AddSlot()[Choices];
+			}
+		}
 
 		// ---- the stamps
 		PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 4.f)[TextLine(TEXT("Stamps"), TEXT("Bold"), 14, FLinearColor::White)];
@@ -628,7 +1064,16 @@ public:
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
 
 	/** While the chat is closed the overlay ignores the pointer, so a stray click cannot steal the keyboard. */
-	void SetHitTestable(bool bHitTestable) { SetVisibility(bHitTestable ? EVisibility::Visible : EVisibility::HitTestInvisible); }
+	void SetHitTestable(bool bHitTestable)
+	{
+		bChatInteractive = bHitTestable;
+		ApplyInteractive();
+	}
+	void ApplyInteractive()
+	{
+		SetVisibility(bChatInteractive || bPassportInteractive ? EVisibility::Visible : EVisibility::HitTestInvisible);
+		ChatColumn->SetVisibility(bChatInteractive ? EVisibility::Visible : EVisibility::HitTestInvisible);
+	}
 
 private:
 	void HandleCommitted(const FText& Text, ETextCommit::Type How)
@@ -667,6 +1112,11 @@ private:
 	TArray<TSharedRef<SWidget>> Lines;
 
 	TSharedPtr<STextBlock> Hint;
+	TSharedPtr<SBorder> RacePanel;
+	TSharedPtr<STextBlock> RaceText;
+	TSharedPtr<STextBlock> RaceCount;
+	FString RaceShown;
+	FString CountShown;
 	struct FShownBubble
 	{
 		uint32 Thing = 0;
@@ -696,6 +1146,9 @@ private:
 
 	TSharedPtr<SBorder> Passport;
 	TSharedPtr<SScrollBox> PassportBody;
+	TSharedPtr<SBox> ChatColumn;
+	bool bChatInteractive = false;
+	bool bPassportInteractive = false;
 	FSlateRoundedBoxBrush CardBrush = FSlateRoundedBoxBrush(FLinearColor::White, 8.f);
 };
 
@@ -726,10 +1179,26 @@ void AEarthWalkHUD::BeginPlay()
 			{
 				Overlay->SetPassport(Journal);
 			}
+			if (bCluePending)
+			{
+				// "/clue" asked: read out the clue of the treasure hunt I am on.
+				bCluePending = false;
+				const TSharedPtr<FJsonObject>* Hunt = nullptr;
+				if (Journal.IsValid() && Journal->TryGetObjectField(TEXT("hunt"), Hunt))
+				{
+					const FString Way = JsonStr(*Hunt, TEXT("way"));
+					AddLine(FString::Printf(TEXT("Clue %d of %d: %s%s"), FMath::RoundToInt32(JsonNum(*Hunt, TEXT("at"))) + 1, FMath::RoundToInt32(JsonNum(*Hunt, TEXT("of"))),
+						*JsonStr(*Hunt, TEXT("clue")), Way.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" It is %s."), *Way)), NoticeColor);
+				}
+				else
+				{
+					AddLine(TEXT("You are not on a treasure hunt. Start one from your passport (P)."), NoticeColor);
+				}
+			}
 		});
 		StampHandle = Net->OnStamp.AddWeakLambda(this, [this](const FString& Kind, const FString& Title, const FString& Text)
 		{
-			AddLine(FString::Printf(TEXT("%s: %s. %s"), Kind == TEXT("country") ? TEXT("New country") : Kind == TEXT("level") ? TEXT("Level up") : TEXT("New stamp"), *Title, *Text), ThingColor);
+			AddLine(FString::Printf(TEXT("%s: %s. %s"), NewsLabel(Kind), *Title, *Text), ThingColor);
 			if (Overlay.IsValid())
 			{
 				Overlay->QueueToast(Kind, Title, Text);
@@ -740,6 +1209,17 @@ void AEarthWalkHUD::BeginPlay()
 				{
 					Room->RequestJournal();
 				}
+			}
+		});
+		Net->OnHat.AddWeakLambda(this, [this](const FString& MemberId, const FString&)
+		{
+			// My own hat: put it on my figure (other people's go on theirs in AEarthWorld).
+			const UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+			APlayerController* PC = GetOwningPlayerController();
+			AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+			if (Room && Character && MemberId == Room->GetMyId())
+			{
+				Character->RefreshFigure();
 			}
 		});
 		WelcomeHandle = Net->OnWelcome.AddWeakLambda(this, [this]()
@@ -891,6 +1371,10 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 				OpenChat(); // say hello, then type
 			}
 		}
+		else if (PC->WasInputKeyJustPressed(EKeys::R))
+		{
+			Friends->KeyRace(); // set a race up, join one, or (if it is mine) start it
+		}
 		else if (PC->WasInputKeyJustPressed(EKeys::P))
 		{
 			TogglePassport(); // where I have been and what I have done
@@ -918,7 +1402,47 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
 	}
 	Overlay->SetHint(Friends->GetHint());
+	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
 	Overlay->SetBubbles(Friends->GetBubbles(), PC);
+
+	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
+	// P and Esc still close it. If a click has left the keyboard somewhere else, give it back.
+	if (bPassportOpen && !bChatOpen && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
+	{
+		const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetUserFocusedWidget(0);
+		const TSharedPtr<SWidget> Viewport = GEngine->GameViewport->GetGameViewportWidget();
+		if (Focused != Viewport)
+		{
+			FSlateApplication::Get().SetAllUserFocusToGameViewport();
+		}
+	}
+
+	// -EWPassportDo=<what>:<id> presses one of the passport's buttons by itself (start:hunt, hat-wear:cap...), for tests.
+	static bool bDidAction = false;
+	FString Do;
+	if (!bDidAction && FPlatformTime::Seconds() - StartedAt > 9.0 && FParse::Value(FCommandLine::Get(), TEXT("-EWPassportDo="), Do))
+	{
+		const UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+		FString What, Id;
+		if (Room && Room->IsConnected())
+		{
+			bDidAction = true;
+			if (!Do.Split(TEXT(":"), &What, &Id))
+			{
+				What = Do;
+			}
+			PassportAction(What, Id);
+		}
+	}
+
+	// -EWPassportScroll=<distance> scrolls the open passport that far down, for pictures of its lower pages.
+	static bool bDidScroll = false;
+	float ScrollBy = 0.f;
+	if (!bDidScroll && bPassportOpen && FPlatformTime::Seconds() - StartedAt > 14.0 && FParse::Value(FCommandLine::Get(), TEXT("-EWPassportScroll="), ScrollBy))
+	{
+		bDidScroll = true;
+		Overlay->ScrollPassport(ScrollBy);
+	}
 
 	// -EWPassport opens the passport by itself a few seconds in, for pictures.
 	if (!bPassportTested && FPlatformTime::Seconds() - StartedAt > 12.0)
@@ -928,6 +1452,51 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			TogglePassport();
 		}
+	}
+}
+
+void AEarthWalkHUD::PassportAction(const FString& What, const FString& Id)
+{
+	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	if (!Net)
+	{
+		return;
+	}
+	if (What == TEXT("hat-buy"))
+	{
+		Net->SendHatBuy(Id);
+	}
+	else if (What == TEXT("hat-wear"))
+	{
+		Net->SendHatWear(Id);
+	}
+	else if (What == TEXT("start") || What == TEXT("drop"))
+	{
+		Net->SendExpedition(Id, What == TEXT("start"));
+	}
+	else if (What == TEXT("favour"))
+	{
+		Net->SendFavourDrop(Id);
+	}
+	else if (What == TEXT("car-call") || What == TEXT("car-away"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallCar(What == TEXT("car-away"));
+		}
+	}
+	else if (What == TEXT("pet"))
+	{
+		Net->SendPet(Id);
+	}
+	else if (What == TEXT("car-paint") || What == TEXT("car-body"))
+	{
+		Net->SendGarage(What == TEXT("car-paint") ? TEXT("paint") : TEXT("body"), Id);
+	}
+	Net->RequestJournal(); // the page is drawn again from what the server now has
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport();
 	}
 }
 
@@ -1166,9 +1735,15 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
 		AddLine(TEXT("E   hop on what is nearest (horse, cow, sheep, camel, llama, kangaroo, deer, tractor, car, boat, train), or hop off"), NoticeColor);
+		AddLine(TEXT("    In a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake, and the mouse looks round the car."), NoticeColor);
+		AddLine(TEXT("/car   bring your own car to where you are (choose its paint in your passport); /car away sends it off"), NoticeColor);
+		AddLine(TEXT("R   a race along the roads here: R sets one up, R joins one a friend has set up, and R starts yours"), NoticeColor);
+		AddLine(TEXT("    (/race stop leaves it, or ends your own). Go on foot, on a horse or in a car: every gate in turn."), NoticeColor);
 		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
 		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
-		AddLine(TEXT("P   your passport (or /passport): countries, places, friends, stamps and your level"), NoticeColor);
+		AddLine(TEXT("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,"), NoticeColor);
+		AddLine(TEXT("    your coins and hats, riddles, countries, places, friends, stamps and your level. Its buttons work with the mouse."), NoticeColor);
+		AddLine(TEXT("/clue   hear again the clue of the treasure hunt you are on"), NoticeColor);
 		AddLine(TEXT("E   at a front door with a yellow COME IN sign: go in, and E again just inside it to come out"), NoticeColor);
 		AddLine(TEXT("/house   say where the nearest house you can go into is"), NoticeColor);
 		AddLine(TEXT("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there"), NoticeColor);
@@ -1302,6 +1877,32 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(Where.IsEmpty()
 			? FString(TEXT("No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not."))
 			: FString::Printf(TEXT("The nearest house you can go into is %s. Look for the yellow COME IN sign over its front door, and press E there."), *Where), NoticeColor);
+	}
+	else if (Command == TEXT("race"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->KeyRace(Argument.ToLower());
+		}
+	}
+	else if (Command == TEXT("car"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallCar(Argument.Equals(TEXT("away"), ESearchCase::IgnoreCase));
+		}
+	}
+	else if (Command == TEXT("clue"))
+	{
+		if (Net && Net->IsConnected())
+		{
+			bCluePending = true;
+			Net->RequestJournal();
+		}
+		else
+		{
+			AddLine(TEXT("Not connected to the meetup server."), ErrorColor);
+		}
 	}
 	else if (Command == TEXT("taxi"))
 	{

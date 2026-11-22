@@ -53,6 +53,12 @@ private:
 	void TogglePassport();
 	void ClosePassport();
 
+public:
+	/** A button in the passport was pressed: buy or wear a hat, start or give up a hunt or an expedition, drop a favour. */
+	void PassportAction(const FString& What, const FString& Id);
+
+private:
+
 	TSharedPtr<SEarthWalkOverlay> Overlay;
 	FDelegateHandle ChatHandle;
 	FDelegateHandle NoticeHandle;
@@ -62,6 +68,7 @@ private:
 	bool bCompanyBound = false;
 	bool bPassportOpen = false;
 	bool bPassportTested = false;
+	bool bCluePending = false; // /clue asked for the journal, to read the clue out when it comes
 	double StartedAt = 0.0;
 	FString TalkingToShown;
 	bool bChatOpen = false;

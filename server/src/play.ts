@@ -11,12 +11,19 @@
 // coming close. A hider who leaves the field is found. If everyone is found the seeker has won;
 // anyone still hidden at the end has won.
 //
+// Rounding up: the players work together. A pen stands where the game was set up; animals that
+// have been told to follow a player are brought to it, and each one counts when its leader steps
+// into the pen. The game is won when enough are in, and ends after five minutes either way. It can
+// be played alone.
+//
 // The server judges, from the positions players already send: nothing a game says can tag or find
 // anyone. This file holds the rules and the state of one game; rooms.ts feeds it positions.
 
-export type PlayKind = "tag" | "hide";
+export type PlayKind = "tag" | "hide" | "herd";
 
-export const FIELD_M: Record<PlayKind, number> = { tag: 90, hide: 140 };
+/** How far the field reaches from its middle; for a round-up, how big the pen is. */
+export const FIELD_M: Record<PlayKind, number> = { tag: 90, hide: 140, herd: 9 };
+export const HERD_FOR_MS = 5 * 60_000;
 export const COUNTDOWN_MS = 5000;
 export const TAG_FOR_MS = 3 * 60_000;
 export const HIDE_FOR_MS = 30_000;
@@ -59,8 +66,13 @@ export interface Play {
   it: string | null;
   since: number;
   safe: { id: string; until: number } | null;
+  /** Rounding up: the animals in the pen (their identities), and how many are wanted. */
+  penned: number[];
+  goal: number;
   players: Contestant[];
 }
+/** An animal that is following a player: its identity and kind. */
+export interface Follower { thing: number; sp: string }
 export interface Where { lat: number; lon: number; alt: number }
 
 const metresBetween = (aLat: number, aLon: number, bLat: number, bLon: number): number =>
@@ -71,7 +83,7 @@ const contestant = (id: string, name: string): Contestant => ({ id, name, itMs: 
 export function newPlay(kind: PlayKind, by: string, byName: string, lat: number, lon: number, now: number): Play {
   return {
     kind, by, byName, lat: +lat.toFixed(7), lon: +lon.toFixed(7), radius: FIELD_M[kind], state: "open", made: now, startAt: 0, seekAt: 0, endAt: 0, ended: 0,
-    it: null, since: 0, safe: null, players: [contestant(by, byName)],
+    it: null, since: 0, safe: null, penned: [], goal: 0, players: [contestant(by, byName)],
   };
 }
 
@@ -81,11 +93,18 @@ export function joinPlay(play: Play, id: string, name: string): boolean {
   return true;
 }
 
-/** Starts the game: someone is picked by lot to be it (or to seek), and the clocks are set. False with fewer than two players. */
+/** Starts the game: someone is picked by lot to be it (or to seek), and the clocks are set. False with fewer than two players (a round-up needs only one). */
 export function beginPlay(play: Play, now: number, countdownMs = COUNTDOWN_MS, lot: () => number = Math.random): boolean {
-  if (play.state !== "open" || play.players.length < 2) return false;
+  if (play.state !== "open" || play.players.length < (play.kind === "herd" ? 1 : 2)) return false;
   play.state = "go";
   play.startAt = now + countdownMs;
+  if (play.kind === "herd") {
+    // More hands, more animals: five for one player, two more for each friend, a dozen at most.
+    play.goal = Math.min(12, 3 + 2 * play.players.length);
+    play.seekAt = play.startAt;
+    play.endAt = play.startAt + HERD_FOR_MS;
+    return true;
+  }
   play.it = play.players[Math.min(play.players.length - 1, Math.floor(lot() * play.players.length))].id;
   play.since = play.startAt;
   if (play.kind === "tag") {
@@ -113,7 +132,7 @@ function finish(play: Play, now: number): void {
  * knows to tell everyone. Safe to call as often as positions arrive, and now and then besides.
  */
 export function stepPlay(play: Play, where: (id: string) => Where | null, now: number): boolean {
-  if (play.state !== "go" || now < play.startAt) return false;
+  if (play.state !== "go" || now < play.startAt || play.kind === "herd") return false;
   if (now >= play.endAt) { finish(play, now); return true; }
   const it = play.players.find((p) => p.id === play.it);
   const itAt = it ? where(it.id) : null;
@@ -160,6 +179,29 @@ export function stepPlay(play: Play, where: (id: string) => Where | null, now: n
   return changed;
 }
 
+/**
+ * The same for a round-up. `followers` says which animals are following a player just now. Returns the animals
+ * newly in the pen, each with the player who brought it (so that the room can settle them there), and whether
+ * anything about the game changed.
+ */
+export function stepHerd(play: Play, where: (id: string) => Where | null, followers: (id: string) => Follower[], now: number): { changed: boolean; penned: (Follower & { by: string })[] } {
+  if (play.kind !== "herd" || play.state !== "go" || now < play.startAt) return { changed: false, penned: [] };
+  if (now >= play.endAt) { finish(play, now); return { changed: true, penned: [] }; }
+  const penned: (Follower & { by: string })[] = [];
+  for (const p of play.players) {
+    const at = where(p.id);
+    if (!at || metresBetween(play.lat, play.lon, at.lat, at.lon) > play.radius) continue;
+    for (const f of followers(p.id)) {
+      if (play.penned.includes(f.thing) || play.penned.length >= play.goal) continue;
+      play.penned.push(f.thing);
+      p.itMs++; // (for a round-up this counts the animals this player brought in)
+      penned.push({ ...f, by: p.id });
+    }
+  }
+  if (play.penned.length >= play.goal) finish(play, now);
+  return { changed: penned.length > 0, penned };
+}
+
 /** Someone leaves the game (or the room). The game ends when its maker goes, or when too few are left to play. */
 export function leavePlay(play: Play, id: string, now: number): "gone" | "ended" | "on" {
   if (!play.players.some((p) => p.id === id)) return "on";
@@ -169,7 +211,7 @@ export function leavePlay(play: Play, id: string, now: number): "gone" | "ended"
     if (rest.length) { play.it = [...rest].sort((a, b) => a.itMs - b.itMs)[0].id; play.since = now; play.safe = null; }
   }
   play.players = play.players.filter((p) => p.id !== id);
-  if (play.by === id || play.players.length === 0 || (play.state === "go" && (play.players.length < 2 || play.it === id))) return "ended";
+  if (play.by === id || play.players.length === 0 || (play.state === "go" && play.kind !== "herd" && (play.players.length < 2 || play.it === id))) return "ended";
   return "gone";
 }
 
@@ -181,6 +223,12 @@ const span = (ms: number): string => {
 
 /** How a finished game came out for each player: who won, what it paid, and a line to tell them. */
 export function outcomes(play: Play): Outcome[] {
+  if (play.kind === "herd") {
+    // Everybody did it together, so everybody is paid alike.
+    const won = play.penned.length >= play.goal;
+    const coins = 10 + 2 * play.penned.length + (won ? 10 : 0);
+    return play.players.map((p) => ({ id: p.id, won, coins, title: won ? "The herd is home!" : "The round-up is over", text: `${play.penned.length} of ${play.goal} brought in, ${p.itMs} by you` }));
+  }
   if (play.kind === "tag") {
     const least = Math.min(...play.players.map((p) => p.itMs));
     return play.players.map((p) => {

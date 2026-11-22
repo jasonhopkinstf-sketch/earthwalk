@@ -9,7 +9,7 @@ import type { Home, PeopleDirectory } from "./people.ts";
 import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
-import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepPlay } from "./play.ts";
+import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
 import type { TalkNews } from "./journal.ts";
 
 const MAX_NAME = 24;
@@ -129,7 +129,7 @@ export interface RoomsOptions {
   /** Speaks for the things players talk to. Without one, things answer from their stock lines. */
   talker?: {
     greet(thing: number, sp: string): Said;
-    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean, notes?: string[]): Promise<Said>;
+    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean, notes?: string[], plain?: boolean): Promise<Said>;
     muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number): Promise<Said>;
   };
   /** Finds where a caller wants a taxi to take them, and a road for the taxi to arrive by. */
@@ -391,7 +391,9 @@ export class Rooms {
         let said: Said;
         if (text) {
           const place = me.hasPos && this.options.placeName ? await this.options.placeName(me.lat, me.lon).catch(() => null) : null;
-          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place, me.ride?.thing === thing && me.ride.sp === sp, favours ? favourNotes(favours, aKind) : []);
+          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place, me.ride?.thing === thing && me.ride.sp === sp, favours ? favourNotes(favours, aKind) : [],
+            // In the middle of a round-up "follow me" is answered at once, in plain words: there is a clock running.
+            room.play?.kind === "herd" && room.play.state === "go" && /^\s*follow me\W*$/i.test(text));
         } else said = this.talker.greet(thing, sp);
         // Without an AI to put it in the thing's own words, the favour is asked, and thanked for, in plain ones.
         if (favours && !said.ai && !said.wish) said = { ...said, text: favourWords(said.text, favours, asked, aKind) };
@@ -458,11 +460,12 @@ export class Rooms {
       } else if (msg.t === "play" && room) {
         // Tag, and hide and seek: set one up where I stand (`make` says which), join it, start it (its maker), or leave.
         const now = Date.now();
-        if (room.play && stalePlay(room.play, now)) room.play = null;
+        if (room.play && stalePlay(room.play, now)) this.endPlay(room);
         const play = room.play;
-        if (msg.make === "tag" || msg.make === "hide") {
+        if (msg.make === "tag" || msg.make === "hide" || msg.make === "herd") {
           if ((play && play.state !== "over") || (room.race && room.race.state !== "over")) { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
           if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          if (play) this.endPlay(room); // the last game's results make way
           room.play = newPlay(msg.make, me.id, me.name, me.lat, me.lon, now);
         } else if (!play) {
           send({ t: "error", code: "locked", text: "There is no game just now" });
@@ -473,6 +476,7 @@ export class Rooms {
         } else if (msg.go === true) {
           if (play.by !== me.id) { send({ t: "error", code: "locked", text: `Only ${play.byName} can start this game` }); return; }
           if (play.state === "open" && !beginPlay(play, now, this.options.playCountdownMs, this.options.playLot)) { send({ t: "error", code: "locked", text: "It takes at least two to play. Wait for someone to join." }); return; }
+          if (play.kind === "herd") this.runPlay(room); // (anyone already standing in the pen with a follower)
         } else if (msg.stop === true) {
           this.leavePlay(room, me.id);
           return;
@@ -663,7 +667,25 @@ export class Rooms {
   private runPlay(room: Room): void {
     const play = room.play;
     if (!play) return;
-    const changed = stepPlay(play, (id) => { const m = room.members.get(id); return m?.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt } : null; }, Date.now());
+    const now = Date.now();
+    const where = (id: string): { lat: number; lon: number; alt: number } | null => { const m = room.members.get(id); return m?.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt } : null; };
+    let changed: boolean;
+    if (play.kind === "herd") {
+      const herd = stepHerd(play, where, (id) => [...room.orders.values()].filter((o) => o.by === id && o.act === "follow" && o.until > now).map((o) => ({ thing: o.thing, sp: o.sp })), now);
+      changed = herd.changed;
+      // Each animal brought in stops following and stands in the pen, a little apart from the others.
+      herd.penned.forEach((f) => {
+        const n = play.penned.indexOf(f.thing), a = n * 2.4, r = 2 + (n % 3) * 1.8;
+        this.journal?.following?.(f.by, f.thing, false);
+        const order: Order = {
+          thing: f.thing, sp: f.sp, act: "stay", by: f.by, at: now, until: now + ORDER_MS,
+          lat: +(play.lat + (Math.cos(a) * r) / 111_320).toFixed(7), lon: +(play.lon + (Math.sin(a) * r) / (111_320 * Math.cos((play.lat * Math.PI) / 180))).toFixed(7),
+        };
+        room.orders.delete(f.thing);
+        room.orders.set(f.thing, order);
+        this.broadcast(room, { t: "order", ...order });
+      });
+    } else changed = stepPlay(play, where, now);
     if (!changed) return;
     if (play.state === "over") for (const o of outcomes(play)) this.journal?.played?.(o.id, play.kind, o);
     this.broadcast(room, { t: "play", play });
@@ -675,8 +697,14 @@ export class Rooms {
     if (!play) return;
     const what = leavePlay(play, id, Date.now());
     if (what === "on") return;
-    if (what === "ended") room.play = null;
+    if (what === "ended") this.endPlay(room);
     this.broadcast(room, { t: "play", play: room.play });
+  }
+
+  /** Clears the room's game away. The animals of a round-up go back to what they were doing. */
+  private endPlay(room: Room): void {
+    for (const thing of room.play?.penned ?? []) this.release(room, thing);
+    room.play = null;
   }
 
   private taxiRound(): void {
@@ -684,7 +712,7 @@ export class Rooms {
     for (const room of this.rooms.values()) {
       // A game of tag ends on the clock, and a hider may be standing still out of the field: looked at here too.
       if (room.play?.state === "go") this.runPlay(room);
-      if (room.play && stalePlay(room.play, Date.now())) { room.play = null; this.broadcast(room, { t: "play", play: null }); }
+      if (room.play && stalePlay(room.play, Date.now())) { this.endPlay(room); this.broadcast(room, { t: "play", play: null }); }
       if (room.race && stale(room.race, Date.now())) { room.race = null; this.broadcast(room, { t: "race", race: null }); }
     }
     const now = Date.now();

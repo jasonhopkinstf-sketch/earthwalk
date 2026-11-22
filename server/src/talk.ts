@@ -371,7 +371,7 @@ export class Talker {
    * their name; `riding` says whether they are on its back (or in its seat) as they speak. `notes` tell it what
    * has just happened between them (favours.ts), for it to put in its own words.
    */
-  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false, notes: string[] = []): Promise<Said> {
+  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false, notes: string[] = [], plain = false): Promise<Said> {
     const p = persona(thing, sp);
     const key = `${room}/${sp}/${thing}`;
     const now = this.now();
@@ -393,7 +393,8 @@ export class Talker {
       return { name: p.name, text: stockLine(p, hash32(thing, talk.said)), ai: false };
     };
 
-    if (!this.ask || !(await this.canSpend())) return stock();
+    // `plain`: no need to ask the AI (and no time to wait for it): a quick word in the middle of a game.
+    if (plain || !this.ask || !(await this.canSpend())) return stock();
     const who = `${/^[aeiou]/.test(speaker) ? "An" : "A"} ${speaker}`;
     const line = `${who}${riding ? ", who is riding you," : ""} says: ${said.slice(0, MAX_SAID)}`;
     try {

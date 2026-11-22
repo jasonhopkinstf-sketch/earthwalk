@@ -59,6 +59,17 @@ struct FEarthTaxi
 	double Until = 0.0; // when it gives up waiting
 };
 
+/** A player's own car, standing where it was called to or left (docs/PROTOCOL.md, "The garage"). */
+struct FEarthOwnCar
+{
+	uint32 Thing = 0;
+	FString Body;     // "car" or "van"
+	uint32 Paint = 0; // 0xRRGGBB
+	double Lat = 0.0;
+	double Lon = 0.0;
+	double Yaw = 0.0;
+};
+
 /** A thing spoke: to me, or to somebody near me. */
 struct FEarthSay
 {
@@ -73,10 +84,44 @@ struct FEarthSay
 	double Lon = 0.0;
 };
 
+/** The animal that keeps a player company: its kind and its own identity (docs/PROTOCOL.md, "Riddles and companions"). */
+struct FEarthPet
+{
+	bool bOn = false;
+	FString Sp;
+	uint32 Thing = 0;
+};
+
+/** Somebody in a race: how many gates they have passed, and their time once they have finished. */
+struct FEarthRunner
+{
+	FString Id;
+	FString Name;
+	int32 Gate = 0;
+	bool bFinished = false;
+	double TimeMs = 0.0;
+};
+
+/** The race set up in this room, if any (docs/PROTOCOL.md, "Races"). */
+struct FEarthRace
+{
+	bool bOn = false;
+	FString By;     // the member who set it up
+	FString ByName;
+	FString State;  // open, go, over
+	TArray<FVector2D> Gates; // latitude and longitude of each, in turn
+	double Metres = 0.0;
+	double StartAt = 0.0; // server clock, milliseconds
+	double Made = 0.0;
+	TArray<FEarthRunner> Runners;
+};
+
 /** Someone else in the same room. */
 struct FEarthPeer
 {
 	FEarthRide Ride;
+	FString Hat; // the hat they are wearing; empty for none
+	FEarthPet Pet;
 	FString Name;
 	FString Avatar; // which animal they chose
 	double Lat = 0.0;
@@ -118,6 +163,9 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthRide, const FEarthRide& /*Mine*/);
 DECLARE_MULTICAST_DELEGATE(FOnEarthRideFail);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthSay, const FEarthSay& /*Said*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthOrder, const FEarthOrder& /*Order*/);
+DECLARE_MULTICAST_DELEGATE(FOnEarthRace);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthHat, const FString& /*MemberId*/, const FString& /*Hat, or empty*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*Lon*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
@@ -177,6 +225,27 @@ public:
 	void SendTalk(uint32 Thing, const FString& Sp, const FString& Text = FString(), bool bHasAt = false, double Lat = 0.0, double Lon = 0.0);
 	/** Asks for my own journal; it comes through OnJournal. */
 	void RequestJournal();
+	/** Buys a hat with my coins and puts it on; puts on one I own; or (empty) takes my hat off. The room hears through OnHat. */
+	void SendHatBuy(const FString& Id);
+	void SendHatWear(const FString& Id);
+	const FString& GetMyHat() const { return MyHat; }
+	/** Chooses the companion that follows me, from those I have won; empty sends it home. */
+	void SendPet(const FString& Sp);
+	const FEarthPet& GetMyPet() const { return MyPet; }
+	/** Sets out on an expedition from the passport ("hunt" is the treasure hunt of where I stand), or gives one up. My journal comes back. */
+	void SendExpedition(const FString& Id, bool bStart);
+	/** Gives up a favour I was asked; my journal comes back without it. */
+	void SendFavourDrop(const FString& Id);
+	/**
+	 * The garage: "call" brings my car to stand beside me, "away" sends it off, and "paint" or "body" with
+	 * an id chooses one (paying for it in coins the first time). The room hears of the car with a car message.
+	 */
+	void SendGarage(const FString& What, const FString& Id = FString());
+	/** Everyone's own car that is standing in the room, by its owner's member id. */
+	const TMap<FString, FEarthOwnCar>& GetCars() const { return Cars; }
+	/** A race: "make" one where I stand, "join" the one set up, say "go" (its maker), or "stop" (leave it; its maker ends it). */
+	void SendRace(const FString& What);
+	const FEarthRace& GetRace() const { return Race; }
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
 	void SendTaxi(const FString& Place);
 	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
@@ -212,6 +281,11 @@ public:
 	FOnEarthSay OnSay;
 	FOnEarthOrder OnOrder;
 	FOnEarthTaxi OnTaxi;
+	FOnEarthHat OnHat;
+	/** The room's race has changed in some way: set up, joined, begun, a gate passed, over, cleared away. */
+	FOnEarthRace OnRace;
+	/** A treasure was found by me, at this place: a chest is shown there. */
+	FOnEarthTreasure OnTreasure;
 	FOnEarthJournal OnJournal;
 	FOnEarthStamp OnStamp;
 
@@ -229,9 +303,13 @@ private:
 	TMap<FString, FEarthPeer> Peers;
 	TArray<FEarthPerson> People;
 	FEarthRide MyRide;
+	FString MyHat;
+	FEarthPet MyPet;
 	TMap<uint32, FEarthLeft> Left;
 	TMap<uint32, FEarthOrder> Orders;
 	TMap<uint32, FEarthTaxi> Taxis;
+	TMap<FString, FEarthOwnCar> Cars;
+	FEarthRace Race;
 	FEarthHome Home;
 	FString MyId;
 	FString MyName;

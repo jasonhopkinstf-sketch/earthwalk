@@ -27,6 +27,9 @@ public:
 	/** Where the person's feet are now; the figure glides there. */
 	void SetTarget(const FVector& FeetLocation, double YawDegrees);
 
+	/** The hat they are wearing; empty for none. The name moves up to clear it. */
+	void SetHat(const FString& Id);
+
 	/** Riding something: the figure sits. */
 	void SetSeated(bool bInSeated) { bSeated = bInSeated; }
 

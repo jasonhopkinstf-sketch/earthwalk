@@ -415,7 +415,7 @@ Client to server:
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
-| `{"t":"play","make":"tag"}` / `{"t":"play","make":"hide"}` / `{"t":"play","join":true}` / `{"t":"play","go":true}` / `{"t":"play","stop":true}` | Set up a game of tag or of hide and seek where I stand, join the one set up, start mine, or leave (my own: end it). See "Tag, and hide and seek". |
+| `{"t":"play","make":"tag"}` / `{"t":"play","make":"hide"}` / `{"t":"play","make":"herd"}` / `{"t":"play","join":true}` / `{"t":"play","go":true}` / `{"t":"play","stop":true}` | Set up a game of tag or of hide and seek where I stand, join the one set up, start mine, or leave (my own: end it). See "Tag, and hide and seek". |
 | `{"t":"race","make":true}` / `{"t":"race","join":true}` / `{"t":"race","go":true}` / `{"t":"race","stop":true}` | Set a race up where I stand, join the one set up, start mine, or leave (my own: end it). See "Races". |
 | `{"t":"garage","call":true}` / `{"t":"garage","away":true}` / `{"t":"garage","paint":"blue"}` / `{"t":"garage","body":"van"}` | My own car: bring it to where I stand, send it away, or choose (and if need be buy) its paint or body. See "The garage". |
 | `{"t":"favour","drop":"cow:918398760"}` | Give up a favour I was asked. The answer is my `journal` without it. See "Favours". |
@@ -543,6 +543,15 @@ anyone.
   (and 4 m of their height) is found (`found` is when); so is one more than five seconds outside the
   field. It is over when all are found (the seeker has won) or at `endAt`, four minutes on (anyone
   still hidden has won).
+
+- **A round-up** (`herd`). Played together, or alone. `radius` (9 m) is a pen round where it was set
+  up, and `goal` how many animals are wanted (five for one player, two more for each friend, a dozen
+  at most). An animal that is following a player (an `order` of `follow` by them, as from "follow me"
+  in a `talk`) counts when that player stands in the pen: its identity joins `penned`, the player's
+  `itMs` counts one more (it is their tally here), and the room is sent an `order` of `stay` placing
+  the animal in the pen. While a round-up is on, a `talk` of exactly "follow me" is answered in plain
+  words at once, with no AI. It is won when `goal` are in and ends after five minutes either way;
+  everyone is paid alike. When the game is cleared the animals are sent `home`.
 
 Clients are expected to mark out the field, show who is it, give "it" at tag a little more speed
 (the browser: a fifth), and not to draw name labels over hiders for the seeker. Each player is told

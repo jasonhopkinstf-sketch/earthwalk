@@ -943,12 +943,21 @@ void AEarthLife::PutMount(const FEarthThing& Mount, double T)
 			Looks.Coat = 0;
 			Looks.Size = 1.0;
 		}
+		if (Mount.bOwnLook)
+		{
+			// Somebody's own car: the body they chose, full size, in their paint.
+			const FEarthRig* Body = EarthRigs::Find(Mount.Body);
+			Looks.Rig = Body && Body->Coats.Num() > 0 ? Body : EarthRigs::Find(TEXT("car"));
+			Looks.Coat = 0;
+			Looks.Size = 1.0;
+		}
 		if (Looks.Rig)
 		{
 			Base.Position = Engine(Mount.X, Mount.Y, Mount.Z); // whoever put it here has allowed for the road
-			Base.Rotation = EarthRigs::Turned(0.0, Mount.Yaw, 0.0);
+			Base.Rotation = EarthRigs::Turned(Mount.Pitch, Mount.Yaw, Mount.Roll);
 			Base.Size = Looks.Size;
-			Put(*Looks.Rig, Looks.Rig->PaletteA[Looks.Coat], Looks.Rig->PaletteB[Looks.Coat], Base, Pose, T);
+			const FLinearColor Painted = FLinearColor::FromSRGBColor(FColor((Mount.Paint >> 16) & 0xff, (Mount.Paint >> 8) & 0xff, Mount.Paint & 0xff));
+			Put(*Looks.Rig, Mount.bOwnLook ? Painted : Looks.Rig->PaletteA[Looks.Coat], Looks.Rig->PaletteB[Looks.Coat], Base, Pose, T);
 		}
 		return;
 	}

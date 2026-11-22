@@ -3,6 +3,8 @@
 #include "EarthLife.h"
 #include "EarthLifeMotion.h"
 #include "EarthLifeRigs.h"
+#include "EarthRaceCourse.h"
+#include "EarthTreasure.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWorld.h"
@@ -37,9 +39,9 @@ namespace
 		{ TEXT("lion"), 9.0, 1.05, TEXT("lion"), 0.0, false },
 		{ TEXT("panda"), 3.0, 0.95, TEXT("panda"), 0.0, false },
 		{ TEXT("tortoise"), 0.6, 0.3, TEXT("tortoise"), 0.0, false },
-		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false },
-		{ TEXT("car"), 13.0, 0.95, TEXT("car"), 3.5, false }, // up on the roof, where the view is not all bonnet
-		{ TEXT("taxi"), 13.0, 0.95, TEXT("taxi"), 4.0, false }, // a browser player can call one (/taxi); here it can be shared and talked to
+		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false, 9.0, 3.5, 3.2, 9.0, 2.3, 10.0 },
+		{ TEXT("car"), 13.0, 0.95, TEXT("car"), 3.5, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 }, // up on the roof, where the view is not all bonnet
+		{ TEXT("taxi"), 13.0, 0.95, TEXT("taxi"), 4.0, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 },
 		{ TEXT("boat"), 2.5, 0.3, TEXT("rowing boat"), 4.0, true },
 		{ TEXT("sailboat"), 5.0, 0.75, TEXT("sailing boat"), 6.0, true },
 		{ TEXT("train"), 0.0, 3.5, TEXT("train"), 8.0, false },
@@ -158,6 +160,40 @@ const FEarthMount* EarthMounts::Find(const FString& Sp)
 	return nullptr;
 }
 
+void EarthMounts::StepCar(FEarthCar& Car, const FEarthMount& How, double Dt, double Throttle, double Steer, bool bHandbrake)
+{
+	const double Sin = std::sin(Car.Heading), Cos = std::cos(Car.Heading);
+	double Along = Car.Vx * Sin - Car.Vz * Cos; // forwards is (sin, -cos)
+	double Across = Car.Vx * Cos + Car.Vz * Sin;
+	const auto Sign = [](double V) { return V > 0.0 ? 1.0 : V < 0.0 ? -1.0 : 0.0; };
+	if (Throttle > 0.0)
+	{
+		Along += (Along < -0.5 ? How.Brake : How.Pull * FMath::Max(0.0, 1.0 - Along / How.Top)) * Dt;
+	}
+	else if (Throttle < 0.0)
+	{
+		Along -= (Along > 0.5 ? How.Brake : How.Pull * 0.7 * FMath::Max(0.0, 1.0 + Along / How.Reverse)) * Dt;
+	}
+	else
+	{
+		Along -= Sign(Along) * FMath::Min(FMath::Abs(Along), (1.4 + 0.012 * Along * Along) * Dt); // rolling to a stop
+	}
+	if (bHandbrake)
+	{
+		Along -= Sign(Along) * FMath::Min(FMath::Abs(Along), How.Brake * 0.3 * Dt);
+	}
+	Along = FMath::Clamp(Along, -How.Reverse, How.Top);
+	Across *= std::exp(-(bHandbrake ? How.Grip * 0.16 : How.Grip) * Dt);
+	// The faster it goes, the less the wheels are turned, and they take a moment to turn.
+	const double Lock = 0.62 / (1.0 + FMath::Abs(Along) / 6.0 + (Along / 16.0) * (Along / 16.0));
+	Car.Steer += (Steer * Lock - Car.Steer) * (1.0 - std::exp(-7.0 * Dt));
+	Car.Turn = (Along / How.Base) * std::tan(Car.Steer) * (bHandbrake ? 1.45 : 1.0);
+	Car.Heading += Car.Turn * Dt;
+	Car.Vx = Sin * Along + Cos * Across;
+	Car.Vz = -Cos * Along + Sin * Across;
+	Car.Speed = Along;
+}
+
 const TCHAR* EarthMounts::Called(const FString& Sp)
 {
 	const FCalled* Row = CalledRow(Sp);
@@ -184,6 +220,30 @@ void UEarthCompany::Setup(AEarthWorld* InWorld)
 		Room->OnSay.AddUObject(this, &UEarthCompany::OnSay);
 		Room->OnOrder.AddUObject(this, &UEarthCompany::OnOrder);
 		Room->OnTaxi.AddUObject(this, &UEarthCompany::OnTaxi);
+		Room->OnTreasure.AddUObject(this, &UEarthCompany::OnTreasure);
+		Room->OnRace.AddUObject(this, &UEarthCompany::OnRace);
+	}
+}
+
+void UEarthCompany::OnTreasure(double Lat, double Lon)
+{
+	AEarthWorld* Earth = World.Get();
+	const AEarthWalkCharacter* Me = Player.Get();
+	if (!Earth || !Me || !Earth->GetWorld())
+	{
+		return;
+	}
+	// Three and a half metres ahead of where the finder stood, the way I am looking, on the ground there.
+	const APlayerController* PC = Cast<APlayerController>(Me->GetController());
+	const double Yaw = PC ? PC->GetControlRotation().Yaw : Me->GetActorRotation().Yaw;
+	const FVector Ahead = FRotator(0.0, Yaw, 0.0).Vector();
+	FVector At = Earth->GeoToWorld(Lat, Lon, 0.0) + Ahead * 350.0;
+	double Ground = 0.0;
+	At.Z = Earth->TerrainHeightAt(At.Y / 100.0, -At.X / 100.0, Ground) ? Ground * 100.0 : Me->FeetLocation().Z;
+	// Its front, where the lock is, faces the finder.
+	if (AEarthTreasure* Chest = Earth->GetWorld()->SpawnActor<AEarthTreasure>(At, FRotator(0.0, Yaw + 180.0, 0.0)))
+	{
+		Chest->Build(Earth);
 	}
 }
 
@@ -339,10 +399,9 @@ void UEarthCompany::Land()
 		return;
 	}
 	const FVector Feet = Me->FeetLocation();
+	const double Yaw = Me->FacingYaw(); // asked before the mount is given up: at the wheel it is the way the car points
 	Me->SetMount(nullptr);
 	Me->SetCarried(false);
-	const APlayerController* PC = Cast<APlayerController>(Me->GetController());
-	const double Yaw = PC ? PC->GetControlRotation().Yaw : Me->GetActorRotation().Yaw;
 	Me->PlaceFeetAt(Feet + FRotationMatrix(FRotator(0.0, Yaw, 0.0)).GetUnitAxis(EAxis::Y) * Side * 100.0 + FVector(0.0, 0.0, 20.0));
 }
 
@@ -438,9 +497,26 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	{
 		// My own mount stands on whatever I stand on: the road, a bridge, the field.
 		const FVector Feet = Me->FeetLocation();
-		const APlayerController* PC = Cast<APlayerController>(Me->GetController());
-		const double Yaw = PC ? PC->GetControlRotation().Yaw : Me->GetActorRotation().Yaw;
+		const double Yaw = Me->FacingYaw();
 		Ridden(TEXT("me"), Mine.Thing, Mine.Sp, Feet.Y / 100.0, -Feet.X / 100.0, Feet.Z / 100.0, (-Yaw * UE_DOUBLE_PI) / 180.0, Dt);
+		if (Me->IsDriving() && Mounts.Num() > 0)
+		{
+			// A driven car sits to the slope of the ground under its wheels, leans out of a bend, and dips its nose under braking.
+			FEarthThing& Mount = Mounts.Last();
+			const FEarthCar& Car = Me->GetCar();
+			const double Sin = std::sin(Car.Heading), Cos = std::cos(Car.Heading);
+			const auto HeightAt = [&](double Along, double Across)
+			{
+				double H = Mount.Y;
+				Earth->TerrainHeightAt(Mount.X + Sin * Along + Cos * Across, Mount.Z - Cos * Along + Sin * Across, H);
+				return H;
+			};
+			const double Slope = std::atan2(HeightAt(1.3, 0.0) - HeightAt(-1.3, 0.0), 2.6);
+			const double Bank = std::atan2(HeightAt(0.0, 0.8) - HeightAt(0.0, -0.8), 1.6);
+			const double Lean = FMath::Clamp(Car.Turn * Car.Speed * 0.006, -0.09, 0.09);
+			Mount.Pitch = FMath::Clamp(Slope, -0.5, 0.5);
+			Mount.Roll = FMath::Clamp(-Bank, -0.4, 0.4) + Lean;
+		}
 	}
 	for (const TPair<FString, FEarthPeer>& Pair : Room->GetPeers())
 	{
@@ -497,6 +573,8 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	}
 	OrdersFrame(Dt, T); // and everything doing as it was told
 	TaxiFrame(T); // and taxis on their way to whoever called them
+	GarageFrame(); // and players' own cars, standing or driven, in their paint
+	PetFrame(Dt); // and everyone's companion, trotting after them
 
 	// ---- what would E hop on?
 	bNear = false;
@@ -1115,6 +1193,324 @@ void UEarthCompany::OrdersFrame(double Dt, double T)
 // Taxis
 // ------------------------------------------------------------------------------------------------
 
+/**
+ * Companions (pets.js). Solving a riddle wins its answer as an animal that keeps its player company; a
+ * lost animal being taken home walks along the same way. Every game works a companion out for itself
+ * from where its player is, so friends agree to within a step or two.
+ */
+void UEarthCompany::PetFrame(double Dt)
+{
+	const UEarthWalkNet* Room = Net.Get();
+	const AEarthWalkCharacter* Me = Player.Get();
+	if (!Room || !Me)
+	{
+		return;
+	}
+	// How fast each kind keeps up, in metres a second; anything not listed trots.
+	static const TMap<FString, double> Pace = {
+		{ TEXT("snail"), 1.5 }, { TEXT("tortoise"), 1.8 }, { TEXT("ladybird"), 2.0 }, { TEXT("crab"), 3.0 }, { TEXT("frog"), 4.0 }, { TEXT("mouse"), 4.0 },
+		{ TEXT("hedgehog"), 3.0 }, { TEXT("penguin"), 3.0 }, { TEXT("duck"), 3.5 }, { TEXT("goose"), 4.0 }, { TEXT("cow"), 5.0 }, { TEXT("panda"), 4.5 }, { TEXT("koala"), 3.0 },
+	};
+	constexpr double Trot = 7.0;
+	constexpr double PetLostM = 60.0;
+	TSet<uint32> Live;
+	const auto Keep = [&](const FEarthPet& Pet, bool bOwner, double Ox, double Oz)
+	{
+		const bool bBig = EarthMounts::Find(Pet.Sp) != nullptr;
+		if (!Pet.bOn || !bOwner || (!EarthRigs::Find(Pet.Sp) && !bBig))
+		{
+			return;
+		}
+		Live.Add(Pet.Thing);
+		if (Hidden.Contains(Pet.Thing))
+		{
+			PetPoses.Remove(Pet.Thing); // being ridden: it is drawn under its rider
+			return;
+		}
+		FOrderPose* Pose = PetPoses.Find(Pet.Thing);
+		// A little behind and to one side of its player, so it is in view when they look round.
+		const double Heel = bBig ? 2.6 : 1.6; // the big ones keep a little further off
+		const double Dx = Ox - (Pose ? Pose->X : Ox - Heel), Dz = Oz - (Pose ? Pose->Z : Oz);
+		const double Left = std::hypot(Dx, Dz);
+		if (!Pose || Left > PetLostM)
+		{
+			FOrderPose Fresh;
+			Fresh.X = Ox - (Left > 0.0 ? (Dx / Left) * Heel : Heel);
+			Fresh.Z = Oz - (Left > 0.0 ? (Dz / Left) * Heel : 0.0);
+			Fresh.Yaw = Pose ? Pose->Yaw : 0.0;
+			Pose = &PetPoses.Add(Pet.Thing, Fresh);
+		}
+		bool bMoving = false;
+		if (Left > Heel && Left <= PetLostM)
+		{
+			const double* Own = Pace.Find(Pet.Sp);
+			const double Speed = (Own ? *Own : Trot) * (Left > 8.0 ? 2.2 : 1.0); // hurry when left behind
+			const double Step = FMath::Min(Left - Heel, Speed * Dt);
+			Pose->X += (Dx / Left) * Step;
+			Pose->Z += (Dz / Left) * Step;
+			Pose->D += Step;
+			Pose->Yaw = std::atan2(-Dx, -Dz);
+			bMoving = Step > 0.001;
+		}
+		Stand(Pet.Thing, Pet.Sp, Pose->X, Pose->Z, Pose->Yaw, Pose->D, bMoving, 0.0, 0.0);
+	};
+	double Px = 0.0, Pz = 0.0;
+	if (!Me->IsWaitingForGround() && PlayerAt(Px, Pz))
+	{
+		Keep(Room->GetMyPet(), true, Px, Pz);
+	}
+	for (const TPair<FString, FEarthPeer>& Pair : Room->GetPeers())
+	{
+		double Ox = 0.0, Oz = 0.0;
+		Keep(Pair.Value.Pet, WhereIs(Pair.Key, Ox, Oz), Ox, Oz);
+	}
+	for (auto It = PetPoses.CreateIterator(); It; ++It)
+	{
+		if (!Live.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+}
+
+// ------------------------------------------------------------------------------------------------
+// Races (race.js): the server makes the course and says who has passed which gate
+// ------------------------------------------------------------------------------------------------
+
+/** The race has changed: say so when it is news. */
+void UEarthCompany::OnRace()
+{
+	const UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	const FEarthRace& Race = Room->GetRace();
+	const FString Key = Race.bOn ? FString::Printf(TEXT("%s:%.0f"), *Race.By, Race.Made) : FString();
+	if (Key != CourseKey)
+	{
+		CourseKey = Key;
+		CourseShown.Reset();
+		if (Race.bOn)
+		{
+			Notice(Race.By == Room->GetMyId()
+				? FString::Printf(TEXT("Your race is set up: %.0f metres, %d gates. Press R to start it when everyone who wants to is in."), Race.Metres, Race.Gates.Num())
+				: FString::Printf(TEXT("%s has set up a race of %.0f metres. Press R to join in."), *Race.ByName, Race.Metres));
+		}
+	}
+}
+
+void UEarthCompany::KeyRace(const FString& Word)
+{
+	UEarthWalkNet* Room = Net.Get();
+	if (!Room || !Room->IsConnected())
+	{
+		return;
+	}
+	const FEarthRace& Race = Room->GetRace();
+	const bool bIn = Race.Runners.ContainsByPredicate([Room](const FEarthRunner& Runner) { return Runner.Id == Room->GetMyId(); });
+	if (Word == TEXT("stop") || Word == TEXT("leave"))
+	{
+		if (Race.bOn)
+		{
+			Room->SendRace(TEXT("stop"));
+		}
+		else
+		{
+			Notice(TEXT("There is no race just now."));
+		}
+	}
+	else if (!Race.bOn || Race.State == TEXT("over"))
+	{
+		Notice(TEXT("Setting up a race along the roads here..."));
+		Room->SendRace(TEXT("make"));
+	}
+	else if (Race.State != TEXT("open"))
+	{
+		return;
+	}
+	else if (!bIn)
+	{
+		Room->SendRace(TEXT("join"));
+	}
+	else if (Race.By == Room->GetMyId())
+	{
+		Room->SendRace(TEXT("go"));
+	}
+	else
+	{
+		Notice(FString::Printf(TEXT("You are in. %s says when to go."), *Race.ByName));
+	}
+}
+
+/** Stands the gates up, lights the next one, and writes the countdown and the list of runners. */
+void UEarthCompany::RaceFrame(double T)
+{
+	const UEarthWalkNet* Room = Net.Get();
+	AEarthWorld* Earth = World.Get();
+	if (!Room || !Earth)
+	{
+		return;
+	}
+	const FEarthRace& Race = Room->GetRace();
+	if (!Race.bOn)
+	{
+		RacePanel.Reset();
+		RaceCount.Reset();
+		if (AEarthRaceCourse* Old = Course.Get())
+		{
+			Old->Destroy();
+		}
+		Course.Reset();
+		return;
+	}
+	const auto Clock = [](double Ms)
+	{
+		const double Seconds = FMath::Max(0.0, Ms) / 1000.0;
+		return FString::Printf(TEXT("%d:%04.1f"), FMath::FloorToInt32(Seconds / 60.0), FMath::Fmod(Seconds, 60.0));
+	};
+	const double NowMs = T * 1000.0;
+	const FEarthRunner* Me = Race.Runners.FindByPredicate([Room](const FEarthRunner& Runner) { return Runner.Id == Room->GetMyId(); });
+
+	// The gates: stood up for a new course, when I pass one, and again while the ground under some has yet to arrive.
+	const int32 MyGate = Me ? Me->Gate : -1;
+	const bool bBeacon = Me && !Me->bFinished && Race.State != TEXT("over");
+	const FString Shown = FString::Printf(TEXT("%s/%d/%d"), *CourseKey, MyGate, bBeacon ? 1 : 0);
+	const double Now = FPlatformTime::Seconds();
+	if (Shown != CourseShown || (CourseRetryAt > 0.0 && Now > CourseRetryAt))
+	{
+		AEarthRaceCourse* Gates = Course.Get();
+		if (!Gates && Earth->GetWorld())
+		{
+			Gates = Earth->GetWorld()->SpawnActor<AEarthRaceCourse>();
+			Course = Gates;
+		}
+		if (Gates)
+		{
+			CourseShown = Shown;
+			CourseRetryAt = Gates->Rebuild(Earth, Race, MyGate, bBeacon) < Race.Gates.Num() ? Now + 1.0 : 0.0;
+		}
+	}
+
+	// The countdown, large, and "GO!" for a moment after it.
+	const bool bGo = Race.State == TEXT("go");
+	const double Until = Race.StartAt - NowMs;
+	RaceCount = !bGo ? FString() : Until > 0.0 ? FString::FromInt(FMath::CeilToInt32(Until / 1000.0)) : Until > -1200.0 ? FString(TEXT("GO!")) : FString();
+
+	// Who is in, how far along, and what R does now.
+	TArray<FString> Lines;
+	const int32 Gates = Race.Gates.Num();
+	if (Race.State == TEXT("open"))
+	{
+		TArray<FString> In;
+		for (const FEarthRunner& Runner : Race.Runners)
+		{
+			In.Add(Runner.Name);
+		}
+		Lines.Add(FString::Printf(TEXT("Race by %s: %.0f m, %d gates"), *Race.ByName, Race.Metres, Gates));
+		Lines.Add(FString::Printf(TEXT("In: %s"), *FString::Join(In, TEXT(", "))));
+		Lines.Add(!Me ? FString(TEXT("R: join in")) : Race.By == Room->GetMyId() ? FString(TEXT("R: start the race")) : FString::Printf(TEXT("Waiting for %s to say go"), *Race.ByName));
+	}
+	else
+	{
+		const bool bRunning = bGo && Until <= 0.0;
+		if (Me && !Me->bFinished && bRunning)
+		{
+			Lines.Add(FString::Printf(TEXT("Gate %d of %d  ·  %s"), FMath::Min(Me->Gate + 1, Gates), Gates, *Clock(NowMs - Race.StartAt)));
+		}
+		else if (bGo && Until > 0.0)
+		{
+			Lines.Add(TEXT("Get to the green start gate..."));
+		}
+		else if (Race.State == TEXT("over"))
+		{
+			Lines.Add(TEXT("The race is over"));
+		}
+		// Finishers first, by their time; then whoever has passed the most gates.
+		TArray<FEarthRunner> Order = Race.Runners;
+		Order.StableSort([](const FEarthRunner& A, const FEarthRunner& B)
+		{
+			if (A.bFinished != B.bFinished)
+			{
+				return A.bFinished;
+			}
+			return A.bFinished ? A.TimeMs < B.TimeMs : A.Gate > B.Gate;
+		});
+		for (int32 i = 0; i < Order.Num(); ++i)
+		{
+			Lines.Add(FString::Printf(TEXT("%d. %s  %s"), i + 1, *Order[i].Name, Order[i].bFinished ? *Clock(Order[i].TimeMs) : *FString::Printf(TEXT("%d/%d"), Order[i].Gate, Gates)));
+		}
+		if (Race.State == TEXT("over"))
+		{
+			Lines.Add(TEXT("R: set up another"));
+		}
+	}
+	RacePanel = FString::Join(Lines, TEXT("\n"));
+}
+
+void UEarthCompany::CallCar(bool bAway)
+{
+	if (UEarthWalkNet* Room = Net.Get())
+	{
+		Room->SendGarage(bAway ? TEXT("away") : TEXT("call"));
+		if (Room->IsConnected())
+		{
+			Notice(bAway ? TEXT("Your car has gone back to its garage.") : TEXT("Your car is on its way. Press E beside it to get in."));
+		}
+	}
+}
+
+/**
+ * Players' own cars (garage.js). Each that nobody is driving stands where it was called to, or left;
+ * and whether standing or driven it keeps its owner's body and paint.
+ */
+void UEarthCompany::GarageFrame()
+{
+	const UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	for (const TPair<FString, FEarthOwnCar>& Pair : Room->GetCars())
+	{
+		const FEarthOwnCar& Car = Pair.Value;
+		bool bDrawn = false;
+		for (FEarthThing& Mount : Mounts)
+		{
+			if (Mount.Thing == Car.Thing)
+			{
+				// Being driven: it is drawn under its driver, in its own look.
+				Mount.bOwnLook = true;
+				Mount.Body = Car.Body;
+				Mount.Paint = Car.Paint;
+				bDrawn = true;
+			}
+		}
+		if (bDrawn || Hidden.Contains(Car.Thing))
+		{
+			continue;
+		}
+		Hidden.Add(Car.Thing);
+		double X = 0.0, Z = 0.0, Y = 0.0;
+		GeoToScene(Car.Lat, Car.Lon, X, Z);
+		if (GroundFor(TEXT("car"), X, Z, Y))
+		{
+			FEarthThing Mount;
+			Mount.Thing = Car.Thing;
+			Mount.Sp = TEXT("car");
+			Mount.X = X;
+			Mount.Y = Y;
+			Mount.Z = Z;
+			Mount.Yaw = (-Car.Yaw * UE_DOUBLE_PI) / 180.0;
+			Mount.bOutOfPlace = true;
+			Mount.bOwnLook = true;
+			Mount.Body = Car.Body;
+			Mount.Paint = Car.Paint;
+			Mounts.Add(Mount);
+		}
+	}
+}
+
 void UEarthCompany::CallTaxi(const FString& Place)
 {
 	if (UEarthWalkNet* Room = Net.Get())
@@ -1370,6 +1766,7 @@ void UEarthCompany::Frame(AEarthWalkCharacter* InPlayer, double Dt, double T)
 	Steer(Dt);
 	RidingFrame(Dt, T);
 	TalkFrame(Dt);
+	RaceFrame(T);
 	Life->SetOutOfPlace(Hidden, Mounts);
 	DoorFrame(Dt);
 	const FString& First = RideHint.IsEmpty() ? DoorHint : RideHint;
@@ -1397,6 +1794,37 @@ void UEarthCompany::TestAids(double Dt)
 	if (Me && Room && Room->IsConnected() && !Me->IsWaitingForGround() && PlayerAt(Px, Pz))
 	{
 		TestClock += Dt;
+		// -EWTreasure stands a treasure chest in front of the player, as when a hunt is won.
+		static bool bChestShown = false;
+		if (!bChestShown && TestClock > 5.0 && FParse::Param(FCommandLine::Get(), TEXT("EWTreasure")))
+		{
+			bChestShown = true;
+			double Lat = 0.0, Lon = 0.0, Alt = 0.0;
+			World->WorldToGeo(Me->GetActorLocation(), Lat, Lon, Alt);
+			OnTreasure(Lat, Lon);
+		}
+		// -EWRace sets a race up along the roads here, and starts it a few seconds later.
+		static int32 RaceStep = 0;
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWRace")))
+		{
+			if (RaceStep == 0 && TestClock > 3.0)
+			{
+				RaceStep = 1;
+				KeyRace();
+			}
+			else if (RaceStep == 1 && TestClock > 8.0)
+			{
+				RaceStep = 2;
+				KeyRace(); // I set it up, so this says go
+			}
+		}
+		// -EWCar calls the player's own car.
+		static bool bCarCalled = false;
+		if (!bCarCalled && TestClock > 2.0 && FParse::Param(FCommandLine::Get(), TEXT("EWCar")))
+		{
+			bCarCalled = true;
+			CallCar();
+		}
 		if (!TaxiPlace.IsEmpty() && !bTaxiCalled && TestClock > 2.0)
 		{
 			bTaxiCalled = true;
