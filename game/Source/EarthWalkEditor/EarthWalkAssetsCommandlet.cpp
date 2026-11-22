@@ -366,6 +366,34 @@ for (int row = 0; row < 3; ++row)
 return c;
 )HLSL");
 
+	/**
+	 * Picket fences. The server sends a fence as a row of thin upright boxes; this cuts each face into
+	 * pales with pointed tops and gaps between them, on two rails. Below.x is metres below the top of
+	 * the fence and Below.y is 1 on an upright face (AEarthWorld::BuildChunk works them out). The pales
+	 * are placed by where they stand in the world, so the two faces of a fence line up. Far away the
+	 * gaps close and are drawn as lines instead, where they would only flicker.
+	 */
+	const TCHAR* const FenceCode = TEXT(R"HLSL(
+float3 n = normalize(Normal);
+float2 across = normalize(n.xy + float2(1e-4, 0.0));
+float along = dot(WorldPos.xy / 100.0, float2(across.y, -across.x));
+float below = Below.x;
+float fromMiddle = abs(frac(along / 0.2) - 0.5);
+float pale = fromMiddle < 0.32 ? 1.0 : 0.0;
+float tip = step(fromMiddle * 0.42 + 0.01, below);
+float rail = (abs(below - 0.30) < 0.045 || abs(below - 0.70) < 0.045) ? 1.0 : 0.0;
+float away = saturate((length(WorldPos - CamPos) - 2500.0) / 1500.0);
+float upClose = max(pale * tip, rail * (1.0 - pale));
+Mask = lerp(upClose, tip, away) * Below.y;
+float3 c = Tint;
+c *= 1.0 - 0.14 * rail * (1.0 - pale);
+c *= 1.0 - 0.10 * smoothstep(0.22, 0.32, fromMiddle) * pale;
+c *= 1.0 - 0.30 * (1.0 - pale) * away;
+WorldNormal = n;
+Rough = 0.9;
+return saturate(c);
+)HLSL");
+
 	bool SaveAsset(UObject* Asset)
 	{
 		UPackage* Package = Asset->GetOutermost();
@@ -661,6 +689,33 @@ return c;
 
 namespace
 {
+	/** Picket fences (FenceCode): painted like the other surfaces, with holes cut in it. */
+	void BuildFenceMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthFence"));
+		if (!Material)
+		{
+			return;
+		}
+		Material->BlendMode = BLEND_Masked;
+		UMaterialExpressionCustom* Custom = CustomNode(Material, FenceCode, { TEXT("WorldPos"), TEXT("Normal"), TEXT("CamPos"), TEXT("Tint"), TEXT("Below") });
+		FCustomOutput Mask;
+		Mask.OutputName = TEXT("Mask");
+		Mask.OutputType = CMOT_Float1;
+		Custom->AdditionalOutputs.Add(Mask);
+		Custom->RebuildOutputs();
+		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
+		Tint->ParameterName = TEXT("Color");
+		Tint->DefaultValue = FLinearColor::White;
+		Connect(Node<UMaterialExpressionWorldPosition>(Material, -900, -450), Custom, TEXT("WorldPos"));
+		Connect(Node<UMaterialExpressionVertexNormalWS>(Material, -900, -300), Custom, TEXT("Normal"));
+		Connect(Node<UMaterialExpressionCameraPositionWS>(Material, -900, -150), Custom, TEXT("CamPos"));
+		Connect(Tint, Custom, TEXT("Tint"));
+		Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 150), Custom, TEXT("Below"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT("Mask"), MP_OpacityMask);
+		FinishMaterial(Material, Custom);
+	}
+
 	/** The painted sky (SkyCode): unlit, seen from inside, and marked as sky so the engine lights the world from it. */
 	void BuildSkyMaterial(IAssetTools& Tools)
 	{
@@ -727,12 +782,18 @@ UEarthWalkAssetsCommandlet::UEarthWalkAssetsCommandlet()
 int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 {
 	IAssetTools& Tools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
-	// -only=figure or -only=sky builds just that material and leaves the others as they are.
+	// -only=figure, -only=sky or -only=fence builds just that material and leaves the others as they are.
 	FString Only;
 	if (FParse::Value(*Params, TEXT("only="), Only) && Only.Equals(TEXT("figure"), ESearchCase::IgnoreCase))
 	{
 		BuildFigureMaterial(Tools);
 		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthFigure only"));
+		return 0;
+	}
+	if (Only.Equals(TEXT("fence"), ESearchCase::IgnoreCase))
+	{
+		BuildFenceMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthFence only"));
 		return 0;
 	}
 	if (Only.Equals(TEXT("sky"), ESearchCase::IgnoreCase))
@@ -748,7 +809,8 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 	BuildWaterMaterial(Tools);
 	BuildFoliageMaterial(Tools);
 	BuildSkyMaterial(Tools);
+	BuildFenceMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 7 materials under /Game/EarthWalk"));
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 8 materials under /Game/EarthWalk"));
 	return 0;
 }

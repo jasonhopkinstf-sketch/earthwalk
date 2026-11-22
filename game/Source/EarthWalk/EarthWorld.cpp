@@ -957,7 +957,7 @@ namespace
 			{ 28, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 1.f, 0.f } },
 			// Gardens
 			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f } }, // hedges
-			{ 33, { TEXT("M_EarthTop"), 0xf6f3ea, 6.f, 0.f, 0.f, 0.f } }, // picket fences
+			{ 33, { TEXT("M_EarthFence"), 0xf6f3ea, 0.f, 0.f, 0.f, 0.f } }, // picket fences
 			// Inside houses: floors, walls, ceilings, furniture, windows and frames, rugs, each in the server's colour
 			{ 40, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 41, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
@@ -1312,6 +1312,29 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 				{
 					const int32 Corner = Triangles[i + k];
 					Spans[Corner] = FVector2D(FVector2D::DotProduct(FVector2D(Vertices[Corner]) - Start, Along) / 100.0, Length / 100.0);
+				}
+			}
+		}
+		else if (SurfaceId == 33)
+		{
+			// Fences tell their material how far below the top of the fence each point is, in metres, so
+			// it can cut the pales to a point and leave the gaps between them (M_EarthFence). A fence is a
+			// row of thin boxes (server/src/chunk.ts): on an upright face the highest corner is the top of
+			// the fence; the flat face on top is marked (second number 0) to be left out.
+			UVs.SetNumZeroed(NumVerts);
+			for (int64 i = 0; i + 2 < NumIndices; i += 3)
+			{
+				double Top = Vertices[Triangles[i]].Z, Bottom = Top;
+				for (int64 k = 1; k < 3; ++k)
+				{
+					Top = FMath::Max(Top, Vertices[Triangles[i + k]].Z);
+					Bottom = FMath::Min(Bottom, Vertices[Triangles[i + k]].Z);
+				}
+				const bool bUpright = Top - Bottom > 1.0;
+				for (int64 k = 0; k < 3; ++k)
+				{
+					const int32 Corner = Triangles[i + k];
+					UVs[Corner] = bUpright ? FVector2D((Top - Vertices[Corner].Z) / 100.0, 1.0) : FVector2D::ZeroVector;
 				}
 			}
 		}
