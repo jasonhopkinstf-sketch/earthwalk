@@ -830,7 +830,8 @@ export function useOf(tags: Record<string, string>): BuildingUse | null {
   }
   if (amenity === "fuel") return "fuel";
   if (/^(hospital|clinic)$/.test(amenity) || building === "hospital") return "hospital";
-  if (/^(school|kindergarten|college|university)$/.test(amenity) || /^(school|kindergarten|college|university)$/.test(building)) return "school";
+  // (Not universities and colleges: a campus is dozens of buildings, and would be a forest of flagpoles.)
+  if (/^(school|kindergarten)$/.test(amenity) || /^(school|kindergarten)$/.test(building)) return "school";
   if (/^(cafe|restaurant|pub|bar|fast_food|ice_cream|food_court|biergarten)$/.test(amenity)) return "food";
   if ((shop && shop !== "no" && shop !== "vacant") || /^(retail|supermarket|kiosk)$/.test(building) || /^(bank|pharmacy|post_office|marketplace)$/.test(amenity)) return "shop";
   return null;
@@ -842,7 +843,8 @@ export function signName(name: string | undefined): string | null {
   if (!text) return null;
   if (text.length <= 30) return text;
   const cut = text.slice(0, 30);
-  return (cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).trim();
+  // (And not left hanging on an "and" or a comma.)
+  return (cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).replace(/([\s,;:&/-]+|\s(and|of|the|et|de|und|y))+$/i, "").trim();
 }
 
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -1096,16 +1098,12 @@ const parsed = new Map<string, Features>();
 export async function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile, extras: (dx: number, dy: number) => Promise<OsmJson | null> = fetcher === fetchOsmTile ? fetchExtras : async () => ({ elements: [] })): Promise<Features> {
   const key = `${dx}/${dy}`;
   let f = parsed.get(key);
-  // Parsed without its extras, it is parsed again as soon as they can be had.
+  // Parsed without its extras, it is parsed again as soon as they can be had (afresh, since what was
+  // worked out from it, such as which houses have a front door, is remembered against the old one).
   if (!f || f.partial) {
-    const [json, extra] = await Promise.all([f?.partial ? null : fetcher(dx, dy), extras(dx, dy)]);
-    if (f?.partial) {
-      if (!extra) return f;
-      addExtras(f, extra);
-      delete f.partial;
-      return f;
-    }
-    f = parseOsm(json!, extra);
+    const [json, extra] = await Promise.all([fetcher(dx, dy), extras(dx, dy)]);
+    if (f?.partial && !extra) return f;
+    f = parseOsm(json, extra);
     if (!extra) f.partial = true;
     if (parsed.size >= 64) parsed.delete(parsed.keys().next().value!);
     parsed.set(key, f);

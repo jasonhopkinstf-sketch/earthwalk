@@ -15,7 +15,7 @@ import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 11;
+export const GENERATOR_REV = 12;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -64,6 +64,10 @@ export const groundClassId = (c: GroundClass): number => GROUND_ORDER.indexOf(c)
 
 const BARN_RED = 0xb8372b;
 const BARN_ROOF = 0x4a4f5c;
+/** Shop awnings. */
+const AWNINGS = [0xb8372b, 0x2f5d3a, 0x2e4a6e, 0xe8c84a, 0x8f3a2e, 0x377a62];
+/** School flags: plain colours, nobody's in particular. */
+const FLAGS = [0xd0302a, 0x3f78c0, 0x4f9a4f, 0xf0d040];
 /** Flat roofs where roofs are usually pitched: felt and gravel. */
 const FLAT_ROOFS = [0x7a7f86, 0x6e6a66, 0x8a8f96, 0x9a958c];
 export const BARN_KINDS = /^(barn|farm|farm_auxiliary|stable|cowshed|sty|granary)$/;
@@ -770,6 +774,14 @@ function roofRise(b: Building, areaM2: number, height: number, look: RoofLook): 
 }
 
 /**
+ * Where a building's name goes: the middle of a board on its front wall (chunk-local metres east and
+ * north, metres above the sea), the way it faces, and how wide it may be. The games draw the board.
+ */
+export interface SignSpot { text: string; x: number; y: number; z: number; out: XY; width: number; /** True for a shop, a church, a school...: these keep their signs where a chunk has too many. */ known?: boolean }
+/** A city centre has a name on every building: a chunk keeps this many, the shops, churches and schools first. */
+const SIGN_CAP = 20;
+
+/**
  * A home that can be walked into: its outline (four corners, chunk-local metres, counter-clockwise),
  * where its front door is on that outline and which way is out, how high its floor is and how tall
  * its walls, and the numbers its inside is made from (interior.ts).
@@ -886,7 +898,7 @@ export function roomInside(ring: XY[], x: number, y: number, t: XY, o: XY): XY[]
  * `look` is the style of the houses; left out, it is the style of where the chunk is in the world.
  * `homes`, when given, is filled with the homes that can be walked into.
  */
-export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle, homes?: HomeDoor[]): ChunkMesh {
+export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle, homes?: HomeDoor[], signs?: SignSpot[]): ChunkMesh {
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
   const sections = new Map<string, Section>();
   const sec = (m: MaterialDef): Section => {
@@ -1146,6 +1158,32 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
 
   /** How many 3D pieces this chunk has drawn: a city centre mapped piece by piece is capped. */
   let partsDrawn = 0;
+  /** A building's front: the wall facing the nearest road (failing any, its longest), as its middle, the way along it, the way out and its length. */
+  const frontOf = (ring: XY[]): { x: number; y: number; t: XY; o: XY; len: number; from: XY } | null => {
+    let front = -1;
+    let frontScore = Infinity;
+    for (let i = 0; i < ring.length; i++) {
+      const [ae, an] = ring[i];
+      const [be, bn] = ring[(i + 1) % ring.length];
+      const len = Math.hypot(be - ae, bn - an);
+      if (len < 2.4) continue;
+      const me = (ae + be) / 2, mn = (an + bn) / 2;
+      const oe = (bn - an) / len, on = -(be - ae) / len;
+      let score = 1000 - len;
+      for (const [qe, qn] of roadPoints) {
+        const de = qe - me, dn = qn - mn;
+        if (de * oe + dn * on <= 1) continue;
+        const dist = Math.hypot(de, dn);
+        if (dist < 90 && dist < score) score = dist;
+      }
+      if (score < frontScore) { frontScore = score; front = i; }
+    }
+    if (front < 0) return null;
+    const [ae, an] = ring[front];
+    const [be, bn] = ring[(front + 1) % ring.length];
+    const len = Math.hypot(be - ae, bn - an);
+    return { x: (ae + be) / 2, y: (an + bn) / 2, t: [(be - ae) / len, (bn - an) / len], o: [(bn - an) / len, -(be - ae) / len], len, from: [ae, an] };
+  };
   for (const b of features.buildings) {
     let mx = 0;
     let my = 0;
@@ -1238,6 +1276,9 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           });
         }
       }
+      // Its name goes on its front all the same, at the foot of the outline.
+      const front = signs && b.name ? frontOf(ring) : null;
+      if (front) signs!.push({ known: true, text: b.name!, x: front.x + front.o[0] * 0.1, y: front.y + front.o[1] * 0.1, z: ground(cx + front.x / S, cy - front.y / S) + 3.1, out: front.o, width: clamp(b.name!.length * 0.3 + 0.6, 1.6, Math.max(1.6, Math.min(front.len - 0.4, 9))) });
       continue;
     }
     const kind = b.kind ?? "";
@@ -1457,6 +1498,79 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
         }
       }
     }
+
+    // ---- what it is and what it is called, where the map says: a church has a tower, a shop a shopfront, and a name goes on a board
+    if (!raised && (b.name || b.use) && areaM2 >= 12) {
+      const front = frontOf(ring);
+      if (front) {
+        const { x, y, t, o, len, from: [ae, an] } = front;
+        const g = ground(cx + x / S, cy - y / S);
+        const room = top - g; // how much wall stands above the ground here
+        let signZ = g + Math.min(3.1, room - 0.5);
+        let signW = clamp((b.name?.length ?? 0) * 0.3 + 0.6, 1.6, Math.max(1.6, Math.min(len - 0.4, 9)));
+        /** An eight-sided outline, counter-clockwise. */
+        const round = (e: number, n: number, r: number): XY[] => Array.from({ length: 8 }, (_, k) => [e + r * Math.cos((k * Math.PI) / 4), n + r * Math.sin((k * Math.PI) / 4)] as XY);
+        /** A turret or a tower: walls of the building's own paint from `from` up to `to`, and a roof of the given shape on top. */
+        const turret = (outline: XY[], from: number, to: number, roof: string, rise: number): void => {
+          for (let i = 0; i < outline.length; i++) {
+            const [pe, pn] = outline[i];
+            const [qe, qn] = outline[(i + 1) % outline.length];
+            const side = Math.hypot(qe - pe, qn - pn) || 1;
+            const ne = (qn - pn) / side, nn = -(qe - pe) / side;
+            const v0 = walls.vert(pe, pn, from, ne, nn, 0);
+            const v1 = walls.vert(qe, qn, from, ne, nn, 0);
+            const v2 = walls.vert(qe, qn, to, ne, nn, 0);
+            const v3 = walls.vert(pe, pn, to, ne, nn, 0);
+            walls.tri(v0, v1, v2);
+            walls.tri(v0, v2, v3);
+          }
+          let turret2 = 0;
+          for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) turret2 += outline[j][0] * outline[i][1] - outline[i][0] * outline[j][1];
+          addRoof(outline, to, { id: b.id, ring: b.ring, height: rise, roof, roofHeight: rise }, Math.abs(turret2) / 2, rise * 2, { form: "pitched", maxPitched: 0, pitch: 1, eaves: 0.2 }, walls, sec(roofMat), sec(roofMat), sec(MATERIALS.trim));
+        };
+        if ((b.use === "shop" || b.use === "food") && room > 3.7 && len >= 3.4) {
+          // A shopfront: a big window, an awning over it, and room for the name on a board above.
+          const span = Math.min(len - 0.6, 9);
+          const awning = sec(painted(MATERIALS.trim, AWNINGS[(h >>> 9) % AWNINGS.length]));
+          box(sec(painted(MATERIALS.door, 0x9fc3d6)), x, y, t, o, -span / 2 + 0.25, span / 2 - 0.25, 0, 0.07, g + 0.55, g + 2.3);
+          box(awning, x, y, t, o, -span / 2, span / 2, 0, 1.15, g + 2.5, g + 2.62, false, true);
+          box(awning, x, y, t, o, -span / 2, span / 2, 1.05, 1.15, g + 2.25, g + 2.5, true, true);
+          signZ = g + 3.15;
+          signW = Math.max(1.6, span - 0.6);
+        } else if (b.use === "church" && areaM2 >= 60 && len >= 4.5) {
+          // A square tower at the front, standing through the roof, with a spire.
+          const side = clamp(Math.sqrt(areaM2) * 0.3, 3, Math.min(7, len - 1));
+          const half = side / 2;
+          const ce = x - o[0] * half, cn = y - o[1] * half;
+          const corner = (a: number, c: number): XY => [ce + t[0] * a * half + o[0] * c * half, cn + t[1] * a * half + o[1] * c * half];
+          turret([corner(-1, 1), corner(1, 1), corner(1, -1), corner(-1, -1)], base, top + Math.max(5, room * 0.7), "pyramidal", side * 1.7);
+        } else if (b.use === "mosque" && areaM2 >= 60) {
+          // A dome over the middle on a low drum, and a slim minaret at a front corner.
+          const me = E(mx), mn = N(my);
+          const r = clamp(Math.sqrt(areaM2) * 0.28, 2, 9);
+          turret(round(me, mn, r), top - 0.3, top + 0.9, "dome", r * 0.95);
+          if (len >= 5) turret(round(ae + t[0] * 1.3 - o[0] * 1.3, an + t[1] * 1.3 - o[1] * 1.3, 0.95), base, top + Math.max(7, room * 0.9), "cone", 2.6);
+        } else if (b.use === "school" && len >= 4) {
+          // A flagpole out in front.
+          const pe = x + o[0] * 4, pn = y + o[1] * 4;
+          const pg = ground(cx + pe / S, cy - pn / S);
+          let clear = true;
+          for (const [qe, qn, reach] of roadPoints) if (Math.hypot(qe - pe, qn - pn) < reach + 0.4) { clear = false; break; }
+          if (clear) {
+            box(sec(painted(MATERIALS.trim, 0xb9bec4)), x, y, t, o, -0.05, 0.05, 3.95, 4.05, pg - 0.3, pg + 7, true);
+            box(sec(painted(MATERIALS.door, FLAGS[(h >>> 9) % FLAGS.length])), x, y, t, o, 0.05, 1.35, 3.98, 4.02, pg + 6.05, pg + 6.9, true, true);
+          }
+        } else if (b.use === "hospital" && room > 4.2 && len >= signW + 3.2) {
+          // A white board with a red cross, beside the name.
+          const at = -signW / 2 - 1.1;
+          const cross = sec(painted(MATERIALS.door, 0xd0302a));
+          box(sec(MATERIALS.trim), x, y, t, o, at - 0.6, at + 0.6, 0, 0.08, signZ - 0.6, signZ + 0.6);
+          box(cross, x, y, t, o, at - 0.14, at + 0.14, 0.08, 0.12, signZ - 0.44, signZ + 0.44);
+          box(cross, x, y, t, o, at - 0.44, at + 0.44, 0.08, 0.12, signZ - 0.14, signZ + 0.14);
+        }
+        if (signs && b.name && room > 2.6) signs.push({ text: b.name, x: x + o[0] * 0.1, y: y + o[1] * 0.1, z: signZ, out: o, width: signW, ...(b.use ? { known: true } : {}) });
+      }
+    }
   }
 
   // ---- trees: cones, for clients that ignore the labels route (both of ours plant their own trees from it)
@@ -1477,22 +1591,36 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     for (let k = 0; k < SIDES; k++) trees.tri(first + k, first + ((k + 1) % SIDES), apex);
   }
 
+  if (signs && signs.length > SIGN_CAP) {
+    const kept = [...signs.filter((s) => s.known), ...signs.filter((s) => !s.known)].slice(0, SIGN_CAP);
+    signs.length = 0;
+    signs.push(...kept);
+  }
   return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((a, b) => a.mat.id - b.mat.id || a.mat.color - b.mat.color), metersPerTile: S };
 }
 
-const homesMemo = new WeakMap<Features, Map<string, HomeDoor[]>>();
-/** The homes of a chunk that can be walked into. Kept a while, since a chunk's labels and its houses' insides all ask. */
-export function homesOf(cx: number, cy: number, features: Features, elev: Elevation): HomeDoor[] {
+const homesMemo = new WeakMap<Features, Map<string, { homes: HomeDoor[]; signs: SignSpot[] }>>();
+/** What building a chunk's mesh finds out besides the mesh: its homes that can be walked into, and where its name signs go. Kept a while, since a chunk's labels and its houses' insides all ask. */
+function foundIn(cx: number, cy: number, features: Features, elev: Elevation): { homes: HomeDoor[]; signs: SignSpot[] } {
   let byChunk = homesMemo.get(features);
   if (!byChunk) homesMemo.set(features, (byChunk = new Map()));
   const key = `${cx}/${cy}`;
-  let homes = byChunk.get(key);
-  if (!homes) {
-    buildChunkMesh(cx, cy, features, elev, undefined, (homes = []));
-    byChunk.set(key, homes);
+  let found = byChunk.get(key);
+  if (!found) {
+    found = { homes: [], signs: [] };
+    buildChunkMesh(cx, cy, features, elev, undefined, found.homes, found.signs);
+    byChunk.set(key, found);
     if (byChunk.size > 64) byChunk.delete(byChunk.keys().next().value!);
   }
-  return homes;
+  return found;
+}
+/** The homes of a chunk that can be walked into. */
+export function homesOf(cx: number, cy: number, features: Features, elev: Elevation): HomeDoor[] {
+  return foundIn(cx, cy, features, elev).homes;
+}
+/** Where the name signs of a chunk's buildings go. */
+export function signsOf(cx: number, cy: number, features: Features, elev: Elevation): SignSpot[] {
+  return foundIn(cx, cy, features, elev).signs;
 }
 
 /** Serialises a chunk mesh to the EWC1 binary layout (docs/PROTOCOL.md). */

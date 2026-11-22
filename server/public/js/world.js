@@ -102,6 +102,35 @@ function doorSignMaterial() {
   picture.anisotropy = 4;
   return (doorSign = new THREE.MeshBasicMaterial({ map: picture }));
 }
+/** A building's name on a cream board: painted once for each name and width, and kept. */
+const NAME_SIGN_M = 0.56; // how tall the board is
+const nameSigns = new Map();
+function nameSignMaterial(text, width) {
+  const key = `${width}|${text}`;
+  let material = nameSigns.get(key);
+  if (material) return material;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(Math.min(512, (width / NAME_SIGN_M) * 48));
+  canvas.height = 48;
+  const pen = canvas.getContext("2d");
+  pen.fillStyle = "#26221f";
+  pen.fillRect(0, 0, canvas.width, canvas.height);
+  pen.fillStyle = "#f4f1e6";
+  pen.fillRect(2, 2, canvas.width - 4, canvas.height - 4);
+  pen.fillStyle = "#26221f";
+  pen.textAlign = "center";
+  pen.textBaseline = "middle";
+  let size = 30;
+  do pen.font = `bold ${size}px system-ui, sans-serif`; while (pen.measureText(text).width > canvas.width - 14 && (size -= 2) > 8);
+  pen.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+  const picture = new THREE.CanvasTexture(canvas);
+  picture.colorSpace = THREE.SRGBColorSpace;
+  picture.anisotropy = 4;
+  material = new THREE.MeshBasicMaterial({ map: picture });
+  if (nameSigns.size > 400) nameSigns.delete(nameSigns.keys().next().value);
+  nameSigns.set(key, material);
+  return material;
+}
 const BARK = new THREE.MeshLambertMaterial({ color: 0x5a3d2a });
 const LEAF = new THREE.MeshLambertMaterial({ color: 0x3f8a2f, flatShading: true });
 const NEEDLE = new THREE.MeshLambertMaterial({ color: 0x2f6b2f, flatShading: true });
@@ -381,6 +410,7 @@ export class World {
       chunk.trains = items.filter((it) => it.kind === "train"); // and the trains, each sent with every chunk on its run
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
       this.signDoors(chunk, chunk.doors);
+      this.nameBuildings(chunk, items.filter((it) => it.kind === "sign"));
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);
     }
@@ -405,6 +435,21 @@ export class World {
     boards.instanceMatrix.needsUpdate = true;
     chunk.group.add(boards);
     boards.updateMatrixWorld(true);
+  }
+
+  /** Puts each named building's name on a board on its front wall. */
+  nameBuildings(chunk, signs) {
+    const S = this.tileM;
+    for (const sign of signs) {
+      if (typeof sign.text !== "string" || !sign.text) continue;
+      const width = Math.min(10, Math.max(1, Number(sign.w) || 2));
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(width, NAME_SIGN_M), nameSignMaterial(sign.text, width));
+      const yaw = THREE.MathUtils.degToRad(sign.yaw || 0); // the way it faces, as a compass heading
+      board.rotation.set(0, Math.PI - yaw, 0);
+      board.position.set(sign.u * S + Math.sin(yaw) * 0.04, sign.h, sign.v * S - Math.cos(yaw) * 0.04);
+      chunk.group.add(board);
+      board.updateMatrixWorld(true);
+    }
   }
 
   /** Plants a chunk's trees: a trunk with a leafy crown, or with a cone for conifers. One instanced mesh per part. */

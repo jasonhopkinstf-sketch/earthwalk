@@ -115,6 +115,14 @@ cars and trains to life from it (see "Life" below).
 | `h` | Terrain-mesh height at the point, in metres above sea level, so the prop stands on the ground. |
 | `yaw`, `yaw2` | Compass heading in degrees (0 north, 90 east) that the text of `text` / `text2` faces. |
 
+**Name signs.** A `sign` item is what a building is called (its own name on the map, or that of the
+one café, shop or museum mapped as a point inside it), to be drawn on a board on its front wall:
+`{"kind": "sign", "text": "Ferry Building", "u": 0.41, "v": 0.52, "h": 14.2, "yaw": 180, "w": 5.1}`.
+`u`, `v` and `h` are the middle of the board (`h` in metres above the sea, already clear of the wall),
+`yaw` the way it faces and `w` how wide it may be, in metres; ours are 0.56 m tall, cream with dark
+lettering that shrinks to fit. At most 20 a chunk (shops, churches, schools and buildings mapped in 3D first), and names are cut to 30 letters. A shop or a café
+with a sign also has an awning and a shop window in the mesh, under where the board goes.
+
 Placement: a house plate stands 1.5 m from the building corner nearest its street
 (`addr:street` if mapped, else the nearest named road within 120 m), facing that road.
 A crossing sign stands on the corner of the junction with the most room, each plate

@@ -25,6 +25,8 @@ export interface Show {
   sp?: string[];
   ride?: boolean;
   place: { name: string; lat: number; lon: number };
+  /** `air` shows: the compass heading to face on arriving, so that what is shown is in front. */
+  yaw?: number;
   /** How many chunks each way from the place to keep built (1 when absent). A train is met anywhere along its run. */
   keep?: number;
 }
@@ -86,9 +88,15 @@ export const SHOWS: Show[] = [
     find: "home", sp: ["kangaroo"], place: { name: "Canberra, Australia", lat: -35.29894, lon: 149.09619 },
   },
   {
-    id: "air", title: "See a city from the air", text: "Up over the middle of Auckland, flying.",
+    // (Beside the tower and facing it: straight above its foot is inside it, now that it is drawn as itself.)
+    id: "air", title: "See a city from the air", text: "Up over the middle of Auckland, flying, with the Sky Tower in front of you.",
     how: "You are flying. W goes where you look, Shift goes fast, Space and C go up and down. F lands.",
-    find: "air", place: { name: "The Sky Tower, Auckland", lat: -36.8485, lon: 174.7622 },
+    find: "air", place: { name: "The Sky Tower, Auckland", lat: -36.8462, lon: 174.7610 }, yaw: 158,
+  },
+  {
+    id: "eiffel", title: "Fly round the Eiffel Tower", text: "Paris from the air, and the tower standing on its four legs.",
+    how: "You are flying. W goes where you look, Shift goes fast, Space and C go up and down. F lands.",
+    find: "air", place: { name: "The Eiffel Tower, Paris", lat: 48.8556, lon: 2.2986 }, yaw: 318, keep: 2,
   },
 ];
 

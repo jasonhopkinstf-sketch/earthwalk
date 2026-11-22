@@ -220,6 +220,7 @@ export class Showcase {
         p.setFlying(true);
         p.position.y += 170;
         p.pitch = -0.45;
+        if (Number.isFinite(w.show.yaw)) p.yaw = (-w.show.yaw * Math.PI) / 180; // facing what is shown
         this.say(`${w.show.title}. ${w.show.how}`);
       } else {
         // The animals, cars, doors and trains come a moment after the ground does.

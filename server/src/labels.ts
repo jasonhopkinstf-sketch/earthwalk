@@ -7,20 +7,20 @@
 
 import { CHUNK_Z, metersPerTile } from "./geo.ts";
 import { Elevation } from "./elevation.ts";
-import { clipPolyline, featuresForChunk, groundClasses, homesOf, placeTrees } from "./chunk.ts";
+import { clipPolyline, featuresForChunk, groundClasses, homesOf, placeTrees, signsOf } from "./chunk.ts";
 import { placeHomes, placeMachines, placeWild } from "./life.ts";
 import { placeTraffic } from "./traffic.ts";
 import { trainsFor, type Train } from "./rail.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 12;
+export const LABELS_REV = 13;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "door";
+  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "door" | "sign";
   /** Plate text; absent on trees and homes. */
   text?: string;
   /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
@@ -30,7 +30,7 @@ export interface LabelItem {
   /**
    * Routes (a car's trip): the narrowest road's width in metres, 1 where people drive on the left, the
    * seconds it waits at each end, and the path as u, v, seconds, u, v, seconds... (docs/PROTOCOL.md, "Traffic").
-   * Trains have `da`, `db` and `pts` too ("Trains").
+   * Trains have `da`, `db` and `pts` too ("Trains"). A name sign's `w` is how wide its board may be, in metres.
    */
   w?: number;
   left?: number;
@@ -264,6 +264,13 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     yaw: r1(((Math.atan2(home.out[0], home.out[1]) * 180) / Math.PI + 360) % 360),
   }));
 
+  // ---- name signs: what a building is called, on a board on its front wall. `h` is the middle of the
+  // board, `yaw` the way it faces, `w` how wide it may be (docs/PROTOCOL.md, "Name signs")
+  const signs: LabelItem[] = signsOf(cx, cy, features, elev).map((sign) => ({
+    kind: "sign", text: sign.text, u: r7(sign.x / S), v: r7(-sign.y / S), h: Math.round(sign.z * 100) / 100,
+    yaw: r1(((Math.atan2(sign.out[0], sign.out[1]) * 180) / Math.PI + 360) % 360), w: r1(sign.width),
+  }));
+
   // ---- cars: the parked ones, and the trips the others make. Clients drive them (docs/PROTOCOL.md, "Traffic").
   const r5 = (v: number): number => Math.round(v * 1e5) / 1e5;
   const traffic = placeTraffic(cx, cy, features);
@@ -298,6 +305,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     ...trees,
     ...homes,
     ...doors,
+    ...signs,
     ...cars,
     ...routes,
     ...railway,

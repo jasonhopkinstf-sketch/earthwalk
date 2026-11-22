@@ -22,6 +22,8 @@ struct FEarthShow
 	FString Place;
 	double Lat = 0.0;
 	double Lon = 0.0;
+	double Yaw = 0.0; // air: the compass heading to face on arriving, when bYaw
+	bool bYaw = false;
 };
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthShowLine, const FString& /*Text*/, bool /*bProblem*/);

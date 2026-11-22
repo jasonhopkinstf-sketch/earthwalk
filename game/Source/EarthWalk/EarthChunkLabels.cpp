@@ -322,6 +322,17 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			AddText(Text, BoxAt + Facing.RotateVector(FVector(Out, 0, 0)), Facing, Size, FColor(15, 15, 15));
 			AddText(Text, BoxAt + Facing.RotateVector(FVector(-Out, 0, 0)), FRotator(0.0, Yaw + 180.0, 0.0), Size, FColor(15, 15, 15));
 		}
+		else if (Kind == TEXT("sign"))
+		{
+			// What a building is called, on a cream board on its front wall. At is the middle of the board,
+			// Facing the way it faces, and w how wide it may be; the lettering shrinks to fit a long name.
+			double WidthM = 2.0;
+			Json.TryGetNumberField(TEXT("w"), WidthM);
+			const double Width = FMath::Clamp(WidthM, 1.0, 10.0) * 100.0;
+			AddBox(At, Facing, FVector(6.0, Width, 56.0), World->MaterialFor(0xf4f1e6ff));
+			const float Size = FMath::Min(34.f, static_cast<float>(Width * 0.92 / (FMath::Max(Text.Len(), 1) * 0.62)));
+			AddText(Text, At + Facing.RotateVector(FVector(3.8, 0.0, 0.0)), Facing, Size, FColor(38, 34, 31));
+		}
 		else if (Kind == TEXT("street"))
 		{
 			AddBox(At + FVector(0, 0, 130), FRotator::ZeroRotator, FVector(8, 8, 260), World->MaterialFor(PostColor));

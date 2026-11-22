@@ -78,6 +78,7 @@ void UEarthShowcase::Load(TFunction<void(bool bOk)> Done)
 				(*Row)->TryGetStringField(TEXT("how"), Show.How);
 				(*Row)->TryGetStringField(TEXT("find"), Show.Find);
 				(*Row)->TryGetBoolField(TEXT("ride"), Show.bRide);
+				Show.bYaw = (*Row)->TryGetNumberField(TEXT("yaw"), Show.Yaw);
 				(*Place)->TryGetStringField(TEXT("name"), Show.Place);
 				const TArray<TSharedPtr<FJsonValue>>* Kinds = nullptr;
 				if ((*Row)->TryGetArrayField(TEXT("sp"), Kinds))
@@ -357,6 +358,10 @@ void UEarthShowcase::Frame(AEarthWalkCharacter* InPlayer, double T)
 			{
 				FRotator Look = PC->GetControlRotation();
 				Look.Pitch = -26.0; // looking down a little
+				if (Pending.bYaw)
+				{
+					Look.Yaw = Pending.Yaw; // facing what is shown: a compass heading is the engine's yaw
+				}
 				PC->SetControlRotation(Look);
 			}
 			Say(FString::Printf(TEXT("%s. %s"), *Pending.Title, *Pending.How));

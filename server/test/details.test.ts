@@ -2,10 +2,10 @@
 // height measured to the top, a courtyard, a start above the ground.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildChunkMesh, type Section } from "../src/chunk.ts";
+import { buildChunkMesh, type Section, type SignSpot } from "../src/chunk.ts";
 import { Elevation } from "../src/elevation.ts";
 import { metersPerTile, xToLon, yToLat } from "../src/geo.ts";
-import { parseOsm, trimExtras, type Building, type Features, type OsmJson } from "../src/osm.ts";
+import { parseOsm, signName, trimExtras, useOf, type Building, type Features, type OsmJson } from "../src/osm.ts";
 import { colourOf, PAINTS, roofPaint, snapPaint, wallPaint } from "../src/paint.ts";
 import { TEMPERATE } from "../src/styles.ts";
 
@@ -266,4 +266,66 @@ test("a building mapped in 3D is drawn from its pieces: a podium with windows, a
   assert.ok(Math.abs(Math.max(...heights(podium)) - (GROUND + 10.5)) < 0.01);
   assert.ok(Math.max(...heights(sections.filter(isWall))) < GROUND + 11, "nothing is drawn of the outline's own 60 m");
   assert.ok(!sections.some((s) => s.mat.id === 26), "no front door");
+});
+
+test("what a building is, and what it is called, come from its own tags or from the one named place inside it", () => {
+  assert.equal(useOf({ amenity: "place_of_worship" }), "church");
+  assert.equal(useOf({ amenity: "place_of_worship", religion: "muslim" }), "mosque");
+  assert.equal(useOf({ building: "temple" }), "temple");
+  assert.equal(useOf({ shop: "bakery" }), "shop");
+  assert.equal(useOf({ shop: "vacant" }), null);
+  assert.equal(useOf({ amenity: "cafe" }), "food");
+  assert.equal(useOf({ building: "school" }), "school");
+  assert.equal(useOf({ amenity: "fuel" }), "fuel");
+  assert.equal(useOf({ amenity: "clinic" }), "hospital");
+  assert.equal(useOf({ building: "house" }), null);
+  assert.equal(signName("  Saint   Mary's  "), "Saint Mary's");
+  assert.equal(signName(""), null);
+  assert.equal(signName("The Very Long Name Of A Shop That Goes On And On"), "The Very Long Name Of A Shop");
+
+  const n = (id: number, e: number, s: number, tags?: Record<string, string>) => { const [wx, wy] = at(e, s); return { type: "node" as const, id, lon: xToLon(wx), lat: yToLat(wy), ...(tags ? { tags } : {}) }; };
+  const json: OsmJson = {
+    elements: [
+      n(1, 0, 0), n(2, 10, 0), n(3, 10, 8), n(4, 0, 8),
+      { type: "way", id: 100, nodes: [1, 2, 3, 4, 1], tags: { building: "church", name: "Saint Mary's" } },
+      n(11, 30, 0), n(12, 40, 0), n(13, 40, 8), n(14, 30, 8),
+      { type: "way", id: 101, nodes: [11, 12, 13, 14, 11], tags: { building: "yes" } },
+    ],
+  };
+  const extra = trimExtras({ elements: [n(31, 35, 4, { name: "Corner Café", amenity: "cafe" }), n(32, 36, 5, { name: "Another", shop: "books" }), n(33, 5, 4, { name: "Parish Office", office: "religion" })] });
+  const f = parseOsm(json, extra);
+  const church = f.buildings.find((b) => b.id === 100)!;
+  assert.deepEqual([church.name, church.use], ["Saint Mary's", "church"], "its own name stays");
+  const cafe = f.buildings.find((b) => b.id === 101)!;
+  assert.deepEqual([cafe.name, cafe.use], ["Corner Café", "food"], "the first place named in it names it");
+});
+
+test("a church has a tower, a shop a shopfront, and a named building a sign on its front wall", async () => {
+  const elev = new Elevation(async () => new Float32Array(256 * 256).fill(GROUND));
+  await elev.ensure(CX - 0.5, CY - 0.5, CX + 1.5, CY + 1.5);
+  const f: Features = {
+    buildings: [
+      { id: 7, ring: rect(20, 10), height: 9, roof: "flat", name: "Saint Mary's", use: "church" },
+      { id: 8, ring: rect(12, 8, 60, 0), height: 6, roof: "flat", name: "Corner Café", use: "food" },
+      { id: 9, ring: rect(12, 8, 100, 0), height: 6, roof: "flat", use: "school" },
+      { id: 10, ring: rect(30, 12, 0, 60), height: 12, roof: "flat", name: "City Hospital", use: "hospital" },
+      { id: 11, ring: rect(10, 8, 60, 60), height: 6, roof: "flat" },
+    ],
+    roads: [], areas: [], trees: [], addresses: [], coast: [],
+  };
+  const signs: SignSpot[] = [];
+  const sections = buildChunkMesh(CX, CY, f, elev, TEMPERATE, undefined, signs).sections;
+  assert.deepEqual(signs.map((s) => s.text).sort(), ["City Hospital", "Corner Café", "Saint Mary's"], "one sign for each name, none for the nameless");
+  for (const s of signs) {
+    assert.ok(s.z > GROUND + 2 && s.z < GROUND + 4, "at about door-top height");
+    assert.ok(s.width >= 1.6 && s.width <= 9);
+    assert.ok(Math.abs(Math.hypot(s.out[0], s.out[1]) - 1) < 1e-9);
+  }
+  assert.ok(Math.max(...heights(sections.filter(isWall))) > GROUND + 9 + 4.9, "the church tower stands well above its roof");
+  assert.ok(Math.max(...heights(sections.filter(isRoof))) > GROUND + 9 + 8, "and has a spire");
+  const awnings = [0xb8372b, 0x2f5d3a, 0x2e4a6e, 0xe8c84a, 0x8f3a2e, 0x377a62].map(rgba);
+  assert.ok(sections.some((s) => s.mat.id === 27 && awnings.includes(s.mat.color)), "the café has an awning");
+  assert.ok(sections.some((s) => s.mat.id === 26 && s.mat.color === rgba(0x9fc3d6)), "and a shop window");
+  assert.ok(sections.some((s) => s.mat.id === 26 && s.mat.color === rgba(0xd0302a)), "the hospital has a red cross (or the school a red flag)");
+  assert.ok(Math.max(...heights(sections.filter((s) => s.mat.id === 27 && s.mat.color === rgba(0xb9bec4)))) > GROUND + 6.9, "the school has a flagpole");
 });
