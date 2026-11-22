@@ -5,7 +5,7 @@
 // "Daily tasks, coins and hats").
 
 import * as THREE from "three";
-import { makeAnimal, wearHat } from "./avatars.js";
+import { ANIMALS, makeAnimal, wearHat } from "./avatars.js";
 import { HAT_IDS, makeHat } from "./hats.js";
 import { CALLED } from "./talk.js";
 
@@ -22,11 +22,17 @@ const ONE = { countries: "country", continents: "continent", places: "place", fr
 const counted = (n, unit) => (unit ? `${n} ${n === 1 ? ONE[unit] ?? unit : unit}` : String(n));
 
 export class Passport {
-  /** @param {{ panel: HTMLElement, toast: HTMLElement, meetup: import("./net.js").Meetup }} parts */
-  constructor({ panel, toast, meetup }) {
+  /**
+   * @param {{ panel: HTMLElement, toast: HTMLElement, meetup: import("./net.js").Meetup, animal?: (id: string) => void }} parts
+   *   `animal` makes the player another animal (the passport has the six to choose from).
+   */
+  constructor({ panel, toast, meetup, animal }) {
     this.panel = panel;
     this.toast = toast;
     this.meetup = meetup;
+    this.animal = animal ?? null;
+    // Having become another animal, the pictures here are of the new one.
+    meetup.addEventListener("welcome", () => { if (!this.panel.hidden) this.meetup.requestJournal(); });
     this.queue = [];
     this.showing = false;
     this.pictures = new Map(); // "fox:cap:1" -> a picture of that figure in that hat
@@ -331,7 +337,22 @@ export class Passport {
     }
     wardrobe.append(me, hats);
 
-    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Games with friends"), games, el("h3", "", "Your car"), garage, el("h3", "", "Hats"), wardrobe,
+    // Which animal I am: the six, in whatever hat I have on. Friends see the change at once.
+    const animals = el("div", "hats");
+    for (const a of ANIMALS) {
+      const mine = a.id === avatar;
+      const b = el("button", mine ? "hat on" : "hat owned");
+      b.type = "button";
+      b.disabled = mine || !this.animal;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = this.picture(a.id, j.hat ?? null, true);
+      b.append(img, el("b", "", a.label), el("span", "small", mine ? "This is you" : `Be ${/^[aeiou]/i.test(a.label) ? "an" : "a"} ${a.label.toLowerCase()}`));
+      b.addEventListener("click", () => this.animal?.(a.id));
+      animals.append(b);
+    }
+
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Games with friends"), games, el("h3", "", "Your car"), garage, el("h3", "", "Your animal"), animals, el("h3", "", "Hats"), wardrobe,
       el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }

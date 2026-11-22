@@ -316,6 +316,10 @@ use their own stock of lines. `server/public/js/talk.js`; docs/PROTOCOL.md, "Tal
 Both games show where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.
 
+**Changing your animal.** The passport (P) has the six animals under "Your animal": click
+one and you are that animal from then on, for everyone, and the next time you come. (`/animal bear`
+does the same.) Someone signed in never sees the join screen again, which is where the animals were.
+
 **Show me (G).** For showing the world to somebody: G opens a list of things to see and do
 (catch a train, meet the farm animals, ride a horse, drive a car, walk into a house, sail a boat,
 ride a camel at the Pyramids, go on safari...). Pick one, by clicking or by its number, and you are

@@ -205,7 +205,7 @@ meetup.addEventListener("welcome", (e) => {
   for (const line of history) addLine(line.text, "", line.name);
 });
 meetup.addEventListener("people", (e) => showPeople(e.detail));
-const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup });
+const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup, animal: (id) => void command("animal", id) });
 const treasure = new Treasure({ scene, world });
 // "/clue" asks for my journal and reads out the clue I am on.
 let wantClue = false;
@@ -430,6 +430,7 @@ async function command(name, arg) {
     notice("/join <name>   go to someone        /who   who is online and where");
     notice("/home   make where you stand your home (or /home <place>); you start there next time");
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
+    notice("    (your passport, P, has the six animals to choose from too: \"Your animal\")");
     notice("/invite   get a link to send to someone        /where   show your coordinates");
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
@@ -528,7 +529,8 @@ async function command(name, arg) {
     if (key === "avatar" && !ANIMALS.some((a) => a.id === arg.toLowerCase())) return problem(`Pick one of: ${ANIMALS.map((a) => a.id).join(", ")}.`);
     const hello = { ...meetup.hello, [key]: key === "avatar" ? arg.toLowerCase() : arg };
     save({ [key]: hello[key] });
-    notice("Saved. Reconnecting...");
+    notice(key === "avatar" ? `You are ${/^[aeiou]/.test(hello.avatar) ? "an" : "a"} ${hello.avatar} now.` : "Saved. Reconnecting...");
+    if (key === "avatar" && riding.mine) riding.off(); // step down first: the change is a quick leaving and coming back
     meetup.connect(hello);
   } else if (name === "where") {
     const here = world.sceneToGeo(player.position);
