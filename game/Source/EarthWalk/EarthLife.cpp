@@ -1,5 +1,6 @@
 #include "EarthLife.h"
 
+#include "EarthModels.h"
 #include "EarthSounds.h"
 #include "EarthWorld.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -290,8 +291,51 @@ void AEarthLife::Clear()
 			Shapes[i]->ClearInstances();
 		}
 	}
+	for (UInstancedStaticMeshComponent* Shape : ModelShapes)
+	{
+		if (Shape)
+		{
+			Shape->ClearInstances();
+		}
+	}
 	Shown = 0;
 	bDirty = true;
+}
+
+/** -EWModels=free: builds the ready-made cars, each as one instanced mesh, and notes which vehicle each stands in for. */
+void AEarthLife::MakeModels()
+{
+	bModelsMade = true;
+	if (!EarthModels::On())
+	{
+		return;
+	}
+	// The material that paints each corner its own colour and the bodywork in the car's; the figures' plain one until it has been built.
+	UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/EarthWalk/Materials/M_EarthModel.M_EarthModel"));
+	for (int32 i = 0; i < EarthModels::Num(); ++i)
+	{
+		const FEarthRig* Rig = EarthRigs::Find(EarthModels::RigOf(i));
+		UStaticMesh* Mesh = Rig ? EarthModels::Build(this, i) : nullptr;
+		if (!Mesh)
+		{
+			continue;
+		}
+		UInstancedStaticMeshComponent* Shape = NewObject<UInstancedStaticMeshComponent>(this);
+		Shape->SetStaticMesh(Mesh);
+		Shape->SetMaterial(0, Material ? Material : FigureMaterial.Get());
+		Shape->SetMobility(EComponentMobility::Movable);
+		Shape->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Shape->SetCanEverAffectNavigation(false);
+		Shape->SetNumCustomDataFloats(3);
+		Shape->SetupAttachment(RootComponent);
+		Shape->RegisterComponent();
+		ModelOf.Add(Rig, ModelShapes.Num());
+		ModelMeshes.Add(Mesh);
+		ModelShapes.Add(Shape);
+		ModelTransforms.AddDefaulted();
+		ModelColours.AddDefaulted();
+	}
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: %d ready-made models in use (-EWModels=free)%s"), ModelShapes.Num(), Material ? TEXT("") : TEXT(", without M_EarthModel"));
 }
 
 void AEarthLife::HomeCirclesIn(const FBox2D& Area, TArray<FVector>& OutCentreAndRadius) const
@@ -425,6 +469,15 @@ void AEarthLife::Update(const AEarthWorld* World, float DeltaSeconds, double Sha
 	{
 		Transforms[i].Reset();
 		Colours[i].Reset();
+	}
+	if (!bModelsMade)
+	{
+		MakeModels();
+	}
+	for (int32 i = 0; i < ModelShapes.Num(); ++i)
+	{
+		ModelTransforms[i].Reset();
+		ModelColours[i].Reset();
 	}
 
 	Nearby.Reset();
@@ -1235,6 +1288,15 @@ void AEarthLife::FixedNear(double X, double Z, TArray<FEarthThing>& Out) const
 /** Writes one figure's shapes: each part where its role puts it, in the figure's colours. */
 void AEarthLife::Put(const FEarthRig& Rig, const FLinearColor& CoatA, const FLinearColor& CoatB, const FBase& Base, const FPose& Pose, double T)
 {
+	// A vehicle with a ready-made model is that one mesh, its bodywork in the vehicle's own paint.
+	if (const int32* Model = ModelOf.Find(&Rig))
+	{
+		ModelTransforms[*Model].Emplace(Base.Rotation, Base.Position, FVector(Base.Size));
+		ModelColours[*Model].Add(CoatA.R);
+		ModelColours[*Model].Add(CoatA.G);
+		ModelColours[*Model].Add(CoatA.B);
+		return;
+	}
 	for (const FEarthRigPart& Part : Rig.Parts)
 	{
 		if (Pose.bStandIn && Part.bSmall)
@@ -1289,37 +1351,44 @@ void AEarthLife::Put(const FEarthRig& Rig, const FLinearColor& CoatA, const FLin
 	}
 }
 
-/** Hands this frame's shapes to the four instanced meshes. Spare instances are kept, shrunk to nothing, for next time. */
+/** Hands this frame's shapes to the instanced meshes: the four basic shapes, and any ready-made models. */
 void AEarthLife::Flush()
 {
-	const FTransform Hidden(FQuat::Identity, EarsNow, FVector::ZeroVector);
 	for (int32 i = 0; i < NumShapes; ++i)
 	{
-		UInstancedStaticMeshComponent* Shape = Shapes[i];
-		if (!Shape)
-		{
-			continue;
-		}
-		TArray<FTransform>& Wanted = Transforms[i];
-		TArray<float>& Paint = Colours[i];
-		const int32 Have = Shape->GetInstanceCount();
-		if (Wanted.Num() > Have)
-		{
-			TArray<FTransform> More;
-			More.Append(Wanted.GetData() + Have, Wanted.Num() - Have);
-			Shape->AddInstances(More, /*bShouldReturnIndices*/ false, /*bWorldSpace*/ true, /*bUpdateNavigation*/ false);
-		}
-		while (Wanted.Num() < Have)
-		{
-			Wanted.Add(Hidden);
-			Paint.Add(0.f);
-			Paint.Add(0.f);
-			Paint.Add(0.f);
-		}
-		if (Wanted.Num() > 0)
-		{
-			Shape->BatchUpdateInstancesTransforms(0, Wanted, /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false, /*bTeleport*/ false);
-			Shape->SetCustomData(0, Wanted.Num() - 1, Paint, /*bMarkRenderStateDirty*/ true);
-		}
+		FlushOne(Shapes[i], Transforms[i], Colours[i]);
+	}
+	for (int32 i = 0; i < ModelShapes.Num(); ++i)
+	{
+		FlushOne(ModelShapes[i], ModelTransforms[i], ModelColours[i]);
+	}
+}
+
+/** One instanced mesh's share of the frame. Spare instances are kept, shrunk to nothing, for next time. */
+void AEarthLife::FlushOne(UInstancedStaticMeshComponent* Shape, TArray<FTransform>& Wanted, TArray<float>& Paint)
+{
+	if (!Shape)
+	{
+		return;
+	}
+	const FTransform Hidden(FQuat::Identity, EarsNow, FVector::ZeroVector);
+	const int32 Have = Shape->GetInstanceCount();
+	if (Wanted.Num() > Have)
+	{
+		TArray<FTransform> More;
+		More.Append(Wanted.GetData() + Have, Wanted.Num() - Have);
+		Shape->AddInstances(More, /*bShouldReturnIndices*/ false, /*bWorldSpace*/ true, /*bUpdateNavigation*/ false);
+	}
+	while (Wanted.Num() < Have)
+	{
+		Wanted.Add(Hidden);
+		Paint.Add(0.f);
+		Paint.Add(0.f);
+		Paint.Add(0.f);
+	}
+	if (Wanted.Num() > 0)
+	{
+		Shape->BatchUpdateInstancesTransforms(0, Wanted, /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false, /*bTeleport*/ false);
+		Shape->SetCustomData(0, Wanted.Num() - 1, Paint, /*bMarkRenderStateDirty*/ true);
 	}
 }

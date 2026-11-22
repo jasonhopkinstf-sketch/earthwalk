@@ -218,6 +218,8 @@ private:
 	/** Draws an animal, a tractor, a boat or a car that somebody is riding, has left standing or has told what to do, where they took it. */
 	void PutMount(const FEarthThing& Mount, double T);
 	void Put(const FEarthRig& Rig, const FLinearColor& CoatA, const FLinearColor& CoatB, const FBase& Base, const FPose& Pose, double T);
+	void MakeModels();
+	void FlushOne(UInstancedStaticMeshComponent* Shape, TArray<FTransform>& Wanted, TArray<float>& Paint);
 	void Call(const TCHAR* Kind, uint32 Id, double X, double Y, double Z);
 	/** -EWLifeWhere=<shared time>: logs where every animal, car and train near the player is at that moment, by latitude and longitude. */
 	void LogWhere(const AEarthWorld* World, double T) const;
@@ -231,6 +233,13 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> FigureMaterial;
+
+	/** Ready-made models standing in for some vehicles (EarthModels.h, a trial): only with -EWModels=free. */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMesh>> ModelMeshes;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UInstancedStaticMeshComponent>> ModelShapes;
 
 	UPROPERTY()
 	TObjectPtr<UEarthSounds> Sounds;
@@ -253,6 +262,12 @@ private:
 	/** This frame's shapes, per kind of shape: where each goes, and its colour (three numbers each). */
 	TArray<FTransform> Transforms[4];
 	TArray<float> Colours[4];
+
+	/** The same for the ready-made models: which one stands in for which vehicle, and this frame's. */
+	TMap<const FEarthRig*, int32> ModelOf;
+	TArray<TArray<FTransform>> ModelTransforms;
+	TArray<TArray<float>> ModelColours;
+	bool bModelsMade = false;
 
 	FVector EarsNow = FVector::ZeroVector;
 	bool bDirty = true;

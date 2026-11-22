@@ -17,7 +17,7 @@ public class EarthWalk : ModuleRules
 		});
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"HTTP", "WebSockets", "Json", "Slate", "SlateCore"
+			"HTTP", "WebSockets", "Json", "Slate", "SlateCore", "MeshDescription", "StaticMeshDescription"
 		});
 
 		// The photographic world (EarthPhotoWorld.h) needs the Cesium for Unreal plugin, which is optional:

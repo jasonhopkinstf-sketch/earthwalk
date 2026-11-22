@@ -18,6 +18,7 @@
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTime.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
+#include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Misc/PackageName.h"
@@ -722,6 +723,53 @@ return saturate(c);
 		SaveAsset(Material);
 	}
 
+	/**
+	 * Ready-made models (EarthModels.h, a trial): each corner of the mesh carries its own colour, and
+	 * where its alpha is 1 the car's own paint goes instead (three numbers per instance, as for the
+	 * figures). Gamma undoes the picture-style (sRGB) keeping of corner colours.
+	 */
+	void BuildModelMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthModel"));
+		if (!Material)
+		{
+			return;
+		}
+		UMaterialExpressionCustom* Custom = Node<UMaterialExpressionCustom>(Material, -300, 0);
+		Custom->Code = TEXT("return lerp(pow(max(Corner, 0.0), Gamma), Paint, saturate(Own));");
+		Custom->Description = TEXT("EarthWalk model");
+		Custom->OutputType = CMOT_Float3;
+		Custom->Inputs.Reset();
+		for (const TCHAR* Name : { TEXT("Corner"), TEXT("Own"), TEXT("Paint"), TEXT("Gamma") })
+		{
+			FCustomInput Input;
+			Input.InputName = Name;
+			Custom->Inputs.Add(Input);
+		}
+		Custom->RebuildOutputs();
+		UMaterialExpressionVertexColor* Corner = Node<UMaterialExpressionVertexColor>(Material, -900, -200);
+		UMaterialExpressionPerInstanceCustomData3Vector* Paint = Node<UMaterialExpressionPerInstanceCustomData3Vector>(Material, -900, 0);
+		Paint->DataIndex = 0;
+		Paint->ConstDefaultValue = FLinearColor::White;
+		Connect(Corner, Custom, TEXT("Corner"));
+		if (!UMaterialEditingLibrary::ConnectMaterialExpressions(Corner, TEXT("A"), Custom, TEXT("Own")))
+		{
+			UE_LOG(LogEarthWalkAssets, Error, TEXT("Could not connect the corner's alpha in M_EarthModel"));
+		}
+		Connect(Paint, Custom, TEXT("Paint"));
+		Connect(Scalar(Material, TEXT("Gamma"), 2.2f, 200), Custom, TEXT("Gamma"));
+		UMaterialExpressionConstant* Rough = Node<UMaterialExpressionConstant>(Material, -600, 400);
+		Rough->R = 0.9f;
+		UMaterialExpressionConstant* Matt = Node<UMaterialExpressionConstant>(Material, -600, 500);
+		Matt->R = 0.1f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Matt, TEXT(""), MP_Specular);
+		Material->bUsedWithInstancedStaticMeshes = true;
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		SaveAsset(Material);
+	}
+
 	void BuildWaterMaterial(IAssetTools& Tools)
 	{
 		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthWater"));
@@ -846,6 +894,12 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthFigure only"));
 		return 0;
 	}
+	if (Only.Equals(TEXT("model"), ESearchCase::IgnoreCase))
+	{
+		BuildModelMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthModel only"));
+		return 0;
+	}
 	if (Only.Equals(TEXT("fence"), ESearchCase::IgnoreCase))
 	{
 		BuildFenceMaterial(Tools);
@@ -859,6 +913,7 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 		return 0;
 	}
 	BuildFigureMaterial(Tools);
+	BuildModelMaterial(Tools);
 	BuildPaintedMaterial(Tools, TEXT("M_EarthTop"), TopCode, false);
 	BuildPaintedMaterial(Tools, TEXT("M_EarthWall"), WallCode, true);
 	BuildInkMaterial(Tools);
