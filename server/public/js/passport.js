@@ -64,7 +64,7 @@ export class Passport {
     this.showing = !!news;
     if (!news) { this.toast.hidden = true; return; }
     this.toast.replaceChildren(
-      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : news.kind === "hunt" ? "Treasure hunt" : news.kind === "expedition" ? "Expedition" : news.kind === "race" ? "Race" : "New stamp"),
+      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : news.kind === "hunt" ? "Treasure hunt" : news.kind === "expedition" ? "Expedition" : news.kind === "race" ? "Race" : news.kind === "play" ? "Game over" : "New stamp"),
       el("div", "title", news.title), el("div", "text", news.text ?? ""));
     this.toast.className = news.kind ?? "stamp";
     this.toast.hidden = false;
@@ -254,6 +254,19 @@ export class Passport {
       journeys.append(card);
     }
 
+    // Games with friends: each is set up where I am standing, and the passport gets out of the way.
+    const games = el("div", "bring");
+    const setUp = (label, send) => {
+      const b = el("button", "go", label);
+      b.type = "button";
+      b.addEventListener("click", () => { this.close(); send(); });
+      games.append(b);
+    };
+    setUp("A race along the roads here", () => this.meetup.sendRace("make"));
+    setUp("Tag", () => this.meetup.sendPlay({ make: "tag" }));
+    setUp("Hide and seek", () => this.meetup.sendPlay({ make: "hide" }));
+    games.append(el("span", "small", "Friends press R to join, and you press R to start. A race can be run alone; tag and hide and seek take two."));
+
     // The garage: my own car, its paint and its body, and a button to bring it here.
     const garage = el("div", "garage");
     if (j.garage) {
@@ -317,7 +330,7 @@ export class Passport {
     }
     wardrobe.append(me, hats);
 
-    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Your car"), garage, el("h3", "", "Hats"), wardrobe,
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Games with friends"), games, el("h3", "", "Your car"), garage, el("h3", "", "Hats"), wardrobe,
       el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }

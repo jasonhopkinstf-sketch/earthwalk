@@ -9,6 +9,7 @@ import type { Home, PeopleDirectory } from "./people.ts";
 import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
+import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepPlay } from "./play.ts";
 import type { TalkNews } from "./journal.ts";
 
 const MAX_NAME = 24;
@@ -73,7 +74,7 @@ interface Order { thing: number; sp: string; act: "follow" | "come" | "stay"; by
 interface ChatLine { id: string; name: string; text: string; ts: number }
 /** A player's own car, standing where they called it or last got out of it (garage.ts). */
 interface OwnCar { id: string; thing: number; body: string; paint: number; lat: number; lon: number; yaw: number }
-interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi>; cars: Map<string, OwnCar>; race: Race | null; raceMaking: boolean }
+interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi>; cars: Map<string, OwnCar>; race: Race | null; raceMaking: boolean; play: Play | null }
 /** Where a named place is, and the way there by road when there is one. */
 export interface Way { name: string; lat: number; lon: number; path?: [number, number][] }
 /** A taxi somebody called: where it is coming from (`path`, ending beside them), where it will take them, and who is aboard. */
@@ -117,6 +118,8 @@ export interface JournalKeeper {
   carOf?(key: string): { body: string; paint: number };
   /** A race finished: where they came among how many, and their time in milliseconds. */
   raced?(key: string, place: number, of: number, ms: number): void;
+  /** A game of tag or of hide and seek over: how it came out for this player. */
+  played?(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void;
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -139,6 +142,9 @@ export interface RoomsOptions {
   course?: (lat: number, lon: number, seed: number) => Promise<Course | null>;
   /** How long after "go" a race begins (the tests do not wait five seconds). */
   raceCountdownMs?: number;
+  /** The same for tag and for hide and seek; and the lot that picks who is it (0 to 1), which the tests fix. */
+  playCountdownMs?: number;
+  playLot?: () => number;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
   journal?: JournalKeeper;
 }
@@ -266,7 +272,7 @@ export class Rooms {
         if (ws.readyState !== ws.OPEN) return;
         roomName = hello.room.toLowerCase();
         let r = this.rooms.get(roomName);
-        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map(), cars: new Map(), race: null, raceMaking: false }));
+        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map(), cars: new Map(), race: null, raceMaking: false, play: null }));
         if (r.members.size >= MAX_ROOM_SIZE) { send({ t: "error", code: "full", text: "Room is full" }); ws.close(4002, "full"); return; }
         // Names must be unique in a room so "/join <name>" is unambiguous.
         let name = clean(person.displayName, MAX_NAME) || "Guest";
@@ -285,6 +291,7 @@ export class Rooms {
           orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
           cars: [...r.cars.values()],
           race: r.race,
+          play: r.play,
           taxis: [...r.taxis.values()].filter((x) => !x.aboard && x.until > Date.now()).map((x) => this.publicTaxi(x)),
           history: r.history,
           signedIn: me.personId !== null,
@@ -321,6 +328,8 @@ export class Rooms {
           if (got === "finish") this.journal?.raced?.(me.id, placeOf(race, me.id), race.runners.length, race.runners.find((r) => r.id === me!.id)?.time ?? 0);
           if (got) this.broadcast(room, { t: "race", race });
         }
+        // In a game of tag or of hide and seek, this may be a touch, a find, or a step off the field.
+        if (room?.play?.state === "go" && room.play.players.some((p) => p.id === me!.id)) this.runPlay(room);
       } else if (msg.t === "chat" && room) {
         const text = clean(msg.text, MAX_CHAT);
         if (!text) return;
@@ -443,6 +452,29 @@ export class Rooms {
           if (!this.journal?.wearHat?.(me.id, wear)) { send({ t: "error", code: "locked", text: "That hat is not yours yet" }); return; }
           this.wearHat(room, me, wear);
         }
+      } else if (msg.t === "play" && room) {
+        // Tag, and hide and seek: set one up where I stand (`make` says which), join it, start it (its maker), or leave.
+        const now = Date.now();
+        if (room.play && stalePlay(room.play, now)) room.play = null;
+        const play = room.play;
+        if (msg.make === "tag" || msg.make === "hide") {
+          if ((play && play.state !== "over") || (room.race && room.race.state !== "over")) { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          room.play = newPlay(msg.make, me.id, me.name, me.lat, me.lon, now);
+        } else if (!play) {
+          send({ t: "error", code: "locked", text: "There is no game just now" });
+          return;
+        } else if (msg.join === true) {
+          if (play.state !== "open") { send({ t: "error", code: "locked", text: "That game has already started" }); return; }
+          joinPlay(play, me.id, me.name);
+        } else if (msg.go === true) {
+          if (play.by !== me.id) { send({ t: "error", code: "locked", text: `Only ${play.byName} can start this game` }); return; }
+          if (play.state === "open" && !beginPlay(play, now, this.options.playCountdownMs, this.options.playLot)) { send({ t: "error", code: "locked", text: "It takes at least two to play. Wait for someone to join." }); return; }
+        } else if (msg.stop === true) {
+          this.leavePlay(room, me.id);
+          return;
+        } else return;
+        this.broadcast(room, { t: "play", play: room.play });
       } else if (msg.t === "race" && room) {
         // Set a race up where I stand (`make`), join the one that is set up (`join`), say go (`go`, its maker only),
         // or leave it (`stop`: its maker ends it for everyone). The room is told the whole race each time.
@@ -451,6 +483,7 @@ export class Rooms {
         const race = room.race;
         if (msg.make === true) {
           if (race && race.state !== "over") { send({ t: "error", code: "locked", text: `${race.byName} has a race set up already` }); return; }
+          if (room.play && room.play.state !== "over") { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
           if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
           if (!this.options.course || room.raceMaking) { send({ t: "error", code: "locked", text: "No race can be set up just now" }); return; }
           room.raceMaking = true;
@@ -535,6 +568,7 @@ export class Rooms {
       for (const o of [...room.orders.values()]) if (o.by === me.id) this.release(room, o.thing); // their followers go home
       if (room.cars.delete(me.id)) this.broadcast(room, { t: "car", id: me.id }); // and their car goes with them
       this.leaveRace(room, me.id);
+      this.leavePlay(room, me.id);
       for (const x of [...room.taxis.values()]) if (x.by === me.id && !x.aboard) this.dismiss(room, x.thing); // and their taxi drives off
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
@@ -622,9 +656,32 @@ export class Rooms {
     this.broadcast(room, { t: "race", race: room.race });
   }
 
+  /** Applies the rules of the room's game to where everyone is now; tells the room of any change, and pays up when it is over. */
+  private runPlay(room: Room): void {
+    const play = room.play;
+    if (!play) return;
+    const changed = stepPlay(play, (id) => { const m = room.members.get(id); return m?.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt } : null; }, Date.now());
+    if (!changed) return;
+    if (play.state === "over") for (const o of outcomes(play)) this.journal?.played?.(o.id, play.kind, o);
+    this.broadcast(room, { t: "play", play });
+  }
+
+  /** Someone leaves the game (or the room): it ends with its maker, or when too few are left. */
+  private leavePlay(room: Room, id: string): void {
+    const play = room.play;
+    if (!play) return;
+    const what = leavePlay(play, id, Date.now());
+    if (what === "on") return;
+    if (what === "ended") room.play = null;
+    this.broadcast(room, { t: "play", play: room.play });
+  }
+
   private taxiRound(): void {
     // (Every few seconds is also often enough to clear away a race that has run its time.)
     for (const room of this.rooms.values()) {
+      // A game of tag ends on the clock, and a hider may be standing still out of the field: looked at here too.
+      if (room.play?.state === "go") this.runPlay(room);
+      if (room.play && stalePlay(room.play, Date.now())) { room.play = null; this.broadcast(room, { t: "play", play: null }); }
       if (room.race && stale(room.race, Date.now())) { room.race = null; this.broadcast(room, { t: "race", race: null }); }
     }
     const now = Date.now();

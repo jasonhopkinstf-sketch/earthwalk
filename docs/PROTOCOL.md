@@ -387,6 +387,7 @@ Client to server:
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
+| `{"t":"play","make":"tag"}` / `{"t":"play","make":"hide"}` / `{"t":"play","join":true}` / `{"t":"play","go":true}` / `{"t":"play","stop":true}` | Set up a game of tag or of hide and seek where I stand, join the one set up, start mine, or leave (my own: end it). See "Tag, and hide and seek". |
 | `{"t":"race","make":true}` / `{"t":"race","join":true}` / `{"t":"race","go":true}` / `{"t":"race","stop":true}` | Set a race up where I stand, join the one set up, start mine, or leave (my own: end it). See "Races". |
 | `{"t":"garage","call":true}` / `{"t":"garage","away":true}` / `{"t":"garage","paint":"blue"}` / `{"t":"garage","body":"van"}` | My own car: bring it to where I stand, send it away, or choose (and if need be buy) its paint or body. See "The garage". |
 | `{"t":"favour","drop":"cow:918398760"}` | Give up a favour I was asked. The answer is my `journal` without it. See "Favours". |
@@ -405,6 +406,7 @@ Server to client:
 | `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
 | `{"t":"taxi","thing":..,"by":"..","name":"Hackney","path":[[lat,lon],..],"at":..,"until":..,"dest":"Goat Island Beach, Leigh"}` / `{"t":"taxi","thing":..,"gone":true}` | A taxi is on its way to whoever called it, or one nobody boarded has driven off. See "Taxis". |
 | `{"t":"pet","id":"..","sp":"cow","thing":3049913570}` / `{"t":"pet","id":".."}` | A member's companion has come along, or gone home. Sent to the room; `welcome` gives each peer's as `pet: { sp, thing }`. |
+| `{"t":"play","play":{..}}` / `{"t":"play","play":null}` | The game of tag or of hide and seek in this room, whole, whenever anything about it changes; null when it is cleared away. `welcome` carries it as `play`. |
 | `{"t":"race","race":{..}}` / `{"t":"race","race":null}` | The race in this room, whole, whenever anything about it changes; null when it is cleared away. `welcome` carries it as `race`. |
 | `{"t":"car","id":"..","thing":322932241,"body":"car","paint":15239605,"lat":..,"lon":..,"yaw":0}` / `{"t":"car","id":".."}` | A member's own car stands here, with this body and paint (a colour as a number); or has gone. Sent to the room; `welcome` lists them as `cars`. |
 | `{"t":"hat","id":"..","hat":"cap"}` / `{"t":"hat","id":".."}` | A member has put a hat on, or taken it off. Sent to the room; `welcome` gives each peer's as `hat: "cap"`. |
@@ -491,6 +493,33 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### Tag, and hide and seek
+
+A room has at most one of these at a time, and not while a race is on (`server/src/play.ts`). `play`
+with `make` sets one up, on a field round where its maker stands (90 m for tag, 140 m for hide and
+seek). Others `join` while it is open; its maker says `go` (refused with fewer than two players),
+and play begins five seconds later. The object is `{ kind, by, byName, lat, lon, radius, state,
+made, startAt, seekAt, endAt, ended, it, since, safe, players: [{ id, name, itMs, found, out }] }`,
+with times in the server's clock and `state` one of `open`, `go`, `over`.
+
+The server judges from the `pos` messages it already gets; nothing a client says tags or finds
+anyone.
+
+- **Tag.** `it` is picked by lot. When it comes within 3 m of another player (and within 3 m of
+  their height), that player is it instead; `safe` names the one who cannot be tagged back for three
+  seconds. A player more than five seconds outside the field becomes it. After three minutes the
+  game is over, and whoever was it for the least time (`itMs`) has won.
+- **Hide and seek.** `it` is the seeker. Until `seekAt` (half a minute) nothing can happen to the
+  hiders, and the seeker's client shows them nothing. After it, a hider within 4.5 m of the seeker
+  (and 4 m of their height) is found (`found` is when); so is one more than five seconds outside the
+  field. It is over when all are found (the seeker has won) or at `endAt`, four minutes on (anyone
+  still hidden has won).
+
+Clients are expected to mark out the field, show who is it, give "it" at tag a little more speed
+(the browser: a fifth), and not to draw name labels over hiders for the seeker. Each player is told
+how it came out with a `stamp` of kind `play`: ten coins for playing and more for winning or
+finding. Leaving is `stop`; a game ends with its maker, or when too few are left.
 
 ### Races
 
