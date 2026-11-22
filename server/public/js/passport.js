@@ -254,6 +254,38 @@ export class Passport {
       journeys.append(card);
     }
 
+    // The garage: my own car, its paint and its body, and a button to bring it here.
+    const garage = el("div", "garage");
+    if (j.garage) {
+      const g = j.garage;
+      const mine = this.meetup.cars.get(this.meetup.me?.id);
+      const row = el("div", "bring");
+      row.append(act(mine ? "Bring my car here again" : "Bring my car here", "On its way...", () => { this.meetup.callCar(); setTimeout(() => this.meetup.requestJournal(), 300); }));
+      if (mine) row.append(act("Send it away", "Off it goes...", () => { this.meetup.sendCarAway(); setTimeout(() => this.meetup.requestJournal(), 300); }));
+      row.append(el("span", "small", "It draws up beside you; press E next to it to get in. Typing /car brings it too. Only you can drive it, and friends can ride along."));
+      const paints = el("div", "paints");
+      for (const p of g.paints) {
+        const b = el("button", g.paint === p.id ? "paint on" : p.owned ? "paint owned" : "paint");
+        b.type = "button";
+        b.disabled = !p.owned && (j.coins ?? 0) < p.price;
+        const dot = el("i");
+        dot.style.background = `#${p.hex.toString(16).padStart(6, "0")}`;
+        b.append(dot, el("b", "", p.name), el("span", "small", g.paint === p.id ? "On your car" : p.owned ? "Yours" : `${p.price} coins`));
+        b.addEventListener("click", () => this.meetup.chooseCar({ paint: p.id }));
+        paints.append(b);
+      }
+      const bodies = el("div", "paints");
+      for (const body of g.bodies) {
+        const b = el("button", g.body === body.id ? "paint on" : body.owned ? "paint owned" : "paint");
+        b.type = "button";
+        b.disabled = !body.owned && (j.coins ?? 0) < body.price;
+        b.append(el("b", "", body.name), el("span", "small", g.body === body.id ? "Yours is one" : body.owned ? "Yours" : `${body.price} coins`));
+        b.addEventListener("click", () => this.meetup.chooseCar({ body: body.id }));
+        bodies.append(b);
+      }
+      garage.append(row, paints, bodies);
+    }
+
     // Hats: bought with coins or won, one worn at a time. Friends see it on you.
     const avatar = this.meetup.me?.avatar ?? "fox";
     const wardrobe = el("div", "wardrobe");
@@ -285,7 +317,7 @@ export class Passport {
     }
     wardrobe.append(me, hats);
 
-    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Hats"), wardrobe,
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Your car"), garage, el("h3", "", "Hats"), wardrobe,
       el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }

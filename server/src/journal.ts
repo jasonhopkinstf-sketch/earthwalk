@@ -17,6 +17,7 @@ import { ALL_TASKS_COINS, type Daily, dayNumber, emptyDaily, hatById, HATS, RIDD
 import { asksUnprompted, type Favour, FAVOUR_DAYS, favourOf, FAVOURS_OPEN, progressOf, thanksLine } from "./favours.ts";
 import { aKind } from "./talk.ts";
 import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
+import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
@@ -72,6 +73,8 @@ export interface JournalDoc {
   expeditionsDone: Record<string, number>;
   /** Companions won by other means than riddles: the animals taken home. */
   morePets: string[];
+  /** Their car (garage.ts): the body and paint chosen, and those bought. */
+  car: Garage;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -110,6 +113,8 @@ export interface JournalView {
   expeditions: { id: string; sort: string; title: string; blurb: string; coins: number; state: "open" | "active" | "done"; have: number; need: number; items: { name: string; got: boolean }[] }[];
   /** The lost animal travelling with them, if they are taking one home. */
   passenger: string | null;
+  /** Their car: what is chosen, and every paint and body there is with its price and whether it is theirs. */
+  garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
@@ -288,7 +293,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [],
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(),
   };
 }
 
@@ -334,6 +339,11 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       return { id: e.id, sort: e.sort, title: e.title, blurb: e.blurb, coins: e.coins, state: done ? "done" as const : on ? "active" as const : "open" as const, have: done ? needOf(e) : on?.got.length ?? 0, need: needOf(e), items };
     }),
     passenger: passengerOf(d),
+    garage: ((g) => ({
+      body: g.body, paint: g.paint,
+      paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
+      bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
+    }))(d.car ?? emptyGarage()),
     kept: d.personId !== null,
     since: d.since,
     level: levelOf(pointsOf(d)),
@@ -585,6 +595,36 @@ export class Journals {
     w.open.doc.updated = this.now();
     w.open.dirty = true;
     return true;
+  }
+
+  /**
+   * Chooses the paint or the body of the player's car, buying it first if it is not theirs yet.
+   * "poor" when there are not enough coins, "unknown" when there is no such paint or body.
+   */
+  setCar(key: string, choice: { paint?: string; body?: string }): "ok" | "poor" | "unknown" {
+    const w = this.walkers.get(key);
+    if (!w) return "unknown";
+    const d = w.open.doc;
+    const g = (d.car ??= emptyGarage());
+    const item = choice.paint !== undefined ? paintById(choice.paint) : choice.body !== undefined ? bodyById(choice.body) : undefined;
+    if (!item) return "unknown";
+    const owned = choice.paint !== undefined ? g.paints : g.bodies;
+    if (item.price > 0 && !owned.includes(item.id)) {
+      if (d.coins - d.spent < item.price) return "poor";
+      d.spent += item.price;
+      owned.push(item.id);
+      this.note(w.open, "garage", { bought: item.id, price: item.price });
+    }
+    if (choice.paint !== undefined) g.paint = item.id;
+    else g.body = item.id;
+    d.updated = this.now();
+    w.open.dirty = true;
+    return "ok";
+  }
+
+  /** How a player's car looks: its body, and its paint as a colour. */
+  carOf(key: string): { body: string; paint: number } {
+    return lookOf(this.walkers.get(key)?.open.doc.car ?? emptyGarage());
   }
 
   /** The hat a player is wearing, if any. */

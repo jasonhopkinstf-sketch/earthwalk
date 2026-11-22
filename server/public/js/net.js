@@ -15,6 +15,7 @@ export class Meetup extends EventTarget {
     this.left = new Map();
     this.orders = new Map(); // thing -> what it has been told to keep doing (orders.js)
     this.taxis = new Map(); // thing -> a taxi on its way to whoever called it (taxi.js)
+    this.cars = new Map(); // member id -> their own car, where it stands (garage.js)
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
     this.clockOffset = 0;
     this.clockTrip = Infinity;
@@ -154,6 +155,19 @@ export class Meetup extends EventTarget {
     this.send({ t: "expedition", drop: id });
   }
 
+  /** My own car: bring it to where I stand, send it away, or choose (and if need be buy) its paint or body. */
+  callCar() {
+    this.send({ t: "garage", call: true });
+  }
+
+  sendCarAway() {
+    this.send({ t: "garage", away: true });
+  }
+
+  chooseCar(choice) {
+    this.send({ t: "garage", ...choice });
+  }
+
   /** Gives up a favour I was asked; my journal comes back without it. */
   dropFavour(id) {
     this.send({ t: "favour", drop: id });
@@ -197,6 +211,7 @@ export class Meetup extends EventTarget {
         this.left = new Map((msg.left ?? []).map((l) => [l.thing, l]));
         this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
         this.taxis = new Map((msg.taxis ?? []).map((x) => [x.thing, x]));
+        this.cars = new Map((msg.cars ?? []).map((c) => [c.id, c]));
         if (this.ride) {
           this.ride = null; // a new connection starts on foot
           this.emit("ride", null);
@@ -230,6 +245,12 @@ export class Meetup extends EventTarget {
         }
         break;
       }
+      case "car":
+        // Somebody's own car has been called, moved or repainted; or (with no `thing`) has gone.
+        if (typeof msg.thing === "number") this.cars.set(msg.id, msg);
+        else this.cars.delete(msg.id);
+        this.emit("car", msg);
+        break;
       case "left":
         if (typeof msg.thing === "number") this.left.set(msg.thing, msg);
         break;
