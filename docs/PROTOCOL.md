@@ -586,6 +586,29 @@ finished the state is `over` and the results stay for a minute. `stop` takes a r
 its maker (or when its maker leaves the room) it ends the race. A race nobody starts is cleared
 after ten minutes, and one nobody finishes after twenty.
 
+### Tricks
+
+The companion at a player's side (see "Riddles and companions") can be taught tricks, in this order:
+`sit`, `spin`, `jump`, `bow`, `fetch`, `hoop`, `dance`. Each kind of companion keeps its own.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"trick","learn":"sit"}` | Begin a lesson in the next trick my companion can learn. |
+| `{"t":"trick","presses":[1830,2950,4170]}` | My presses for the lesson under way, in milliseconds from when it was set. |
+| `{"t":"trick","do":"sit"}` | Have it do a trick it knows. |
+
+A lesson is set with `{"t":"lesson","trick":"sit","name":"Sit up","beats":[1800,2900,4150],"slack":380}`:
+the beats in milliseconds from now, and how near a beat a press must fall. The presses are marked by the
+server (each beat met by at most one press; all but one beat must be met, with no more than two presses
+to spare, and not before the last beat has had time to come) and answered with
+`{"t":"lesson","trick":"sit","name":"Sit up","done":true,"passed":true,"hits":3,"of":3}`. A lesson
+that does not come off costs nothing. When one does, the journal follows, and a `stamp` of kind `trick`.
+
+Whenever a companion does a trick (asked for, or just learnt) the room is sent
+`{"t":"trick","id":"<member id>","thing":2499031538,"sp":"cow","trick":"sit"}`, and every game draws it.
+The journal's `tricks` has `pet` (the companion, or null), `all` (each `id`, `name`, `known`), `next` and
+`coins`. Errors are `locked`, with words saying why.
+
 ### Food and hearts
 
 A player has five hearts, one for each kind of good food: `fruit`, `veg`, `grain`, `protein`, `dairy`.

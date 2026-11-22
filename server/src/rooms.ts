@@ -13,6 +13,7 @@ import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay
 import type { TalkNews } from "./journal.ts";
 import { cleanDecor, type Homes, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
 import type { HomeDoor } from "./chunk.ts";
+import { judge, lesson, trickById } from "./tricks.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -65,6 +66,9 @@ interface Member {
   hat: string | null;
   /** When they last asked for a house, so that the map is not searched over and over. */
   houseAt: number;
+  /** The lesson their companion is having: the trick, its beats (ms from the start) and when it began. And when it last did a trick. */
+  lesson: { trick: string; beats: number[]; at: number } | null;
+  trickAt: number;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -131,6 +135,10 @@ export interface JournalKeeper {
   pepOf?(key: string): boolean;
   menuOf?(key: string, use: "shop" | "food"): { country: string | null; items: { id: string; name: string; groups: string[]; price: number }[] };
   buyFood?(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown";
+  /** Tricks (tricks.ts): whether my companion can be taught one now, that it has learnt it, and whether it knows one. */
+  lessonFor?(key: string, id: string): "ok" | "nopet" | "known" | "order" | "unknown";
+  learnTrick?(key: string, id: string): boolean;
+  knowsTrick?(key: string, id: string): boolean;
   /** Cooking a recipe from the lunch box, and giving one thing from it to another player. */
   cook?(key: string, id: string): "ok" | "locked" | "missing" | "unknown";
   giveFood?(key: string, to: string, id: string, fromName: string, toName: string): "ok" | "none" | "full";
@@ -166,6 +174,8 @@ export interface RoomsOptions {
   findHome?: (x: number, y: number, id: number) => Promise<{ home: HomeDoor; lat: number; lon: number; yaw: number } | null>;
   /** The making of the world the houses are measured in (GENERATOR_REV). */
   worldRev?: number;
+  /** For tests: a lesson may be answered at once, without the time its beats take. */
+  quickLessons?: boolean;
   /** Told where each player is, every time they say (ahead.ts fetches the map ahead of whoever is travelling). */
   moved?: (id: string, lat: number, lon: number) => void;
 }
@@ -302,7 +312,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0, lesson: null, trickAt: 0,
         };
         clearTimeout(helloTimer);
         send({
@@ -468,6 +478,39 @@ export class Rooms {
         else if (drop) this.journal?.dropExpedition?.(me.id, drop);
         this.walkWith(me);
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+      } else if (msg.t === "trick" && room) {
+        // My companion's tricks (tricks.ts): begin a lesson (`learn`), hand in my presses for it (`presses`,
+        // milliseconds from its start), or have it do a trick it knows (`do`), which the room is shown.
+        const learn = clean(msg.learn, 12), act = clean(msg.do, 12);
+        if (learn) {
+          const trick = trickById(learn);
+          const can = this.journal?.lessonFor?.(me.id, learn) ?? "unknown";
+          if (!trick || can !== "ok" || !me.pet) {
+            send({ t: "error", code: "locked", text: can === "nopet" || !me.pet ? "You have no companion with you: solve a riddle to win one, and choose it in your passport" : can === "known" ? "It knows that one already" : can === "order" ? "It has an easier trick to learn first" : "There is no such trick" });
+            return;
+          }
+          me.lesson = { trick: trick.id, beats: lesson(trick, (Math.random() * 0x7fffffff) | 0), at: Date.now() };
+          send({ t: "lesson", trick: trick.id, name: trick.name, beats: me.lesson.beats, slack: trick.slackMs });
+        } else if (Array.isArray(msg.presses)) {
+          const had = me.lesson;
+          const trick = had ? trickById(had.trick) : undefined;
+          me.lesson = null;
+          if (!had || !trick) return;
+          // A lesson cannot be handed in before its last beat has had time to come.
+          const early = !this.options.quickLessons && Date.now() - had.at < had.beats[had.beats.length - 1] - 500;
+          const marks = judge(trick, had.beats, early ? [] : (msg.presses as unknown[]).filter(finite));
+          const passed = marks.passed && (this.journal?.learnTrick?.(me.id, trick.id) ?? false);
+          send({ t: "lesson", trick: trick.id, name: trick.name, done: true, passed, hits: marks.hits, of: marks.of });
+          if (passed) {
+            send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+            if (me.pet) this.broadcast(room, { t: "trick", id: me.id, thing: me.pet.thing, sp: me.pet.sp, trick: trick.id }); // and it shows off what it has learnt
+          }
+        } else if (act) {
+          if (!me.pet || !this.journal?.knowsTrick?.(me.id, act)) { send({ t: "error", code: "locked", text: "Your companion does not know that trick yet" }); return; }
+          if (Date.now() - me.trickAt < 1200) return;
+          me.trickAt = Date.now();
+          this.broadcast(room, { t: "trick", id: me.id, thing: me.pet.thing, sp: me.pet.sp, trick: act });
+        }
       } else if (msg.t === "food" && room) {
         // Food (food.ts): eat something from my lunch box (`eat`), ask what a shop or a café sells where I am
         // (`menu`: "shop" or "food"), or buy something there (`buy`, with `at` saying which of the two it is).

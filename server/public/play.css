@@ -87,6 +87,30 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #lunch .recipe .want { opacity: .75; text-decoration: underline dotted; }
 #lunch .recipe:disabled { opacity: .8; }
 #stamp.food { border-color: #3f7f4f; }
+/* Tricks: the panel, and the bar a lesson is played on. */
+#train { position: fixed; top: 84px; right: 12px; width: min(300px, calc(100vw - 24px)); z-index: 4; }
+#train[hidden], #lesson[hidden] { display: none; }
+#train .page { position: relative; background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); }
+#train h2 { margin: 0 0 4px; font-size: 22px; }
+#train .small { font-size: 12px; opacity: .8; margin: 0; text-align: left; }
+#train p.small { margin: 6px 0; }
+#train .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: inherit; }
+#train .tricks { display: flex; flex-direction: column; gap: 5px; }
+#train .trick { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 10px; padding: 5px 10px; font: inherit; font-size: 13px; }
+#train .trick.known { border-color: #3f7f4f; background: #e2f0da; cursor: pointer; }
+#train .trick.next { border-color: #d08a1e; background: #fdf1d8; cursor: pointer; }
+#train .trick:disabled { opacity: .55; }
+#train .trick b { font-weight: 600; }
+#lesson { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 10px 14px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); z-index: 4; text-align: center; }
+#lesson.flash { box-shadow: 0 0 0 3px #f2c94c, 0 6px 24px rgba(0, 0, 0, .45); }
+#lesson .title { font-size: 18px; font-weight: 800; }
+#lesson .small { font-size: 12px; opacity: .8; margin: 4px 0 0; }
+#lesson .track { position: relative; height: 44px; margin: 8px 0 2px; background: #efe6c8; border-radius: 22px; overflow: hidden; }
+#lesson .ring { position: absolute; left: 38px; top: 4px; width: 36px; height: 36px; box-sizing: border-box; border: 4px solid #b5372e; border-radius: 50%; }
+#lesson .paw { position: absolute; left: -14px; top: 7px; width: 28px; font-size: 22px; line-height: 30px; text-align: center; will-change: transform; }
+#lesson .paw.hit { filter: hue-rotate(80deg) saturate(2); opacity: .5; }
+#lesson .paw.miss { opacity: .25; }
+#stamp.trick { border-color: #d08a1e; border-style: solid; }
 #passport .homebox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #passport .homebox .go { background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
 #hint { position: fixed; top: 12px; right: 12px; background: var(--panel); padding: 6px 10px; border-radius: 6px; font-size: 12px; opacity: .85; }

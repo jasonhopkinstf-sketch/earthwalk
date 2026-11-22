@@ -20,6 +20,7 @@ import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
 import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
 import { type Feat, howWon, pieceById, PIECES } from "./home.ts";
+import { TRICK_COINS, trickById, TRICKS, tricksView } from "./tricks.ts";
 import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, HELPINGS, ingredients, LARDER_MAX, menuFor, needName, recipeById, RECIPES, recipesKnown, thanksFood } from "./food.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
@@ -91,6 +92,8 @@ export interface JournalDoc {
   healthyDays: number;
   /** Meals cooked at home, by recipe, with how many times. */
   cooked: Record<string, number>;
+  /** The tricks each kind of companion has been taught (tricks.ts). */
+  tricks: Record<string, string[]>;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -133,6 +136,8 @@ export interface JournalView {
   garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
   /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
   house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
+  /** The companion at their side (null for none), every trick there is with whether it knows it, and the one it could learn next. */
+  tricks: { pet: string | null; all: { id: string; name: string; known: boolean }[]; next: string | null; coins: number };
   /** Today's five hearts, whether all are full, and the lunch box: each food with the hearts it fills and how many are carried. */
   food: { hearts: { group: string; title: string; full: boolean }[]; full: boolean; healthyDays: number; coinsFull: number; larder: { id: string; name: string; groups: string[]; n: number }[]; room: number;
     /** The recipes there are: what each makes and needs (`have` says whether the lunch box has it), whether it is known yet, and whether it can be cooked now. */
@@ -140,7 +145,7 @@ export interface JournalView {
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play" | "food";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play" | "food" | "trick";
   /** For a treasure just found: where its finder stood, so that their game can show it there. */
   at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
@@ -298,6 +303,7 @@ const STAMPS: StampRule[] = [
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
   { id: "halves", title: "Both halves", unit: "", steps: [1], count: (d) => (d.north !== null && d.south !== null && d.north > 0 && d.south < 0 ? 1 : 0), say: () => "You have stood on both halves of the world" },
   { id: "north", title: "Far north", unit: "", steps: [1], count: (d) => (d.north !== null && d.north > 66.5 ? 1 : 0), say: () => "You have been north of the Arctic Circle" },
+  { id: "tricks", title: "Tricks taught", unit: "tricks", steps: [1, 3, 7, 14, 30], count: (d) => Object.values(d.tricks ?? {}).reduce((n, list) => n + list.length, 0), say: (n) => `You have taught ${one(n, "trick")}` },
   { id: "cooked", title: "Meals cooked", unit: "meals", steps: [1, 5, 20, 50], count: (d) => Object.values(d.cooked ?? {}).reduce((a, b) => a + b, 0), say: (n) => `You have cooked ${one(n, "meal")}` },
   { id: "healthy", title: "Healthy days", unit: "days", steps: [1, 3, 7, 14, 30, 100], count: (d) => d.healthyDays ?? 0, say: (n) => `You have filled all five hearts on ${one(n, "day")}` },
   { id: "south", title: "Far south", unit: "", steps: [1], count: (d) => (d.south !== null && d.south < -40 ? 1 : 0), say: () => "You have been to the far south" },
@@ -321,7 +327,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {},
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {}, tricks: {},
   };
 }
 
@@ -387,6 +393,7 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
       bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
     }))(d.car ?? emptyGarage()),
+    tricks: ((pet) => ({ pet, ...tricksView(pet ? (d.tricks ?? {})[pet] ?? [] : []), coins: TRICK_COINS }))(passengerOf(d) ?? (d.pet && petsOf(d).includes(d.pet) ? d.pet : null)),
     food: ((ate, larder) => ({
       hearts: heartsOf(ate), full: ate.length >= GROUPS.length, healthyDays: d.healthyDays ?? 0, coinsFull: HEALTHY_COINS,
       larder: Object.entries(larder).filter(([id, n]) => n > 0 && foodById(id)).map(([id, n]) => ({ id, name: foodById(id)!.name, groups: foodById(id)!.groups, n })),
@@ -656,6 +663,41 @@ export class Journals {
     d.updated = this.now();
     w.open.dirty = true;
     return "ok";
+  }
+
+  // ---- tricks (tricks.ts)
+
+  /** Can the companion at this player's side be taught this trick now? Tricks are taught in order. */
+  lessonFor(key: string, id: string): "ok" | "nopet" | "known" | "order" | "unknown" {
+    const w = this.walkers.get(key);
+    const pet = this.petOf(key);
+    if (!w || !trickById(id)) return "unknown";
+    if (!pet) return "nopet";
+    const known = (w.open.doc.tricks ?? {})[pet] ?? [];
+    return known.includes(id) ? "known" : tricksView(known).next === id ? "ok" : "order";
+  }
+
+  /** The lesson came off: the companion knows the trick from now on, and its teacher is paid. */
+  learnTrick(key: string, id: string): boolean {
+    const w = this.walkers.get(key);
+    const pet = this.petOf(key);
+    const trick = trickById(id);
+    if (!w || !pet || !trick || this.lessonFor(key, id) !== "ok") return false;
+    this.note(w.open, "trick", { pet, id });
+    this.change(key, w, (d) => {
+      ((d.tricks ??= {})[pet] ??= []).push(id);
+      d.coins += TRICK_COINS;
+      const next = TRICKS[TRICKS.indexOf(trick) + 1];
+      this.tell(key, { kind: "trick", title: `Your ${pet} has learnt: ${trick.name}`, text: `${TRICK_COINS} coins. It will do it whenever you ask (K)${next ? `. Next to teach: ${next.name}` : ". That is every trick there is!"}` });
+    });
+    return true;
+  }
+
+  /** Does the companion at this player's side know this trick? */
+  knowsTrick(key: string, id: string): boolean {
+    const w = this.walkers.get(key);
+    const pet = this.petOf(key);
+    return !!w && !!pet && ((w.open.doc.tricks ?? {})[pet] ?? []).includes(id);
   }
 
   // ---- food and hearts (food.ts)

@@ -170,6 +170,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "play", ...what });
   }
 
+  /** My companion's tricks: `learn` one (a lesson is set), hand in my `presses` for the lesson, or have it `do` one it knows. */
+  sendTrick(what) {
+    this.send({ t: "trick", ...what });
+  }
+
   /** Food: `eat` something from my lunch box, ask for the `menu` of a "shop" or "food" place, or `buy` something `at` one. */
   sendFood(what) {
     this.send({ t: "food", ...what });
@@ -295,6 +300,12 @@ export class Meetup extends EventTarget {
         this.emit("lived", msg);
         break;
       }
+      case "lesson":
+        this.emit("lesson", msg); // a lesson set for my companion, or how it went
+        break;
+      case "trick":
+        if (typeof msg.thing === "number") this.emit("trick", msg); // somebody's companion does a trick
+        break;
       case "menu":
         this.emit("menu", msg); // what the shop or café I am beside sells
         break;

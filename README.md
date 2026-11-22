@@ -251,6 +251,14 @@ helpings at a time. Three are known from the start, and each one cooked for the 
 the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
 lunch box has a button to give it to them.
 
+Tricks (in the browser so far): the companion at your side can be taught seven tricks, in order: sit
+up, spin, jump, take a bow, fetch, jump through a hoop, dance. K opens the list. A lesson is a game
+of timing: paw prints run along a bar and Space is pressed as each reaches the ring; the server sets
+the beats and marks the presses (`server/src/tricks.ts`), one slip is forgiven, and a lesson that does
+not come off is simply had again. A trick learnt is that kind of companion's for good (each kind
+learns its own), pays ten coins, and is done whenever asked (K and a number, or `/trick spin`), for
+everybody nearby to see (`perform` in `server/public/js/pets.js`). `/teach` begins the next lesson.
+
 A house of your own (in the browser so far): go into any house nobody lives in (E at a door with a
 COME IN board) and press H. It is yours: your name goes up over the door for everybody, friends can
 walk in, and H anywhere else takes you home. Inside it, H opens a panel at the side where the paint

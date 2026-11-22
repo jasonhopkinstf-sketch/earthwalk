@@ -403,7 +403,9 @@ export class Life {
     // An insect keeps to the air here too, wings going.
     const hover = rig.hover ? rig.hover[0] + (rig.hover[1] - rig.hover[0]) * (0.5 + 0.5 * Math.sin(t * 0.8 + beat * 3)) : 0;
     const flap = rig.hover && rig.wing ? rig.wing.air[0] + rig.wing.air[1] * Math.sin(t * rig.wing.rate + beat) : 0;
-    this.base.compose(this.v.set(m.x, m.y + hover + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, rig.heel ?? 0)), this.s.set(size, size, size));
+    // (A companion doing a trick tips up or down, `tip`, and leans to one side, `lean`: pets.js.)
+    this.base.compose(this.v.set(m.x, m.y + hover + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(m.tip ?? 0, m.yaw, (rig.heel ?? 0) + (m.lean ?? 0), "YXZ")), this.s.set(size, size, size));
+    this.euler.order = "XYZ";
     this.put(rig, coat, counts, MOUNT_POSE, flap, Math.sin(stride) * 0.55 * walk, t, beat, 1, !!rig.hop);
   }
 
