@@ -195,7 +195,7 @@ meetup.addEventListener("welcome", (e) => {
 });
 meetup.addEventListener("people", (e) => showPeople(e.detail));
 const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup });
-meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" ? "" : " (P opens your passport)"}`));
+meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" ? "" : " (P opens your passport)"}`));
 meetup.addEventListener("home", (e) => { if (e.detail) notice(`Home set to ${e.detail.name}. You will start there next time.`); });
 
 // ---------------------------------------------------------------- the world
@@ -396,7 +396,8 @@ async function command(name, arg) {
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
     notice("    and tell it what to do: follow me, come here, stay, go home, do a trick, make your noise;");
     notice("    riding it, say where to: take me to the beach");
-    notice("P   your passport (or /passport): countries, places, friends, stamps, your level, riddles to solve");
+    notice("P   your passport (or /passport): today's three tasks, your coins and hats, countries, places, friends,");
+    notice("    stamps, your level, riddles to solve");
     notice("    and the companions you have won by solving them");
   } else if (name === "taxi") {
     if (!arg) return notice("Say where to, like this: /taxi the beach");

@@ -376,7 +376,7 @@ Client to server:
 
 | Message | Meaning |
 | --- | --- |
-| `{"t":"hello","name":"Mum","room":"family","avatar":"owl","token":"..."}` | Must be first. `avatar` is the player's animal: a short lowercase id (`fox`, `bear`, `rabbit`, `cat`, `owl`, `frog`; anything invalid becomes `fox`). Clients decide how each animal looks. `token` is the access code or a player token (or comes from the browser cookie). A signed-in client may leave out `name` and `avatar` to use the account's; when it sends them, they become the account's. |
+| `{"t":"hello","name":"Mum","room":"family","avatar":"owl","token":"..."}` | Must be first. `avatar` is the player's animal: a short lowercase id (`fox`, `bear`, `rabbit`, `cat`, `owl`, `frog`; anything invalid becomes `fox`). Clients decide how each animal looks. `token` is the access code or a player token (or comes from the browser cookie). A signed-in client may leave out `name` and `avatar` to use the account's; when it sends them, they become the account's. Optional `tz` is how many minutes the player's clock is ahead of UTC (780 in Auckland in summer): their day's tasks turn over at their own midnight. Left out, the day is UTC's. |
 | `{"t":"pos","lat":..,"lon":..,"alt":..,"yaw":..}` | Where I am (feet, metres above sea level; yaw is a compass heading in degrees). Send about 10 times a second. |
 | `{"t":"chat","text":"hello"}` | Say something to the room. |
 | `{"t":"home"}` / `{"t":"home","lat":..,"lon":..,"name":"Eiffel Tower"}` | Signed-in only. Make where I stand my home (the server names the place), or the given place. Answered with a `home` message, or `error` `guest` / `nowhere`. |
@@ -386,6 +386,7 @@ Client to server:
 | `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
+| `{"t":"hat","buy":"cap"}` / `{"t":"hat","wear":"cap"}` / `{"t":"hat"}` | Buy a hat with my coins and put it on, put on one I own, or take my hat off. See "Daily tasks, coins and hats". |
 | `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
 
@@ -400,6 +401,7 @@ Server to client:
 | `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
 | `{"t":"taxi","thing":..,"by":"..","name":"Hackney","path":[[lat,lon],..],"at":..,"until":..,"dest":"Goat Island Beach, Leigh"}` / `{"t":"taxi","thing":..,"gone":true}` | A taxi is on its way to whoever called it, or one nobody boarded has driven off. See "Taxis". |
 | `{"t":"pet","id":"..","sp":"cow","thing":3049913570}` / `{"t":"pet","id":".."}` | A member's companion has come along, or gone home. Sent to the room; `welcome` gives each peer's as `pet: { sp, thing }`. |
+| `{"t":"hat","id":"..","hat":"cap"}` / `{"t":"hat","id":".."}` | A member has put a hat on, or taken it off. Sent to the room; `welcome` gives each peer's as `hat: "cap"`. |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
@@ -483,6 +485,28 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### Daily tasks, coins and hats
+
+Every day has three small tasks (`TASKS` in `server/src/daily.ts`): somebody to talk to, somewhere
+to go, something to try. They are the same three for everyone whose day it is; a day is a calendar
+day on the player's own clock (`tz` in `hello`). The server notices a task done from the `pos`,
+`talk` and `ride` messages it already gets; clients send nothing extra and cannot finish one by
+saying so. Nothing can be failed: at midnight three new tasks take the place of the old.
+
+A task done pays 10 coins, all three pay 20 more and count as a full day, and a solved riddle pays
+15. Each is told to the player with a `stamp` of kind `task` (also sent on joining, to say what
+today's tasks are), and a hat won with one of kind `prize`.
+
+Coins buy hats (`HATS`): `hat` with `buy` pays for one and puts it on (refused with `error` code
+`poor` without the coins, `locked` for a hat that can only be won); `hat` with `wear` puts on one
+already owned (`locked` otherwise); `hat` with neither takes it off. Two hats are prizes, for one
+and for seven full days. The room is told with `hat`; clients draw the hat on that player's figure
+from its id (`server/public/js/hats.js`) and skip ids they do not know.
+
+In the journal object: `coins` is the coins in hand; `today` is `{ tasks: [{ id, text, have, goal,
+unit, done }], all, coinsEach, coinsAll, fullDays }`; `hats` is `[{ id, name, price, how, owned }]`
+(`price` null and `how` set for a prize); `hat` is the one worn or null.
 
 ### Riddles and companions
 

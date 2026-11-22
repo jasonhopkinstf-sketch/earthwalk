@@ -13,6 +13,7 @@
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PlaceDetail } from "./geocode.ts";
+import { ALL_TASKS_COINS, type Daily, dayNumber, emptyDaily, hatById, HATS, RIDDLE_COINS, TASK_COINS, tasksFor } from "./daily.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
 interface Friend { name: string; sp: string; first: number; last: number; times: number }
@@ -46,6 +47,14 @@ export interface JournalDoc {
   /** Riddles solved, with when; and the companion chosen from those they have won, if any. */
   solved: Record<string, number>;
   pet: string | null;
+  /** Daily tasks, coins and hats (daily.ts): coins ever earned and spent, how far their clock is ahead of UTC, today so far, days on which all three tasks were done, hats owned and the one worn. */
+  coins: number;
+  spent: number;
+  tz: number;
+  daily: Daily | null;
+  days: number;
+  hats: string[];
+  hat: string | null;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -68,9 +77,14 @@ export interface JournalView {
   moreRiddles: { count: number; level: number } | null;
   pets: string[];
   pet: string | null;
+  /** Coins in hand, today's three tasks, and the hats there are (`price` null for one that is only won, with `how`). */
+  coins: number;
+  today: { tasks: { id: string; text: string; have: number; goal: number; unit: string; done: boolean }[]; all: boolean; coinsEach: number; coinsAll: number; fullDays: number };
+  hats: { id: string; name: string; price: number | null; how: string | null; owned: boolean }[];
+  hat: string | null;
 }
 /** Something worth telling a player the moment it happens. */
-export interface StampNews { title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" }
+export interface StampNews { title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" }
 
 /** Where journals are kept. */
 export interface JournalStore {
@@ -210,7 +224,8 @@ const STAMPS: StampRule[] = [
 /** What a journal adds up to. Countries and new friends count most. */
 export function pointsOf(d: JournalDoc): number {
   return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
-    + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6;
+    + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6
+    + (d.days ?? 0) * 5;
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -222,8 +237,16 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
   return {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
+    coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null,
   };
 }
+
+/** Today so far for a journal, without changing it: yesterday's doings do not count. */
+const todayOf = (d: JournalDoc, now: number): Daily => {
+  const day = dayNumber(now, d.tz);
+  return d.daily && d.daily.day >= day ? d.daily : emptyDaily(day);
+};
+const hatHow = (days: number): string => (days === 1 ? "Do all three tasks in one day" : `Do all three tasks on ${days} days`);
 
 /** A player's own journal, as they are shown it. */
 /** The companions a player has won: the answers of the riddles they have solved. */
@@ -231,9 +254,17 @@ export function petsOf(d: JournalDoc): string[] {
   return RIDDLES.filter((r) => d.solved[r.id] && giftOf(r)).map((r) => r.gift);
 }
 
-export function viewOf(d: JournalDoc): JournalView {
+export function viewOf(d: JournalDoc, now = Date.now()): JournalView {
   const newest = <T extends { last: number }>(o: Record<string, T>, n: number): T[] => Object.values(o).sort((a, b) => b.last - a.last).slice(0, n);
+  const today = todayOf(d, now);
   return {
+    coins: d.coins - d.spent,
+    today: {
+      tasks: tasksFor(today.day).map((t) => ({ id: t.id, text: t.text, have: Math.min(t.goal, t.have(today)), goal: t.goal, unit: t.unit, done: !!today.done[t.id] })),
+      all: today.bonus, coinsEach: TASK_COINS, coinsAll: ALL_TASKS_COINS, fullDays: d.days,
+    },
+    hats: HATS.map((h) => ({ id: h.id, name: h.name, price: h.price ?? null, how: h.days ? hatHow(h.days) : null, owned: d.hats.includes(h.id) })),
+    hat: d.hat && d.hats.includes(d.hat) ? d.hat : null,
     kept: d.personId !== null,
     since: d.since,
     level: levelOf(pointsOf(d)),
@@ -370,6 +401,30 @@ export class Journals {
         this.tell(key, { kind: "stamp", title: s.steps.length > 1 ? `${s.title}: ${step}` : s.title, text: s.say(step) });
       }
     }
+    // Today's tasks: each pays once; all three pay a little more, count as a full day, and may win a hat.
+    const t = this.today(d);
+    const tasks = tasksFor(t.day);
+    for (const task of tasks) {
+      if (t.done[task.id] || task.have(t) < task.goal) continue;
+      t.done[task.id] = this.now();
+      d.coins += TASK_COINS;
+      open.dirty = true;
+      this.note(open, "task", { id: task.id });
+      this.tell(key, { kind: "task", title: "Task done", text: `${task.text}: ${TASK_COINS} coins` });
+    }
+    if (!t.bonus && tasks.every((task) => t.done[task.id])) {
+      t.bonus = true;
+      d.coins += ALL_TASKS_COINS;
+      d.days++;
+      open.dirty = true;
+      this.note(open, "day", { day: t.day });
+      this.tell(key, { kind: "task", title: "All three tasks done!", text: `${ALL_TASKS_COINS} more coins. There will be three new tasks tomorrow.` });
+      for (const h of HATS) {
+        if (!h.days || d.days < h.days || d.hats.includes(h.id)) continue;
+        d.hats.push(h.id);
+        this.tell(key, { kind: "prize", title: `You have won the ${h.name}`, text: "Put it on in your passport (P)" });
+      }
+    }
     const level = levelOf(pointsOf(d));
     if (level.n > levelBefore) {
       this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}` });
@@ -391,9 +446,9 @@ export class Journals {
         || (r.continents !== undefined && Object.keys(d.continents).length >= r.continents);
       if (!hit) continue;
       this.note(w.open, "riddle", { id: r.id });
-      this.change(key, w, (doc) => { doc.solved[r.id] = this.now(); });
+      this.change(key, w, (doc) => { doc.solved[r.id] = this.now(); doc.coins += RIDDLE_COINS; });
       const gift = giftOf(r);
-      this.tell(key, { kind: "riddle", title: "Riddle solved!", text: `It was ${r.answer}.${gift ? ` Now ${/^[aeiou]/.test(gift) ? "an" : "a"} ${gift} will keep you company if you like: see your passport (P).` : ""}` });
+      this.tell(key, { kind: "riddle", title: "Riddle solved!", text: `It was ${r.answer}: ${RIDDLE_COINS} coins.${gift ? ` Now ${/^[aeiou]/.test(gift) ? "an" : "a"} ${gift} will keep you company if you like: see your passport (P).` : ""}` });
     }
   }
 
@@ -413,6 +468,51 @@ export class Journals {
     return d?.pet && petsOf(d).includes(d.pet) ? d.pet : null;
   }
 
+  /** Today's doings, started afresh when the player's day has turned. */
+  private today(d: JournalDoc): Daily {
+    const day = dayNumber(this.now(), d.tz);
+    if (!d.daily || d.daily.day < day) d.daily = emptyDaily(day);
+    return d.daily;
+  }
+
+  /**
+   * Buys a hat with coins and puts it on. "poor" when there are not enough coins, "prize" when it can only
+   * be won, "unknown" when there is no such hat. Buying one already owned just puts it on.
+   */
+  buyHat(key: string, id: string): "ok" | "poor" | "prize" | "unknown" {
+    const w = this.walkers.get(key);
+    const hat = hatById(id);
+    if (!w || !hat) return "unknown";
+    const d = w.open.doc;
+    if (!d.hats.includes(id)) {
+      if (hat.price === undefined) return "prize";
+      if (d.coins - d.spent < hat.price) return "poor";
+      d.spent += hat.price;
+      d.hats.push(id);
+      this.note(w.open, "hat", { id, price: hat.price });
+    }
+    d.hat = id;
+    d.updated = this.now();
+    w.open.dirty = true;
+    return "ok";
+  }
+
+  /** Puts on a hat the player owns, or (null) takes it off. False when it is not theirs. */
+  wearHat(key: string, id: string | null): boolean {
+    const w = this.walkers.get(key);
+    if (!w || (id !== null && !w.open.doc.hats.includes(id))) return false;
+    w.open.doc.hat = id;
+    w.open.doc.updated = this.now();
+    w.open.dirty = true;
+    return true;
+  }
+
+  /** The hat a player is wearing, if any. */
+  hatOf(key: string): string | null {
+    const d = this.walkers.get(key)?.open.doc;
+    return d?.hat && d.hats.includes(d.hat) ? d.hat : null;
+  }
+
   private change(key: string, w: Walker, edit: (d: JournalDoc) => void): void {
     const before = levelOf(pointsOf(w.open.doc)).n;
     edit(w.open.doc);
@@ -421,8 +521,11 @@ export class Journals {
     this.check(key, w.open, before);
   }
 
-  /** Someone came into the world. A signed-in person's journal is read from where it is kept. */
-  async joined(key: string, personId: string | null, room: string): Promise<void> {
+  /**
+   * Someone came into the world. A signed-in person's journal is read from where it is kept.
+   * `tzMinutes` is how far their clock is ahead of UTC, which decides when their day turns.
+   */
+  async joined(key: string, personId: string | null, room: string, tzMinutes?: number): Promise<void> {
     const now = this.now();
     let open = personId ? this.byPerson.get(personId) : undefined;
     if (!open) {
@@ -435,7 +538,13 @@ export class Journals {
     const w: Walker = { open, joined: now, at: null, trail: null, placeKey: "", namedAt: 0, riding: null };
     this.walkers.set(key, w);
     this.note(open, "join", { room });
-    this.change(key, w, (d) => { d.visits++; });
+    this.change(key, w, (d) => {
+      d.visits++;
+      if (tzMinutes !== undefined && Number.isFinite(tzMinutes)) d.tz = Math.max(-720, Math.min(840, Math.round(tzMinutes)));
+    });
+    const t = todayOf(open.doc, this.now());
+    const left = tasksFor(t.day).filter((task) => !t.done[task.id]);
+    if (left.length) this.tell(key, { kind: "task", title: left.length === 3 ? "Three tasks for today" : left.length === 1 ? "One task left today" : "Two tasks left today", text: left.map((task) => task.text).join(" · ") });
   }
 
   /** Someone left: their time is added up and their journal written. */
@@ -474,10 +583,15 @@ export class Journals {
     } else {
       const riding = w.riding;
       this.change(key, w, (d) => {
+        const t = this.today(d);
         if (riding) {
           d.metresRidden += step;
+          t.ridden += step;
           if (d.ridden[riding]) d.ridden[riding].metres += step;
-        } else d.metresOnFoot += step;
+        } else {
+          d.metresOnFoot += step;
+          t.walked += step;
+        }
       });
       if (metresBetween(w.trail!.lat, w.trail!.lon, lat, lon) >= TRAIL_M) {
         w.trail = { lat, lon };
@@ -505,6 +619,8 @@ export class Journals {
         d.north = d.north === null ? lat : Math.max(d.north, lat);
         d.south = d.south === null ? lat : Math.min(d.south, lat);
         d.continents[continent] = d.continents[continent] ?? now;
+        const t = this.today(d);
+        if (!t.places.includes(placeKey) && t.places.length < 60) t.places.push(placeKey);
         if (detail.country) d.countries[detail.country] = { first: d.countries[detail.country]?.first ?? now, last: now };
         const seen = d.places[placeKey];
         if (seen) { seen.last = now; seen.times++; seen.name = name; }
@@ -532,6 +648,8 @@ export class Journals {
     this.change(key, w, (d) => {
       d.ridden[sp] = d.ridden[sp] ?? { times: 0, metres: 0 };
       d.ridden[sp].times++;
+      const t = this.today(d);
+      t.rode[sp] = (t.rode[sp] ?? 0) + 1;
     });
     this.attempt(key, w, { ride: sp });
   }
@@ -544,12 +662,15 @@ export class Journals {
     this.note(w.open, "talk", { sp, thing, name, ...(said ? { said } : {}), reply });
     this.change(key, w, (d) => {
       d.talked[sp] = (d.talked[sp] ?? 0) + 1;
+      const t = this.today(d);
+      t.talked[sp] = (t.talked[sp] ?? 0) + 1;
       const id = `${sp}:${thing}`;
       const friend = d.friends[id];
       if (friend) { friend.last = now; friend.times++; friend.name = name; }
       else {
         d.friends[id] = { name, sp, first: now, last: now, times: 1 };
         d.friendCount++;
+        t.friends++;
         const keys = Object.keys(d.friends);
         if (keys.length > FRIEND_CAP) delete d.friends[keys.reduce((a, b) => (d.friends[a].last <= d.friends[b].last ? a : b))];
       }
@@ -561,14 +682,14 @@ export class Journals {
   view(key: string): JournalView | null {
     const w = this.walkers.get(key);
     if (!w) return null;
-    return viewOf({ ...w.open.doc, minutes: w.open.doc.minutes + (this.now() - w.joined) / 60_000 });
+    return viewOf({ ...w.open.doc, minutes: w.open.doc.minutes + (this.now() - w.joined) / 60_000 }, this.now());
   }
 
   /** The journal of a signed-in person, whether or not they are in the world now. */
   async viewPerson(personId: string): Promise<JournalView> {
     const open = this.byPerson.get(personId);
-    if (open) return viewOf(open.doc);
+    if (open) return viewOf(open.doc, this.now());
     const kept = this.store ? await this.store.load(personId).catch(() => null) : null;
-    return viewOf(kept ? { ...emptyJournal(personId, this.now()), ...kept } : emptyJournal(personId, this.now()));
+    return viewOf(kept ? { ...emptyJournal(personId, this.now()), ...kept } : emptyJournal(personId, this.now()), this.now());
   }
 }

@@ -56,6 +56,7 @@ interface Member {
   taxiAt: number;
   /** The animal that keeps this member company, with an identity of its own (so it can be talked to). */
   pet: { sp: string; thing: number } | null;
+  hat: string | null;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -84,7 +85,7 @@ export interface RoomsListener { joined?(m: RoomMember): void; left?(m: RoomMemb
 /** Keeps each player's journal (journal.ts). A member's id is the key; the keeper never learns who else is in the room. */
 export interface JournalKeeper {
   listen(tell: (key: string, news: { title: string; text: string; kind: string }) => void): void;
-  joined(key: string, personId: string | null, room: string): Promise<void>;
+  joined(key: string, personId: string | null, room: string, tzMinutes?: number): Promise<void>;
   left(key: string): void;
   moved(key: string, lat: number, lon: number): void;
   rode(key: string, sp: string | null, thing?: number): void;
@@ -93,6 +94,10 @@ export interface JournalKeeper {
   /** Companions: choosing one of those won (false if it is not theirs), and the one chosen. */
   setPet?(key: string, sp: string | null): boolean;
   petOf?(key: string): string | null;
+  /** Hats: buying one with coins, wearing one owned (false if it is not theirs), and the one worn. */
+  buyHat?(key: string, id: string): "ok" | "poor" | "prize" | "unknown";
+  wearHat?(key: string, id: string | null): boolean;
+  hatOf?(key: string): string | null;
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -241,12 +246,12 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null,
         };
         clearTimeout(helloTimer);
         send({
           t: "welcome", id: me.id, name: me.name, avatar: me.avatar, room: roomName,
-          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}), ...(m.pet ? { pet: m.pet } : {}) })),
+          peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}), ...(m.pet ? { pet: m.pet } : {}), ...(m.hat ? { hat: m.hat } : {}) })),
           left: [...r.left.values()].filter((l) => l.until > Date.now()),
           orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
           taxis: [...r.taxis.values()].filter((x) => !x.aboard && x.until > Date.now()).map((x) => this.publicTaxi(x)),
@@ -260,7 +265,10 @@ export class Rooms {
         this.everyone.set(me.id, me);
         // Once their journal is open, the companion they chose last time comes along.
         const arrived = me;
-        void this.journal?.joined(me.id, me.personId, roomName).then(() => this.bringPet(r, arrived, this.journal?.petOf?.(arrived.id) ?? null)).catch(() => {});
+        void this.journal?.joined(me.id, me.personId, roomName, finite(msg.tz) ? msg.tz : undefined).then(() => {
+          this.bringPet(r, arrived, this.journal?.petOf?.(arrived.id) ?? null);
+          this.wearHat(r, arrived, this.journal?.hatOf?.(arrived.id) ?? null);
+        }).catch(() => {});
         this.listener.joined?.(this.publicMember(me, roomName));
         if (this.options.peopleList) send({ t: "people", p: this.options.peopleList() });
         return;
@@ -364,6 +372,17 @@ export class Rooms {
         const sp = clean(msg.sp, 16) || null;
         if (!this.journal?.setPet?.(me.id, sp)) { send({ t: "error", code: "locked", text: "Solve its riddle first" }); return; }
         this.bringPet(room, me, sp);
+      } else if (msg.t === "hat" && room) {
+        // Buy a hat with my coins (`buy`), put on one I own (`wear`), or take it off (neither).
+        const buy = clean(msg.buy, 16), wear = clean(msg.wear, 16) || null;
+        if (buy) {
+          const got = this.journal?.buyHat?.(me.id, buy) ?? "unknown";
+          if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : got === "prize" ? "That hat is a prize: it cannot be bought" : "No such hat" }); return; }
+          this.wearHat(room, me, buy);
+        } else {
+          if (!this.journal?.wearHat?.(me.id, wear)) { send({ t: "error", code: "locked", text: "That hat is not yours yet" }); return; }
+          this.wearHat(room, me, wear);
+        }
       } else if (msg.t === "journal") {
         // My own journal: nobody can ask for anyone else's.
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
@@ -431,6 +450,13 @@ export class Rooms {
     const left: Left = { thing: ride.thing, sp: ride.sp, lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), alt: +m.alt.toFixed(2), yaw: +m.yaw.toFixed(1), until: now + LEFT_MS };
     room.left.set(ride.thing, left);
     this.broadcast(room, { t: "left", ...left });
+  }
+
+  /** Puts a hat on a member (or takes it off) and tells the room. */
+  private wearHat(room: Room, m: Member, hat: string | null): void {
+    if (!room.members.has(m.id) || m.hat === hat) return;
+    m.hat = hat;
+    this.broadcast(room, { t: "hat", id: m.id, ...(hat ? { hat } : {}) });
   }
 
   /** Gives a member their companion (or takes it away) and tells the room. Its identity is the member's own, so it is the same somebody on every visit. */
