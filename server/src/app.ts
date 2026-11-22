@@ -15,6 +15,7 @@ import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
 import { Talker } from "./talk.ts";
 import { Journals, type JournalStore } from "./journal.ts";
+import { type HuntStop, planHunt } from "./hunt.ts";
 import { generateInterior, INTERIOR_REV } from "./interior.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
@@ -58,6 +59,8 @@ export interface AppOptions {
   placeDetail?: (lat: number, lon: number) => Promise<PlaceDetail>;
   /** Where each player's journal is kept. Without one, journals last only as long as the visit. */
   journalStore?: JournalStore | null;
+  /** Makes treasure hunts (hunt.ts); replaceable for tests. */
+  planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
   /** Replaceable for tests. */
   buildChunk?: (x: number, y: number) => Promise<Buffer>;
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
@@ -131,7 +134,7 @@ export function createApp(options: AppOptions = {}): App {
   const givenName = options.placeName;
   const placeDetail = options.placeDetail ?? (givenName ? async (lat: number, lon: number) => ({ name: await givenName(lat, lon), country: null }) : reverseDetail);
   const talker = options.talker ?? new Talker();
-  const journals = new Journals({ store: options.journalStore ?? null, placeDetail });
+  const journals = new Journals({ store: options.journalStore ?? null, placeDetail, planHunt: options.planHunt ?? ((lat, lon, day) => planHunt(lat, lon, day)) });
   const findNear = options.findNear ?? geocodeNear;
   const routeBetween = options.planRoute ?? planRoute;
   /** Where a rider asked to go, and for a car or tractor the way there by road when it is close. Slow map downloads are not waited for. */

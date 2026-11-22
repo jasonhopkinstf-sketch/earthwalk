@@ -87,6 +87,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #stamp.riddle { border-color: #7a4f9a; }
 #stamp.task { border-color: #d08a1e; }
 #stamp.favour { border-color: #2f8f8a; }
+#stamp.hunt { border-color: #b5372e; border-style: solid; }
+#stamp.expedition { border-color: #2f6fb0; border-style: solid; }
+#passport .journeys { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+#passport .journey { display: flex; flex-direction: column; gap: 4px; border: 2px solid #c9bd9a; border-radius: 10px; padding: 8px 10px; background: #fffaf0; }
+#passport .journey.active { border-color: #2f6fb0; }
+#passport .journey.done { border-color: #3f7f4f; background: #e9f3e4; opacity: .75; }
+#passport .journey .name { font-weight: 700; }
+#passport .journey .text { font-size: 14px; }
+#passport .journey .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+#passport .journey .chips i { font-style: normal; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #e3d8b8; }
+#passport .journey .chips.kinds i { text-transform: capitalize; }
+#passport .journey .chips i.on { background: #3f7f4f; color: #fff; }
+#passport .journey .go { align-self: flex-start; margin-top: auto; background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+#passport .journey.active .go { background: none; color: inherit; border: 1px solid #c9bd9a; opacity: .75; }
+#passport .journey .go:disabled { opacity: .5; cursor: default; }
 #passport .task.favour { border-color: #2f8f8a; }
 #passport .task.favour .fill { background: #2f8f8a; }
 #passport .task .drop { margin-top: 6px; background: none; border: 1px solid #c9bd9a; border-radius: 12px; padding: 2px 10px; font: inherit; font-size: 11px; color: inherit; opacity: .75; cursor: pointer; }

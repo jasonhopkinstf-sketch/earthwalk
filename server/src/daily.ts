@@ -84,8 +84,8 @@ export function tasksFor(day: number): Task[] {
   return TASKS.map((shelf, i) => shelf[hash32(day, 0x5441534b + i) % shelf.length]);
 }
 
-/** A hat: bought with coins (`price`), or won by doing all three tasks on that many days (`days`). */
-export interface Hat { id: string; name: string; price?: number; days?: number }
+/** A hat: bought with coins (`price`), or won by doing all three tasks on that many days (`days`) or by finding that many treasures (`hunts`). */
+export interface Hat { id: string; name: string; price?: number; days?: number; hunts?: number }
 export const HATS: Hat[] = [
   { id: "cap", name: "Red cap", price: 30 },
   { id: "bobble", name: "Bobble hat", price: 30 },
@@ -99,5 +99,6 @@ export const HATS: Hat[] = [
   { id: "wizard", name: "Wizard's hat", price: 100 },
   { id: "explorer", name: "Explorer's hat", days: 1 },
   { id: "crown", name: "Golden crown", days: 7 },
+  { id: "feather", name: "Feathered cap", hunts: 1 },
 ];
 export const hatById = (id: string): Hat | undefined => HATS.find((h) => h.id === id);

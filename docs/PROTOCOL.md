@@ -386,6 +386,7 @@ Client to server:
 | `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
+| `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
 | `{"t":"favour","drop":"cow:918398760"}` | Give up a favour I was asked. The answer is my `journal` without it. See "Favours". |
 | `{"t":"hat","buy":"cap"}` / `{"t":"hat","wear":"cap"}` / `{"t":"hat"}` | Buy a hat with my coins and put it on, put on one I own, or take my hat off. See "Daily tasks, coins and hats". |
 | `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
@@ -486,6 +487,33 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### Treasure hunts and expeditions
+
+Both are begun from the passport with `expedition`, and both are noticed done by the server from
+the `pos` and `talk` messages it already gets.
+
+A treasure hunt (`server/src/hunt.ts`) is up to five clues, each a riddle about a real kind of place
+the map knows near where the hunt begins: a place of worship, a school, a barn, a shop, water, a
+wood, a stream, the railway, a street by its name, a house by its number. It is made from the map
+for a square about a kilometre across and a day, so everyone who starts one in the same
+neighbourhood on the same day gets the same hunt. A clue is found by standing within its reach (25
+to 70 m); the clients are never told where the places are, only, in the journal, which way and
+roughly how far the next one lies. News comes as `stamp` messages of kind `hunt`; the last, "Treasure
+found!", carries `at: { lat, lon }`, where the finder stood, for their game to show a chest. Where the
+map knows too little, `expedition` is refused with `error` code `locked`.
+
+An expedition (`EXPEDITIONS` in `server/src/expeditions.ts`) is one of three sorts: an `album` (talk
+to enough of a family of things), a `tour` (stand within reach of enough of a list of famous
+places) or `home` (a lost animal walks with the player, as their `pet`, until they stand in the part
+of the world it comes from; that kind of animal is then theirs as a companion). Only what is done
+after setting out counts. Three may be under way at once, and one lost animal. News comes as `stamp`
+messages of kind `expedition`.
+
+In the journal object: `hunt` is `{ at, of, clue, way, minutes }` or null (`way` is "about 250 metres
+to the north-east" from where the player stands), `huntsDone` and `huntBestMinutes`; `expeditions` is
+`[{ id, sort, title, blurb, coins, state, have, need, items: [{ name, got }] }]` with `state` one of
+`open`, `active`, `done`; `passenger` is the lost animal travelling with the player, or null.
 
 ### Favours
 

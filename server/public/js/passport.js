@@ -64,7 +64,7 @@ export class Passport {
     this.showing = !!news;
     if (!news) { this.toast.hidden = true; return; }
     this.toast.replaceChildren(
-      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : "New stamp"),
+      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : news.kind === "hunt" ? "Treasure hunt" : news.kind === "expedition" ? "Expedition" : "New stamp"),
       el("div", "title", news.title), el("div", "text", news.text ?? ""));
     this.toast.className = news.kind ?? "stamp";
     this.toast.hidden = false;
@@ -222,6 +222,38 @@ export class Passport {
       ? `A favour waits until it is done: nothing runs out. Favours done so far: ${j.favoursDone ?? 0}.`
       : `Nobody is waiting on a favour from you. Talk to anything (T) and ask "can I help?"; some ask without being asked. Favours done so far: ${j.favoursDone ?? 0}.`);
 
+    // The treasure hunt and the expeditions: begun here, done out in the world.
+    const journeys = el("div", "journeys");
+    const act = (label, busy, fn) => {
+      const b = el("button", "go", label);
+      b.type = "button";
+      b.addEventListener("click", () => { b.disabled = true; b.textContent = busy; fn(); });
+      return b;
+    };
+    const hunt = el("div", j.hunt ? "journey active" : "journey");
+    if (j.hunt) {
+      hunt.append(el("div", "name", `Treasure hunt: clue ${j.hunt.at + 1} of ${j.hunt.of}`), el("div", "text", j.hunt.clue),
+        el("div", "small", `${j.hunt.way ? `It is ${j.hunt.way}. ` : ""}${j.hunt.minutes} min so far, and nothing runs out. Type /clue to hear it again.`),
+        act("Give up this hunt", "Giving up...", () => this.meetup.dropExpedition("hunt")));
+    } else {
+      hunt.append(el("div", "name", "A treasure hunt, here"),
+        el("div", "text", "A handful of riddles about real places near where you are standing, with treasure at the last."),
+        el("div", "small", `Friends who start here today get the same hunt. Treasures found: ${j.huntsDone ?? 0}${j.huntBestMinutes ? `, the quickest in ${j.huntBestMinutes} min` : ""}.`),
+        act("Start a treasure hunt", "Looking at the map...", () => this.meetup.startExpedition("hunt")));
+    }
+    journeys.append(hunt);
+    const order = { active: 0, open: 1, done: 2 };
+    for (const e of [...(j.expeditions ?? [])].sort((a, b) => order[a.state] - order[b.state])) {
+      const card = el("div", `journey ${e.state}`);
+      const chips = el("div", e.sort === "album" ? "chips kinds" : "chips");
+      if (e.sort !== "home") for (const it of e.items) chips.append(el("i", it.got ? "on" : "", it.name));
+      card.append(el("div", "name", e.title), el("div", "text", e.blurb), chips,
+        el("div", "small", e.state === "done" ? "Done." : e.state === "active" ? (e.sort === "home" ? `It is walking with you. Pays ${e.coins} coins.` : `${e.have} of ${e.need} so far. Pays ${e.coins} coins.`) : `Pays ${e.coins} coins.`));
+      if (e.state === "open") card.append(act("Set out", "Setting out...", () => this.meetup.startExpedition(e.id)));
+      if (e.state === "active") card.append(act("Give up", "Giving up...", () => this.meetup.dropExpedition(e.id)));
+      journeys.append(card);
+    }
+
     // Hats: bought with coins or won, one worn at a time. Friends see it on you.
     const avatar = this.meetup.me?.avatar ?? "fox";
     const wardrobe = el("div", "wardrobe");
@@ -253,7 +285,7 @@ export class Passport {
     }
     wardrobe.append(me, hats);
 
-    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Hats"), wardrobe,
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Hats"), wardrobe,
       el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }

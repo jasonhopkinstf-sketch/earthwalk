@@ -232,6 +232,13 @@ the front door. Inside are rooms laid out from thirty recipes of our own
 bedrooms, bathrooms, studies and playrooms, with doorways, windows and furniture. A house is the same inside for everyone, and friends who go in together see each other.
 `server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
+Treasure hunts and expeditions (in the browser so far): the passport starts a treasure hunt wherever
+you stand. It is five riddles about real places nearby, taken from the map ("I have a bell but no
+bicycle" is the church 250 metres to the south), with a chest of coins at the last, and friends who
+start in the same neighbourhood that day get the same hunt. The passport also lists expeditions to
+set out on: albums of animals to meet, tours of famous places, and lost animals to walk home to
+their part of the world (`server/src/hunt.ts`, `server/src/expeditions.ts`).
+
 Favours (in the browser so far): ask anything you talk to "can I help?" and it may ask a favour to
 do with what it is. A horse wants a run, a cat a walk, a house has a parcel for another house, and
 a tree that cannot leave its spot wants to hear what is down the road. Some ask without being

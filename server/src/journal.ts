@@ -16,6 +16,8 @@ import type { PlaceDetail } from "./geocode.ts";
 import { ALL_TASKS_COINS, type Daily, dayNumber, emptyDaily, hatById, HATS, RIDDLE_COINS, TASK_COINS, tasksFor } from "./daily.ts";
 import { asksUnprompted, type Favour, FAVOUR_DAYS, favourOf, FAVOURS_OPEN, progressOf, thanksLine } from "./favours.ts";
 import { aKind } from "./talk.ts";
+import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
+import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
 interface Friend { name: string; sp: string; first: number; last: number; times: number }
@@ -61,6 +63,15 @@ export interface JournalDoc {
   favours: Favour[];
   favoursDone: number;
   favoured: Record<string, number>;
+  /** The treasure hunt they are on (hunt.ts) with the clue they are at, how many they have finished, and the quickest in milliseconds. */
+  hunt: { cell: number; day: number; stops: HuntStop[]; at: number; started: number } | null;
+  huntsDone: number;
+  huntBest: number | null;
+  /** Expeditions (expeditions.ts): those they are on, with what has been ticked off, and those finished, with when. */
+  expeditions: Record<string, { started: number; got: string[] }>;
+  expeditionsDone: Record<string, number>;
+  /** Companions won by other means than riddles: the animals taken home. */
+  morePets: string[];
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -91,10 +102,20 @@ export interface JournalView {
   /** Favours asked and not yet done, each with how far along it is and what to do next; and how many have been done. */
   favours: { id: string; name: string; sp: string; text: string; coins: number; have: number; goal: number; unit: string; next: string }[];
   favoursDone: number;
+  /** The treasure hunt under way (the clue to solve now, and which way it lies from where they stand), and how hunts have gone. */
+  hunt: { at: number; of: number; clue: string; way: string | null; minutes: number } | null;
+  huntsDone: number;
+  huntBestMinutes: number | null;
+  /** Every expedition there is, with how far along they are on those they have begun. */
+  expeditions: { id: string; sort: string; title: string; blurb: string; coins: number; state: "open" | "active" | "done"; have: number; need: number; items: { name: string; got: boolean }[] }[];
+  /** The lost animal travelling with them, if they are taking one home. */
+  passenger: string | null;
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition";
+  /** For a treasure just found: where its finder stood, so that their game can show it there. */
+  at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
   thing?: number; sp?: string; say?: string;
 }
@@ -240,6 +261,8 @@ const STAMPS: StampRule[] = [
   { id: "mounts", title: "Things ridden", unit: "kinds", steps: [1, 4, 8, 12, 20], count: (d) => Object.keys(d.ridden).length, say: (n) => `You have ridden ${one(n, "kind of thing", "kinds of thing")}` },
   { id: "riddles", title: "Riddles solved", unit: "riddles", steps: [1, 5, 10, 20, 30], count: (d) => Object.keys(d.solved).length, say: (n) => `You have solved ${one(n, "riddle")}` },
   { id: "favours", title: "Favours done", unit: "favours", steps: [1, 5, 20, 50, 100], count: (d) => d.favoursDone ?? 0, say: (n) => `You have done ${one(n, "favour")}` },
+  { id: "hunts", title: "Treasures found", unit: "treasures", steps: [1, 5, 20, 50], count: (d) => d.huntsDone ?? 0, say: (n) => `You have found ${one(n, "treasure")}` },
+  { id: "expeditions", title: "Expeditions", unit: "expeditions", steps: [1, 3, 6, 10, 15], count: (d) => Object.keys(d.expeditionsDone ?? {}).length, say: (n) => `You have finished ${one(n, "expedition")}` },
   { id: "tree", title: "Tree talker", unit: "", steps: [1], count: (d) => (d.talked.tree ? 1 : 0), say: () => "You have talked to a tree" },
   { id: "train", title: "All aboard", unit: "", steps: [1], count: (d) => (d.ridden.train ? 1 : 0), say: () => "You have ridden a train" },
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
@@ -252,7 +275,7 @@ const STAMPS: StampRule[] = [
 export function pointsOf(d: JournalDoc): number {
   return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
     + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6
-    + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4;
+    + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4 + (d.huntsDone ?? 0) * 6 + Object.keys(d.expeditionsDone ?? {}).length * 8;
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -265,6 +288,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [],
   };
 }
 
@@ -273,15 +297,21 @@ const todayOf = (d: JournalDoc, now: number): Daily => {
   const day = dayNumber(now, d.tz);
   return d.daily && d.daily.day >= day ? d.daily : emptyDaily(day);
 };
-const hatHow = (days: number): string => (days === 1 ? "Do all three tasks in one day" : `Do all three tasks on ${days} days`);
+const hatHow = (h: { days?: number; hunts?: number }): string | null =>
+  h.days ? (h.days === 1 ? "Do all three tasks in one day" : `Do all three tasks on ${h.days} days`) : h.hunts ? (h.hunts === 1 ? "Find the treasure at the end of a treasure hunt" : `Find ${h.hunts} treasures`) : null;
+/** The lost animal a player is taking home, if any. */
+const passengerOf = (d: JournalDoc): string | null => {
+  for (const id of Object.keys(d.expeditions)) { const e = expeditionById(id); if (e?.sort === "home") return e.passenger; }
+  return null;
+};
 
 /** A player's own journal, as they are shown it. */
 /** The companions a player has won: the answers of the riddles they have solved. */
 export function petsOf(d: JournalDoc): string[] {
-  return RIDDLES.filter((r) => d.solved[r.id] && giftOf(r)).map((r) => r.gift);
+  return [...new Set([...RIDDLES.filter((r) => d.solved[r.id] && giftOf(r)).map((r) => r.gift), ...(d.morePets ?? [])])];
 }
 
-export function viewOf(d: JournalDoc, now = Date.now()): JournalView {
+export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: number } | null = null): JournalView {
   const newest = <T extends { last: number }>(o: Record<string, T>, n: number): T[] => Object.values(o).sort((a, b) => b.last - a.last).slice(0, n);
   const today = todayOf(d, now);
   return {
@@ -290,10 +320,20 @@ export function viewOf(d: JournalDoc, now = Date.now()): JournalView {
       tasks: tasksFor(today.day).map((t) => ({ id: t.id, text: t.text, have: Math.min(t.goal, t.have(today)), goal: t.goal, unit: t.unit, done: !!today.done[t.id] })),
       all: today.bonus, coinsEach: TASK_COINS, coinsAll: ALL_TASKS_COINS, fullDays: d.days,
     },
-    hats: HATS.map((h) => ({ id: h.id, name: h.name, price: h.price ?? null, how: h.days ? hatHow(h.days) : null, owned: d.hats.includes(h.id) })),
+    hats: HATS.map((h) => ({ id: h.id, name: h.name, price: h.price ?? null, how: hatHow(h), owned: d.hats.includes(h.id) })),
     hat: d.hat && d.hats.includes(d.hat) ? d.hat : null,
     favours: d.favours.map((f) => ({ id: f.id, name: f.name, sp: f.sp, text: f.text, coins: f.coins, ...progressOf(f) })),
     favoursDone: d.favoursDone,
+    hunt: d.hunt ? ((stop) => ({ at: d.hunt!.at, of: d.hunt!.stops.length, clue: stop.riddle, way: at ? wayTo(at.lat, at.lon, stop.lat, stop.lon) : null, minutes: Math.round((now - d.hunt!.started) / 60_000) }))(d.hunt.stops[d.hunt.at]) : null,
+    huntsDone: d.huntsDone,
+    huntBestMinutes: d.huntBest === null ? null : Math.max(1, Math.round(d.huntBest / 60_000)),
+    expeditions: EXPEDITIONS.map((e) => {
+      const on = d.expeditions[e.id];
+      const done = !!d.expeditionsDone[e.id];
+      const items = itemsOf(e).map((name) => ({ name: e.sort === "album" ? aKind(name).replace(/^an? /, "") : name, got: done || !!on?.got.includes(name) }));
+      return { id: e.id, sort: e.sort, title: e.title, blurb: e.blurb, coins: e.coins, state: done ? "done" as const : on ? "active" as const : "open" as const, have: done ? needOf(e) : on?.got.length ?? 0, need: needOf(e), items };
+    }),
+    passenger: passengerOf(d),
     kept: d.personId !== null,
     since: d.since,
     level: levelOf(pointsOf(d)),
@@ -350,12 +390,15 @@ export interface JournalsOptions {
   store?: JournalStore | null;
   placeDetail?: (lat: number, lon: number) => Promise<PlaceDetail>;
   now?: () => number;
+  /** Makes the treasure hunt of a neighbourhood on a day (hunt.ts). Without it there are no hunts. */
+  planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
 }
 
 export class Journals {
   private readonly store: JournalStore | null;
   private readonly placeDetail: ((lat: number, lon: number) => Promise<PlaceDetail>) | null;
   private readonly now: () => number;
+  private readonly planHunt: JournalsOptions["planHunt"] | null;
   private readonly walkers = new Map<string, Walker>(); // member id -> their journal
   private readonly byPerson = new Map<string, Open>();
   private tell: (key: string, news: StampNews) => void = () => {};
@@ -367,6 +410,7 @@ export class Journals {
     this.store = options.store ?? null;
     this.placeDetail = options.placeDetail ?? null;
     this.now = options.now ?? Date.now;
+    this.planHunt = options.planHunt ?? null;
     this.timer = setInterval(() => void this.flush(), SAVE_EVERY_MS);
     this.timer.unref();
   }
@@ -451,11 +495,13 @@ export class Journals {
       open.dirty = true;
       this.note(open, "day", { day: t.day });
       this.tell(key, { kind: "task", title: "All three tasks done!", text: `${ALL_TASKS_COINS} more coins. There will be three new tasks tomorrow.` });
-      for (const h of HATS) {
-        if (!h.days || d.days < h.days || d.hats.includes(h.id)) continue;
-        d.hats.push(h.id);
-        this.tell(key, { kind: "prize", title: `You have won the ${h.name}`, text: "Put it on in your passport (P)" });
-      }
+    }
+    // Hats that are won, not bought: for full days, and for treasures found.
+    for (const h of HATS) {
+      if (d.hats.includes(h.id) || !((h.days && d.days >= h.days) || (h.hunts && d.huntsDone >= h.hunts))) continue;
+      d.hats.push(h.id);
+      open.dirty = true;
+      this.tell(key, { kind: "prize", title: `You have won the ${h.name}`, text: "Put it on in your passport (P)" });
     }
     const level = levelOf(pointsOf(d));
     if (level.n > levelBefore) {
@@ -497,7 +543,9 @@ export class Journals {
   /** The companion a player has chosen, if they still have it. */
   petOf(key: string): string | null {
     const d = this.walkers.get(key)?.open.doc;
-    return d?.pet && petsOf(d).includes(d.pet) ? d.pet : null;
+    if (!d) return null;
+    // A lost animal being taken home walks with the player, in place of the companion they chose.
+    return passengerOf(d) ?? (d.pet && petsOf(d).includes(d.pet) ? d.pet : null);
   }
 
   /** Today's doings, started afresh when the player's day has turned. */
@@ -602,6 +650,7 @@ export class Journals {
       w.at = { lat, lon };
       w.trail = { lat, lon };
       this.note(w.open, "go", { lat: +lat.toFixed(5), lon: +lon.toFixed(5) });
+      this.whereabouts(key, w, lat, lon);
       this.arrive(key, w, lat, lon);
       return;
     }
@@ -638,6 +687,7 @@ export class Journals {
       w.open.dirty = true;
       this.tell(key, { kind: "favour", title: "Far enough", text: `Now go back and tell ${f.name} what you saw` });
     }
+    this.whereabouts(key, w, lat, lon);
     this.arrive(key, w, lat, lon);
   }
 
@@ -718,6 +768,11 @@ export class Journals {
       }
     });
     this.attempt(key, w, { talk: sp });
+    // An album being filled: this may be a new kind for it.
+    for (const [id, on] of Object.entries(w.open.doc.expeditions)) {
+      const e = expeditionById(id);
+      if (e?.sort === "album" && e.kinds.includes(sp) && !on.got.includes(sp)) this.tick(key, w, e, sp, `You have met ${aKind(sp)}`);
+    }
   }
 
   // ---- favours (favours.ts)
@@ -807,11 +862,146 @@ export class Journals {
     return true;
   }
 
+  // ---- treasure hunts (hunt.ts) and expeditions (expeditions.ts)
+
+  /**
+   * Begins the treasure hunt of where the player stands. "nowhere" when that is not known yet, "none" where the
+   * map has too little for a hunt (or hunts are not offered), "busy" when they are on one already.
+   */
+  async startHunt(key: string): Promise<"ok" | "nowhere" | "none" | "busy"> {
+    const w = this.walkers.get(key);
+    if (!w?.at) return "nowhere";
+    if (w.open.doc.hunt) return "busy";
+    if (!this.planHunt) return "none";
+    const from = w.at;
+    const day = dayNumber(this.now(), w.open.doc.tz);
+    const stops = await this.planHunt(from.lat, from.lon, day).catch(() => null);
+    if (this.walkers.get(key) !== w) return "nowhere"; // left while the map was being read
+    if (w.open.doc.hunt) return "busy";
+    if (!stops?.length) return "none";
+    const now = this.now();
+    w.open.doc.hunt = { cell: huntCell(from.lat, from.lon).id, day, stops, at: 0, started: now };
+    w.open.doc.updated = now;
+    w.open.dirty = true;
+    this.note(w.open, "hunt", { stops: stops.map((s) => s.what) });
+    const here = w.at ?? from;
+    this.tell(key, { kind: "hunt", title: "A treasure hunt!", text: `Clue 1 of ${stops.length}: ${stops[0].riddle} It is ${wayTo(here.lat, here.lon, stops[0].lat, stops[0].lon)}.` });
+    this.whereabouts(key, w, here.lat, here.lon);
+    return "ok";
+  }
+
+  /** Gives the treasure hunt up. Another can be begun at once. */
+  dropHunt(key: string): boolean {
+    const w = this.walkers.get(key);
+    if (!w?.open.doc.hunt) return false;
+    w.open.doc.hunt = null;
+    w.open.dirty = true;
+    this.note(w.open, "hunt-dropped", {});
+    return true;
+  }
+
+  /**
+   * Sets out on an expedition. "done" for one already finished, "full" with three under way, "busy" when a
+   * second lost animal is asked for while the first is still on its way home.
+   */
+  startExpedition(key: string, id: string): "ok" | "unknown" | "done" | "full" | "busy" {
+    const w = this.walkers.get(key);
+    const e = expeditionById(id);
+    if (!w || !e) return "unknown";
+    const d = w.open.doc;
+    if (d.expeditionsDone[id]) return "done";
+    if (d.expeditions[id]) return "ok";
+    if (e.sort === "home" && passengerOf(d)) return "busy";
+    if (Object.keys(d.expeditions).length >= EXPEDITIONS_OPEN) return "full";
+    d.expeditions[id] = { started: this.now(), got: [] };
+    d.updated = this.now();
+    w.open.dirty = true;
+    this.note(w.open, "expedition", { id });
+    this.tell(key, { kind: "expedition", title: `Setting out: ${e.title}`, text: e.blurb });
+    if (w.at) this.whereabouts(key, w, w.at.lat, w.at.lon);
+    return "ok";
+  }
+
+  /** Gives an expedition up. It can be begun again, from the beginning. */
+  dropExpedition(key: string, id: string): boolean {
+    const w = this.walkers.get(key);
+    if (!w?.open.doc.expeditions[id]) return false;
+    delete w.open.doc.expeditions[id];
+    w.open.dirty = true;
+    this.note(w.open, "expedition-dropped", { id });
+    return true;
+  }
+
+  /** Something for an expedition has been met or reached: it is ticked off, and that may be the last of it. */
+  private tick(key: string, w: Walker, e: Expedition, item: string, text: string): void {
+    const d = w.open.doc;
+    const on = d.expeditions[e.id];
+    if (!on) return;
+    on.got.push(item);
+    w.open.dirty = true;
+    const need = needOf(e);
+    if (on.got.length < need) return void this.tell(key, { kind: "expedition", title: `${e.title}: ${on.got.length} of ${need}`, text });
+    this.note(w.open, "expedition-done", { id: e.id });
+    delete d.expeditions[e.id]; // over before it is announced, so that a lost animal has left the player's side by then
+    this.tell(key, {
+      kind: "expedition", title: `Expedition done: ${e.title}`,
+      text: `${text}. ${e.coins} coins.${e.sort === "home" ? ` ${/^[aeiou]/.test(e.passenger) ? "An" : "A"} ${e.passenger} will keep you company whenever you like: see your passport (P).` : ""}`,
+    });
+    this.change(key, w, (doc) => {
+      delete doc.expeditions[e.id];
+      doc.expeditionsDone[e.id] = this.now();
+      doc.coins += e.coins;
+      if (e.sort === "home" && !doc.morePets.includes(e.passenger)) doc.morePets.push(e.passenger);
+    });
+  }
+
+  /** Where a player now stands may be the next clue of their hunt, a place on a tour, or a lost animal's home. */
+  private whereabouts(key: string, w: Walker, lat: number, lon: number): void {
+    const d = w.open.doc;
+    const h = d.hunt;
+    if (h) {
+      const stop = h.stops[h.at];
+      if (metresBetween(stop.lat, stop.lon, lat, lon) <= stop.reach) {
+        h.at++;
+        w.open.dirty = true;
+        const next = h.stops[h.at];
+        if (next) this.tell(key, { kind: "hunt", title: `Found it: ${stop.what}`, text: `Clue ${h.at + 1} of ${h.stops.length}: ${next.riddle} It is ${wayTo(lat, lon, next.lat, next.lon)}.` });
+        else {
+          const took = this.now() - h.started;
+          const coins = 20 + 10 * h.stops.length;
+          const quickest = d.huntBest === null || took < d.huntBest;
+          const minutes = Math.max(1, Math.round(took / 60_000));
+          this.note(w.open, "treasure", { stops: h.stops.length, ms: took });
+          this.tell(key, {
+            kind: "hunt", title: "Treasure found!", at: { lat: +lat.toFixed(6), lon: +lon.toFixed(6) }, // where the finder stands: the place itself may be the middle of a house
+            text: `It was at ${stop.what}. ${h.stops.length} clues in ${minutes === 1 ? "a minute" : `${minutes} minutes`}${quickest && d.huntsDone > 0 ? ", your quickest hunt yet" : ""}: ${coins} coins.`,
+          });
+          this.change(key, w, (doc) => {
+            doc.hunt = null;
+            doc.huntsDone++;
+            doc.coins += coins;
+            if (quickest) doc.huntBest = took;
+          });
+        }
+      }
+    }
+    for (const [id, on] of Object.entries(d.expeditions)) {
+      const e = expeditionById(id);
+      if (e?.sort === "tour") {
+        for (const p of e.places) {
+          if (on.got.includes(p.name) || metresBetween(p.lat, p.lon, lat, lon) > e.reachKm * 1000) continue;
+          this.tick(key, w, e, p.name, `You have reached ${p.name}`);
+          if (!d.expeditions[id]) break; // that was the last of it
+        }
+      } else if (e?.sort === "home" && e.home(lat, lon)) this.tick(key, w, e, e.where, `The ${e.passenger} is home, in ${e.where}`);
+    }
+  }
+
   /** The journal of a member who is in the world now. */
   view(key: string): JournalView | null {
     const w = this.walkers.get(key);
     if (!w) return null;
-    return viewOf({ ...w.open.doc, minutes: w.open.doc.minutes + (this.now() - w.joined) / 60_000 }, this.now());
+    return viewOf({ ...w.open.doc, minutes: w.open.doc.minutes + (this.now() - w.joined) / 60_000 }, this.now(), w.at);
   }
 
   /** The journal of a signed-in person, whether or not they are in the world now. */

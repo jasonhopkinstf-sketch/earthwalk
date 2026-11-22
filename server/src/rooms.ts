@@ -86,7 +86,7 @@ export interface RoomMember {
 export interface RoomsListener { joined?(m: RoomMember): void; left?(m: RoomMember): void }
 /** Keeps each player's journal (journal.ts). A member's id is the key; the keeper never learns who else is in the room. */
 export interface JournalKeeper {
-  listen(tell: (key: string, news: { title: string; text: string; kind: string; thing?: number; sp?: string; say?: string }) => void): void;
+  listen(tell: (key: string, news: { title: string; text: string; kind: string; thing?: number; sp?: string; say?: string; at?: { lat: number; lon: number } }) => void): void;
   joined(key: string, personId: string | null, room: string, tzMinutes?: number): Promise<void>;
   left(key: string): void;
   moved(key: string, lat: number, lon: number): void;
@@ -104,6 +104,11 @@ export interface JournalKeeper {
   beforeTalk?(key: string, thing: number, sp: string, name: string, asked: boolean): TalkNews;
   following?(key: string, thing: number, on: boolean): void;
   dropFavour?(key: string, id: string): boolean;
+  /** Treasure hunts and expeditions, begun and given up from the passport. */
+  startHunt?(key: string): Promise<"ok" | "nowhere" | "none" | "busy">;
+  dropHunt?(key: string): boolean;
+  startExpedition?(key: string, id: string): "ok" | "unknown" | "done" | "full" | "busy";
+  dropExpedition?(key: string, id: string): boolean;
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -165,6 +170,8 @@ export class Rooms {
       m.ws.send(JSON.stringify({ t: "stamp", ...stamp }));
       // A favour done on the move: the thing that asked says its thanks there and then.
       if (thing && sp && say) m.ws.send(JSON.stringify({ t: "say", thing, sp, name: persona(thing, sp).name, text: say, by: m.id, ...(m.hasPos ? { lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7) } : {}) }));
+      // An expedition begun or ended may bring a lost animal to the player's side, or send it home.
+      if (news.kind === "expedition") this.walkWith(m);
     });
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => this.onConnection(ws, req));
@@ -386,7 +393,21 @@ export class Rooms {
         // Choose a companion from those I have won, or (with no `sp`) send it home.
         const sp = clean(msg.sp, 16) || null;
         if (!this.journal?.setPet?.(me.id, sp)) { send({ t: "error", code: "locked", text: "Solve its riddle first" }); return; }
-        this.bringPet(room, me, sp);
+        this.bringPet(room, me, this.journal.petOf?.(me.id) ?? sp); // a lost animal on its way home keeps its place
+      } else if (msg.t === "expedition" && room) {
+        // Set out on a treasure hunt ("hunt") or an expedition, or give one up. My journal comes back either way.
+        const start = clean(msg.start, 20), drop = clean(msg.drop, 20);
+        if (start === "hunt") {
+          const got = (await this.journal?.startHunt?.(me.id)) ?? "none";
+          if (!room.members.has(me.id)) return;
+          if (got !== "ok") send({ t: "error", code: got === "nowhere" ? "nowhere" : "locked", text: got === "busy" ? "You are on a treasure hunt already" : got === "nowhere" ? "You have not arrived anywhere yet" : "The map knows too little here for a treasure hunt. Try a town or a village." });
+        } else if (start) {
+          const got = this.journal?.startExpedition?.(me.id, start) ?? "unknown";
+          if (got !== "ok") send({ t: "error", code: "locked", text: got === "full" ? "Three expeditions at once is plenty. Finish one first." : got === "busy" ? "One lost animal at a time" : got === "done" ? "You have done that one" : "No such expedition" });
+        } else if (drop === "hunt") this.journal?.dropHunt?.(me.id);
+        else if (drop) this.journal?.dropExpedition?.(me.id, drop);
+        this.walkWith(me);
+        send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
       } else if (msg.t === "hat" && room) {
         // Buy a hat with my coins (`buy`), put on one I own (`wear`), or take it off (neither).
         const buy = clean(msg.buy, 16), wear = clean(msg.wear, 16) || null;
@@ -468,6 +489,11 @@ export class Rooms {
     const left: Left = { thing: ride.thing, sp: ride.sp, lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), alt: +m.alt.toFixed(2), yaw: +m.yaw.toFixed(1), until: now + LEFT_MS };
     room.left.set(ride.thing, left);
     this.broadcast(room, { t: "left", ...left });
+  }
+
+  /** Sees that the animal at a member's side is the one their journal says: a lost one being taken home, or their companion. */
+  private walkWith(m: Member): void {
+    for (const room of this.rooms.values()) if (room.members.get(m.id) === m) return this.bringPet(room, m, this.journal?.petOf?.(m.id) ?? null);
   }
 
   /** Puts a hat on a member (or takes it off) and tells the room. */

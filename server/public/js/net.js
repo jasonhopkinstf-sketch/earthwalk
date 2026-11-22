@@ -145,6 +145,15 @@ export class Meetup extends EventTarget {
     this.send(id ? { t: "hat", wear: id } : { t: "hat" });
   }
 
+  /** Sets out on an expedition from the passport ("hunt" is the treasure hunt of where I stand), or gives one up. My journal comes back. */
+  startExpedition(id) {
+    this.send({ t: "expedition", start: id });
+  }
+
+  dropExpedition(id) {
+    this.send({ t: "expedition", drop: id });
+  }
+
   /** Gives up a favour I was asked; my journal comes back without it. */
   dropFavour(id) {
     this.send({ t: "favour", drop: id });

@@ -89,6 +89,13 @@ const BUILD = {
     add(tube, 0x8a6a4a, [HEAD + 0.035, 0.04, HEAD + 0.035], [0, BROW + 0.08, 0]);
     add(sphere, 0xcdb98a, [0.04, 0.03, 0.04], [0, BROW + 0.3, 0]);
   },
+  feather(g, add) {
+    add(dome, 0x3f7f4f, [HEAD + 0.02, 0.2, HEAD + 0.02], [0, BROW, 0]);
+    add(tube, 0x3f7f4f, [0.3, 0.025, 0.37], [0, BROW + 0.02, -0.07]); // a brim, longest in front
+    const feather = add(cone, 0xc8362e, [0.035, 0.44, 0.035], [0.21, BROW + 0.3, 0.06]);
+    feather.rotation.z = -0.5;
+    feather.rotation.x = -0.3;
+  },
   crown(g, add) {
     add(tube, 0xf0c53a, [0.21, 0.12, 0.21], [0, BROW + 0.12, 0]);
     for (let i = 0; i < 6; i++) {
