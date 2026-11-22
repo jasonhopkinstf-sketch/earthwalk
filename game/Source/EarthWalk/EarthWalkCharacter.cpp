@@ -3,10 +3,12 @@
 #include "EarthAnimalFigure.h"
 #include "EarthMounts.h"
 #include "EarthWalkAvatar.h"
+#include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
 #include "EarthWorld.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -101,6 +103,11 @@ void AEarthWalkCharacter::BeginPlay()
 void AEarthWalkCharacter::RefreshFigure()
 {
 	Figure->SetAnimal(FEarthWalkConfig::Avatar());
+	const UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	// -EWHat=<id> puts a hat on this player's own figure whatever the server says, for pictures.
+	FString TestHat;
+	FParse::Value(FCommandLine::Get(), TEXT("-EWHat="), TestHat);
+	Figure->SetHat(!TestHat.IsEmpty() ? TestHat : Room ? Room->GetMyHat() : FString());
 }
 
 void AEarthWalkCharacter::CycleView()

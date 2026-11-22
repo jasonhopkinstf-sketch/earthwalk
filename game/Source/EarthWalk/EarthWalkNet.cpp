@@ -127,6 +127,8 @@ void UEarthWalkNet::Connect()
 			const TSharedRef<FJsonObject> Hello = MakeShared<FJsonObject>();
 			Hello->SetStringField(TEXT("t"), TEXT("hello"));
 			Hello->SetStringField(TEXT("room"), FEarthWalkConfig::Room());
+			// How far this PC's clock is ahead of UTC, in minutes: the day's tasks turn over at the player's own midnight.
+			Hello->SetNumberField(TEXT("tz"), FMath::RoundToDouble((FDateTime::Now() - FDateTime::UtcNow()).GetTotalMinutes()));
 			// A signed-in player's name and animal live on the account; only send them when the
 			// player set them on this device (/name, /animal), which then updates the account.
 			FString Override;
@@ -284,6 +286,57 @@ void UEarthWalkNet::RequestJournal()
 	}
 	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
 	Message->SetStringField(TEXT("t"), TEXT("journal"));
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendHatBuy(const FString& Id)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("hat"));
+	Message->SetStringField(TEXT("buy"), Id);
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendHatWear(const FString& Id)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("hat"));
+	if (!Id.IsEmpty())
+	{
+		Message->SetStringField(TEXT("wear"), Id);
+	}
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendExpedition(const FString& Id, bool bStart)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("expedition"));
+	Message->SetStringField(bStart ? TEXT("start") : TEXT("drop"), Id);
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendFavourDrop(const FString& Id)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("favour"));
+	Message->SetStringField(TEXT("drop"), Id);
 	SendJson(Message);
 }
 
@@ -733,6 +786,22 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			OnSay.Broadcast(Said);
 		}
 	}
+	else if (Type == TEXT("hat"))
+	{
+		// Somebody has put a hat on, or taken it off.
+		const FString Id = Json->GetStringField(TEXT("id"));
+		FString Hat;
+		Json->TryGetStringField(TEXT("hat"), Hat);
+		if (Id == MyId)
+		{
+			MyHat = Hat;
+		}
+		else if (FEarthPeer* Peer = Peers.Find(Id))
+		{
+			Peer->Hat = Hat;
+		}
+		OnHat.Broadcast(Id, Hat);
+	}
 	else if (Type == TEXT("taxi"))
 	{
 		// A taxi is on its way to whoever called it, or one nobody boarded has driven off.
@@ -765,6 +834,13 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		if (Json->TryGetStringField(TEXT("title"), Title))
 		{
 			OnStamp.Broadcast(Kind, Title, Text);
+		}
+		// "Treasure found!" says where the finder stood, for a chest to be shown there.
+		const TSharedPtr<FJsonObject>* At = nullptr;
+		double Lat = 0.0, Lon = 0.0;
+		if (Json->TryGetObjectField(TEXT("at"), At) && (*At)->TryGetNumberField(TEXT("lat"), Lat) && (*At)->TryGetNumberField(TEXT("lon"), Lon))
+		{
+			OnTreasure.Broadcast(Lat, Lon);
 		}
 	}
 	else if (Type == TEXT("join"))
@@ -829,6 +905,7 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 	{
 		MyId = Json->GetStringField(TEXT("id"));
 		MyName = Json->GetStringField(TEXT("name"));
+		MyHat.Reset(); // the server says which hat I have on right after this, if any
 		RoomName = Json->GetStringField(TEXT("room"));
 		bJoined = true;
 		Json->TryGetBoolField(TEXT("signedIn"), bSignedIn);
@@ -889,6 +966,7 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 					{
 						Peer.Ride = ReadRide(**Riding);
 					}
+					(*Object)->TryGetStringField(TEXT("hat"), Peer.Hat);
 					Names.Add(Peer.Name);
 					Peers.Add((*Object)->GetStringField(TEXT("id")), Peer);
 				}

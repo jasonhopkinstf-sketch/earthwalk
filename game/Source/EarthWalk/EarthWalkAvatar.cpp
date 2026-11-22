@@ -39,6 +39,15 @@ void AEarthWalkAvatar::SetDisplayName(const FString& Name)
 	Label->SetText(FText::FromString(Name));
 }
 
+void AEarthWalkAvatar::SetHat(const FString& Id)
+{
+	if (Figure->GetHat() != Id)
+	{
+		Figure->SetHat(Id);
+		Label->SetRelativeLocation(FVector(0, 0, Figure->GetHat().IsEmpty() ? 200 : 232)); // the name clears the tallest hat
+	}
+}
+
 void AEarthWalkAvatar::SetAnimal(const FString& Id)
 {
 	Figure->SetAnimal(Id);

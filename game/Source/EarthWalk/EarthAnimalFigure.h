@@ -51,6 +51,16 @@ public:
 	 */
 	USceneComponent* HeadJoint() const { return Head.Node; }
 
+	/**
+	 * Puts a hat on the figure's head, or (with an empty id, or one this game does not know) takes it
+	 * off. Only a hat's id travels between players; each game builds the hat from basic shapes, as it
+	 * does the figures. The thirteen hats and their sizes are BUILD in server/public/js/hats.js.
+	 */
+	void SetHat(const FString& Id);
+	const FString& GetHat() const { return HatId; }
+	/** True for a hat this game can draw. */
+	static bool KnowsHat(const FString& Id);
+
 private:
 	enum class EEars : uint8 { None, Pointed, Round, Long, Tuft };
 	enum class ETail : uint8 { None, Bushy, Stub, Thin };
@@ -107,6 +117,14 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<USceneComponent>> Nodes;
+
+	UPROPERTY()
+	TObjectPtr<UStaticMesh> CylinderMesh;
+
+	/** The shapes of the hat being worn; they hang on the head joint, so they nod and lean with the head. */
+	UPROPERTY()
+	TArray<TObjectPtr<USceneComponent>> HatParts;
+	FString HatId;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> Tints;

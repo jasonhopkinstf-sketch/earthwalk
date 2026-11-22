@@ -77,6 +77,7 @@ struct FEarthSay
 struct FEarthPeer
 {
 	FEarthRide Ride;
+	FString Hat; // the hat they are wearing; empty for none
 	FString Name;
 	FString Avatar; // which animal they chose
 	double Lat = 0.0;
@@ -118,6 +119,8 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthRide, const FEarthRide& /*Mine*/);
 DECLARE_MULTICAST_DELEGATE(FOnEarthRideFail);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthSay, const FEarthSay& /*Said*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthOrder, const FEarthOrder& /*Order*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthHat, const FString& /*MemberId*/, const FString& /*Hat, or empty*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*Lon*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
@@ -177,6 +180,14 @@ public:
 	void SendTalk(uint32 Thing, const FString& Sp, const FString& Text = FString(), bool bHasAt = false, double Lat = 0.0, double Lon = 0.0);
 	/** Asks for my own journal; it comes through OnJournal. */
 	void RequestJournal();
+	/** Buys a hat with my coins and puts it on; puts on one I own; or (empty) takes my hat off. The room hears through OnHat. */
+	void SendHatBuy(const FString& Id);
+	void SendHatWear(const FString& Id);
+	const FString& GetMyHat() const { return MyHat; }
+	/** Sets out on an expedition from the passport ("hunt" is the treasure hunt of where I stand), or gives one up. My journal comes back. */
+	void SendExpedition(const FString& Id, bool bStart);
+	/** Gives up a favour I was asked; my journal comes back without it. */
+	void SendFavourDrop(const FString& Id);
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
 	void SendTaxi(const FString& Place);
 	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
@@ -212,6 +223,9 @@ public:
 	FOnEarthSay OnSay;
 	FOnEarthOrder OnOrder;
 	FOnEarthTaxi OnTaxi;
+	FOnEarthHat OnHat;
+	/** A treasure was found by me, at this place: a chest is shown there. */
+	FOnEarthTreasure OnTreasure;
 	FOnEarthJournal OnJournal;
 	FOnEarthStamp OnStamp;
 
@@ -229,6 +243,7 @@ private:
 	TMap<FString, FEarthPeer> Peers;
 	TArray<FEarthPerson> People;
 	FEarthRide MyRide;
+	FString MyHat;
 	TMap<uint32, FEarthLeft> Left;
 	TMap<uint32, FEarthOrder> Orders;
 	TMap<uint32, FEarthTaxi> Taxis;

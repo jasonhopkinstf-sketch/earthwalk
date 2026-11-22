@@ -3,6 +3,7 @@
 #include "EarthLife.h"
 #include "EarthLifeMotion.h"
 #include "EarthLifeRigs.h"
+#include "EarthTreasure.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWorld.h"
@@ -184,6 +185,29 @@ void UEarthCompany::Setup(AEarthWorld* InWorld)
 		Room->OnSay.AddUObject(this, &UEarthCompany::OnSay);
 		Room->OnOrder.AddUObject(this, &UEarthCompany::OnOrder);
 		Room->OnTaxi.AddUObject(this, &UEarthCompany::OnTaxi);
+		Room->OnTreasure.AddUObject(this, &UEarthCompany::OnTreasure);
+	}
+}
+
+void UEarthCompany::OnTreasure(double Lat, double Lon)
+{
+	AEarthWorld* Earth = World.Get();
+	const AEarthWalkCharacter* Me = Player.Get();
+	if (!Earth || !Me || !Earth->GetWorld())
+	{
+		return;
+	}
+	// Three and a half metres ahead of where the finder stood, the way I am looking, on the ground there.
+	const APlayerController* PC = Cast<APlayerController>(Me->GetController());
+	const double Yaw = PC ? PC->GetControlRotation().Yaw : Me->GetActorRotation().Yaw;
+	const FVector Ahead = FRotator(0.0, Yaw, 0.0).Vector();
+	FVector At = Earth->GeoToWorld(Lat, Lon, 0.0) + Ahead * 350.0;
+	double Ground = 0.0;
+	At.Z = Earth->TerrainHeightAt(At.Y / 100.0, -At.X / 100.0, Ground) ? Ground * 100.0 : Me->FeetLocation().Z;
+	// Its front, where the lock is, faces the finder.
+	if (AEarthTreasure* Chest = Earth->GetWorld()->SpawnActor<AEarthTreasure>(At, FRotator(0.0, Yaw + 180.0, 0.0)))
+	{
+		Chest->Build(Earth);
 	}
 }
 
@@ -1397,6 +1421,15 @@ void UEarthCompany::TestAids(double Dt)
 	if (Me && Room && Room->IsConnected() && !Me->IsWaitingForGround() && PlayerAt(Px, Pz))
 	{
 		TestClock += Dt;
+		// -EWTreasure stands a treasure chest in front of the player, as when a hunt is won.
+		static bool bChestShown = false;
+		if (!bChestShown && TestClock > 5.0 && FParse::Param(FCommandLine::Get(), TEXT("EWTreasure")))
+		{
+			bChestShown = true;
+			double Lat = 0.0, Lon = 0.0, Alt = 0.0;
+			World->WorldToGeo(Me->GetActorLocation(), Lat, Lon, Alt);
+			OnTreasure(Lat, Lon);
+		}
 		if (!TaxiPlace.IsEmpty() && !bTaxiCalled && TestClock > 2.0)
 		{
 			bTaxiCalled = true;

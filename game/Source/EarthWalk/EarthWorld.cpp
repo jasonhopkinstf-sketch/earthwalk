@@ -1427,6 +1427,7 @@ void AEarthWorld::UpdateAvatars()
 		{
 			Avatar->SetTarget(Target, Peer.Yaw);
 			Avatar->SetSeated(Peer.Ride.bOn);
+			Avatar->SetHat(Peer.Hat);
 		}
 	}
 }

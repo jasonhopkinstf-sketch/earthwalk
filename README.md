@@ -243,20 +243,20 @@ the front door. Inside are rooms laid out from thirty recipes of our own
 bedrooms, bathrooms, studies and playrooms, with doorways, windows and furniture. A house is the same inside for everyone, and friends who go in together see each other.
 `server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
-Treasure hunts and expeditions (in the browser so far): the passport starts a treasure hunt wherever
+Treasure hunts and expeditions: the passport starts a treasure hunt wherever
 you stand. It is five riddles about real places nearby, taken from the map ("I have a bell but no
 bicycle" is the church 250 metres to the south), with a chest of coins at the last, and friends who
 start in the same neighbourhood that day get the same hunt. The passport also lists expeditions to
 set out on: albums of animals to meet, tours of famous places, and lost animals to walk home to
 their part of the world (`server/src/hunt.ts`, `server/src/expeditions.ts`).
 
-Favours (in the browser so far): ask anything you talk to "can I help?" and it may ask a favour to
+Favours: ask anything you talk to "can I help?" and it may ask a favour to
 do with what it is. A horse wants a run, a cat a walk, a house has a parcel for another house, and
 a tree that cannot leave its spot wants to hear what is down the road. Some ask without being
 asked. Each pays coins, up to three can be open at once, and none can be failed
 (`server/src/favours.ts`).
 
-Daily tasks, coins and hats (in the browser so far): the passport lists three small tasks each day,
+Daily tasks, coins and hats: the passport lists three small tasks each day,
 the same for everyone ("talk to a tree", "ride a kilometre on anything"). A task pays coins, all
 three pay more, and coins buy hats that friends see on you; two hats can only be won, by doing all
 three tasks on one day and on seven. Nothing can be failed and nothing runs out
@@ -314,8 +314,11 @@ speech bubbles, the line that says what E and T would do, and the passport are i
 along behind a player in the other. Taxis are in `EarthCompany.cpp` too (it draws one on its way
 to whoever called it, by the shared clock). Going into houses is there and in `EarthWorld.cpp`:
 the labels give the doors, and `OpenHouse` fetches the inside of a house the first time somebody
-goes in and builds it inside the house's own walls, each sheet with a second face. Not in the
-Windows game yet: the passport's riddles and the companions they win.
+goes in and builds it inside the house's own walls, each sheet with a second face. The Windows passport has the same pages as the browser's (today's tasks, favours, the treasure hunt
+and expeditions, hats, riddles), with buttons for the mouse; hats are built in
+`EarthAnimalFigure.cpp` from the shapes of `hats.js`, and the treasure chest is `EarthTreasure.cpp`.
+Not in the Windows game yet: companions (so a lost animal being taken home is not seen walking
+along), driving with pedals, and the garage.
 
 ## Art assets and the look
 
@@ -395,7 +398,9 @@ cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs 
 is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRide=<kind>`
 hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
 `-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
-says that to it, and `-EWPassport` opens the passport. `-EWDoor` walks to the nearest front door that opens and goes
+says that to it, and `-EWPassport` opens the passport. `-EWHat=<id>` puts a hat on the player's own figure, `-EWPassportDo=<what>:<id>` presses one of the
+passport's buttons (`start:hunt`), `-EWPassportScroll=<distance>` scrolls it, and `-EWTreasure`
+stands a treasure chest in front of the player. `-EWDoor` walks to the nearest front door that opens and goes
 in, and `-EWTaxi=<place_with_underscores>` calls a taxi (with `-EWRide=taxi` the game hops on when
 it has pulled up). While a screenshot is pending the game ignores the keyboard and
 mouse, so typing in another window cannot move the player.

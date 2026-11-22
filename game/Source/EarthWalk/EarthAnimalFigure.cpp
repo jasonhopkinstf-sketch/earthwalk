@@ -4,6 +4,7 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "ProceduralMeshComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace
@@ -38,6 +39,8 @@ UEarthAnimalFigure::UEarthAnimalFigure()
 {
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cone(TEXT("/Engine/BasicShapes/Cone.Cone"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	CylinderMesh = Cylinder.Object;
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Material(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 	SphereMesh = Sphere.Object;
 	ConeMesh = Cone.Object;
@@ -126,6 +129,8 @@ void UEarthAnimalFigure::SetAnimal(const FString& Id)
 		return;
 	}
 	AnimalId = A.Id;
+	const FString Wearing = HatId;
+	SetHat(FString()); // its head is about to go; the hat is put back on the new one below
 	for (UStaticMeshComponent* Part : Parts)
 	{
 		if (Part)
@@ -216,6 +221,235 @@ void UEarthAnimalFigure::SetAnimal(const FString& Id)
 	case ETail::Stub: AddPart(Tail, false, Belly, FVector(0.09), FVector(0, 0.36, 0.3)); break;
 	case ETail::Thin: AddPart(Tail, false, Body, FVector(0.04, 0.04, 0.34), FVector(0, 0.5, 0.42), -0.9); break;
 	default: break;
+	}
+	SetHat(Wearing);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Hats (server/public/js/hats.js). Each is a few basic shapes in the figure's own measure: a ball,
+// a dome (the top half of a ball), a tube and a cone, each one unit across before it is sized.
+// ---------------------------------------------------------------------------------------------
+
+namespace
+{
+	enum class EHatShape : uint8 { Ball, Dome, Tube, Cone };
+
+	struct FHatPart
+	{
+		EHatShape Shape;
+		uint32 Hex;
+		FVector Scale;    // browser: x right, y up, z behind
+		FVector Position; // the same
+		double RotX = 0.0; // radians about the browser's x (to the right)
+		double RotZ = 0.0; // and about its z (behind)
+	};
+
+	/** The top of the head a hat sits on, and how far out the head reaches there. */
+	constexpr double Brow = 1.22;
+	constexpr double HeadOut = 0.27;
+
+	TArray<FHatPart> HatShapes(const FString& Id)
+	{
+		const EHatShape Ball = EHatShape::Ball, Dome = EHatShape::Dome, Tube = EHatShape::Tube, Cone = EHatShape::Cone;
+		TArray<FHatPart> P;
+		if (Id == TEXT("cap"))
+		{
+			P.Add({ Dome, 0xc8362e, { HeadOut + 0.015, 0.2, HeadOut + 0.015 }, { 0, Brow, 0 } });
+			P.Add({ Tube, 0xc8362e, { 0.17, 0.025, 0.2 }, { 0, Brow + 0.02, -0.3 } }); // the peak
+			P.Add({ Ball, 0xf3ead7, { 0.035, 0.03, 0.035 }, { 0, Brow + 0.2, 0 } });
+		}
+		else if (Id == TEXT("bobble"))
+		{
+			P.Add({ Dome, 0x3f6fb0, { HeadOut + 0.02, 0.24, HeadOut + 0.02 }, { 0, Brow - 0.02, 0 } });
+			P.Add({ Tube, 0xf7f5ef, { HeadOut + 0.035, 0.08, HeadOut + 0.035 }, { 0, Brow, 0 } });
+			P.Add({ Ball, 0xf7f5ef, { 0.08, 0.08, 0.08 }, { 0, Brow + 0.27, 0 } });
+		}
+		else if (Id == TEXT("party"))
+		{
+			P.Add({ Cone, 0xd8559a, { 0.15, 0.4, 0.15 }, { 0.03, Brow + 0.27, 0 }, 0.0, -0.12 });
+			P.Add({ Ball, 0xf2cc4a, { 0.045, 0.045, 0.045 }, { 0.055, Brow + 0.47, 0 } });
+			P.Add({ Tube, 0xf2cc4a, { 0.155, 0.03, 0.155 }, { 0.005, Brow + 0.085, 0 } });
+		}
+		else if (Id == TEXT("straw"))
+		{
+			P.Add({ Tube, 0xe2c675, { 0.46, 0.03, 0.46 }, { 0, Brow + 0.05, 0 } });
+			P.Add({ Tube, 0xe2c675, { 0.22, 0.15, 0.22 }, { 0, Brow + 0.13, 0 } });
+			P.Add({ Tube, 0xb5372e, { 0.225, 0.045, 0.225 }, { 0, Brow + 0.09, 0 } });
+		}
+		else if (Id == TEXT("chef"))
+		{
+			P.Add({ Tube, 0xf7f5ef, { 0.2, 0.2, 0.2 }, { 0, Brow + 0.14, 0 } });
+			P.Add({ Ball, 0xf7f5ef, { 0.27, 0.15, 0.27 }, { 0, Brow + 0.3, 0 } });
+		}
+		else if (Id == TEXT("cowboy"))
+		{
+			P.Add({ Tube, 0x8a5a3a, { 0.48, 0.03, 0.4 }, { 0, Brow + 0.05, 0 } });
+			for (const double Side : { -1.0, 1.0 })
+			{
+				P.Add({ Tube, 0x8a5a3a, { 0.1, 0.03, 0.34 }, { Side * 0.42, Brow + 0.085, 0 }, 0.0, Side * 0.5 }); // the brim curls up at the sides
+			}
+			P.Add({ Tube, 0x8a5a3a, { 0.2, 0.2, 0.2 }, { 0, Brow + 0.15, 0 } });
+			P.Add({ Ball, 0x8a5a3a, { 0.2, 0.06, 0.2 }, { 0, Brow + 0.25, 0 } });
+			P.Add({ Tube, 0x3a2a1e, { 0.205, 0.04, 0.205 }, { 0, Brow + 0.09, 0 } });
+		}
+		else if (Id == TEXT("top"))
+		{
+			P.Add({ Tube, 0x26262b, { 0.33, 0.03, 0.33 }, { 0, Brow + 0.05, 0 } });
+			P.Add({ Tube, 0x26262b, { 0.2, 0.34, 0.2 }, { 0, Brow + 0.22, 0 } });
+			P.Add({ Tube, 0xb5372e, { 0.205, 0.05, 0.205 }, { 0, Brow + 0.1, 0 } });
+		}
+		else if (Id == TEXT("flowers"))
+		{
+			P.Add({ Tube, 0x3f9a45, { HeadOut + 0.005, 0.035, HeadOut + 0.005 }, { 0, Brow + 0.03, 0 } });
+			const uint32 Petals[] = { 0xe85a7a, 0xf2cc4a, 0xf7f5ef, 0x9a6ad0, 0xf08a3a };
+			for (int32 i = 0; i < 10; ++i)
+			{
+				const double A = (i / 10.0) * UE_DOUBLE_PI * 2.0;
+				P.Add({ Ball, Petals[i % 5], { 0.06, 0.05, 0.06 }, { FMath::Sin(A) * (HeadOut + 0.01), Brow + 0.05, FMath::Cos(A) * (HeadOut + 0.01) } });
+			}
+		}
+		else if (Id == TEXT("pirate"))
+		{
+			P.Add({ Dome, 0x26262b, { HeadOut + 0.02, 0.22, HeadOut + 0.02 }, { 0, Brow, 0 } });
+			// A bicorne: the brim turned up into a half-moon before and behind.
+			P.Add({ Dome, 0x26262b, { 0.42, 0.3, 0.035 }, { 0, Brow + 0.02, -0.25 }, 0.22 });
+			P.Add({ Dome, 0x26262b, { 0.42, 0.3, 0.035 }, { 0, Brow + 0.02, 0.25 }, -0.22 });
+			P.Add({ Tube, 0xf0c53a, { 0.43, 0.02, 0.3 }, { 0, Brow + 0.03, 0 } }); // gold braid round the brim
+			P.Add({ Ball, 0xf7f5ef, { 0.06, 0.06, 0.02 }, { 0, Brow + 0.16, -0.3 } }); // the badge
+		}
+		else if (Id == TEXT("wizard"))
+		{
+			P.Add({ Tube, 0x5a3f9a, { 0.4, 0.03, 0.4 }, { 0, Brow + 0.05, 0 } });
+			P.Add({ Cone, 0x5a3f9a, { 0.24, 0.62, 0.24 }, { 0, Brow + 0.36, 0.03 }, 0.12 });
+			P.Add({ Ball, 0xf2cc4a, { 0.035, 0.035, 0.02 }, { 0.1, Brow + 0.2, -0.17 } });
+			P.Add({ Ball, 0xf2cc4a, { 0.035, 0.035, 0.02 }, { -0.08, Brow + 0.34, -0.1 } });
+			P.Add({ Ball, 0xf2cc4a, { 0.035, 0.035, 0.02 }, { 0.03, Brow + 0.47, -0.02 } });
+		}
+		else if (Id == TEXT("explorer"))
+		{
+			P.Add({ Tube, 0xcdb98a, { 0.4, 0.03, 0.44 }, { 0, Brow + 0.04, 0 } });
+			P.Add({ Dome, 0xd9c79a, { HeadOut + 0.03, 0.26, HeadOut + 0.03 }, { 0, Brow + 0.04, 0 } });
+			P.Add({ Tube, 0x8a6a4a, { HeadOut + 0.035, 0.04, HeadOut + 0.035 }, { 0, Brow + 0.08, 0 } });
+			P.Add({ Ball, 0xcdb98a, { 0.04, 0.03, 0.04 }, { 0, Brow + 0.3, 0 } });
+		}
+		else if (Id == TEXT("feather"))
+		{
+			P.Add({ Dome, 0x3f7f4f, { HeadOut + 0.02, 0.2, HeadOut + 0.02 }, { 0, Brow, 0 } });
+			P.Add({ Tube, 0x3f7f4f, { 0.3, 0.025, 0.37 }, { 0, Brow + 0.02, -0.07 } }); // a brim, longest in front
+			P.Add({ Cone, 0xc8362e, { 0.035, 0.44, 0.035 }, { 0.21, Brow + 0.3, 0.06 }, -0.3, -0.5 });
+		}
+		else if (Id == TEXT("crown"))
+		{
+			P.Add({ Tube, 0xf0c53a, { 0.21, 0.12, 0.21 }, { 0, Brow + 0.12, 0 } });
+			for (int32 i = 0; i < 6; ++i)
+			{
+				const double A = (i / 6.0) * UE_DOUBLE_PI * 2.0;
+				P.Add({ Cone, 0xf0c53a, { 0.05, 0.13, 0.05 }, { FMath::Sin(A) * 0.185, Brow + 0.24, FMath::Cos(A) * 0.185 } });
+				P.Add({ Ball, i % 2 ? 0xc8362eu : 0x3f6fb0u, { 0.03, 0.03, 0.03 }, { FMath::Sin(A) * 0.215, Brow + 0.12, FMath::Cos(A) * 0.215 } });
+			}
+		}
+		return P;
+	}
+
+	/** The top half of a ball a metre across, seen from both sides: the crown of a cap, a pirate's half-moon brim. */
+	void BuildDome(UProceduralMeshComponent* Mesh)
+	{
+		constexpr int32 Around = 18, Up = 8;
+		TArray<FVector> Vertices, Normals;
+		TArray<int32> Triangles;
+		for (int32 Face = 0; Face < 2; ++Face)
+		{
+			const int32 First = Vertices.Num();
+			for (int32 i = 0; i <= Up; ++i)
+			{
+				const double Rise = (i / static_cast<double>(Up)) * UE_DOUBLE_PI / 2.0;
+				for (int32 j = 0; j <= Around; ++j)
+				{
+					const double Turn = (j / static_cast<double>(Around)) * UE_DOUBLE_PI * 2.0;
+					const FVector Out(FMath::Cos(Rise) * FMath::Cos(Turn), FMath::Cos(Rise) * FMath::Sin(Turn), FMath::Sin(Rise));
+					Vertices.Add(Out * 50.0);
+					Normals.Add(Face == 0 ? Out : -Out);
+				}
+			}
+			for (int32 i = 0; i < Up; ++i)
+			{
+				for (int32 j = 0; j < Around; ++j)
+				{
+					const int32 A = First + i * (Around + 1) + j, B = A + 1, C = A + Around + 1, D = C + 1;
+					if (Face == 0)
+					{
+						Triangles.Append({ A, C, B, B, C, D });
+					}
+					else
+					{
+						Triangles.Append({ A, B, C, B, D, C });
+					}
+				}
+			}
+		}
+		Mesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, TArray<FVector2D>(), TArray<FLinearColor>(), TArray<FProcMeshTangent>(), false);
+	}
+}
+
+bool UEarthAnimalFigure::KnowsHat(const FString& Id)
+{
+	return HatShapes(Id).Num() > 0;
+}
+
+void UEarthAnimalFigure::SetHat(const FString& Id)
+{
+	const FString Wanted = KnowsHat(Id) ? Id : FString();
+	if (Wanted == HatId && (Wanted.IsEmpty() || HatParts.Num() > 0))
+	{
+		return;
+	}
+	for (USceneComponent* Part : HatParts)
+	{
+		if (Part)
+		{
+			Part->DestroyComponent();
+		}
+	}
+	HatParts.Reset();
+	HatId = Wanted;
+	if (Wanted.IsEmpty() || !Head.Node)
+	{
+		return;
+	}
+	UObject* Outer = GetOwner() ? static_cast<UObject*>(GetOwner()) : static_cast<UObject*>(this);
+	for (const FHatPart& Part : HatShapes(Wanted))
+	{
+		UMeshComponent* Mesh = nullptr;
+		// Engine balls and tubes are a metre across where the browser's are two; its cones and tubes are a metre tall, as the browser's are.
+		FVector Scale(2.0 * Part.Scale.Z, 2.0 * Part.Scale.X, Part.Scale.Y);
+		if (Part.Shape == EHatShape::Dome)
+		{
+			UProceduralMeshComponent* Dome = NewObject<UProceduralMeshComponent>(Outer);
+			BuildDome(Dome);
+			Scale.Z = 2.0 * Part.Scale.Y;
+			Mesh = Dome;
+		}
+		else
+		{
+			UStaticMeshComponent* Shape = NewObject<UStaticMeshComponent>(Outer);
+			Shape->SetStaticMesh(Part.Shape == EHatShape::Ball ? SphereMesh : Part.Shape == EHatShape::Tube ? CylinderMesh : ConeMesh);
+			if (Part.Shape == EHatShape::Ball)
+			{
+				Scale.Z = 2.0 * Part.Scale.Y;
+			}
+			Mesh = Shape;
+		}
+		Mesh->SetMaterial(0, Tint(Part.Hex));
+		Mesh->SetMobility(EComponentMobility::Movable);
+		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Mesh->SetupAttachment(Head.Node);
+		Mesh->SetRelativeLocation(ToEngine(Part.Position - Head.At));
+		// The browser turns a shape about its own x (to the right: the engine's Y) and z (behind: the engine's -X), z first.
+		Mesh->SetRelativeRotation(FQuat(FVector::YAxisVector, -Part.RotX) * FQuat(FVector::XAxisVector, Part.RotZ));
+		Mesh->SetRelativeScale3D(Scale);
+		Mesh->SetVisibility(IsVisible());
+		Mesh->RegisterComponent();
+		HatParts.Add(Mesh);
 	}
 }
 

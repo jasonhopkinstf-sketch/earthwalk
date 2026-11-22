@@ -101,6 +101,9 @@ private:
 	void DoorFrame(double Dt);
 	void UseDoor();
 
+	/** A treasure found: the chest stands a few steps ahead of me, where I am looking. */
+	void OnTreasure(double Lat, double Lon);
+
 	// ---- shared
 	void Notice(const FString& Text) const;
 	bool PlayerAt(double& OutX, double& OutZ) const;
