@@ -207,6 +207,12 @@ the world, joins them into runs and timetables a train along each, stopping at s
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
 
+Races (in the browser so far): press R beside a street and the server lays a course along the real
+roads, a few hundred metres to a mile, with a gate about every 120 m. Friends press R to join, and
+whoever set it up presses R again to start: a countdown, then every gate in turn, on foot, on a
+horse or in a car. A panel shows who is where; finishing pays coins and winning pays more. Nothing
+runs out, and a race alone is against the clock (`server/src/race.ts`, `server/public/js/race.js`).
+
 The garage (in the browser so far): everyone has a car of their own. `/car`, or a button in the
 passport, brings it to stand beside you, and only you can drive it; friends ride along. Its paint
 and body are chosen in the passport: four paints are free, nine more and a van are bought with the
