@@ -79,6 +79,29 @@ const WINDOWS = `
 const TRUNK = new THREE.CylinderGeometry(0.5, 0.5, 1, 7);
 const CROWN = new THREE.IcosahedronGeometry(0.5, 1);
 const CONE = new THREE.ConeGeometry(0.5, 1, 8);
+/** The board over a front door that opens: 80 cm by 26 cm, painted once and shared by every door. */
+const DOOR_SIGN = new THREE.PlaneGeometry(0.8, 0.26);
+let doorSign = null;
+function doorSignMaterial() {
+  if (doorSign) return doorSign;
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 104;
+  const pen = canvas.getContext("2d");
+  pen.fillStyle = "#26221f";
+  pen.fillRect(0, 0, 320, 104);
+  pen.fillStyle = "#f5c518";
+  pen.fillRect(6, 6, 308, 92);
+  pen.fillStyle = "#26221f";
+  pen.font = "bold 62px system-ui, sans-serif";
+  pen.textAlign = "center";
+  pen.textBaseline = "middle";
+  pen.fillText("COME IN", 160, 56);
+  const picture = new THREE.CanvasTexture(canvas);
+  picture.colorSpace = THREE.SRGBColorSpace;
+  picture.anisotropy = 4;
+  return (doorSign = new THREE.MeshBasicMaterial({ map: picture }));
+}
 const BARK = new THREE.MeshLambertMaterial({ color: 0x5a3d2a });
 const LEAF = new THREE.MeshLambertMaterial({ color: 0x3f8a2f, flatShading: true });
 const NEEDLE = new THREE.MeshLambertMaterial({ color: 0x2f6b2f, flatShading: true });
@@ -356,9 +379,31 @@ export class World {
       chunk.cars = items.filter((it) => it.kind === "car"); // the cars parked at the kerb; traffic.js drives them
       chunk.trains = items.filter((it) => it.kind === "train"); // and the trains, each sent with every chunk on its run
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
+      this.signDoors(chunk, chunk.doors);
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);
     }
+  }
+
+  /** Hangs a small yellow COME IN board over every front door that opens, so they can be told from the street. */
+  signDoors(chunk, doors) {
+    if (doors.length === 0) return;
+    const S = this.tileM;
+    const boards = new THREE.InstancedMesh(DOOR_SIGN, doorSignMaterial(), doors.length);
+    boards.frustumCulled = false; // spread over the whole chunk, like the trees
+    const part = new THREE.Object3D();
+    doors.forEach((door, i) => {
+      const yaw = THREE.MathUtils.degToRad(door.yaw || 0); // the way out, as a compass heading
+      part.rotation.set(0, Math.PI - yaw, 0); // the board faces out
+      // Over the door frame; or, where a porch roof would hide it there, standing on the front of the porch.
+      const out = door.porch ? 1.02 : 0.1, up = door.porch ? 2.91 : 2.66;
+      part.position.set(door.u * S + Math.sin(yaw) * out, (door.g ?? door.h) + up, door.v * S - Math.cos(yaw) * out);
+      part.updateMatrix();
+      boards.setMatrixAt(i, part.matrix);
+    });
+    boards.instanceMatrix.needsUpdate = true;
+    chunk.group.add(boards);
+    boards.updateMatrixWorld(true);
   }
 
   /** Plants a chunk's trees: a trunk with a leafy crown, or with a cone for conifers. One instanced mesh per part. */

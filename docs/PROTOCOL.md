@@ -292,11 +292,20 @@ through them.
 
 ## Inside houses: `GET /v1/interior/16/{x}/{y}/{id}`
 
-Some homes can be walked into: plain four-cornered ones, 5 to 24 m a side, on fairly level ground.
-The labels of a chunk list their front doors as items of kind `door`: `u`, `v` are the door on the
-wall, `h` the height of the floor inside, `yaw` the compass heading out of the door, and `id` the
-building. A client lets a player in by putting them about a metre inside the door at height `h`, and
-out by putting them a little beyond it; the walls are in the way otherwise.
+Most homes can be walked into. A plain four-cornered house gives the whole of itself to its rooms.
+A house of any other outline, or one more than 24 m long, gives the largest rectangle that fits
+inside it with one side along the wall its front door is on and the door in that side (`roomInside`
+in `server/src/chunk.ts`), so the rooms are always within the real walls. A house keeps its door
+shut only when no room 4 m a side fits behind it, or when the ground drops more than 6 m across it.
+
+The labels of a chunk list the doors that open as items of kind `door`: `u`, `v` are the door on the
+wall, `h` the height of the floor inside, `g` the height of the ground outside the door, `yaw` the
+compass heading out of the door, `id` the building, and `porch` is 1 where a porch roof covers the
+door (it reaches 1 m out and its top is 2.76 m above `g`). The floor is level with the highest
+ground at the house's walls, so on a hillside `h` can be several metres above `g`: a client lets a
+player in by putting them about a metre inside the door at height `h`, and out by putting them a
+little beyond it on the ground; the walls are in the way otherwise. Anything hung over the door
+outside, such as a sign saying that it opens, goes by `g`, not `h`.
 
 This route gives the inside of home `id` of chunk `x`, `y`: 404 when the chunk has no such home. The
 answer is in the chunk format above, placed in the same chunk coordinates, so it sits inside the
@@ -307,7 +316,7 @@ of their own:
 | --- | --- | --- |
 | 40 | floors, one colour a room | yes |
 | 41 | walls: the lining of the outside walls in each room's paint, and the walls between rooms with their doorways | yes |
-| 42 | the ceiling, 2.6 m up, facing down | no |
+| 42 | the ceiling, facing down: 2.6 m up, or as little as 2.3 m where the walls of a hillside house end sooner | no |
 | 43 | furniture | yes |
 | 44 | windows, their frames, and the front door seen from inside | no |
 | 45 | rugs and mats | no |

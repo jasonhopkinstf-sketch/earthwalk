@@ -14,7 +14,7 @@ import { trainsFor, type Train } from "./rail.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 8;
+export const LABELS_REV = 9;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
@@ -41,6 +41,9 @@ export interface LabelItem {
   s?: number;
   r?: number;
   c?: number;
+  /** Doors: the height of the ground outside the door (`h` is the floor inside), and 1 if the door has a porch. */
+  g?: number;
+  porch?: number;
   /** Second plate of a street sign at a crossing. */
   text2?: string;
   u: number;
@@ -251,9 +254,13 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     return { kind: "home", sp: home.sp, n: home.n, r: r1(home.r), id: home.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0 };
   });
 
-  // ---- front doors that open: `id` is the building, `h` its floor, `yaw` the way out (docs/PROTOCOL.md, "Inside houses")
+  // ---- front doors that open: `id` is the building, `h` its floor, `g` the ground at the door (on a
+  // hillside the floor can be well above it), `porch` 1 where a porch roof covers the door, `yaw` the way
+  // out (docs/PROTOCOL.md, "Inside houses")
   const doors: LabelItem[] = homesOf(cx, cy, features, elev).map((home) => ({
     kind: "door", id: home.id, u: r7(home.x / S), v: r7(-home.y / S), h: Math.round(home.floor * 100) / 100,
+    g: Math.round(elev.surfaceHeight(cx + home.x / S, cy - home.y / S) * 100) / 100,
+    ...(home.porch ? { porch: 1 } : {}),
     yaw: r1(((Math.atan2(home.out[0], home.out[1]) * 180) / Math.PI + 360) % 360),
   }));
 

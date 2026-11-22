@@ -19,7 +19,7 @@ import type { Elevation } from "./elevation.ts";
 import { loadFeatures, type Features } from "./osm.ts";
 
 /** Bump when interiors change, so cached ones are rebuilt. */
-export const INTERIOR_REV = 1;
+export const INTERIOR_REV = 2;
 
 export const INSIDE = {
   floor: { id: 40, color: 0, collision: true },
@@ -30,7 +30,8 @@ export const INSIDE = {
   soft: { id: 45, color: 0, collision: false },
 } satisfies Record<string, MaterialDef>;
 
-const ROOM_M = 2.6; // floor to ceiling
+const ROOM_MAX_M = 2.6; // floor to ceiling, where the house is tall enough
+const ROOM_LOW_M = 2.3; // and the least it ever is
 const DOOR_W = 0.9;
 const DOOR_H = 2.05;
 const WALL_T = 0.1;
@@ -202,6 +203,8 @@ export function buildInterior(home: HomeDoor, S: number): ChunkMesh {
     top(s, a0, a1, b0, b1, z1);
   };
 
+  // The ceiling keeps under the top of the walls, which on a hillside is not far above the floor.
+  const ROOM_M = Math.min(ROOM_MAX_M, Math.max(ROOM_LOW_M, home.height - 0.1));
   const inset = 0.05; // the lining stands this far inside the real walls
   const plan = planHome(width - inset * 2, depth - inset * 2, door - inset, home.seed)
     ?? { rooms: [{ kind: "L" as RoomKind, a0: 0, a1: width - inset * 2, b0: 0, b1: depth - inset * 2 }], doorways: [], entrance: 0, layout: 0, mirrored: false };

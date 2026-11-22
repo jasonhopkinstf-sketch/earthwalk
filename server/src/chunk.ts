@@ -646,11 +646,104 @@ export interface HomeDoor {
   height: number;
   seed: number;
   wall: number;
+  /** Has it a porch over the door? (A sign over the door has to stand on it to be seen.) */
+  porch: boolean;
 }
-/** Homes with a side shorter or longer than this, or on ground that drops more than `HOME_SLOPE_M` across them, keep their doors shut. */
-const HOME_MIN_M = 5;
+/**
+ * The room a home gives to its inside is at least `HOME_MIN_M` a side and at most `HOME_MAX_M` (a
+ * bigger house gives that much of itself, round its door). On ground that drops more than
+ * `HOME_SLOPE_M` across the house, the door stays shut.
+ */
+const HOME_MIN_M = 4;
 const HOME_MAX_M = 24;
-const HOME_SLOPE_M = 0.8;
+const HOME_SLOPE_M = 6;
+/** The front door is at least this far from each end of the room's front wall. */
+const HOME_DOOR_CLEAR_M = 0.85;
+
+/** Does a shape (counter-clockwise, metres) keep inside an outline all the way round? Tried a hand's breadth in from its edge. */
+function liesInside(shape: XY[], ring: XY[]): boolean {
+  const IN = 0.06;
+  const inside = (x: number, y: number): boolean => {
+    let odd = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) odd = !odd;
+    }
+    return odd;
+  };
+  for (let i = 0; i < shape.length; i++) {
+    const p = shape[i], q = shape[(i + 1) % shape.length];
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (len < IN * 4) continue;
+    const tx = (q[0] - p[0]) / len, ty = (q[1] - p[1]) / len;
+    const steps = Math.max(2, Math.ceil(len / 0.4));
+    for (let k = 0; k <= steps; k++) {
+      const s = IN * 2 + ((len - IN * 4) * k) / steps;
+      if (!inside(p[0] + tx * s - ty * IN, p[1] + ty * s + tx * IN)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The largest rectangle inside a house of any outline (`ring`, counter-clockwise) that has one side
+ * along the wall its front door is on and the door in that side: where the rooms go when the house
+ * is not a plain rectangle itself. `x, y` is the door, `t` runs along its wall and `o` points out.
+ * Four corners, counter-clockwise, starting with the two on the front wall; null when no room of
+ * `HOME_MIN_M` a side fits.
+ */
+export function roomInside(ring: XY[], x: number, y: number, t: XY, o: XY): XY[] | null {
+  // The house in the door's own frame: `a` along the wall from the door, `b` back into the house.
+  const pts = ring.map(([e, n]): XY => [(e - x) * t[0] + (n - y) * t[1], -((e - x) * o[0] + (n - y) * o[1])]);
+  const lo = Math.min(...pts.map((p) => p[0])), hi = Math.max(...pts.map((p) => p[0]));
+  // Where a side of the room may be: under every corner of the house, and every metre between.
+  const marks = pts.map((p) => p[0]);
+  for (let a = Math.ceil(lo); a < hi; a++) marks.push(a);
+  marks.sort((p, q) => p - q);
+  const at: number[] = [];
+  for (const a of marks) if (!at.length || a - at[at.length - 1] > 0.02) at.push(a);
+
+  /** Looking back into the house from half a metre inside the front wall at `a`: how near the wall behind is, and the one in front. */
+  const PROBE = 0.5;
+  const span = (a: number): [number, number] => {
+    let front = -Infinity, back = Infinity, behind = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      if ((p[0] <= a) === (q[0] <= a)) continue;
+      const b = p[1] + ((a - p[0]) / (q[0] - p[0])) * (q[1] - p[1]);
+      if (b > PROBE) { behind++; if (b < back) back = b; } else if (b > front) front = b;
+    }
+    return behind % 2 === 1 ? [front, back] : [0, 0]; // an even count: this spot is not in the house at all
+  };
+  // Between two marks the walls run straight, so the tightest place is just inside one end or the other.
+  const gaps: [number, number][] = [];
+  for (let i = 0; i + 1 < at.length; i++) {
+    const [f0, b0] = span(at[i] + 0.01), [f1, b1] = span(at[i + 1] - 0.01);
+    gaps.push([Math.max(f0, f1), Math.min(b0, b1)]);
+  }
+
+  let best: [number, number, number, number] | null = null;
+  let bestArea = 0;
+  for (let i = 0; i + 1 < at.length && at[i] <= -HOME_DOOR_CLEAR_M; i++) {
+    let front = 0, back = Infinity;
+    for (let j = i + 1; j < at.length; j++) {
+      front = Math.max(front, gaps[j - 1][0]);
+      back = Math.min(back, gaps[j - 1][1]);
+      // The door's wall must be the front of the room all the way along, give or take a wall's thickness.
+      if (front > 0.25 || back - front < HOME_MIN_M) break;
+      if (at[j] < HOME_DOOR_CLEAR_M) continue;
+      const wide = Math.min(at[j] - at[i], HOME_MAX_M), deep = Math.min(back - front, HOME_MAX_M);
+      if (wide < HOME_MIN_M || wide * deep <= bestArea) continue;
+      const left = Math.max(at[i], Math.min(-wide / 2, at[j] - wide)); // a house wider than the most: that much of it, round the door
+      bestArea = wide * deep;
+      best = [left, left + wide, front, front + deep];
+    }
+  }
+  if (!best) return null;
+  const [a0, a1, b0, b1] = best;
+  const back = (a: number, b: number): XY => [x + t[0] * a - o[0] * b, y + t[1] * a - o[1] * b];
+  return [back(a0, b0), back(a1, b0), back(a1, b1), back(a0, b1)];
+}
 
 /**
  * `look` is the style of the houses; left out, it is the style of where the chunk is in the world.
@@ -1045,19 +1138,24 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(leaf, x, y, t, o, -1.5, -0.04, 0.1, 0.16, g + 0.02, g + 3.0);
           box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
         } else {
-          // A plain four-square house on fairly level ground can be walked into.
-          const outline = homes && homely ? simplifyRing(ring) : [];
-          if (homes && isRectangle(outline) && hi - lo < HOME_SLOPE_M) {
+          const porch = homely && (h >>> 21) % 2 === 0 && top - g > 3.4;
+          // A house can be walked into. A plain four-square one gives the whole of itself to its
+          // rooms; one of any other shape, or a very big one, the largest rectangle that fits
+          // inside it behind the front door. The floor is level with the highest ground at its
+          // walls, so no hillside comes up through it.
+          if (homes && homely && hi - lo < HOME_SLOPE_M) {
+            const outline = simplifyRing(ring);
             const side = (i: number): number => Math.hypot(outline[(i + 1) % 4][0] - outline[i][0], outline[(i + 1) % 4][1] - outline[i][1]);
-            if (Math.min(side(0), side(1)) >= HOME_MIN_M && Math.max(side(0), side(1)) <= HOME_MAX_M) {
-              homes.push({ id: b.id, corners: outline, x, y, along: t, out: o, floor: hi + 0.06, height: top - hi, seed: h, wall: wallHex });
-            }
+            // (An outline that only looks like a rectangle once its small corners are smoothed off is not one.)
+            const whole = isRectangle(outline) && Math.min(side(0), side(1)) >= HOME_MIN_M && Math.max(side(0), side(1)) <= HOME_MAX_M && liesInside(outline, ring);
+            const corners = whole ? outline : roomInside(ring, x, y, t, o);
+            if (corners) homes.push({ id: b.id, corners, x, y, along: t, out: o, floor: hi + 0.06, height: top - hi, seed: h, wall: wallHex, porch });
           }
           box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.5);
           box(sec(painted(MATERIALS.door, style.doors[(h >>> 18) % style.doors.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
           box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
           box(sec(painted(MATERIALS.trim, 0xcfc8b8)), x, y, t, o, -0.85, 0.85, 0, 0.55, g - 0.4, g + 0.12);
-          if (homely && (h >>> 21) % 2 === 0 && top - g > 3.4) {
+          if (porch) {
             // A porch: a small roof over the door on two posts.
             box(sec(roofMat), x, y, t, o, -0.98, 0.98, 0, 1.0, g + 2.62, g + 2.76, false, true);
             box(trim, x, y, t, o, -0.9, -0.8, 0.82, 0.92, g - 0.4, g + 2.62, true);
