@@ -15,7 +15,7 @@ import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 9;
+export const GENERATOR_REV = 10;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -486,6 +486,32 @@ function box(sec: Section, x: number, y: number, t: XY, o: XY, w0: number, w1: n
 /** Where a chimney can stand on a pitched roof: a point on the ridge and the way the ridge runs. */
 interface RidgeSpot { x: number; y: number; z: number; along: XY }
 
+/** A mapped roof shape (roof:shape), as one of the few kinds of roof built here. "" when unmapped or unknown. */
+function roofShape(b: Building): string {
+  const s = (b.roof ?? "").toLowerCase();
+  if (s === "flat") return "flat";
+  if (s === "skillion" || s === "lean_to") return "skillion";
+  if (/^(dome|onion|cone|pyramidal|mansard)$/.test(s)) return s;
+  if (/hipped|^many$/.test(s)) return "hipped"; // half-hipped and hipped-and-gabled too
+  if (/gabled|gambrel|saltbox|round|sawtooth|crosspitched/.test(s)) return "gabled";
+  return "";
+}
+
+/** A quad or triangle on a round roof, facing away from the middle of the building: under a bulge that is downwards. */
+function outFace(sec: Section, pts: [number, number, number][], mx: number, my: number): void {
+  const [p, q, r] = pts;
+  let nx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]);
+  let ny = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]);
+  let nz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  let ce = 0, cn = 0;
+  for (const [e, n] of pts) { ce += e / pts.length; cn += n / pts.length; }
+  const away = nx * (ce - mx) + ny * (cn - my);
+  if (Math.abs(away) < 1e-9 ? nz < 0 : away < 0) { nx = -nx; ny = -ny; nz = -nz; }
+  const len = Math.hypot(nx, ny, nz);
+  if (len < 1e-9) return;
+  face(sec, pts, [nx / len, ny / len, nz / len]);
+}
+
 /** What kind of roof a building gets when the map does not say: see `HouseStyle` in styles.ts. */
 interface RoofLook {
   form: RoofForm;
@@ -503,11 +529,13 @@ const PAVEMENT = 1.6;
  * along the middle). Flat on everything else and whenever OSM says flat: big or tall buildings stay
  * flat unless OSM says otherwise.
  */
-function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: number, look: RoofLook, walls: Section, roof: Section, flatRoof: Section, soffit: Section): RidgeSpot | null {
-  const shape = b.roof ?? "";
+function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: number, look: RoofLook, walls: Section, roof: Section, flatRoof: Section, soffit: Section, holes: XY[][] = []): RidgeSpot | null {
+  const shape = roofShape(b);
   const EAVES = look.eaves;
-  const flatTag = /^(flat|skillion)$/.test(shape);
-  const tagged = /gabled|hipped|pyramidal|gambrel|mansard|round|half-hipped/.test(shape);
+  const flatTag = shape === "flat" || shape === "skillion";
+  const tagged = /^(gabled|hipped|pyramidal|mansard|dome|onion|cone)$/.test(shape);
+  /** The way a mapped roof faces, looking downhill: a unit vector (east, north). */
+  const facing: XY | null = b.roofDirection === undefined ? null : [Math.sin((b.roofDirection * Math.PI) / 180), Math.cos((b.roofDirection * Math.PI) / 180)];
   const mansard = !flatTag && (shape === "mansard" || (!tagged && look.form === "mansard" && height < 26 && areaM2 < 4000));
   const pitched = !flatTag && !mansard && (tagged || (look.form === "pitched" && areaM2 < 1500 && height < look.maxPitched));
   const simple = pitched || mansard ? simplifyRing(ring) : [];
@@ -538,6 +566,75 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: n
     return spot;
   };
 
+  if (holes.length) {
+    // A building round a courtyard: a flat roof with the yard cut out of it.
+    const flat = look.form === "flat" ? roof : flatRoof;
+    const first = flat.count;
+    const flatPts: number[] = [];
+    const starts: number[] = [];
+    for (const [e, n] of ring) { flat.vert(e, n, top, 0, 0, 1); flatPts.push(e, n); }
+    for (const hole of holes) {
+      starts.push(flatPts.length / 2);
+      for (const [e, n] of hole) { flat.vert(e, n, top, 0, 0, 1); flatPts.push(e, n); }
+    }
+    const tris = earcut(flatPts, starts);
+    for (let i = 0; i < tris.length; i += 3) flat.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+    return null;
+  }
+  if (shape === "skillion" && ring.length <= 48) {
+    // One slope, from its high wall to its low one. Unmapped, it falls towards its longest wall.
+    const rise = Math.min(height * 0.6, b.roofHeight ?? clamp(0.12 * Math.sqrt(areaM2), 0.8, 3));
+    let fall: XY = facing ?? [0, 1];
+    if (!facing) {
+      let longest = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const de = ring[(i + 1) % ring.length][0] - ring[i][0], dn = ring[(i + 1) % ring.length][1] - ring[i][1];
+        const len = Math.hypot(de, dn);
+        if (len > longest) { longest = len; fall = [dn / len, -de / len]; }
+      }
+    }
+    const up = ring.map(([e, n]) => -(e * fall[0] + n * fall[1]));
+    const lowest = Math.min(...up), span = Math.max(...up) - lowest || 1;
+    const z = up.map((v) => top + (rise * (v - lowest)) / span);
+    const k = rise / span, nl = Math.hypot(k, 1);
+    const first = roof.count;
+    ring.forEach(([e, n], i) => roof.vert(e, n, z[i], (fall[0] * k) / nl, (fall[1] * k) / nl, 1 / nl));
+    const tris = earcut(ring.flat());
+    for (let i = 0; i < tris.length; i += 3) roof.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
+    // The walls carry on up to meet it.
+    for (let i = 0; i < ring.length; i++) {
+      const j = (i + 1) % ring.length;
+      const de = ring[j][0] - ring[i][0], dn = ring[j][1] - ring[i][1], len = Math.hypot(de, dn);
+      if (len < 0.01 || (z[i] - top < 0.02 && z[j] - top < 0.02)) continue;
+      const ne = dn / len, nn = -de / len;
+      const v0 = walls.vert(ring[i][0], ring[i][1], top, ne, nn, 0);
+      const v1 = walls.vert(ring[j][0], ring[j][1], top, ne, nn, 0);
+      const v2 = walls.vert(ring[j][0], ring[j][1], z[j], ne, nn, 0);
+      const v3 = walls.vert(ring[i][0], ring[i][1], z[i], ne, nn, 0);
+      if (z[j] - top >= 0.02) walls.tri(v0, v1, v2);
+      if (z[i] - top >= 0.02) walls.tri(v0, v2, v3);
+    }
+    return null;
+  }
+  if (/^(dome|onion|cone|pyramidal)$/.test(shape) && ring.length >= 3 && ring.length <= 64 && areaM2 < 8000 && isConvex(ring)) {
+    // Round roofs and points: the outline drawn in towards the middle as it rises, by the roof's profile.
+    let mx = 0, my = 0;
+    for (const [x, y] of ring) { mx += x / ring.length; my += y / ring.length; }
+    const radius = Math.sqrt(areaM2 / Math.PI);
+    const rise = Math.min(60, b.roofHeight ?? roundRise(shape, radius));
+    const profile: XY[] = shape === "dome" ? [[1, 0], [0.95, 0.31], [0.81, 0.59], [0.59, 0.81], [0.31, 0.95], [0, 1]]
+      : shape === "onion" ? [[1, 0], [1.12, 0.14], [1.1, 0.32], [0.85, 0.55], [0.45, 0.74], [0.16, 0.88], [0, 1]]
+      : [[1, 0], [0, 1]];
+    const at = (pt: XY, r: number, h: number): [number, number, number] => [mx + (pt[0] - mx) * r, my + (pt[1] - my) * r, top + rise * h];
+    for (let k = 0; k + 1 < profile.length; k++) {
+      const [r0, h0] = profile[k], [r1, h1] = profile[k + 1];
+      for (let i = 0; i < ring.length; i++) {
+        const p = ring[i], q = ring[(i + 1) % ring.length];
+        outFace(roof, r1 > 0 ? [at(p, r0, h0), at(q, r0, h0), at(q, r1, h1), at(p, r1, h1)] : [at(p, r0, h0), at(q, r0, h0), [mx, my, top + rise * h1]], mx, my);
+      }
+    }
+    return null;
+  }
   if (mansard && simple.length >= 3 && simple.length <= 24) {
     // A mansard: steep sides and a flat top, whatever the size of the building.
     for (const d of [1.5, 1.1, 0.8]) {
@@ -545,12 +642,15 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: n
       if (spot) return spot;
     }
   }
-  if (pitched && areaM2 < 400 && simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
+  if (pitched && (areaM2 < 400 || (tagged && areaM2 < 3000)) && simple.length >= 3 && simple.length <= 8 && isConvex(simple)) {
     const rise = Math.min(height * 0.8, b.roofHeight ?? clamp(0.35 * Math.sqrt(areaM2), 1.8, 5) * look.pitch);
     if (isRectangle(simple)) {
-      // Ridge along the longer sides.
+      // Ridge along the longer sides, unless the map says which way the roof faces.
       const [p0, p1, p2, p3] = simple;
-      const long = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) >= Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+      const side01 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
+      let long = side01 >= Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+      if (b.roofAcross) long = !long;
+      else if (facing && shape !== "hipped") long = Math.abs(((p1[0] - p0[0]) * facing[0] + (p1[1] - p0[1]) * facing[1]) / side01) < 0.7071;
       const [a, b2, c, d] = long ? [p0, p1, p2, p3] : [p1, p2, p3, p0];
       const r0: [number, number, number] = [(d[0] + a[0]) / 2, (d[1] + a[1]) / 2, top + rise];
       const r1: [number, number, number] = [(b2[0] + c[0]) / 2, (b2[1] + c[1]) / 2, top + rise];
@@ -562,6 +662,21 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: n
       const drop = (EAVES * rise) / (span / 2);
       const eave = (p: XY, alongRidge: number, side: number): [number, number, number] =>
         [p[0] + u[0] * EAVES * alongRidge + out[0] * EAVES * side, p[1] + u[1] * EAVES * alongRidge + out[1] * EAVES * side, top - drop];
+      if (shape === "hipped") {
+        // A hip: the ends slope too, so the ridge stops short of each end by half the width of the house.
+        const inset = Math.min(span / 2, run / 2);
+        const H0: [number, number, number] = [r0[0] + u[0] * inset, r0[1] + u[1] * inset, r0[2]];
+        const H1: [number, number, number] = [r1[0] - u[0] * inset, r1[1] - u[1] * inset, r1[2]];
+        const A = eave(a, -1, 1), B = eave(b2, 1, 1), C = eave(c, 1, -1), D = eave(d, -1, -1);
+        const hips: [number, number, number][][] = run - 2 * inset > 0.05 ? [[A, B, H1, H0], [C, D, H0, H1], [B, C, H1], [D, A, H0]] : [[A, B, H0], [C, D, H0], [B, C, H0], [D, A, H0]];
+        for (const pts of hips) {
+          slopeFace(roof, pts);
+          const first = roof.count - pts.length;
+          const n: [number, number, number] = [-roof.nrm[first * 3], -roof.nrm[first * 3 + 1], -roof.nrm[first * 3 + 2]];
+          face(soffit, pts.map(([e, nn, h]) => [e, nn, h - 0.04]), n);
+        }
+        return { x: (H0[0] + H1[0]) / 2, y: (H0[1] + H1[1]) / 2, z: top + rise, along: u };
+      }
       const R0: [number, number, number] = [r0[0] - u[0] * EAVES, r0[1] - u[1] * EAVES, r0[2]];
       const R1: [number, number, number] = [r1[0] + u[0] * EAVES, r1[1] + u[1] * EAVES, r1[2]];
       const slopes: [number, number, number][][] = [
@@ -630,6 +745,26 @@ function addRoof(ring: XY[], top: number, b: Building, areaM2: number, height: n
   const tris = earcut(ring.flat());
   for (let i = 0; i < tris.length; i += 3) flat.triUp(first + tris[i], first + tris[i + 1], first + tris[i + 2]);
   return null;
+}
+
+/** How high a round or pointed roof is for its width, where the map does not say. */
+function roundRise(shape: string, radius: number): number {
+  return shape === "dome" ? radius * 0.9 : shape === "onion" ? radius * 1.9 : shape === "cone" ? radius * 1.6 : clamp(radius * 0.9, 1.5, 8);
+}
+
+/**
+ * How far a building's roof will rise above its walls, near enough. A height mapped in metres is to
+ * the top of the roof, so the walls of such a building stop this much short of it.
+ */
+function roofRise(b: Building, areaM2: number, height: number, look: RoofLook): number {
+  const shape = roofShape(b);
+  if (shape === "flat") return 0;
+  if (b.roofHeight !== undefined) return b.roofHeight;
+  if (shape === "skillion") return clamp(0.12 * Math.sqrt(areaM2), 0.8, 3);
+  if (/^(dome|onion|cone|pyramidal)$/.test(shape)) return roundRise(shape, Math.sqrt(areaM2 / Math.PI));
+  if (shape === "mansard" || (!shape && look.form === "mansard" && height < 26 && areaM2 < 4000)) return 2.5;
+  if (shape || (look.form === "pitched" && areaM2 < 400 && height < look.maxPitched)) return clamp(0.35 * Math.sqrt(areaM2), 1.8, 5) * look.pitch;
+  return 0;
 }
 
 /**
@@ -1059,36 +1194,62 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     /** Flats: somewhere people live that is too big or too tall to be a house. */
     const block = !homely && homelyKind && dwelling;
     const bricks = (h >>> 4) % 8 < (small ? style.brickShare : style.bigBrickShare) ? style.bricks : [];
-    const wallHex = barn ? BARN_RED
+    // The paint the map gives a building comes before any of ours.
+    const wallHex = b.colour ?? (barn ? BARN_RED
       : bricks.length ? bricks[(h >>> 7) % bricks.length]
       : small ? style.paints[(h >>> 6) % style.paints.length]
-      : style.big[(h >>> 4) % style.big.length];
-    const wallMat = painted(barn ? MATERIALS.wall0 : bricks.length ? MATERIALS.wall3 : small ? MATERIALS.wall0 : h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, wallHex);
-    const top = Math.max((lo + hi) / 2 + height, hi + 2.4);
-    const roofMat = barn ? painted(MATERIALS.roof0, BARN_ROOF) : roofIn(style.roofs[(h >>> 8) % style.roofs.length]);
+      : style.big[(h >>> 4) % style.big.length]);
+    const brick = b.colour !== undefined ? !!b.brick : bricks.length > 0 && !barn;
+    const wallMat = painted(barn && b.colour === undefined ? MATERIALS.wall0 : brick ? MATERIALS.wall3 : small ? MATERIALS.wall0 : h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, wallHex);
+    const roofMat = b.roofColour !== undefined ? roofIn(b.roofColour) : barn ? painted(MATERIALS.roof0, BARN_ROOF) : roofIn(style.roofs[(h >>> 8) % style.roofs.length]);
+    const flatMat = b.roofColour !== undefined ? roofIn(b.roofColour) : painted(MATERIALS.roof0, FLAT_ROOFS[(h >>> 8) % FLAT_ROOFS.length]);
     // Homes and flats take the roof their part of the world gives them; barns keep their gables, and
     // everything else (halls, schools, shops) is pitched when low and flat when not, unless roofs are flat here.
     const roofLook: RoofLook = barn ? { form: "pitched", maxPitched: 13, pitch: 1, eaves: 0.4 }
       : dwelling || small ? { form: tier === 2 ? style.cityRoof : tier === 1 ? style.townRoof : style.roof, maxPitched: tier > 0 ? 20 : 13, pitch: style.pitch, eaves: style.eaves }
       : { form: style.roof, maxPitched: 13, pitch: 1, eaves: style.eaves };
-    const walls = sec(wallMat);
-    for (let i = 0; i < ring.length; i++) {
-      const [ae, an] = ring[i];
-      const [be, bn] = ring[(i + 1) % ring.length];
-      const de = be - ae;
-      const dn = bn - an;
-      const len = Math.hypot(de, dn);
-      if (len < 0.01) continue;
-      const ne = dn / len; // outward normal of a counter-clockwise ring
-      const nn = -de / len;
-      const v0 = walls.vert(ae, an, base, ne, nn, 0);
-      const v1 = walls.vert(be, bn, base, ne, nn, 0);
-      const v2 = walls.vert(be, bn, top, ne, nn, 0);
-      const v3 = walls.vert(ae, an, top, ne, nn, 0);
-      walls.tri(v0, v1, v2);
-      walls.tri(v0, v2, v3);
+    // Courtyards, clockwise seen from above, so that their walls face into the yard.
+    const holes: XY[][] = [];
+    for (const yard of b.holes ?? []) {
+      const hole = yard.map(([x, y]) => [E(x), N(y)] as XY);
+      let yard2 = 0;
+      for (let i = 0, j = hole.length - 1; i < hole.length; j = i++) yard2 += hole[j][0] * hole[i][1] - hole[i][0] * hole[j][1];
+      if (Math.abs(yard2) < 8) continue; // under 4 m2
+      holes.push(yard2 > 0 ? hole.reverse() : hole);
     }
-    const ridge = addRoof(ring, top, b, areaM2, height, roofLook, walls, sec(roofMat), sec(painted(MATERIALS.roof0, FLAT_ROOFS[(h >>> 8) % FLAT_ROOFS.length])), sec(MATERIALS.trim));
+    // A height mapped in metres is to the top of the roof: the walls stop short of it by what the roof rises.
+    const rise = b.measured && !holes.length ? Math.min(height * 0.45, roofRise(b, areaM2, height, roofLook)) : 0;
+    const wallHeight = height - rise;
+    const roofed: Building = rise > 0 ? { ...b, roofHeight: rise } : b;
+    const top = Math.max((lo + hi) / 2 + wallHeight, hi + 2.4);
+    /** A building on legs, or bridging a street: it starts this far up. */
+    const raised = b.minHeight !== undefined && (lo + hi) / 2 + b.minHeight < top - 1;
+    const foot = raised ? (lo + hi) / 2 + b.minHeight! : base;
+    const walls = sec(wallMat);
+    for (const outline of [ring, ...holes]) {
+      for (let i = 0; i < outline.length; i++) {
+        const [ae, an] = outline[i];
+        const [be, bn] = outline[(i + 1) % outline.length];
+        const de = be - ae;
+        const dn = bn - an;
+        const len = Math.hypot(de, dn);
+        if (len < 0.01) continue;
+        const ne = dn / len; // out of the building: outward on its counter-clockwise outline, into a clockwise yard
+        const nn = -de / len;
+        const v0 = walls.vert(ae, an, foot, ne, nn, 0);
+        const v1 = walls.vert(be, bn, foot, ne, nn, 0);
+        const v2 = walls.vert(be, bn, top, ne, nn, 0);
+        const v3 = walls.vert(ae, an, top, ne, nn, 0);
+        walls.tri(v0, v1, v2);
+        walls.tri(v0, v2, v3);
+      }
+    }
+    if (raised) {
+      // Its underside, seen from the street below.
+      const tris = earcut(ring.flat());
+      for (let i = 0; i < tris.length; i += 3) face(walls, [0, 1, 2].map((k) => [ring[tris[i + k]][0], ring[tris[i + k]][1], foot] as [number, number, number]), [0, 0, -1]);
+    }
+    const ridge = addRoof(ring, top, roofed, areaM2, wallHeight, roofLook, walls, sec(roofMat), sec(flatMat), sec(MATERIALS.trim), holes);
 
     // A chimney astride the ridge of most houses, where houses have them, and on some city roofs.
     if (ridge && (h >>> 16) % 5 < (homely ? style.chimneys : block && tier === 2 ? style.cityChimneys : 0)) {
@@ -1098,7 +1259,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     }
 
     // A front door on the wall that faces the street, with a step and, on some, a little porch.
-    if ((homely || barn || (block && areaM2 < 700)) && top - lo > (barn ? 3.6 : 2.7)) {
+    if (!raised && (homely || barn || (block && areaM2 < 700)) && top - lo > (barn ? 3.6 : 2.7)) {
       const wide = barn ? 1.7 : 0.72;
       let best = -1;
       let bestScore = Infinity;
@@ -1143,7 +1304,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           // rooms; one of any other shape, or a very big one, the largest rectangle that fits
           // inside it behind the front door. The floor is level with the highest ground at its
           // walls, so no hillside comes up through it.
-          if (homes && homely && hi - lo < HOME_SLOPE_M) {
+          if (homes && homely && !holes.length && hi - lo < HOME_SLOPE_M) {
             const outline = simplifyRing(ring);
             const side = (i: number): number => Math.hypot(outline[(i + 1) % 4][0] - outline[i][0], outline[(i + 1) % 4][1] - outline[i][1]);
             // (An outline that only looks like a rectangle once its small corners are smoothed off is not one.)

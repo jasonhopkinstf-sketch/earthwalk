@@ -1,6 +1,7 @@
 // Fetches raw OpenStreetMap data for an area and turns it into the features the
 // world generator understands: buildings, roads and ground-cover areas.
 
+import { roofPaint, wallPaint } from "./paint.ts";
 import { CHUNK_Z, hash32, latToY, lonToX, xToLon, yToLat } from "./geo.ts";
 import { cacheHas, cacheRead, cacheWrite } from "./cache.ts";
 import { httpGet, Pool, USER_AGENT } from "./net.ts";
@@ -29,6 +30,18 @@ export interface Building {
   kind?: string;
   /** True when nobody mapped a height or a number of floors, so `height` is only the usual one for its kind. */
   guessed?: boolean;
+  /** True when `height` was mapped in metres: it is then the top of the roof, not of the walls. */
+  measured?: boolean;
+  /** Mapped paints (paint.ts), each one of PAINTS: the walls' and the roof's. `brick`: the walls are brick or stone. */
+  colour?: number; roofColour?: number; brick?: boolean;
+  /** Metres above the ground at which the building starts, when it stands on legs or bridges a street (min_height). */
+  minHeight?: number;
+  /** roof:direction as a compass heading in degrees: the way the roof's slope faces, looking downhill. */
+  roofDirection?: number;
+  /** roof:orientation=across: the ridge runs across the short way of the building. */
+  roofAcross?: boolean;
+  /** Courtyards: the inner rings of a building mapped with holes in it. */
+  holes?: Pt[][];
 }
 /** `name` is set for highway ways only. */
 export interface Road {
@@ -666,12 +679,41 @@ const street = (tags: Record<string, string>): { street?: string } => (tags["add
 const address = (tags: Record<string, string>): { housenumber?: string; street?: string } =>
   tags["addr:housenumber"]?.trim() ? { housenumber: tags["addr:housenumber"].trim(), ...street(tags) } : {};
 
-function roofOf(tags: Record<string, string>): { roof?: string; roofHeight?: number } {
-  const out: { roof?: string; roofHeight?: number } = {};
+const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+
+function roofOf(tags: Record<string, string>): Pick<Building, "roof" | "roofHeight" | "roofColour" | "roofDirection" | "roofAcross"> {
+  const out: Pick<Building, "roof" | "roofHeight" | "roofColour" | "roofDirection" | "roofAcross"> = {};
   if (tags["roof:shape"]) out.roof = tags["roof:shape"];
   const h = num(tags["roof:height"]);
   if (h && h > 0 && h < 50) out.roofHeight = h;
+  const paint = roofPaint(tags);
+  if (paint !== null) out.roofColour = paint;
+  const facing = tags["roof:direction"]?.trim().toUpperCase();
+  if (facing) {
+    const point = COMPASS.indexOf(facing);
+    const degrees = point >= 0 ? point * 22.5 : /^-?[0-9.]+$/.test(facing) ? Number(facing) : NaN;
+    if (Number.isFinite(degrees)) out.roofDirection = ((degrees % 360) + 360) % 360;
+  }
+  if (tags["roof:orientation"] === "across") out.roofAcross = true;
   return out;
+}
+
+/** What is mapped about a building's walls: their paint, and where they start when that is above the ground. */
+function wallsOf(tags: Record<string, string>, height: number): Pick<Building, "colour" | "brick" | "minHeight"> {
+  const out: Pick<Building, "colour" | "brick" | "minHeight"> = { ...(wallPaint(tags) ?? {}) };
+  const levels = num(tags["building:min_level"]);
+  const from = num(tags.min_height) ?? (levels && levels > 0 ? levels * 3.1 : null);
+  if (from && from >= 1 && from < height - 0.5) out.minHeight = from;
+  return out;
+}
+
+function inRing(x: number, y: number, ring: Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 export function parseOsm(json: OsmJson): Features {
@@ -707,31 +749,52 @@ export function parseOsm(json: OsmJson): Features {
   };
 
   const isBuilding = (tags: Record<string, string>): boolean => !!tags.building && tags.building !== "no";
-  const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[]): void => {
+  const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[], holes: Pt[][] = []): void => {
     if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return;
     const kind = tags.building !== "yes" ? { kind: tags.building } : {};
-    const guessed = num(tags.height) || num(tags["building:height"]) || num(tags["building:levels"]) ? {} : { guessed: true };
-    out.buildings.push({ id, ring, height: buildingHeight(id, tags), ...address(tags), ...roofOf(tags), ...kind, ...guessed });
+    const metres = num(tags.height) ?? num(tags["building:height"]);
+    const measured = metres && metres > 1 && metres < 1000 ? { measured: true } : {};
+    const guessed = metres || num(tags["building:levels"]) ? {} : { guessed: true };
+    const height = buildingHeight(id, tags);
+    out.buildings.push({ id, ring, height, ...address(tags), ...roofOf(tags), ...wallsOf(tags, height), ...kind, ...guessed, ...measured, ...(holes.length ? { holes } : {}) });
   };
 
   const usedAsOuter = new Set<number>();
+  /** Outlines already drawn as part of a building mapped with holes: the outline's own way is not a second building. */
+  const drawnAsOuter = new Set<number>();
   for (const el of json.elements) {
     if (el.type !== "relation" || el.tags?.type !== "multipolygon" || !el.members) continue;
     const tags = el.tags;
     const cls = groundClassOf(tags);
     const field = isBuilding(tags) ? null : fieldOf(tags);
     if (!isBuilding(tags) && !cls && !field) continue;
-    // Buildings use their outer outlines only; ground cover keeps inner rings as holes.
+    // Ground cover keeps inner rings as holes among its rings; a building's are its courtyards.
     const parts: number[][] = [];
+    const inner: number[][] = [];
+    /** A building's outlines that are one closed way each, with what that way says about itself. */
+    const whole: { ring: Pt[]; tags: Record<string, string> }[] = [];
     for (const m of el.members) {
-      if (m.type !== "way" || (isBuilding(tags) && m.role === "inner")) continue;
+      if (m.type !== "way") continue;
       const w = ways.get(m.ref);
-      if (w?.nodes) { parts.push(w.nodes); if (m.role !== "inner") usedAsOuter.add(m.ref); }
+      if (!w?.nodes) continue;
+      if (m.role !== "inner") usedAsOuter.add(m.ref);
+      if (!isBuilding(tags)) parts.push(w.nodes);
+      else if (m.role === "inner") inner.push(w.nodes);
+      else {
+        const ring = ringOf(w.nodes);
+        if (ring) {
+          // The way may carry the details (its height, its colour); what the relation says comes first.
+          whole.push({ ring, tags: w.tags && isBuilding(w.tags) ? { ...w.tags, ...tags } : tags });
+          drawnAsOuter.add(m.ref);
+        } else parts.push(w.nodes);
+      }
     }
     const rings = stitchRings(parts).map(ringOf).filter((r): r is Pt[] => r !== null);
     if (isBuilding(tags)) {
+      const outlines = [...whole, ...rings.map((ring) => ({ ring, tags }))];
+      const yards = stitchRings(inner).map(ringOf).filter((r): r is Pt[] => r !== null);
       // Negative, distinct ids keep relation pieces from colliding with way ids.
-      rings.forEach((ring, n) => addBuilding(-(el.id * 8 + (n % 8)), tags, ring));
+      outlines.forEach((o, n) => addBuilding(-(el.id * 8 + (n % 8)), o.tags, o.ring, yards.filter((y) => inRing(y[0][0], y[0][1], o.ring)).slice(0, 8)));
     } else if (rings.length) {
       if (cls) out.areas.push({ id: -el.id, cls, rings, ...(tags.natural === "bay" ? { salt: true } : {}) });
       if (field) fields.push({ id: -el.id, ...field, rings });
@@ -762,7 +825,7 @@ export function parseOsm(json: OsmJson): Features {
     const ring = ringOf(w.nodes);
     if (!ring) continue;
     const cls = groundClassOf(tags);
-    if (isBuilding(tags)) addBuilding(w.id, tags, ring);
+    if (isBuilding(tags)) { if (!drawnAsOuter.has(w.id)) addBuilding(w.id, tags, ring); }
     else if (cls) out.areas.push({ id: w.id, cls, rings: [ring], ...(tags.natural === "bay" ? { salt: true } : {}) });
     if (field) fields.push({ id: w.id, ...field, rings: [ring] });
   }
