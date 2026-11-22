@@ -843,8 +843,10 @@ export function signName(name: string | undefined): string | null {
   if (!text) return null;
   if (text.length <= 30) return text;
   const cut = text.slice(0, 30);
-  // (And not left hanging on an "and" or a comma.)
-  return (cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).replace(/([\s,;:&/-]+|\s(and|of|the|et|de|und|y))+$/i, "").trim();
+  // (And not left hanging on an "and" or a comma: one word or one run of punctuation at a time, a few times over.)
+  let name = cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut;
+  for (let i = 0; i < 4; i++) name = name.replace(/[\s,;:&/-]+$/, "").replace(/\s(and|of|the|et|de|und|y)$/i, "");
+  return name.trim();
 }
 
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -1105,7 +1107,8 @@ export async function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTil
     if (f?.partial && !extra) return f;
     f = parseOsm(json, extra);
     if (!extra) f.partial = true;
-    if (parsed.size >= 64) parsed.delete(parsed.keys().next().value!);
+    // (Sixteen tiles, where it was sixty-four: a parsed tile of a city centre is tens of megabytes, and the live server has few to spare.)
+    if (parsed.size >= 16) parsed.delete(parsed.keys().next().value!);
     parsed.set(key, f);
   }
   return f;
