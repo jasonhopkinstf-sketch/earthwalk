@@ -42,7 +42,21 @@ export interface Building {
   roofAcross?: boolean;
   /** Courtyards: the inner rings of a building mapped with holes in it. */
   holes?: Pt[][];
+  /** The pieces a building is mapped in, when somebody has mapped it in 3D. It is then drawn from these, not from its outline. */
+  parts?: BuildingPart[];
 }
+/**
+ * One piece of a building mapped in 3D (building:part): a tower's shaft, its pod, its mast. `height`
+ * is how far its top is above the ground, and `minHeight` how far its foot is.
+ */
+export interface BuildingPart extends Pick<Building, "id" | "ring" | "height" | "minHeight" | "roof" | "roofHeight" | "roofColour" | "roofDirection" | "roofAcross" | "colour" | "brick"> {
+  /** True when its floors are mapped, so it is somewhere with windows and not a mast, a spire or a drum. */
+  storeys?: boolean;
+  /** True when its height is mapped in metres (to the top of its roof). */
+  measured?: boolean;
+}
+/** A named place mapped as a point: a café, a shop, a museum. `kind` is its tag, as "amenity=cafe". */
+export interface NamedPlace { id: number; at: Pt; name: string; kind: string }
 /** `name` is set for highway ways only. */
 export interface Road {
   id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string;
@@ -69,6 +83,10 @@ export interface Features {
   coast: Pt[][];
   /** Fields that may hold animals (labels route only; the meshes do not use them). */
   fields?: Field[];
+  /** Named places mapped as points (extras). */
+  places?: NamedPlace[];
+  /** True when the extras (3D pieces, named places) could not be had just now; they are put in when they come. */
+  partial?: boolean;
 }
 
 interface OsmElement {
@@ -555,6 +573,122 @@ export async function warmOsmTile(dx: number, dy: number): Promise<"there" | "fe
   return fetchOsmTile(dx, dy, true).then(() => "fetched" as const, () => "failed" as const);
 }
 
+// ---------------------------------------------------------------- the extras
+
+/**
+ * The extras of a block: the pieces of buildings mapped in 3D (building:part) and the named places
+ * mapped as points. They are asked for separately from the map itself, and only of Overpass: they
+ * are small, they are not needed to stand on the ground, and this way the map already downloaded for
+ * everywhere people have been stays good.
+ */
+const extraRel = (bx: number, by: number): string => `osm/extra/v1/${BLOCK_Z}/${bx}/${by}.json`;
+const PLACE_KEYS = ["amenity", "shop", "tourism", "historic", "office"];
+
+function extraQuery(b: BBox): string {
+  const bb = `(${b.s},${b.w},${b.n},${b.e})`;
+  return `[out:json][timeout:60];(way["building:part"]${bb};relation["building:part"]${bb};` +
+    PLACE_KEYS.map((k) => `node["name"]["${k}"]${bb};`).join("") +
+    `);out body;>;out skel qt;`;
+}
+
+/** Keeps of an answer only what is used: the pieces with their tags, the places with their name and kind, and bare points. */
+export function trimExtras(json: OsmJson): OsmJson {
+  for (const el of json.elements) {
+    if (el.type !== "node" || !el.tags) continue;
+    const key = PLACE_KEYS.find((k) => el.tags![k]);
+    const name = el.tags.name?.trim();
+    if (key && name) el.tags = { name, [key]: el.tags[key] };
+    else delete el.tags;
+  }
+  return json;
+}
+
+const extraLoads = new Map<string, Promise<OsmJson | null>>();
+/** Blocks whose extras could not be had, and when they may be asked for again. */
+const extraRest = new Map<string, number>();
+const EXTRA_WAIT_MS = 9000;
+
+/**
+ * Blocks ("x/y") that something was built in before their extras came. The list is kept on disk, and
+ * the blocks on it are asked for again from time to time (keepExtrasComing). When one's extras do come,
+ * whoever asked to be told (onExtras) forgets what was built there, so that it is built again with them.
+ */
+const OWED_REL = "osm/extra/owed.json";
+const owed = new Set<string>();
+let owedRead: Promise<void> | null = null;
+const readOwed = (): Promise<void> => (owedRead ??= cacheRead(OWED_REL).then((buf) => {
+  if (buf) for (const key of JSON.parse(buf.toString("utf8")) as string[]) owed.add(key);
+}).catch(() => undefined));
+const writeOwed = (): Promise<void> => cacheWrite(OWED_REL, JSON.stringify([...owed].slice(-4000)));
+const arrived: ((bx: number, by: number) => void)[] = [];
+/** Asks to be told when the extras of a block come after something was built there without them. */
+export function onExtras(listener: (bx: number, by: number) => void): void {
+  arrived.push(listener);
+}
+
+/**
+ * The extras of the block a data tile is in. Null when they are not in the cache and do not come
+ * within a few seconds (the block is then owed them: the question carries on, or is put again later),
+ * or when Overpass is not among the sources.
+ */
+export async function fetchExtras(dx: number, dy: number, ask: (query: string) => Promise<OsmJson> = (query) => pool.add(() => askServers(query)).promise, waitMs = EXTRA_WAIT_MS): Promise<OsmJson | null> {
+  const bx = dx >> 1, by = dy >> 1;
+  const key = `${bx}/${by}`;
+  const rel = extraRel(bx, by);
+  const cached = await cacheRead(rel);
+  if (cached) return JSON.parse(cached.toString("utf8")) as OsmJson;
+  if (!SOURCES.includes("overpass")) return null;
+  await readOwed();
+  const owe = (): null => {
+    if (!owed.has(key)) { owed.add(key); void writeOwed(); }
+    return null;
+  };
+  let load = extraLoads.get(rel);
+  if (!load) {
+    if (Date.now() < (extraRest.get(rel) ?? 0)) return owe();
+    const m = DATA_MARGIN / 2;
+    const b: BBox = { w: xToLon(bx - m, BLOCK_Z), e: xToLon(bx + 1 + m, BLOCK_Z), n: yToLat(by - m, BLOCK_Z), s: yToLat(by + 1 + m, BLOCK_Z) };
+    load = ask(extraQuery(b)).then(async (json) => {
+      const trimmed = trimExtras(json);
+      await cacheWrite(rel, JSON.stringify(trimmed));
+      if (owed.delete(key)) {
+        void writeOwed();
+        for (const tell of arrived) tell(bx, by);
+      }
+      return trimmed;
+    }, (err) => {
+      if (extraRest.size > 2000) extraRest.clear();
+      extraRest.set(rel, Date.now() + 10 * 60_000);
+      say(`map: no 3D pieces for block ${key} this time (${err instanceof Error ? err.message : String(err)})`);
+      return null;
+    }).finally(() => { extraLoads.delete(rel); });
+    extraLoads.set(rel, load);
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), waitMs); });
+  try {
+    return (await Promise.race([load, late])) ?? owe();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Every few minutes, asks again for the extras of one block that is owed them. */
+export function keepExtrasComing(everyMs = 4 * 60_000): void {
+  const timer = setInterval(() => {
+    void readOwed().then(() => {
+      for (const key of owed) {
+        const [bx, by] = key.split("/").map(Number);
+        const rel = extraRel(bx, by);
+        if (extraLoads.has(rel) || Date.now() < (extraRest.get(rel) ?? 0)) continue;
+        void fetchExtras(bx * 2, by * 2, (query) => pool.add(() => askServers(query), true).promise);
+        return;
+      }
+    });
+  }, everyMs);
+  timer.unref();
+}
+
 // ---------------------------------------------------------------- parsing
 
 function num(s: string | undefined): number | null {
@@ -716,7 +850,72 @@ function inRing(x: number, y: number, ring: Pt[]): boolean {
   return inside;
 }
 
-export function parseOsm(json: OsmJson): Features {
+/**
+ * Puts the extras into what was parsed: each 3D piece on the building whose outline its middle is in
+ * (the smallest, where outlines are nested), and the named places.
+ */
+export function addExtras(out: Features, extra: OsmJson): void {
+  const nodes = new Map<number, Pt>();
+  const ways = new Map<number, OsmElement>();
+  const places: NamedPlace[] = [];
+  for (const el of extra.elements) {
+    if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) {
+      const at: Pt = [lonToX(el.lon, CHUNK_Z), latToY(el.lat, CHUNK_Z)];
+      nodes.set(el.id, at);
+      const key = el.tags ? PLACE_KEYS.find((k) => el.tags![k]) : undefined;
+      if (key && el.tags!.name) places.push({ id: el.id, at, name: el.tags!.name, kind: `${key}=${el.tags![key]}` });
+    } else if (el.type === "way" && el.nodes) ways.set(el.id, el);
+  }
+  if (places.length) out.places = places;
+  const ringOf = (ids: number[] | undefined): Pt[] | null => {
+    if (!ids || ids.length < 4 || ids[0] !== ids[ids.length - 1]) return null;
+    const pts: Pt[] = [];
+    for (const id of ids.slice(0, -1)) { const p = nodes.get(id); if (p) pts.push(p); }
+    return pts.length >= 3 && pts.length === ids.length - 1 ? pts : null;
+  };
+  const isPart = (tags: Record<string, string> | undefined): tags is Record<string, string> => !!tags?.["building:part"] && tags["building:part"] !== "no";
+  const pieces: { id: number; tags: Record<string, string>; ring: Pt[] }[] = [];
+  for (const el of extra.elements) {
+    if (el.type === "way" && isPart(el.tags)) {
+      const ring = ringOf(el.nodes);
+      if (ring) pieces.push({ id: el.id, tags: el.tags, ring });
+    } else if (el.type === "relation" && isPart(el.tags) && el.members) {
+      // A piece with a hole in it: its outer outlines, each a closed way.
+      el.members.forEach((m, n) => {
+        const ring = m.type === "way" && m.role !== "inner" ? ringOf(ways.get(m.ref)?.nodes) : null;
+        if (ring) pieces.push({ id: -(el.id * 8 + (n % 8)), tags: el.tags!, ring });
+      });
+    }
+  }
+  if (!pieces.length) return;
+  const boxes = out.buildings.map((b) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of b.ring) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return { b, x0, y0, x1, y1, size: (x1 - x0) * (y1 - y0) };
+  }).sort((p, q) => p.size - q.size);
+  for (const piece of pieces) {
+    let mx = 0, my = 0;
+    for (const [x, y] of piece.ring) { mx += x / piece.ring.length; my += y / piece.ring.length; }
+    const home = boxes.find((o) => mx >= o.x0 && mx <= o.x1 && my >= o.y0 && my <= o.y1 && inRing(mx, my, o.b.ring))?.b;
+    // (A piece that is the whole outline over again says nothing new unless it is one of several.)
+    if (!home) continue;
+    const t = piece.tags;
+    const metres = num(t.height) ?? num(t["building:height"]);
+    const levels = num(t["building:levels"]);
+    const from = num(t.min_height) ?? (num(t["building:min_level"]) ?? 0) * 3.1;
+    const height = metres && metres > 0.5 && metres < 1000 ? metres : levels && levels > 0 && levels < 250 ? from + levels * 3.1 + (from > 0 ? 0 : 1.2) : home.height;
+    if (height - from < 0.3) continue;
+    const part: BuildingPart = {
+      id: piece.id, ring: piece.ring, height, ...roofOf(t), ...(wallPaint(t) ?? {}),
+      ...(from >= 0.3 ? { minHeight: from } : {}), ...(levels && levels > 0 ? { storeys: true } : {}), ...(metres ? { measured: true } : {}),
+    };
+    (home.parts ??= []).push(part);
+  }
+  // One piece that only repeats the outline is no 3D model; the building is drawn as any other.
+  for (const b of out.buildings) if (b.parts?.length === 1 && b.parts[0].id === b.id) delete b.parts;
+}
+
+export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
   const nodes = new Map<number, Pt>();
   const ways = new Map<number, OsmElement>();
   const fields: Field[] = [];
@@ -829,17 +1028,27 @@ export function parseOsm(json: OsmJson): Features {
     else if (cls) out.areas.push({ id: w.id, cls, rings: [ring], ...(tags.natural === "bay" ? { salt: true } : {}) });
     if (field) fields.push({ id: w.id, ...field, rings: [ring] });
   }
+  if (extra) addExtras(out, extra);
   return out;
 }
 
 const parsed = new Map<string, Features>();
 
 /** Parsed features for one DATA_Z tile, with a small in-memory cache. */
-export async function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile): Promise<Features> {
+export async function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile, extras: (dx: number, dy: number) => Promise<OsmJson | null> = fetcher === fetchOsmTile ? fetchExtras : async () => ({ elements: [] })): Promise<Features> {
   const key = `${dx}/${dy}`;
   let f = parsed.get(key);
-  if (!f) {
-    f = parseOsm(await fetcher(dx, dy));
+  // Parsed without its extras, it is parsed again as soon as they can be had.
+  if (!f || f.partial) {
+    const [json, extra] = await Promise.all([f?.partial ? null : fetcher(dx, dy), extras(dx, dy)]);
+    if (f?.partial) {
+      if (!extra) return f;
+      addExtras(f, extra);
+      delete f.partial;
+      return f;
+    }
+    f = parseOsm(json!, extra);
+    if (!extra) f.partial = true;
     if (parsed.size >= 64) parsed.delete(parsed.keys().next().value!);
     parsed.set(key, f);
   }

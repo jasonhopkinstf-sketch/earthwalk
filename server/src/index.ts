@@ -7,8 +7,9 @@ import { FORMAT_VERSION, GENERATOR_REV } from "./chunk.ts";
 import { LABELS_REV } from "./labels.ts";
 import { INTERIOR_REV } from "./interior.ts";
 import { keepRoom, removeRetired } from "./prune.ts";
-import { RETIRED_CACHE, warmOsmTile } from "./osm.ts";
+import { BLOCK_Z, keepExtrasComing, onExtras, RETIRED_CACHE, warmOsmTile } from "./osm.ts";
 import { keepShowsBuilt } from "./showcase.ts";
+import { CHUNK_Z } from "./geo.ts";
 
 // One thing going wrong for one player must never stop the world for everyone. Left alone, Node ends the
 // process when a promise fails with nobody waiting on it, or an error escapes a timer; here it is written down
@@ -44,6 +45,13 @@ keepRoom(CACHE_DIR, [
 
 // What an older way of downloading the map left behind is of no use now.
 void removeRetired(CACHE_DIR, RETIRED_CACHE).then((gone) => { if (gone.length) console.log(`cache: removed what is no longer read (${gone.join(", ")})`); });
+// Where something was built before the 3D pieces of its buildings came, it is built again once they have.
+onExtras((bx, by) => {
+  const per = 2 ** (CHUNK_Z - BLOCK_Z);
+  for (let j = 0; j < per; j++) for (let i = 0; i < per; i++) void app.forget(bx * per + i, by * per + j);
+  console.log(`map: the 3D pieces for block ${bx}/${by} have come; what was built there will be built again`);
+});
+keepExtrasComing();
 // The places in "Show me..." are kept built, so that showing the world to somebody starts at once.
 if (process.env.EARTHWALK_SHOWCASE !== "0") keepShowsBuilt(app.prepare, warmOsmTile);
 

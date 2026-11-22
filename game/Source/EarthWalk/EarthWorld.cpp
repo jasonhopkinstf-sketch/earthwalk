@@ -985,6 +985,8 @@ namespace
 			{ 26, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 27, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 28, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 1.f, 0.f } },
+			// Structures with no windows: masts, spires, drums, the pods of towers (buildings mapped in 3D)
+			{ 29, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 0.f, 0.f } },
 			// Gardens
 			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f, 0x3bae42 } }, // hedges
 			{ 33, { TEXT("M_EarthFence"), 0xf6f3ea, 0.f, 0.f, 0.f, 0.f, 0xffffff } }, // picket fences

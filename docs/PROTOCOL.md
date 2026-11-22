@@ -67,7 +67,8 @@ come in several sections, one per colour (sections are ordered by id, then colou
 repeats). 20 painted house walls, 21 large painted walls, 22 large concrete walls, 23 brick
 house walls; 24 and 25 roofs; 26 doors (no collision); 27 woodwork such as door frames, steps,
 porch posts, chimney caps and the undersides of eaves (no collision); 28 chimneys (no
-collision). A client that does not know an id can draw it in its colour. Homes (small buildings
+collision); 29 walls with no windows (masts, spires, drums and other pieces of buildings mapped
+in 3D). A client that does not know an id can draw it in its colour. Homes (small buildings
 that are not garages, sheds or shops) get a door on the wall facing the nearest road, and so do
 smaller blocks of flats.
 

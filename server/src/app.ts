@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { cacheRead, cacheWrite, InFlight } from "./cache.ts";
+import { cacheRead, cacheRemove, cacheWrite, InFlight } from "./cache.ts";
 import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
@@ -92,6 +92,8 @@ export interface App {
   server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; journals: Journals; close(): void;
   /** Builds one chunk (mesh and labels) into the cache if it is not there: for keeping the showcase ready. */
   prepare(x: number, y: number): Promise<void>;
+  /** Drops what was built for one chunk (mesh, labels, the insides of its houses) from the cache, so the next visit builds it again. */
+  forget(x: number, y: number): Promise<void>;
 }
 
 const PENDING_MS = 10 * 60 * 1000; // sign-ins and game links wait at most this long
@@ -367,6 +369,10 @@ export function createApp(options: AppOptions = {}): App {
     }
   };
 
+  const forget = async (x: number, y: number): Promise<void> => {
+    await Promise.all([chunkRel(x, y), labelsRel(x, y), `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}/${CHUNK_Z}/${x}/${y}`].map((rel) => cacheRemove(rel)));
+  };
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -440,5 +446,5 @@ export function createApp(options: AppOptions = {}): App {
     rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req));
   });
 
-  return { server, rooms, accounts, presence, journals, prepare, close: () => { presence.close(); rooms.close(); void journals.close(); server.close(); } };
+  return { server, rooms, accounts, presence, journals, prepare, forget, close: () => { presence.close(); rooms.close(); void journals.close(); server.close(); } };
 }

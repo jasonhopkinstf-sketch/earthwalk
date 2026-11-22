@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { buildChunkMesh, type Section } from "../src/chunk.ts";
 import { Elevation } from "../src/elevation.ts";
 import { metersPerTile, xToLon, yToLat } from "../src/geo.ts";
-import { parseOsm, type Building, type Features, type OsmJson } from "../src/osm.ts";
+import { parseOsm, trimExtras, type Building, type Features, type OsmJson } from "../src/osm.ts";
 import { colourOf, PAINTS, roofPaint, snapPaint, wallPaint } from "../src/paint.ts";
 import { TEMPERATE } from "../src/styles.ts";
 
@@ -197,4 +197,70 @@ test("a building mapped as starting above the ground stands clear of it, and has
   assert.ok(!sections.some((s) => s.mat.id === 26), "no door");
   const grounded = await build([{ id: 7, ring: rect(10, 6), height: 9, roof: "flat" }]);
   assert.ok(Math.min(...heights(grounded.filter(isWall))) < GROUND, "an ordinary building goes into the ground");
+});
+
+test("the pieces of a building mapped in 3D go to the building they stand in, with the named places", () => {
+  const n = (id: number, e: number, s: number, tags?: Record<string, string>) => { const [wx, wy] = at(e, s); return { type: "node" as const, id, lon: xToLon(wx), lat: yToLat(wy), ...(tags ? { tags } : {}) }; };
+  const json: OsmJson = {
+    elements: [
+      n(1, 0, 0), n(2, 20, 0), n(3, 20, 20), n(4, 0, 20),
+      { type: "way", id: 100, nodes: [1, 2, 3, 4, 1], tags: { building: "yes", height: "60" } },
+      n(11, 40, 0), n(12, 50, 0), n(13, 50, 10), n(14, 40, 10),
+      { type: "way", id: 101, nodes: [11, 12, 13, 14, 11], tags: { building: "yes", "building:part": "yes" } },
+    ],
+  };
+  const extra = trimExtras({
+    elements: [
+      n(1, 0, 0), n(2, 20, 0), n(3, 20, 20), n(4, 0, 20),
+      n(5, 5, 5), n(6, 15, 5), n(7, 15, 15), n(8, 5, 15),
+      { type: "way", id: 200, nodes: [1, 2, 3, 4, 1], tags: { "building:part": "yes", "building:levels": "3", "building:colour": "white" } },
+      { type: "way", id: 201, nodes: [5, 6, 7, 8, 5], tags: { "building:part": "yes", height: "60", min_height: "40", "roof:shape": "pyramidal", "roof:height": "10" } },
+      // The second building is its own piece and nothing more: that is no 3D model.
+      n(11, 40, 0), n(12, 50, 0), n(13, 50, 10), n(14, 40, 10),
+      { type: "way", id: 101, nodes: [11, 12, 13, 14, 11], tags: { "building:part": "yes" } },
+      // A piece standing in no building is left out.
+      n(21, 80, 80), n(22, 90, 80), n(23, 90, 90), n(24, 80, 90),
+      { type: "way", id: 202, nodes: [21, 22, 23, 24, 21], tags: { "building:part": "yes", height: "9" } },
+      n(31, 3, 3, { name: " Tower Café ", amenity: "cafe", cuisine: "coffee", phone: "1234" }),
+      n(32, 4, 4, { amenity: "bench" }),
+    ],
+  });
+  const cafe = extra.elements.find((el) => el.id === 31)!;
+  assert.deepEqual(cafe.tags, { name: "Tower Café", amenity: "cafe" }, "a place keeps its name and what it is, and nothing else");
+  assert.equal(extra.elements.find((el) => el.id === 32)!.tags, undefined, "a bench is only a point");
+  const f = parseOsm(json, extra);
+  const tower = f.buildings.find((b) => b.id === 100)!;
+  assert.deepEqual(tower.parts?.map((p) => p.id), [200, 201]);
+  const [podium, spire] = tower.parts!;
+  assert.ok(Math.abs(podium.height - (3 * 3.1 + 1.2)) < 1e-9);
+  assert.equal(podium.storeys, true);
+  assert.ok(PAINTS.includes(podium.colour!));
+  assert.equal(spire.height, 60);
+  assert.equal(spire.minHeight, 40);
+  assert.equal(spire.roof, "pyramidal");
+  assert.equal(spire.measured, true);
+  assert.equal(f.buildings.find((b) => b.id === 101)!.parts, undefined);
+  assert.deepEqual(f.places?.map((p) => [p.name, p.kind]), [["Tower Café", "amenity=cafe"]]);
+});
+
+test("a building mapped in 3D is drawn from its pieces: a podium with windows, and a spire that starts in mid-air", async () => {
+  const sections = await build([{
+    id: 7, ring: rect(20, 20), height: 60,
+    parts: [
+      { id: 200, ring: rect(20, 20), height: 10.5, storeys: true, colour: 0xf2efe6 },
+      { id: 201, ring: rect(4, 4, 8, 8), height: 60, minHeight: 40, measured: true, roof: "pyramidal", roofHeight: 10 },
+    ],
+  }]);
+  const plain = sections.filter((s) => s.mat.id === 29);
+  assert.equal(plain.length, 1, "the spire has no windows");
+  const z = heights(plain);
+  assert.ok(Math.abs(Math.min(...z) - (GROUND + 40)) < 0.01, "it starts 40 m up");
+  assert.ok(Math.abs(Math.max(...z) - (GROUND + 50)) < 0.01, "its walls stop where its roof begins");
+  assert.ok(plain[0].nrm.some((v, i) => i % 3 === 2 && v < -0.9), "and it has an underside");
+  assert.ok(Math.abs(Math.max(...heights(sections.filter(isRoof))) - (GROUND + 60)) < 0.01, "the point of its roof is 60 m up");
+  const podium = sections.filter((s) => isWall(s) && s.mat.color === rgba(0xf2efe6));
+  assert.equal(podium.length, 1, "the podium is a wall with windows, in its own paint");
+  assert.ok(Math.abs(Math.max(...heights(podium)) - (GROUND + 10.5)) < 0.01);
+  assert.ok(Math.max(...heights(sections.filter(isWall))) < GROUND + 11, "nothing is drawn of the outline's own 60 m");
+  assert.ok(!sections.some((s) => s.mat.id === 26), "no front door");
 });

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const CACHE_DIR = path.resolve(process.env.EARTHWALK_CACHE ?? "cache");
@@ -38,6 +38,15 @@ export async function cacheWrite(rel: string, data: Buffer | string): Promise<vo
 }
 
 /** De-duplicates concurrent loads of the same key. */
+/** Removes a file or a whole folder from the cache. Like cacheWrite, it never fails: what cannot be removed is left. */
+export async function cacheRemove(rel: string): Promise<void> {
+  try {
+    await rm(path.join(CACHE_DIR, rel), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`cache: could not remove ${rel} (${err instanceof Error ? err.message : String(err)}); carrying on`);
+  }
+}
+
 export class InFlight<T> {
   private readonly map = new Map<string, Promise<T>>();
   get(key: string, load: () => Promise<T>): Promise<T> {

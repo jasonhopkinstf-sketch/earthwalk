@@ -15,7 +15,7 @@ import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 10;
+export const GENERATOR_REV = 11;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -46,6 +46,8 @@ export const MATERIALS = {
   door: { id: 26, color: rgb(0xb5372e), collision: false },
   trim: { id: 27, color: rgb(0xf4f1e6), collision: false },
   chimney: { id: 28, color: rgb(0xb5553c), collision: false },
+  /** A structure with no windows: a mast, a spire, a drum, the pod of a tower. */
+  plain: { id: 29, color: rgb(0xb9bec4), collision: true },
   hedge: { id: 32, color: rgb(0x3f9a45), collision: false },
   fence: { id: 33, color: rgb(0xf4f1e6), collision: false },
   tree: { id: 30, color: rgb(0x2f6b2f), collision: false },
@@ -1142,6 +1144,8 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     return near.count >= 6 && near.share >= 0.42 && cover(wx, wy, 220).share >= 0.25 ? 2 : 1;
   };
 
+  /** How many 3D pieces this chunk has drawn: a city centre mapped piece by piece is capped. */
+  let partsDrawn = 0;
   for (const b of features.buildings) {
     let mx = 0;
     let my = 0;
@@ -1167,6 +1171,60 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
 
     const h = hash32(b.id);
     const areaM2 = Math.abs(area2) / 2;
+    if (b.parts?.length) {
+      // Mapped in 3D: the building is its pieces, each from its own foot to its own top, and its
+      // outline is not drawn. No door, porch or chimney: these are towers, halls and cathedrals.
+      const mid = (lo + hi) / 2;
+      for (const part of b.parts.slice(0, 240)) {
+        if (partsDrawn >= 900) break;
+        let outline = part.ring.map(([x, y]) => [E(x), N(y)] as XY);
+        let part2 = 0;
+        for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) part2 += outline[j][0] * outline[i][1] - outline[i][0] * outline[j][1];
+        const partM2 = Math.abs(part2) / 2;
+        if (partM2 < 0.3) continue;
+        if (part2 < 0) outline = outline.reverse();
+        partsDrawn++;
+        const from = part.minHeight ?? 0;
+        const tall = part.height - from;
+        const width = Math.sqrt(partM2);
+        // Somewhere with floors has windows; a mast, a spire, or anything that starts in mid-air does not.
+        const plain = !part.storeys && (from > 0.5 || width < 7 || tall > 5 * width);
+        const hex = part.colour ?? b.colour ?? style.big[(h >>> 4) % style.big.length];
+        const brick = part.colour !== undefined ? part.brick : b.brick;
+        const partWalls = sec(painted(plain ? MATERIALS.plain : brick ? MATERIALS.wall3 : h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, hex));
+        // A piece has the roof the map gives it, and a flat one otherwise.
+        const partLook: RoofLook = { form: "pitched", maxPitched: 0, pitch: 1, eaves: 0.15 };
+        const { minHeight: _from, colour: _colour, brick: _brick, storeys: _storeys, measured: _measured, ...roofed } = part;
+        const rise = Math.min(tall, roofRise({ ...roofed, height: tall }, partM2, tall, partLook));
+        // A height in metres is to the top of the roof; one counted in floors has the roof on top of it.
+        const wallTop = mid + part.height - (part.measured ? rise : 0);
+        const foot = from > 0.3 ? mid + from : base;
+        if (wallTop - foot > 0.02) {
+          for (let i = 0; i < outline.length; i++) {
+            const [ae, an] = outline[i];
+            const [be, bn] = outline[(i + 1) % outline.length];
+            const len = Math.hypot(be - ae, bn - an);
+            if (len < 0.01) continue;
+            const ne = (bn - an) / len, nn = -(be - ae) / len;
+            const v0 = partWalls.vert(ae, an, foot, ne, nn, 0);
+            const v1 = partWalls.vert(be, bn, foot, ne, nn, 0);
+            const v2 = partWalls.vert(be, bn, wallTop, ne, nn, 0);
+            const v3 = partWalls.vert(ae, an, wallTop, ne, nn, 0);
+            partWalls.tri(v0, v1, v2);
+            partWalls.tri(v0, v2, v3);
+          }
+        }
+        if (from > 0.3) {
+          const tris = earcut(outline.flat());
+          for (let i = 0; i < tris.length; i += 3) face(partWalls, [0, 1, 2].map((k) => [outline[tris[i + k]][0], outline[tris[i + k]][1], foot] as [number, number, number]), [0, 0, -1]);
+        }
+        const roofHex = part.roofColour ?? b.roofColour;
+        const flatHex = roofHex ?? FLAT_ROOFS[(hash32(part.id) >>> 8) % FLAT_ROOFS.length];
+        addRoof(outline, wallTop, { ...roofed, height: tall, ...(rise > 0 ? { roofHeight: rise } : {}) }, partM2, Math.max(wallTop - foot, rise * 1.7, 0.1), partLook,
+          partWalls, sec(roofIn(roofHex ?? hex)), sec(roofHex !== undefined ? roofIn(flatHex) : painted(MATERIALS.roof0, flatHex)), sec(MATERIALS.trim));
+      }
+      continue;
+    }
     const kind = b.kind ?? "";
     const barn = BARN_KINDS.test(kind);
     const plain = PLAIN_KINDS.test(kind);
