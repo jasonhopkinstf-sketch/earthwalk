@@ -7,6 +7,7 @@
 #include "Materials/Material.h"
 #include "Engine/BlendableInterface.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
+#include "Materials/MaterialExpressionCameraVectorWS.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionLocalPosition.h"
@@ -272,6 +273,125 @@ float phase = Time * 1.7 + WorldPos.x * 0.0045 + WorldPos.y * 0.0033;
 float gust = sin(phase) + 0.45 * sin(phase * 2.3 + 1.7);
 float lift = saturate(0.5 + Local.z / 100.0);
 return float3(0.8, 0.6, 0.0) * gust * Sway * lift * lift;
+)HLSL");
+
+	/**
+	 * The sky, painted on the inside of a great ball round the player (AEarthSky): pale at the horizon
+	 * and deep overhead, a drawn sun, and rows of flat-bottomed clouds with an inked edge and a shaded
+	 * underside, drifting slowly. The clouds are laid out like a painted backdrop, by compass bearing
+	 * and height above the horizon, in three rows: small and far near the horizon, big higher up. Each
+	 * row is a ring of places round the sky; a place holds a cloud or not, and a cloud is five puffs
+	 * side by side, cut flat along the bottom.
+	 */
+	const TCHAR* const SkyCode = TEXT(R"HLSL(
+float3 d = normalize(-ToCamera);
+float3 sunDir = normalize(Sun);
+float el = asin(clamp(d.z, -1.0, 1.0));
+float az = atan2(d.y, d.x);
+float up = saturate(d.z);
+
+// The air: pale by the horizon, deep overhead, a little warm round the sun. (Colours here are
+// amounts of light, not screen colours, so they look darker written down than they come out.)
+float3 c = lerp(float3(0.42, 0.70, 0.95), float3(0.10, 0.36, 0.86), smoothstep(0.0, 0.34, up));
+c = lerp(c, float3(0.025, 0.15, 0.70), smoothstep(0.25, 0.95, up));
+float toSun = dot(d, sunDir);
+c += float3(0.10, 0.08, 0.02) * pow(saturate(toSun), 8.0);
+// Below the horizon, where the land has run out: far country in haze.
+c = lerp(c, float3(0.40, 0.66, 0.66), smoothstep(-0.01, -0.09, d.z));
+c = lerp(c, float3(0.26, 0.52, 0.34), smoothstep(-0.09, -0.5, d.z));
+c *= Bright;
+
+// The sun: a warm disc with a drawn edge and a pale ring of glow.
+float sunAngle = acos(clamp(toSun, -1.0, 1.0));
+float aa = 0.0014;
+float glow = exp(-sunAngle * 9.0);
+c = lerp(c, float3(1.0, 0.92, 0.60) * CloudBright, glow * 0.35);
+float rim = 1.0 - smoothstep(SunSize + 0.006 - aa, SunSize + 0.006 + aa, sunAngle);
+float disc = 1.0 - smoothstep(SunSize - aa, SunSize + aa, sunAngle);
+c = lerp(c, float3(1.0, 0.42, 0.04) * CloudBright, rim);
+c = lerp(c, float3(1.0, 0.80, 0.22) * CloudBright * 1.3, disc);
+
+// Clouds.
+for (int row = 0; row < 3; ++row)
+{
+	float rowEl = row == 0 ? 0.11 : row == 1 ? 0.27 : 0.50;
+	float puff = row == 0 ? 0.040 : row == 1 ? 0.064 : 0.098;
+	float places = row == 0 ? 15.0 : row == 1 ? 10.0 : 7.0;
+	float around = cos(rowEl);
+	float placeWidth = 6.2831853 / places;
+	float a = az + Time * Drift * (0.6 + 0.5 * row) + row * 1.7;
+	float place = floor(a / placeWidth);
+	for (int k = -1; k <= 1; ++k)
+	{
+		float id = place + k;
+		float own = id - places * floor(id / places) + row * 31.0;
+		float r1 = frac(sin(own * 127.1 + 3.7) * 43758.5453);
+		float r2 = frac(sin(own * 269.5 + 1.3) * 43758.5453);
+		float r3 = frac(sin(own * 419.2 + 7.1) * 43758.5453);
+		if (r1 > Clouds)
+		{
+			continue;
+		}
+		float s = puff * (0.75 + 0.6 * r2);
+		float middle = (id + 0.5 + (r3 - 0.5) * 0.45) * placeWidth;
+		float2 p = float2((a - middle) * around, el - (rowEl + (r2 - 0.5) * 0.07)) / s;
+		if (abs(p.x) > 3.2 || p.y > 2.6 || p.y < -0.3)
+		{
+			continue;
+		}
+		float shape = 1000.0;
+		for (int j = 0; j < 5; ++j)
+		{
+			float fj = j;
+			float rj = frac(sin((own * 17.0 + fj * 53.0) * 12.9898) * 43758.5453);
+			float big = (1.0 - abs(fj - 2.0) * 0.21) * (0.72 + 0.42 * rj);
+			float2 at = float2((fj - 2.0) * 0.64 + (rj - 0.5) * 0.2, big * 0.52);
+			shape = min(shape, length(p - at) - big);
+		}
+		// Sunlit above, shaded in a wavy band along the flat bottom.
+		float underside = 0.34 + 0.09 * sin(p.x * 4.3 + own * 2.1) + 0.05 * sin(p.x * 9.1 + own);
+		float edge = max(shape, -p.y);
+		float soft = aa / s;
+		float inside = 1.0 - smoothstep(-soft, soft, edge);
+		float lineWidth = CloudInk * 0.0032 / s;
+		float inked = smoothstep(-lineWidth - soft, -lineWidth + soft, edge);
+		float shaded = 1.0 - smoothstep(underside - 0.03, underside + 0.03, p.y);
+		float3 cloud = lerp(float3(1.0, 1.0, 0.985), float3(0.56, 0.69, 0.93), shaded) * CloudBright;
+		cloud = lerp(cloud, float3(0.05, 0.13, 0.38), inked * step(0.001, CloudInk));
+		// Far clouds sink into the air by the horizon.
+		cloud = lerp(cloud, c, row == 0 ? 0.30 : row == 1 ? 0.10 : 0.0);
+		c = lerp(c, cloud, inside);
+	}
+}
+return c;
+)HLSL");
+
+	/**
+	 * Picket fences. The server sends a fence as a row of thin upright boxes; this cuts each face into
+	 * pales with pointed tops and gaps between them, on two rails. Below.x is metres below the top of
+	 * the fence and Below.y is 1 on an upright face (AEarthWorld::BuildChunk works them out). The pales
+	 * are placed by where they stand in the world, so the two faces of a fence line up. Far away the
+	 * gaps close and are drawn as lines instead, where they would only flicker.
+	 */
+	const TCHAR* const FenceCode = TEXT(R"HLSL(
+float3 n = normalize(Normal);
+float2 across = normalize(n.xy + float2(1e-4, 0.0));
+float along = dot(WorldPos.xy / 100.0, float2(across.y, -across.x));
+float below = Below.x;
+float fromMiddle = abs(frac(along / 0.2) - 0.5);
+float pale = fromMiddle < 0.32 ? 1.0 : 0.0;
+float tip = step(fromMiddle * 0.42 + 0.01, below);
+float rail = (abs(below - 0.30) < 0.045 || abs(below - 0.70) < 0.045) ? 1.0 : 0.0;
+float away = saturate((length(WorldPos - CamPos) - 2500.0) / 1500.0);
+float upClose = max(pale * tip, rail * (1.0 - pale));
+Mask = lerp(upClose, tip, away) * Below.y;
+float3 c = Tint;
+c *= 1.0 - 0.14 * rail * (1.0 - pale);
+c *= 1.0 - 0.10 * smoothstep(0.22, 0.32, fromMiddle) * pale;
+c *= 1.0 - 0.30 * (1.0 - pale) * away;
+WorldNormal = n;
+Rough = 0.9;
+return saturate(c);
 )HLSL");
 
 	bool SaveAsset(UObject* Asset)
@@ -567,6 +687,90 @@ return float3(0.8, 0.6, 0.0) * gust * Sway * lift * lift;
 	}
 }
 
+namespace
+{
+	/** Picket fences (FenceCode): painted like the other surfaces, with holes cut in it. */
+	void BuildFenceMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthFence"));
+		if (!Material)
+		{
+			return;
+		}
+		Material->BlendMode = BLEND_Masked;
+		UMaterialExpressionCustom* Custom = CustomNode(Material, FenceCode, { TEXT("WorldPos"), TEXT("Normal"), TEXT("CamPos"), TEXT("Tint"), TEXT("Below") });
+		FCustomOutput Mask;
+		Mask.OutputName = TEXT("Mask");
+		Mask.OutputType = CMOT_Float1;
+		Custom->AdditionalOutputs.Add(Mask);
+		Custom->RebuildOutputs();
+		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
+		Tint->ParameterName = TEXT("Color");
+		Tint->DefaultValue = FLinearColor::White;
+		Connect(Node<UMaterialExpressionWorldPosition>(Material, -900, -450), Custom, TEXT("WorldPos"));
+		Connect(Node<UMaterialExpressionVertexNormalWS>(Material, -900, -300), Custom, TEXT("Normal"));
+		Connect(Node<UMaterialExpressionCameraPositionWS>(Material, -900, -150), Custom, TEXT("CamPos"));
+		Connect(Tint, Custom, TEXT("Tint"));
+		Connect(Node<UMaterialExpressionTextureCoordinate>(Material, -900, 150), Custom, TEXT("Below"));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT("Mask"), MP_OpacityMask);
+		FinishMaterial(Material, Custom);
+	}
+
+	/** The painted sky (SkyCode): unlit, seen from inside, and marked as sky so the engine lights the world from it. */
+	void BuildSkyMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthSky"));
+		if (!Material)
+		{
+			return;
+		}
+		Material->SetShadingModel(MSM_Unlit);
+		Material->TwoSided = true;
+		Material->bIsSky = true;
+
+		UMaterialExpressionCustom* Custom = Node<UMaterialExpressionCustom>(Material, -300, 0);
+		Custom->Code = SkyCode;
+		Custom->Description = TEXT("EarthWalk sky");
+		Custom->OutputType = CMOT_Float3;
+		Custom->Inputs.Reset();
+		struct FSetting { const TCHAR* Key; float Value; };
+		// Bright: how light the air is beside the sunlit ground, and CloudBright the clouds and sun. Clouds: how many of the places
+		// hold a cloud (0 none, 1 all). Drift: how fast they go round, radians a second. SunSize: radians.
+		const FSetting Settings[] = {
+			{ TEXT("Bright"), 0.9f }, { TEXT("CloudBright"), 1.5f }, { TEXT("Clouds"), 0.66f }, { TEXT("CloudInk"), 1.f }, { TEXT("Drift"), 0.0025f }, { TEXT("SunSize"), 0.05f },
+		};
+		for (const TCHAR* Name : { TEXT("ToCamera"), TEXT("Sun"), TEXT("Time") })
+		{
+			FCustomInput Input;
+			Input.InputName = Name;
+			Custom->Inputs.Add(Input);
+		}
+		for (const FSetting& Setting : Settings)
+		{
+			FCustomInput Input;
+			Input.InputName = Setting.Key;
+			Custom->Inputs.Add(Input);
+		}
+		Custom->RebuildOutputs();
+
+		// Where the sun stands, as the way to it (AEarthSky sets it from the sun's light).
+		UMaterialExpressionVectorParameter* Sun = Node<UMaterialExpressionVectorParameter>(Material, -900, -150);
+		Sun->ParameterName = TEXT("Sun");
+		Sun->DefaultValue = FLinearColor(0.572f, -0.572f, 0.588f);
+		Connect(Node<UMaterialExpressionCameraVectorWS>(Material, -900, -300), Custom, TEXT("ToCamera"));
+		Connect(Sun, Custom, TEXT("Sun"));
+		Connect(Node<UMaterialExpressionTime>(Material, -900, 0), Custom, TEXT("Time"));
+		int32 Y = 60;
+		for (const FSetting& Setting : Settings)
+		{
+			Connect(Scalar(Material, Setting.Key, Setting.Value, Y += 90), Custom, Setting.Key);
+		}
+		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT(""), MP_EmissiveColor);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		SaveAsset(Material);
+	}
+}
+
 UEarthWalkAssetsCommandlet::UEarthWalkAssetsCommandlet()
 {
 	IsClient = false;
@@ -578,12 +782,24 @@ UEarthWalkAssetsCommandlet::UEarthWalkAssetsCommandlet()
 int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 {
 	IAssetTools& Tools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
-	// -only=figure builds just the figures' material and leaves the others as they are.
+	// -only=figure, -only=sky or -only=fence builds just that material and leaves the others as they are.
 	FString Only;
 	if (FParse::Value(*Params, TEXT("only="), Only) && Only.Equals(TEXT("figure"), ESearchCase::IgnoreCase))
 	{
 		BuildFigureMaterial(Tools);
 		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthFigure only"));
+		return 0;
+	}
+	if (Only.Equals(TEXT("fence"), ESearchCase::IgnoreCase))
+	{
+		BuildFenceMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthFence only"));
+		return 0;
+	}
+	if (Only.Equals(TEXT("sky"), ESearchCase::IgnoreCase))
+	{
+		BuildSkyMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthSky only"));
 		return 0;
 	}
 	BuildFigureMaterial(Tools);
@@ -592,7 +808,9 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 	BuildInkMaterial(Tools);
 	BuildWaterMaterial(Tools);
 	BuildFoliageMaterial(Tools);
+	BuildSkyMaterial(Tools);
+	BuildFenceMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 6 materials under /Game/EarthWalk"));
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 8 materials under /Game/EarthWalk"));
 	return 0;
 }

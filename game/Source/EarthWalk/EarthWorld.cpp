@@ -875,7 +875,8 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
 	}
 	const int32 RequestGeneration = Generation;
-	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, RequestGeneration](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	const double Asked = FPlatformTime::Seconds();
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, RequestGeneration, Asked](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
 	{
 		if (RequestGeneration != Generation)
 		{
@@ -888,17 +889,26 @@ void AEarthWorld::RequestChunk(FIntPoint Key)
 			RetryAfter.Remove(Key);
 			return;
 		}
+		// Say what is really going on: every case below is tried again in ten seconds.
 		if (!bConnected || !Response.IsValid())
 		{
-			LastError = FString::Printf(TEXT("Cannot reach the world server at %s"), *FEarthWalkConfig::ServerUrl());
+			// No answer after a long wait is a server that is there but busy (building a place nobody has
+			// been to, or waking up); no answer at once is no server, or no internet.
+			LastError = FPlatformTime::Seconds() - Asked > 30.0
+				? FString(TEXT("The world server is slow just now: a new place can take a minute or two to build. Still trying..."))
+				: FString::Printf(TEXT("Cannot reach the world server at %s. Is the internet working? Still trying..."), *FEarthWalkConfig::ServerUrl());
 		}
 		else if (Response->GetResponseCode() == 401)
 		{
 			LastError = TEXT("The world server needs an access code. Type /code <code>");
 		}
+		else if (Response->GetResponseCode() == 429)
+		{
+			LastError = TEXT("You are exploring faster than the world can be built. It will catch up in a moment...");
+		}
 		else
 		{
-			LastError = FString::Printf(TEXT("The world server could not build part of this area (HTTP %d)"), Response->GetResponseCode());
+			LastError = FString::Printf(TEXT("The world server could not build part of this area just now (HTTP %d). Still trying..."), Response->GetResponseCode());
 		}
 		RetryAfter.Add(Key, FPlatformTime::Seconds() + 10.0);
 	});
@@ -957,7 +967,7 @@ namespace
 			{ 28, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 1.f, 0.f } },
 			// Gardens
 			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f } }, // hedges
-			{ 33, { TEXT("M_EarthTop"), 0xf6f3ea, 6.f, 0.f, 0.f, 0.f } }, // picket fences
+			{ 33, { TEXT("M_EarthFence"), 0xf6f3ea, 0.f, 0.f, 0.f, 0.f } }, // picket fences
 			// Inside houses: floors, walls, ceilings, furniture, windows and frames, rugs, each in the server's colour
 			{ 40, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 41, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
@@ -1315,6 +1325,29 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 				}
 			}
 		}
+		else if (SurfaceId == 33)
+		{
+			// Fences tell their material how far below the top of the fence each point is, in metres, so
+			// it can cut the pales to a point and leave the gaps between them (M_EarthFence). A fence is a
+			// row of thin boxes (server/src/chunk.ts): on an upright face the highest corner is the top of
+			// the fence; the flat face on top is marked (second number 0) to be left out.
+			UVs.SetNumZeroed(NumVerts);
+			for (int64 i = 0; i + 2 < NumIndices; i += 3)
+			{
+				double Top = Vertices[Triangles[i]].Z, Bottom = Top;
+				for (int64 k = 1; k < 3; ++k)
+				{
+					Top = FMath::Max(Top, Vertices[Triangles[i + k]].Z);
+					Bottom = FMath::Min(Bottom, Vertices[Triangles[i + k]].Z);
+				}
+				const bool bUpright = Top - Bottom > 1.0;
+				for (int64 k = 0; k < 3; ++k)
+				{
+					const int32 Corner = Triangles[i + k];
+					UVs[Corner] = bUpright ? FVector2D((Top - Vertices[Corner].Z) / 100.0, 1.0) : FVector2D::ZeroVector;
+				}
+			}
+		}
 
 		Mesh->CreateMeshSection_LinearColor(Section, Vertices, Triangles, Normals, UVs, Spans, NoUVs, NoUVs, NoColors, NoTangents, (Flags & FlagCollision) != 0);
 		Mesh->SetMaterial(Section, MaterialForSurface(SurfaceId, Color));
@@ -1393,6 +1426,7 @@ void AEarthWorld::UpdateAvatars()
 		if (Avatar)
 		{
 			Avatar->SetTarget(Target, Peer.Yaw);
+			Avatar->SetSeated(Peer.Ride.bOn);
 		}
 	}
 }

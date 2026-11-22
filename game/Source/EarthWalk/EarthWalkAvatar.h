@@ -27,6 +27,9 @@ public:
 	/** Where the person's feet are now; the figure glides there. */
 	void SetTarget(const FVector& FeetLocation, double YawDegrees);
 
+	/** Riding something: the figure sits. */
+	void SetSeated(bool bInSeated) { bSeated = bInSeated; }
+
 	/** Scale applied to the 1.4 m browser figure so it matches the player's capsule. */
 	static constexpr double FigureScale = 1.2;
 
@@ -39,4 +42,7 @@ private:
 
 	FVector TargetLocation = FVector::ZeroVector;
 	double TargetYaw = 0.0;
+	bool bSeated = false;
+	float GroundCheckIn = 0.f;  // seconds until the ground under the figure is looked for again
+	float AboveGroundCm = 0.f;
 };

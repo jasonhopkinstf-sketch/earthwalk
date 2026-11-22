@@ -102,6 +102,7 @@ private:
 	float ShoulderDistance = 250.f;
 	float FarDistance = 700.f;
 	float ArmTarget = 0.f;
+	float FigureYaw = 0.f; // which way the figure faced a frame ago, to tell how fast it is turning
 
 	bool bFlying = false;
 	bool bWaitingForGround = true;

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EarthWalk figures</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; font: 14px system-ui, sans-serif; }
+  #bar { position: fixed; top: 8px; left: 8px; background: rgba(20, 24, 28, .78); color: #fff; padding: 8px 10px; border-radius: 6px; }
+  #bar button { font: inherit; margin: 2px; padding: 4px 10px; border-radius: 5px; border: 0; background: #fff; cursor: pointer; }
+  #bar button.on { background: #ffd34d; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="bar">
+  <div id="motions"></div>
+  <div style="opacity:.7;margin-top:4px">The six animals a player can be, moving on the spot. Drag to look round.</div>
+</div>
+<script type="module">
+// A look at how the players' animals move (avatars.js, figuremotion.js): pick what they are doing.
+// ?motion=walk starts on that one; ?view=side or ?view=front looks from there. ?strip=fox shows one
+// animal eight times over, each a moment later than the one before (?step=0.05 seconds), standing still:
+// a film strip of the movement. ?hat=cap puts that hat on them all.
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { ANIMALS, animateAnimal, makeAnimal, wearHat } from "/js/avatars.js";
+import { makeHat } from "/js/hats.js";
+
+const MOTIONS = {
+  stand: { label: "Stand", speed: 0 },
+  walk: { label: "Walk", speed: 4.5 },
+  run: { label: "Run", speed: 11 },
+  turn: { label: "Walk in a ring", speed: 4.5, turn: 1.2 },
+  jump: { label: "Jump", speed: 0, jump: true },
+  hover: { label: "Hover", speed: 0, flying: true },
+  fly: { label: "Fly", speed: 40, flying: true },
+  sit: { label: "Ride", speed: 6, seated: true },
+};
+const params = new URLSearchParams(location.search);
+let motion = MOTIONS[params.get("motion")] ? params.get("motion") : "walk";
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9ec7e8);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6a55, 1.15));
+const sun = new THREE.DirectionalLight(0xfff2dd, 2.1);
+sun.position.set(3, 6, 2);
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(12, 48), new THREE.MeshLambertMaterial({ color: 0x7fc04f }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+const view = params.get("view");
+const camera = new THREE.PerspectiveCamera(view ? 20 : 40, 1, 0.1, 100);
+camera.position.set(...(view === "side" ? [10, 1.3, 0] : view === "front" ? [0, 1.3, -10] : [6, 3, -11]));
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, view ? 1.1 : 0.8, 0);
+controls.update();
+
+const strip = params.get("strip");
+const cast = strip ? Array.from({ length: 8 }, () => ({ id: strip })) : ANIMALS;
+const figures = cast.map((a, i) => {
+  const g = makeAnimal(a.id);
+  g.scale.setScalar(1.2);
+  const hat = params.get("hat") ? makeHat(params.get("hat")) : null;
+  if (hat) wearHat(g, hat);
+  g.userData.home = (i - (cast.length - 1) / 2) * 1.5;
+  // Side by side, or one behind another when looked at from the side.
+  if (view === "side") g.position.z = g.userData.home * 1.3;
+  else g.position.x = g.userData.home;
+  scene.add(g);
+  return g;
+});
+
+const bar = document.getElementById("motions");
+for (const [id, m] of Object.entries(MOTIONS)) {
+  const b = document.createElement("button");
+  b.textContent = m.label;
+  b.dataset.id = id;
+  b.onclick = () => { motion = id; mark(); if (strip) freeze(); };
+  bar.appendChild(b);
+}
+function mark() {
+  for (const b of bar.children) b.classList.toggle("on", b.dataset.id === motion);
+}
+mark();
+
+function size() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", size);
+size();
+
+/** One figure, `dt` seconds on, at time `t`. */
+function drive(g, t, dt) {
+  const m = MOTIONS[motion];
+  // A jump every two seconds: up for most of one, then down on the ground.
+  const hop = m.jump ? Math.max(0, Math.sin((t % 2) * Math.PI * 1.25)) * 1.1 : 0;
+  g.position.y = m.flying ? 1.2 : m.seated ? 0.6 : hop;
+  g.rotation.y = m.turn && !strip ? g.rotation.y - m.turn * dt : 0;
+  animateAnimal(g, dt, { speed: m.speed, turn: m.turn ?? 0, inAir: hop > 0.02, flying: !!m.flying, seated: !!m.seated });
+}
+
+/** The film strip: each figure is run on to its own moment and left there. */
+function freeze() {
+  const step = parseFloat(params.get("step") ?? "0.05");
+  figures.forEach((g, k) => {
+    g.userData.rig.state.time = 0;
+    for (let t = 0; t < 2 + k * step; t += 1 / 120) drive(g, t, 1 / 120);
+  });
+}
+if (strip) freeze();
+
+let last = performance.now(), t = 0;
+renderer.setAnimationLoop((now) => {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  t += dt;
+  if (!strip) for (const g of figures) drive(g, t, dt);
+  renderer.render(scene, camera);
+});
+window.figures = { set: (id) => { motion = id; mark(); if (strip) freeze(); }, list: figures };
+</script>
+</body>
+</html>

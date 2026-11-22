@@ -56,13 +56,35 @@ void AEarthWalkAvatar::Tick(float DeltaSeconds)
 
 	// Glide towards the latest reported position; jump if they teleported.
 	const FVector Current = GetActorLocation();
-	const FVector Next = FVector::DistSquared(Current, TargetLocation) > FMath::Square(5000.0)
-		? TargetLocation
-		: FMath::VInterpTo(Current, TargetLocation, DeltaSeconds, 10.f);
-	const FRotator Facing = FMath::RInterpTo(GetActorRotation(), FRotator(0.0, TargetYaw, 0.0), DeltaSeconds, 10.f);
+	const bool bJumped = FVector::DistSquared(Current, TargetLocation) > FMath::Square(5000.0);
+	const FVector Next = bJumped ? TargetLocation : FMath::VInterpTo(Current, TargetLocation, DeltaSeconds, 10.f);
+	const FRotator Before = GetActorRotation();
+	const FRotator Facing = FMath::RInterpTo(Before, FRotator(0.0, TargetYaw, 0.0), DeltaSeconds, 10.f);
 	SetActorLocationAndRotation(Next, Facing);
-	const float Speed = DeltaSeconds > 0.f ? static_cast<float>(FVector::Dist2D(Next, Current) / DeltaSeconds) : 0.f;
-	Figure->Animate(DeltaSeconds, Speed > 4000.f ? 0.f : Speed, false); // a teleport is not a sprint
+
+	// What they are doing, worked out from how they move: nothing about it is sent.
+	GroundCheckIn -= DeltaSeconds;
+	if (GroundCheckIn <= 0.f)
+	{
+		GroundCheckIn = 0.15f;
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(EarthAvatarGround), false, this);
+		const bool bFound = GetWorld()->LineTraceSingleByChannel(Hit, Next + FVector(0.0, 0.0, 60.0), Next - FVector(0.0, 0.0, 100000.0), ECC_Visibility, Params);
+		AboveGroundCm = bFound ? static_cast<float>(Next.Z - Hit.ImpactPoint.Z) : 0.f;
+	}
+	FEarthFigureMotion Motion;
+	float Climb = 0.f;
+	if (DeltaSeconds > 0.f && !bJumped) // a teleport is not a sprint
+	{
+		Motion.Speed = FMath::Min(static_cast<float>(FVector::Dist2D(Next, Current) / DeltaSeconds), 6000.f);
+		Motion.Turn = FMath::FindDeltaAngleDegrees(static_cast<float>(Before.Yaw), static_cast<float>(Facing.Yaw)) / DeltaSeconds;
+		Climb = static_cast<float>((Next.Z - Current.Z) / DeltaSeconds);
+	}
+	// Well clear of the ground is flying; a little clear and rising or falling is a jump.
+	Motion.bSeated = bSeated;
+	Motion.bFlying = !bSeated && AboveGroundCm > 250.f;
+	Motion.bInAir = !bSeated && (Motion.bFlying || (AboveGroundCm > 50.f && FMath::Abs(Climb) > 80.f));
+	Figure->Animate(DeltaSeconds, Motion);
 
 	// Keep the name readable: turn it to the viewer and grow it with distance.
 	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();

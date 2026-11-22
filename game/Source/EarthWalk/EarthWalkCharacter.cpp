@@ -412,8 +412,18 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	{
 		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, ArmTarget, DeltaSeconds, 10.f);
 	}
-	// Sitting on something, the legs are still: it is the mount that walks.
-	Figure->Animate(DeltaSeconds, bWaitingForGround || Mount || bCarried ? 0.f : static_cast<float>(GetVelocity().Size2D()), bFlying && !bWaitingForGround);
+	// What the player's own figure is doing. Sitting on something, the legs are still: it is the mount that walks.
+	{
+		FEarthFigureMotion Motion;
+		const float Yaw = static_cast<float>(GetActorRotation().Yaw);
+		Motion.Speed = bWaitingForGround ? 0.f : static_cast<float>(GetVelocity().Size2D());
+		Motion.Turn = DeltaSeconds > 0.f ? FMath::FindDeltaAngleDegrees(FigureYaw, Yaw) / DeltaSeconds : 0.f;
+		FigureYaw = Yaw;
+		Motion.bSeated = Mount != nullptr || bCarried;
+		Motion.bFlying = bFlying && !bWaitingForGround;
+		Motion.bInAir = !bWaitingForGround && !Motion.bSeated && GetCharacterMovement()->IsFalling();
+		Figure->Animate(DeltaSeconds, Motion);
+	}
 
 	if (bWaitingForGround)
 	{
