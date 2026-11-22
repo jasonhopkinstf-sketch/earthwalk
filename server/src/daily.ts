@@ -21,6 +21,8 @@ export interface Daily {
   /** How many times each kind of thing was talked to, and each kind ridden, today. */
   talked: Record<string, number>;
   rode: Record<string, number>;
+  /** Favours done today (favours.ts). Missing in days begun before there were favours. */
+  favours?: number;
   /** Tasks done, with when; and whether the prize for all three has been paid. */
   done: Record<string, number>;
   bonus: boolean;
@@ -73,6 +75,7 @@ export const TASKS: Task[][] = [
     { id: "ride2", text: "Ride two different kinds of thing", goal: 2, unit: "kinds", have: (t) => Object.keys(t.rode).length },
     { id: "chats5", text: "Have five chats", goal: 5, unit: "chats", have: (t) => sum(t.talked) },
     { id: "chats3", text: "Have three chats", goal: 3, unit: "chats", have: (t) => sum(t.talked) },
+    { id: "favour", text: "Do somebody a favour (ask anything you talk to: \"can I help?\")", goal: 1, unit: "", have: (t) => Math.min(1, t.favours ?? 0) },
   ],
 ];
 

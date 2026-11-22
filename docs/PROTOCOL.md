@@ -386,6 +386,7 @@ Client to server:
 | `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
+| `{"t":"favour","drop":"cow:918398760"}` | Give up a favour I was asked. The answer is my `journal` without it. See "Favours". |
 | `{"t":"hat","buy":"cap"}` / `{"t":"hat","wear":"cap"}` / `{"t":"hat"}` | Buy a hat with my coins and put it on, put on one I own, or take my hat off. See "Daily tasks, coins and hats". |
 | `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
 | `{"t":"time","c":1234.5}` | Ask the time. `c` is any number of the client's own (its stopwatch reading), sent back unchanged so the client can measure the round trip. |
@@ -485,6 +486,29 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### Favours
+
+The things a player talks to may ask a favour, each to do with what the thing is
+(`server/src/favours.ts`). There are five kinds: `ride` (ride or drive the thing so many metres),
+`walk` (have it follow you so many metres on foot), `greet` (say hello for it to a thing of some
+kind), `carry` (take a parcel or a seed to another house or tree at least so far away) and `look`
+(go so far from a thing that cannot move, then come back and talk to it). Which one a thing asks,
+and how far, comes from its identity and the day, so everyone is asked the same.
+
+A thing asks when the player offers help in a `talk` ("can I help?", "any jobs?"), and about one
+thing in three asks of its own accord when greeted. The asking is part of the thing's `say`: in
+plain words, or in its own when an AI is speaking for it. A player has at most three favours open,
+and each thing asks one a day. The server notices a favour done from the `talk`, `ride`, `order`
+and `pos` messages it already gets; clients send nothing extra.
+
+News comes as `stamp` messages of kind `favour`: "A favour for Daisy" when asked, "Far enough"
+half-way through a `look`, "Favour done" with the coins it paid. A favour finished on the move is
+followed by a `say` from the thing, with its thanks. Nothing can be failed: a favour waits until it
+is done, dropped with `favour`, or a few days old.
+
+In the journal object: `favours` is `[{ id, name, sp, text, coins, have, goal, unit, next }]` (`id`
+is the giver's kind and identity, `next` a line saying what to do now) and `favoursDone` a count.
 
 ### Daily tasks, coins and hats
 

@@ -14,6 +14,8 @@ import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises
 import path from "node:path";
 import type { PlaceDetail } from "./geocode.ts";
 import { ALL_TASKS_COINS, type Daily, dayNumber, emptyDaily, hatById, HATS, RIDDLE_COINS, TASK_COINS, tasksFor } from "./daily.ts";
+import { asksUnprompted, type Favour, FAVOUR_DAYS, favourOf, FAVOURS_OPEN, progressOf, thanksLine } from "./favours.ts";
+import { aKind } from "./talk.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
 interface Friend { name: string; sp: string; first: number; last: number; times: number }
@@ -55,6 +57,10 @@ export interface JournalDoc {
   days: number;
   hats: string[];
   hat: string | null;
+  /** Favours (favours.ts): those asked and not yet done, how many have been done, and who has asked one on which day. */
+  favours: Favour[];
+  favoursDone: number;
+  favoured: Record<string, number>;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -82,9 +88,29 @@ export interface JournalView {
   today: { tasks: { id: string; text: string; have: number; goal: number; unit: string; done: boolean }[]; all: boolean; coinsEach: number; coinsAll: number; fullDays: number };
   hats: { id: string; name: string; price: number | null; how: string | null; owned: boolean }[];
   hat: string | null;
+  /** Favours asked and not yet done, each with how far along it is and what to do next; and how many have been done. */
+  favours: { id: string; name: string; sp: string; text: string; coins: number; have: number; goal: number; unit: string; next: string }[];
+  favoursDone: number;
 }
 /** Something worth telling a player the moment it happens. */
-export interface StampNews { title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" }
+export interface StampNews {
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour";
+  /** For a favour just done: the thing that asked it, and what it says in thanks. */
+  thing?: number; sp?: string; say?: string;
+}
+/** What a player's talking to a thing has to do with favours: those it completes, and one newly asked. */
+export interface TalkNews {
+  /** Favours from elsewhere that reach this thing (a hello passed on, a parcel delivered). */
+  arrived: Favour[];
+  /** This thing's own favour, just completed by coming back to it. */
+  back: Favour | null;
+  /** A favour this thing asks now, or one it asked before that is still open. */
+  offer: Favour | null;
+  open: Favour | null;
+  /** They offered to help, but have their hands full, or have helped this thing already today. */
+  full: boolean;
+  later: boolean;
+}
 
 /** Where journals are kept. */
 export interface JournalStore {
@@ -213,6 +239,7 @@ const STAMPS: StampRule[] = [
   { id: "kinds", title: "Kinds of friend", unit: "kinds", steps: [3, 8, 15, 25, 40, 55], count: (d) => Object.keys(d.talked).length, say: (n) => `You have talked to ${n} different kinds of thing` },
   { id: "mounts", title: "Things ridden", unit: "kinds", steps: [1, 4, 8, 12, 20], count: (d) => Object.keys(d.ridden).length, say: (n) => `You have ridden ${one(n, "kind of thing", "kinds of thing")}` },
   { id: "riddles", title: "Riddles solved", unit: "riddles", steps: [1, 5, 10, 20, 30], count: (d) => Object.keys(d.solved).length, say: (n) => `You have solved ${one(n, "riddle")}` },
+  { id: "favours", title: "Favours done", unit: "favours", steps: [1, 5, 20, 50, 100], count: (d) => d.favoursDone ?? 0, say: (n) => `You have done ${one(n, "favour")}` },
   { id: "tree", title: "Tree talker", unit: "", steps: [1], count: (d) => (d.talked.tree ? 1 : 0), say: () => "You have talked to a tree" },
   { id: "train", title: "All aboard", unit: "", steps: [1], count: (d) => (d.ridden.train ? 1 : 0), say: () => "You have ridden a train" },
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
@@ -225,7 +252,7 @@ const STAMPS: StampRule[] = [
 export function pointsOf(d: JournalDoc): number {
   return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
     + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6
-    + (d.days ?? 0) * 5;
+    + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4;
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -237,7 +264,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
   return {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
-    coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null,
+    coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
   };
 }
 
@@ -265,6 +292,8 @@ export function viewOf(d: JournalDoc, now = Date.now()): JournalView {
     },
     hats: HATS.map((h) => ({ id: h.id, name: h.name, price: h.price ?? null, how: h.days ? hatHow(h.days) : null, owned: d.hats.includes(h.id) })),
     hat: d.hat && d.hats.includes(d.hat) ? d.hat : null,
+    favours: d.favours.map((f) => ({ id: f.id, name: f.name, sp: f.sp, text: f.text, coins: f.coins, ...progressOf(f) })),
+    favoursDone: d.favoursDone,
     kept: d.personId !== null,
     since: d.since,
     level: levelOf(pointsOf(d)),
@@ -311,6 +340,9 @@ interface Walker {
   placeKey: string;
   namedAt: number;
   riding: string | null;
+  /** The very thing being ridden (0 for none), and the things that are following this player about. */
+  ridingThing: number;
+  following: Set<number>;
 }
 
 export interface JournalsOptions {
@@ -535,7 +567,7 @@ export class Journals {
       if (personId) this.byPerson.set(personId, open);
     }
     open.keys.add(key);
-    const w: Walker = { open, joined: now, at: null, trail: null, placeKey: "", namedAt: 0, riding: null };
+    const w: Walker = { open, joined: now, at: null, trail: null, placeKey: "", namedAt: 0, riding: null, ridingThing: 0, following: new Set() };
     this.walkers.set(key, w);
     this.note(open, "join", { room });
     this.change(key, w, (d) => {
@@ -593,10 +625,18 @@ export class Journals {
           t.walked += step;
         }
       });
+      this.favourSteps(key, w, step);
       if (metresBetween(w.trail!.lat, w.trail!.lon, lat, lon) >= TRAIL_M) {
         w.trail = { lat, lon };
         this.note(w.open, "at", { lat: +lat.toFixed(5), lon: +lon.toFixed(5), ...(riding ? { on: riding } : {}) });
       }
+    }
+    // Somebody asked to be told what is down the road: far enough now, and time to go back.
+    for (const f of w.open.doc.favours) {
+      if (f.kind !== "look" || f.away || f.lat === null || f.lon === null || metresBetween(f.lat, f.lon, lat, lon) < f.metres) continue;
+      f.away = true;
+      w.open.dirty = true;
+      this.tell(key, { kind: "favour", title: "Far enough", text: `Now go back and tell ${f.name} what you saw` });
     }
     this.arrive(key, w, lat, lon);
   }
@@ -641,7 +681,9 @@ export class Journals {
   /** Got on something (`sp`), or off it (null). */
   rode(key: string, sp: string | null, thing = 0): void {
     const w = this.walkers.get(key);
-    if (!w || w.riding === sp) return;
+    if (!w) return;
+    w.ridingThing = sp ? thing : 0;
+    if (w.riding === sp) return;
     w.riding = sp;
     if (!sp) return void this.note(w.open, "off", {});
     this.note(w.open, "ride", { sp, thing });
@@ -676,6 +718,93 @@ export class Journals {
       }
     });
     this.attempt(key, w, { talk: sp });
+  }
+
+  // ---- favours (favours.ts)
+
+  /**
+   * A player is about to talk to a thing. Favours that this completes are completed (a hello passed on, a
+   * parcel brought far enough, a return to the thing that sent them to look), and the thing may ask a favour of
+   * its own: when the player offered help (`asked`), or of its own accord if it is one of those that do today.
+   */
+  beforeTalk(key: string, thing: number, sp: string, name: string, asked: boolean): TalkNews {
+    const news: TalkNews = { arrived: [], back: null, offer: null, open: null, full: false, later: false };
+    const w = this.walkers.get(key);
+    if (!w) return news;
+    const d = w.open.doc;
+    const now = this.now();
+    const day = dayNumber(now, d.tz);
+    if (d.favours.some((f) => day - f.day > FAVOUR_DAYS)) { d.favours = d.favours.filter((f) => day - f.day <= FAVOUR_DAYS); w.open.dirty = true; }
+    for (const f of [...d.favours]) {
+      if ((f.kind === "greet" || f.kind === "carry") && f.want === sp && f.thing !== thing) {
+        if (f.kind === "carry" && !(w.at && f.lat !== null && f.lon !== null && metresBetween(f.lat, f.lon, w.at.lat, w.at.lon) >= f.metres)) continue;
+        this.finish(key, w, f, false);
+        news.arrived.push(f);
+      } else if (f.kind === "look" && f.thing === thing && f.sp === sp && f.away) {
+        this.finish(key, w, f, false);
+        news.back = f;
+      }
+    }
+    const id = `${sp}:${thing}`;
+    news.open = d.favours.find((f) => f.id === id) ?? null;
+    if (news.open || news.back) return news;
+    if (!asked && !asksUnprompted(thing, day)) return news;
+    if (d.favoured[id] === day) { news.later = asked; return news; }
+    if (d.favours.length >= FAVOURS_OPEN) { news.full = asked; return news; }
+    const f = favourOf(thing, sp, name, aKind(sp), day, now, w.at, aKind);
+    if (!f) return news;
+    d.favours.push(f);
+    for (const old of Object.keys(d.favoured)) if (d.favoured[old] < day) delete d.favoured[old];
+    d.favoured[id] = day;
+    d.updated = now;
+    w.open.dirty = true;
+    this.note(w.open, "asked", { id, kind: f.kind, text: f.text });
+    this.tell(key, { kind: "favour", title: `A favour for ${name}`, text: f.text });
+    news.offer = f;
+    return news;
+  }
+
+  /** A favour is done: it is paid for and counted, and (when the thing itself is at hand) it says thank you. */
+  private finish(key: string, w: Walker, f: Favour, thank: boolean): void {
+    this.note(w.open, "favour", { id: f.id, kind: f.kind });
+    this.tell(key, { kind: "favour", title: "Favour done", text: `${f.text}: ${f.coins} coins`, ...(thank ? { thing: f.thing, sp: f.sp, say: thanksLine(f, f.given) } : {}) });
+    this.change(key, w, (d) => {
+      d.favours = d.favours.filter((x) => x !== f);
+      d.favoursDone++;
+      d.coins += f.coins;
+      const t = this.today(d);
+      t.favours = (t.favours ?? 0) + 1;
+    });
+  }
+
+  /** A step taken: it counts towards a ride on the thing that asked for one, and a walk with one that is following. */
+  private favourSteps(key: string, w: Walker, step: number): void {
+    for (const f of [...w.open.doc.favours]) {
+      const counts = f.kind === "ride" ? w.riding === f.sp && w.ridingThing === f.thing : f.kind === "walk" ? !w.riding && w.following.has(f.thing) : false;
+      if (!counts) continue;
+      f.done += step;
+      w.open.dirty = true;
+      if (f.done >= f.metres) this.finish(key, w, f, true);
+    }
+  }
+
+  /** A thing has been told to follow this player (or has stopped following). */
+  following(key: string, thing: number, on: boolean): void {
+    const w = this.walkers.get(key);
+    if (!w) return;
+    if (on) w.following.add(thing);
+    else w.following.delete(thing);
+  }
+
+  /** Gives a favour up. It was nobody's fault. */
+  dropFavour(key: string, id: string): boolean {
+    const w = this.walkers.get(key);
+    if (!w || !w.open.doc.favours.some((f) => f.id === id)) return false;
+    w.open.doc.favours = w.open.doc.favours.filter((f) => f.id !== id);
+    w.open.doc.updated = this.now();
+    w.open.dirty = true;
+    this.note(w.open, "dropped", { id });
+    return true;
   }
 
   /** The journal of a member who is in the world now. */

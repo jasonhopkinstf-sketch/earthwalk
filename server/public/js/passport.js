@@ -64,7 +64,7 @@ export class Passport {
     this.showing = !!news;
     if (!news) { this.toast.hidden = true; return; }
     this.toast.replaceChildren(
-      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : "New stamp"),
+      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : "New stamp"),
       el("div", "title", news.title), el("div", "text", news.text ?? ""));
     this.toast.className = news.kind ?? "stamp";
     this.toast.hidden = false;
@@ -204,6 +204,24 @@ export class Passport {
       ? `All three done today. There will be three new tasks tomorrow. Full days so far: ${days}.`
       : `Each task pays ${j.today?.coinsEach} coins, and doing all three pays ${j.today?.coinsAll} more. Nothing runs out: tomorrow simply brings three new ones.${days ? ` Full days so far: ${days}.` : ""}`);
 
+    // Favours: asked by things you have talked to. They wait until they are done, or until you say never mind.
+    const favours = el("div", "tasks");
+    for (const f of j.favours ?? []) {
+      const card = el("div", "task favour");
+      const bar = el("div", "bar");
+      const fill = el("div", "fill");
+      fill.style.width = `${Math.round((f.have / f.goal) * 100)}%`;
+      bar.append(fill);
+      const drop = el("button", "drop", "Never mind");
+      drop.type = "button";
+      drop.addEventListener("click", () => this.meetup.dropFavour(f.id));
+      card.append(el("div", "text", f.text), bar, el("div", "small", `${f.unit === "m" ? `${f.have} of ${f.goal} m. ` : ""}${f.next} Pays ${f.coins} coins.`), drop);
+      favours.append(card);
+    }
+    const favoursNote = el("p", "small", (j.favours ?? []).length
+      ? `A favour waits until it is done: nothing runs out. Favours done so far: ${j.favoursDone ?? 0}.`
+      : `Nobody is waiting on a favour from you. Talk to anything (T) and ask "can I help?"; some ask without being asked. Favours done so far: ${j.favoursDone ?? 0}.`);
+
     // Hats: bought with coins or won, one worn at a time. Friends see it on you.
     const avatar = this.meetup.me?.avatar ?? "fox";
     const wardrobe = el("div", "wardrobe");
@@ -235,7 +253,7 @@ export class Passport {
     }
     wardrobe.append(me, hats);
 
-    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Hats"), wardrobe,
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Hats"), wardrobe,
       el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }

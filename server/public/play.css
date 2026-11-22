@@ -86,6 +86,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #passport .foot { margin: 14px 0 0; }
 #stamp.riddle { border-color: #7a4f9a; }
 #stamp.task { border-color: #d08a1e; }
+#stamp.favour { border-color: #2f8f8a; }
+#passport .task.favour { border-color: #2f8f8a; }
+#passport .task.favour .fill { background: #2f8f8a; }
+#passport .task .drop { margin-top: 6px; background: none; border: 1px solid #c9bd9a; border-radius: 12px; padding: 2px 10px; font: inherit; font-size: 11px; color: inherit; opacity: .75; cursor: pointer; }
 #stamp.prize { border-color: #d0a21e; border-style: solid; }
 #passport .coins { position: absolute; top: 14px; right: 110px; background: #f0c53a; color: #3a2c08; border-radius: 14px; padding: 4px 12px; font-weight: 700; font-size: 14px; }
 #passport .tasks { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }

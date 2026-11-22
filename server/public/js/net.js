@@ -145,6 +145,11 @@ export class Meetup extends EventTarget {
     this.send(id ? { t: "hat", wear: id } : { t: "hat" });
   }
 
+  /** Gives up a favour I was asked; my journal comes back without it. */
+  dropFavour(id) {
+    this.send({ t: "favour", drop: id });
+  }
+
   /** Asks for my own journal; it comes as a "journal" event. */
   requestJournal() {
     this.send({ t: "journal" });

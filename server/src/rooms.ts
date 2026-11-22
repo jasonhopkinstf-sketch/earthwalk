@@ -6,7 +6,9 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
-import { TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
+import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
+import { favourNotes, favourWords, offersHelp } from "./favours.ts";
+import type { TalkNews } from "./journal.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -84,7 +86,7 @@ export interface RoomMember {
 export interface RoomsListener { joined?(m: RoomMember): void; left?(m: RoomMember): void }
 /** Keeps each player's journal (journal.ts). A member's id is the key; the keeper never learns who else is in the room. */
 export interface JournalKeeper {
-  listen(tell: (key: string, news: { title: string; text: string; kind: string }) => void): void;
+  listen(tell: (key: string, news: { title: string; text: string; kind: string; thing?: number; sp?: string; say?: string }) => void): void;
   joined(key: string, personId: string | null, room: string, tzMinutes?: number): Promise<void>;
   left(key: string): void;
   moved(key: string, lat: number, lon: number): void;
@@ -98,6 +100,10 @@ export interface JournalKeeper {
   buyHat?(key: string, id: string): "ok" | "poor" | "prize" | "unknown";
   wearHat?(key: string, id: string | null): boolean;
   hatOf?(key: string): string | null;
+  /** Favours: what a talk has to do with them, a thing starting or stopping following a player, and giving one up. */
+  beforeTalk?(key: string, thing: number, sp: string, name: string, asked: boolean): TalkNews;
+  following?(key: string, thing: number, on: boolean): void;
+  dropFavour?(key: string, id: string): boolean;
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -107,7 +113,7 @@ export interface RoomsOptions {
   /** Speaks for the things players talk to. Without one, things answer from their stock lines. */
   talker?: {
     greet(thing: number, sp: string): Said;
-    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean): Promise<Said>;
+    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean, notes?: string[]): Promise<Said>;
     muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number): Promise<Said>;
   };
   /** Finds where a caller wants a taxi to take them, and a road for the taxi to arrive by. */
@@ -154,7 +160,11 @@ export class Rooms {
     this.journal = options.journal ?? null;
     this.journal?.listen((key, news) => {
       const m = this.everyone.get(key);
-      if (m && m.ws.readyState === m.ws.OPEN) m.ws.send(JSON.stringify({ t: "stamp", ...news }));
+      if (!m || m.ws.readyState !== m.ws.OPEN) return;
+      const { thing, sp, say, ...stamp } = news;
+      m.ws.send(JSON.stringify({ t: "stamp", ...stamp }));
+      // A favour done on the move: the thing that asked says its thanks there and then.
+      if (thing && sp && say) m.ws.send(JSON.stringify({ t: "say", thing, sp, name: persona(thing, sp).name, text: say, by: m.id, ...(m.hasPos ? { lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7) } : {}) }));
     });
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => this.onConnection(ws, req));
@@ -332,11 +342,16 @@ export class Rooms {
         me.talkTimes.push(now);
         const thing = msg.thing;
         const text = clean(msg.text, 200);
+        // Favours: this talk may bring one home, and the thing may ask one of its own (favours.ts).
+        const asked = !!text && offersHelp(text);
+        const favours = this.journal?.beforeTalk?.(me.id, thing, sp, persona(thing, sp).name, asked) ?? null;
         let said: Said;
         if (text) {
           const place = me.hasPos && this.options.placeName ? await this.options.placeName(me.lat, me.lon).catch(() => null) : null;
-          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place, me.ride?.thing === thing && me.ride.sp === sp);
+          said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place, me.ride?.thing === thing && me.ride.sp === sp, favours ? favourNotes(favours, aKind) : []);
         } else said = this.talker.greet(thing, sp);
+        // Without an AI to put it in the thing's own words, the favour is asked, and thanked for, in plain ones.
+        if (favours && !said.ai && !said.wish) said = { ...said, text: favourWords(said.text, favours, asked, aKind) };
         if (!room.members.has(me.id)) return; // left while it was thinking
         this.journal?.talked(me.id, thing, sp, said.name, text, said.text);
         const out = JSON.stringify({ t: "say", thing, sp, name: said.name, text: said.text, by: me.id, ...(text ? { q: text } : {}), ...(me.hasPos ? { lat: +me.lat.toFixed(7), lon: +me.lon.toFixed(7) } : {}) });
@@ -383,6 +398,9 @@ export class Rooms {
           if (!this.journal?.wearHat?.(me.id, wear)) { send({ t: "error", code: "locked", text: "That hat is not yours yet" }); return; }
           this.wearHat(room, me, wear);
         }
+      } else if (msg.t === "favour") {
+        // Give up a favour I was asked (`drop` is its id). My journal comes back without it.
+        if (this.journal?.dropFavour?.(me.id, clean(msg.drop, 40))) send({ t: "journal", journal: this.journal.view(me.id) });
       } else if (msg.t === "journal") {
         // My own journal: nobody can ask for anyone else's.
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
@@ -509,6 +527,7 @@ export class Rooms {
   private release(room: Room, thing: number): void {
     const order = room.orders.get(thing);
     if (!order) return;
+    if (order.act === "follow") this.journal?.following?.(order.by, thing, false);
     room.orders.delete(thing);
     this.broadcast(room, { t: "order", thing, sp: order.sp, act: "home" });
   }
@@ -530,7 +549,11 @@ export class Rooms {
       if (!way) return send({ t: "error", code: "nowhere", text: `${said.name} could not find "${wish.place ?? "that place"}"` });
       return send({ t: "order", thing, sp, act: "goto", name: way.name, lat: round(way.lat), lon: round(way.lon), ...(way.path ? { path: way.path } : {}) });
     }
-    for (const [id, o] of room.orders) if (o.until <= now) room.orders.delete(id);
+    for (const [id, o] of room.orders) {
+      if (o.until > now) continue;
+      if (o.act === "follow") this.journal?.following?.(o.by, id, false);
+      room.orders.delete(id);
+    }
     const mine = [...room.orders.values()].filter((o) => o.by === m.id && o.thing !== thing);
     if (mine.length >= ORDERS_EACH) this.release(room, mine[0].thing);
     if (room.orders.size >= ORDER_CAP && !room.orders.has(thing)) this.release(room, room.orders.keys().next().value!);
@@ -538,8 +561,11 @@ export class Rooms {
       thing, sp, act: wish.deed, by: m.id, lat: round(here.lat), lon: round(here.lon), at: now, until: now + ORDER_MS,
       ...(wish.deed === "come" && m.hasPos ? { to: [round(m.lat), round(m.lon)] as [number, number] } : {}),
     };
+    const before = room.orders.get(thing);
+    if (before?.act === "follow") this.journal?.following?.(before.by, thing, false);
     room.orders.delete(thing);
     room.orders.set(thing, order);
+    if (order.act === "follow") this.journal?.following?.(m.id, thing, true);
     this.broadcast(room, { t: "order", ...order });
   }
 

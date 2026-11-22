@@ -35,6 +35,11 @@ async function busyDay(k: ReturnType<typeof keeper>, key: string, n: number): Pr
   journals.rode(key, "car", 8);
   journals.rode(key, null);
   for (let j = 1; j <= 3; j++) { clock.now += 5000; journals.moved(key, lat0 + 0.03 + j * 0.02, 2.35); await settle(); }
+  // And a favour: the flock overhead always wants a hello passed on, to a tree or to a house.
+  for (const f of (journals.view(key) as JournalView).favours) journals.dropFavour(key, f.id);
+  journals.beforeTalk(key, n * 100 + 50, "bird", "Skye", true);
+  journals.beforeTalk(key, n * 100 + 51, "tree", "Old Barkley", false);
+  journals.beforeTalk(key, n * 100 + 52, "house", "Number Nine", false);
 }
 
 test("a day has three tasks, one from each shelf, the same for everyone, and other days have others", () => {
@@ -72,7 +77,8 @@ test("tasks are done by getting about, pay coins, and all three win a hat; tomor
   assert.deepEqual([v.today.all, v.today.fullDays], [true, 1]);
   const solved = v.riddles.filter((r) => r.solved).length;
   assert.ok(solved >= 4, "talking to a cow, a tree, a house and a car answered four riddles on the way");
-  assert.equal(v.coins, 3 * TASK_COINS + ALL_TASKS_COINS + solved * RIDDLE_COINS);
+  assert.equal(v.favoursDone, 1);
+  assert.equal(v.coins, 3 * TASK_COINS + ALL_TASKS_COINS + solved * RIDDLE_COINS + 15, "three tasks, the day, the riddles, and one hello passed on");
   const told = news.get("a")!;
   assert.equal(told.filter((n) => n.kind === "task" && n.title === "Task done").length, 3, "each task is announced once");
   assert.ok(told.some((n) => n.title === "All three tasks done!") && told.some((n) => n.kind === "prize" && /Explorer's hat/.test(n.title)));
@@ -84,8 +90,9 @@ test("tasks are done by getting about, pay coins, and all three win a hat; tomor
   assert.deepEqual([journals.buyHat("a", "crown"), journals.buyHat("a", "sombrero"), journals.wearHat("a", "wizard")], ["prize", "unknown", false]);
   assert.deepEqual([journals.wearHat("a", "explorer"), journals.hatOf("a"), journals.wearHat("a", null), journals.hatOf("a")], [true, "explorer", true, null]);
   assert.deepEqual([journals.buyHat("a", "cap"), (journals.view("a") as JournalView).coins], ["ok", before - 30], "a hat is paid for once");
-  while (journals.buyHat("a", "wizard") !== "poor") assert.fail("this player cannot afford everything");
+  // Buying the cheaper ones for as long as the coins last leaves too little for the dearest.
   for (const id of ["bobble", "party", "straw", "chef", "cowboy", "top", "flowers", "pirate"]) journals.buyHat("a", id);
+  assert.equal(journals.buyHat("a", "wizard"), "poor", "this player cannot afford everything");
   journals.wearHat("a", "cap");
   assert.ok((journals.view("a") as JournalView).coins >= 0, "coins never go below nothing");
 
