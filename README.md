@@ -235,6 +235,13 @@ passport, brings it to stand beside you, and only you can drive it; friends ride
 and body are chosen in the passport: four paints are free, nine more and a van are bought with the
 coins that tasks, favours and treasure pay (`server/src/garage.ts`, `server/public/js/garage.js`).
 
+The view from above (in the browser so far): riding anything, or being carried by a train, a taxi or a
+friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
+rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken
+along, it follows the way the ride is going and circles slowly until the mouse is touched; steering, it
+stays behind. Where a building is in the way it looks from steeper (`hover` in
+`server/public/js/player.js`). Nothing is sent to the server.
+
 Driving: a car, a taxi or a tractor is driven, not ridden. W and S are the
 pedals, A and D steer, Space is the handbrake, and the view moves to behind the car, where the
 mouse looks round it. Speed builds and brakes, the steering is gentler the faster you go, the car

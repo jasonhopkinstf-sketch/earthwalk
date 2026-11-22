@@ -254,7 +254,7 @@ function frame(now) {
   speedo.hidden = !car;
   if (car) speedo.textContent = `${Math.round(Math.abs(car.speed) * 3.6)} km/h`;
   sounds.engine(car ? Math.min(1, Math.abs(car.speed) / player.mount.drive.top) : null, !!car && !player.typing && player.keys.has("KeyW"));
-  avatars.showSelf(dt, car ? meetup.me : null, player.position, -player.yaw);
+  avatars.showSelf(dt, car || player.view ? meetup.me : null, player.position, -player.yaw);
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
   showcase.frame();
@@ -393,6 +393,12 @@ addEventListener("keydown", (e) => {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
     if (!play.key()) races.key(); // join or start the game that is set up here; failing one, a race
+  } else if (e.code === "KeyV" && document.activeElement !== say && !e.repeat) {
+    // Riding or being carried: the seat, the view from above, the view from high up.
+    const view = player.nextView();
+    notice(view === null ? "V looks down from above while you are riding something, or being carried: hop on first (E)."
+      : view === "your seat" ? "Back in your seat."
+      : `Looking ${view}. The mouse swings the camera round, the wheel brings it nearer or further, and V moves on.`);
   } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
     // A door within reach, and nothing to ride: go in or out. Otherwise hop on whatever is nearest, or hop off.
     if (houses.near && !riding.mine && !riding.near) void houses.use();
@@ -435,6 +441,8 @@ async function command(name, arg) {
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
+    notice("V   riding anything, or being carried by a train, a taxi or a friend: look down from above, then from high up,");
+    notice("    then back to your seat; the mouse swings the camera round and the wheel brings it nearer or further");
     notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
     notice("E   at the front door of a house: go in, and E again just inside it to come out");
     notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");
