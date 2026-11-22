@@ -121,7 +121,7 @@ namespace
 	{
 		return Kind == TEXT("country") ? TEXT("New country") : Kind == TEXT("level") ? TEXT("Level up") : Kind == TEXT("riddle") ? TEXT("Riddles")
 			: Kind == TEXT("task") ? TEXT("Today") : Kind == TEXT("prize") ? TEXT("A prize") : Kind == TEXT("favour") ? TEXT("A favour")
-			: Kind == TEXT("hunt") ? TEXT("Treasure hunt") : Kind == TEXT("expedition") ? TEXT("Expedition") : TEXT("New stamp");
+			: Kind == TEXT("hunt") ? TEXT("Treasure hunt") : Kind == TEXT("expedition") ? TEXT("Expedition") : Kind == TEXT("race") ? TEXT("Race") : TEXT("New stamp");
 	}
 	/** The objects in a list inside a JSON object; none when the field is missing or null. */
 	TArray<TSharedPtr<FJsonObject>> JsonRows(const TSharedPtr<FJsonObject>& Json, const TCHAR* Field)
@@ -210,6 +210,27 @@ public:
 				.ColorAndOpacity(FLinearColor::White)
 				.ShadowOffset(FVector2D(1.0, 1.0))
 				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f))
+				.Visibility(EVisibility::Collapsed)
+			]
+			// The race: who is in and how far along, under the status line; and the countdown, large, in the middle.
+			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f, 44.f, 0.f, 0.f)
+			[
+				SAssignNew(RacePanel, SBorder)
+				.BorderImage(&WhereBrush)
+				.BorderBackgroundColor(PanelColor)
+				.Padding(FMargin(12.f, 8.f))
+				.Visibility(EVisibility::Collapsed)
+				[
+					SAssignNew(RaceText, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 12)).ColorAndOpacity(FLinearColor::White)
+				]
+			]
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(0.f, 0.f, 0.f, 120.f)
+			[
+				SAssignNew(RaceCount, STextBlock)
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 96))
+				.ColorAndOpacity(FLinearColor::White)
+				.ShadowOffset(FVector2D(3.0, 3.0))
+				.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
 				.Visibility(EVisibility::Collapsed)
 			]
 			// A stamp just earned, for a few seconds.
@@ -323,6 +344,21 @@ public:
 		Hint->SetText(FText::FromString(Text));
 	}
 	void SetInputHint(const FString& Text) { Input->SetHintText(FText::FromString(Text)); }
+	void SetRace(const FString& Panel, const FString& Count)
+	{
+		RacePanel->SetVisibility(Panel.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+		if (Panel != RaceShown)
+		{
+			RaceShown = Panel;
+			RaceText->SetText(FText::FromString(Panel));
+		}
+		RaceCount->SetVisibility(Count.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+		if (Count != CountShown)
+		{
+			CountShown = Count;
+			RaceCount->SetText(FText::FromString(Count));
+		}
+	}
 
 	/** The speech bubbles: one above each thing that has just spoken, the same size however far off it is. */
 	void SetBubbles(const TArray<UEarthCompany::FBubble>& Bubbles, const APlayerController* PC)
@@ -1076,6 +1112,11 @@ private:
 	TArray<TSharedRef<SWidget>> Lines;
 
 	TSharedPtr<STextBlock> Hint;
+	TSharedPtr<SBorder> RacePanel;
+	TSharedPtr<STextBlock> RaceText;
+	TSharedPtr<STextBlock> RaceCount;
+	FString RaceShown;
+	FString CountShown;
 	struct FShownBubble
 	{
 		uint32 Thing = 0;
@@ -1330,6 +1371,10 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 				OpenChat(); // say hello, then type
 			}
 		}
+		else if (PC->WasInputKeyJustPressed(EKeys::R))
+		{
+			Friends->KeyRace(); // set a race up, join one, or (if it is mine) start it
+		}
 		else if (PC->WasInputKeyJustPressed(EKeys::P))
 		{
 			TogglePassport(); // where I have been and what I have done
@@ -1357,6 +1402,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
 	}
 	Overlay->SetHint(Friends->GetHint());
+	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
 	Overlay->SetBubbles(Friends->GetBubbles(), PC);
 
 	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
@@ -1691,6 +1737,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("E   hop on what is nearest (horse, cow, sheep, camel, llama, kangaroo, deer, tractor, car, boat, train), or hop off"), NoticeColor);
 		AddLine(TEXT("    In a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake, and the mouse looks round the car."), NoticeColor);
 		AddLine(TEXT("/car   bring your own car to where you are (choose its paint in your passport); /car away sends it off"), NoticeColor);
+		AddLine(TEXT("R   a race along the roads here: R sets one up, R joins one a friend has set up, and R starts yours"), NoticeColor);
+		AddLine(TEXT("    (/race stop leaves it, or ends your own). Go on foot, on a horse or in a car: every gate in turn."), NoticeColor);
 		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
 		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
 		AddLine(TEXT("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,"), NoticeColor);
@@ -1829,6 +1877,13 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(Where.IsEmpty()
 			? FString(TEXT("No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not."))
 			: FString::Printf(TEXT("The nearest house you can go into is %s. Look for the yellow COME IN sign over its front door, and press E there."), *Where), NoticeColor);
+	}
+	else if (Command == TEXT("race"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->KeyRace(Argument.ToLower());
+		}
 	}
 	else if (Command == TEXT("car"))
 	{

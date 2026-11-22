@@ -92,6 +92,30 @@ struct FEarthPet
 	uint32 Thing = 0;
 };
 
+/** Somebody in a race: how many gates they have passed, and their time once they have finished. */
+struct FEarthRunner
+{
+	FString Id;
+	FString Name;
+	int32 Gate = 0;
+	bool bFinished = false;
+	double TimeMs = 0.0;
+};
+
+/** The race set up in this room, if any (docs/PROTOCOL.md, "Races"). */
+struct FEarthRace
+{
+	bool bOn = false;
+	FString By;     // the member who set it up
+	FString ByName;
+	FString State;  // open, go, over
+	TArray<FVector2D> Gates; // latitude and longitude of each, in turn
+	double Metres = 0.0;
+	double StartAt = 0.0; // server clock, milliseconds
+	double Made = 0.0;
+	TArray<FEarthRunner> Runners;
+};
+
 /** Someone else in the same room. */
 struct FEarthPeer
 {
@@ -139,6 +163,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthRide, const FEarthRide& /*Mine*/);
 DECLARE_MULTICAST_DELEGATE(FOnEarthRideFail);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthSay, const FEarthSay& /*Said*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthOrder, const FEarthOrder& /*Order*/);
+DECLARE_MULTICAST_DELEGATE(FOnEarthRace);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthHat, const FString& /*MemberId*/, const FString& /*Hat, or empty*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*Lon*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
@@ -218,6 +243,9 @@ public:
 	void SendGarage(const FString& What, const FString& Id = FString());
 	/** Everyone's own car that is standing in the room, by its owner's member id. */
 	const TMap<FString, FEarthOwnCar>& GetCars() const { return Cars; }
+	/** A race: "make" one where I stand, "join" the one set up, say "go" (its maker), or "stop" (leave it; its maker ends it). */
+	void SendRace(const FString& What);
+	const FEarthRace& GetRace() const { return Race; }
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
 	void SendTaxi(const FString& Place);
 	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
@@ -254,6 +282,8 @@ public:
 	FOnEarthOrder OnOrder;
 	FOnEarthTaxi OnTaxi;
 	FOnEarthHat OnHat;
+	/** The room's race has changed in some way: set up, joined, begun, a gate passed, over, cleared away. */
+	FOnEarthRace OnRace;
 	/** A treasure was found by me, at this place: a chest is shown there. */
 	FOnEarthTreasure OnTreasure;
 	FOnEarthJournal OnJournal;
@@ -279,6 +309,7 @@ private:
 	TMap<uint32, FEarthOrder> Orders;
 	TMap<uint32, FEarthTaxi> Taxis;
 	TMap<FString, FEarthOwnCar> Cars;
+	FEarthRace Race;
 	FEarthHome Home;
 	FString MyId;
 	FString MyName;

@@ -207,7 +207,7 @@ the world, joins them into runs and timetables a train along each, stopping at s
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
 
-Races (in the browser so far): press R beside a street and the server lays a course along the real
+Races: press R beside a street and the server lays a course along the real
 roads, a few hundred metres to a mile, with a gate about every 120 m. Friends press R to join, and
 whoever set it up presses R again to start: a countdown, then every gate in turn, on foot, on a
 horse or in a car. A panel shows who is where; finishing pays coins and winning pays more. Nothing
@@ -327,7 +327,8 @@ Driving is `EarthMounts::StepCar` (the sums of `cardrive.js`) and `AEarthWalkCha
 which carries the player at the car's velocity and puts the camera behind it; players' own cars are
 drawn by `UEarthCompany::GarageFrame`, and the garage is a page of the passport.
 Companions are `UEarthCompany::PetFrame` (the sums of `pets.js`): each trots after its player, and
-can be talked to and, if big enough, ridden. Not in the Windows game yet: races.
+can be talked to and, if big enough, ridden. Races are in `UEarthCompany` too (R, the countdown and the list of runners), with the gates stood up
+by `AEarthRaceCourse`.
 
 ## Art assets and the look
 
@@ -407,7 +408,7 @@ cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs 
 is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRide=<kind>`
 hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
 `-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
-says that to it, and `-EWPassport` opens the passport. `-EWCar` calls the player's own car, `-EWWalk` holds the accelerator down when driving and
+says that to it, and `-EWPassport` opens the passport. `-EWRace` sets a race up and starts it, `-EWCar` calls the player's own car, `-EWWalk` holds the accelerator down when driving and
 `-EWSteer=<-1 to 1>` the wheel over. `-EWHat=<id>` puts a hat on the player's own figure, `-EWPassportDo=<what>:<id>` presses one of the
 passport's buttons (`start:hunt`), `-EWPassportScroll=<distance>` scrolls it, and `-EWTreasure`
 stands a treasure chest in front of the player. `-EWDoor` walks to the nearest front door that opens and goes

@@ -3,6 +3,7 @@
 #include "EarthLife.h"
 #include "EarthLifeMotion.h"
 #include "EarthLifeRigs.h"
+#include "EarthRaceCourse.h"
 #include "EarthTreasure.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
@@ -220,6 +221,7 @@ void UEarthCompany::Setup(AEarthWorld* InWorld)
 		Room->OnOrder.AddUObject(this, &UEarthCompany::OnOrder);
 		Room->OnTaxi.AddUObject(this, &UEarthCompany::OnTaxi);
 		Room->OnTreasure.AddUObject(this, &UEarthCompany::OnTreasure);
+		Room->OnRace.AddUObject(this, &UEarthCompany::OnRace);
 	}
 }
 
@@ -1271,6 +1273,181 @@ void UEarthCompany::PetFrame(double Dt)
 	}
 }
 
+// ------------------------------------------------------------------------------------------------
+// Races (race.js): the server makes the course and says who has passed which gate
+// ------------------------------------------------------------------------------------------------
+
+/** The race has changed: say so when it is news. */
+void UEarthCompany::OnRace()
+{
+	const UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	const FEarthRace& Race = Room->GetRace();
+	const FString Key = Race.bOn ? FString::Printf(TEXT("%s:%.0f"), *Race.By, Race.Made) : FString();
+	if (Key != CourseKey)
+	{
+		CourseKey = Key;
+		CourseShown.Reset();
+		if (Race.bOn)
+		{
+			Notice(Race.By == Room->GetMyId()
+				? FString::Printf(TEXT("Your race is set up: %.0f metres, %d gates. Press R to start it when everyone who wants to is in."), Race.Metres, Race.Gates.Num())
+				: FString::Printf(TEXT("%s has set up a race of %.0f metres. Press R to join in."), *Race.ByName, Race.Metres));
+		}
+	}
+}
+
+void UEarthCompany::KeyRace(const FString& Word)
+{
+	UEarthWalkNet* Room = Net.Get();
+	if (!Room || !Room->IsConnected())
+	{
+		return;
+	}
+	const FEarthRace& Race = Room->GetRace();
+	const bool bIn = Race.Runners.ContainsByPredicate([Room](const FEarthRunner& Runner) { return Runner.Id == Room->GetMyId(); });
+	if (Word == TEXT("stop") || Word == TEXT("leave"))
+	{
+		if (Race.bOn)
+		{
+			Room->SendRace(TEXT("stop"));
+		}
+		else
+		{
+			Notice(TEXT("There is no race just now."));
+		}
+	}
+	else if (!Race.bOn || Race.State == TEXT("over"))
+	{
+		Notice(TEXT("Setting up a race along the roads here..."));
+		Room->SendRace(TEXT("make"));
+	}
+	else if (Race.State != TEXT("open"))
+	{
+		return;
+	}
+	else if (!bIn)
+	{
+		Room->SendRace(TEXT("join"));
+	}
+	else if (Race.By == Room->GetMyId())
+	{
+		Room->SendRace(TEXT("go"));
+	}
+	else
+	{
+		Notice(FString::Printf(TEXT("You are in. %s says when to go."), *Race.ByName));
+	}
+}
+
+/** Stands the gates up, lights the next one, and writes the countdown and the list of runners. */
+void UEarthCompany::RaceFrame(double T)
+{
+	const UEarthWalkNet* Room = Net.Get();
+	AEarthWorld* Earth = World.Get();
+	if (!Room || !Earth)
+	{
+		return;
+	}
+	const FEarthRace& Race = Room->GetRace();
+	if (!Race.bOn)
+	{
+		RacePanel.Reset();
+		RaceCount.Reset();
+		if (AEarthRaceCourse* Old = Course.Get())
+		{
+			Old->Destroy();
+		}
+		Course.Reset();
+		return;
+	}
+	const auto Clock = [](double Ms)
+	{
+		const double Seconds = FMath::Max(0.0, Ms) / 1000.0;
+		return FString::Printf(TEXT("%d:%04.1f"), FMath::FloorToInt32(Seconds / 60.0), FMath::Fmod(Seconds, 60.0));
+	};
+	const double NowMs = T * 1000.0;
+	const FEarthRunner* Me = Race.Runners.FindByPredicate([Room](const FEarthRunner& Runner) { return Runner.Id == Room->GetMyId(); });
+
+	// The gates: stood up for a new course, when I pass one, and again while the ground under some has yet to arrive.
+	const int32 MyGate = Me ? Me->Gate : -1;
+	const bool bBeacon = Me && !Me->bFinished && Race.State != TEXT("over");
+	const FString Shown = FString::Printf(TEXT("%s/%d/%d"), *CourseKey, MyGate, bBeacon ? 1 : 0);
+	const double Now = FPlatformTime::Seconds();
+	if (Shown != CourseShown || (CourseRetryAt > 0.0 && Now > CourseRetryAt))
+	{
+		AEarthRaceCourse* Gates = Course.Get();
+		if (!Gates && Earth->GetWorld())
+		{
+			Gates = Earth->GetWorld()->SpawnActor<AEarthRaceCourse>();
+			Course = Gates;
+		}
+		if (Gates)
+		{
+			CourseShown = Shown;
+			CourseRetryAt = Gates->Rebuild(Earth, Race, MyGate, bBeacon) < Race.Gates.Num() ? Now + 1.0 : 0.0;
+		}
+	}
+
+	// The countdown, large, and "GO!" for a moment after it.
+	const bool bGo = Race.State == TEXT("go");
+	const double Until = Race.StartAt - NowMs;
+	RaceCount = !bGo ? FString() : Until > 0.0 ? FString::FromInt(FMath::CeilToInt32(Until / 1000.0)) : Until > -1200.0 ? FString(TEXT("GO!")) : FString();
+
+	// Who is in, how far along, and what R does now.
+	TArray<FString> Lines;
+	const int32 Gates = Race.Gates.Num();
+	if (Race.State == TEXT("open"))
+	{
+		TArray<FString> In;
+		for (const FEarthRunner& Runner : Race.Runners)
+		{
+			In.Add(Runner.Name);
+		}
+		Lines.Add(FString::Printf(TEXT("Race by %s: %.0f m, %d gates"), *Race.ByName, Race.Metres, Gates));
+		Lines.Add(FString::Printf(TEXT("In: %s"), *FString::Join(In, TEXT(", "))));
+		Lines.Add(!Me ? FString(TEXT("R: join in")) : Race.By == Room->GetMyId() ? FString(TEXT("R: start the race")) : FString::Printf(TEXT("Waiting for %s to say go"), *Race.ByName));
+	}
+	else
+	{
+		const bool bRunning = bGo && Until <= 0.0;
+		if (Me && !Me->bFinished && bRunning)
+		{
+			Lines.Add(FString::Printf(TEXT("Gate %d of %d  ·  %s"), FMath::Min(Me->Gate + 1, Gates), Gates, *Clock(NowMs - Race.StartAt)));
+		}
+		else if (bGo && Until > 0.0)
+		{
+			Lines.Add(TEXT("Get to the green start gate..."));
+		}
+		else if (Race.State == TEXT("over"))
+		{
+			Lines.Add(TEXT("The race is over"));
+		}
+		// Finishers first, by their time; then whoever has passed the most gates.
+		TArray<FEarthRunner> Order = Race.Runners;
+		Order.StableSort([](const FEarthRunner& A, const FEarthRunner& B)
+		{
+			if (A.bFinished != B.bFinished)
+			{
+				return A.bFinished;
+			}
+			return A.bFinished ? A.TimeMs < B.TimeMs : A.Gate > B.Gate;
+		});
+		for (int32 i = 0; i < Order.Num(); ++i)
+		{
+			Lines.Add(FString::Printf(TEXT("%d. %s  %s"), i + 1, *Order[i].Name, Order[i].bFinished ? *Clock(Order[i].TimeMs) : *FString::Printf(TEXT("%d/%d"), Order[i].Gate, Gates)));
+		}
+		if (Race.State == TEXT("over"))
+		{
+			Lines.Add(TEXT("R: set up another"));
+		}
+	}
+	RacePanel = FString::Join(Lines, TEXT("\n"));
+}
+
 void UEarthCompany::CallCar(bool bAway)
 {
 	if (UEarthWalkNet* Room = Net.Get())
@@ -1589,6 +1766,7 @@ void UEarthCompany::Frame(AEarthWalkCharacter* InPlayer, double Dt, double T)
 	Steer(Dt);
 	RidingFrame(Dt, T);
 	TalkFrame(Dt);
+	RaceFrame(T);
 	Life->SetOutOfPlace(Hidden, Mounts);
 	DoorFrame(Dt);
 	const FString& First = RideHint.IsEmpty() ? DoorHint : RideHint;
@@ -1624,6 +1802,21 @@ void UEarthCompany::TestAids(double Dt)
 			double Lat = 0.0, Lon = 0.0, Alt = 0.0;
 			World->WorldToGeo(Me->GetActorLocation(), Lat, Lon, Alt);
 			OnTreasure(Lat, Lon);
+		}
+		// -EWRace sets a race up along the roads here, and starts it a few seconds later.
+		static int32 RaceStep = 0;
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWRace")))
+		{
+			if (RaceStep == 0 && TestClock > 3.0)
+			{
+				RaceStep = 1;
+				KeyRace();
+			}
+			else if (RaceStep == 1 && TestClock > 8.0)
+			{
+				RaceStep = 2;
+				KeyRace(); // I set it up, so this says go
+			}
 		}
 		// -EWCar calls the player's own car.
 		static bool bCarCalled = false;

@@ -375,6 +375,18 @@ void UEarthWalkNet::SendGarage(const FString& What, const FString& Id)
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendRace(const FString& What)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("race"));
+	Message->SetBoolField(What, true);
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendTaxi(const FString& Place)
 {
 	if (!bJoined)
@@ -727,6 +739,53 @@ namespace
 		return Pet;
 	}
 
+	/** The race of a welcome or a race message; not on when the field is missing or null. */
+	FEarthRace ReadRace(const FJsonObject& Json)
+	{
+		FEarthRace Race;
+		const TSharedPtr<FJsonObject>* Object = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Gates = nullptr;
+		if (!Json.TryGetObjectField(TEXT("race"), Object) || !(*Object)->TryGetArrayField(TEXT("gates"), Gates))
+		{
+			return Race;
+		}
+		for (const TSharedPtr<FJsonValue>& Gate : *Gates)
+		{
+			double Lat = 0.0, Lon = 0.0;
+			if (ReadLatLon(Gate, Lat, Lon))
+			{
+				Race.Gates.Add(FVector2D(Lat, Lon));
+			}
+		}
+		Race.bOn = Race.Gates.Num() > 1;
+		(*Object)->TryGetStringField(TEXT("by"), Race.By);
+		(*Object)->TryGetStringField(TEXT("byName"), Race.ByName);
+		(*Object)->TryGetStringField(TEXT("state"), Race.State);
+		(*Object)->TryGetNumberField(TEXT("metres"), Race.Metres);
+		(*Object)->TryGetNumberField(TEXT("startAt"), Race.StartAt);
+		(*Object)->TryGetNumberField(TEXT("made"), Race.Made);
+		const TArray<TSharedPtr<FJsonValue>>* Runners = nullptr;
+		if ((*Object)->TryGetArrayField(TEXT("runners"), Runners))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Runners)
+			{
+				const TSharedPtr<FJsonObject>* Row = nullptr;
+				if (Value.IsValid() && Value->TryGetObject(Row))
+				{
+					FEarthRunner Runner;
+					double Gate = 0.0;
+					(*Row)->TryGetStringField(TEXT("id"), Runner.Id);
+					(*Row)->TryGetStringField(TEXT("name"), Runner.Name);
+					(*Row)->TryGetNumberField(TEXT("gate"), Gate);
+					Runner.Gate = FMath::RoundToInt32(Gate);
+					Runner.bFinished = (*Row)->TryGetNumberField(TEXT("time"), Runner.TimeMs);
+					Race.Runners.Add(Runner);
+				}
+			}
+		}
+		return Race;
+	}
+
 	bool StaysInForce(const FEarthOrder& Order)
 	{
 		return Order.Act == TEXT("follow") || Order.Act == TEXT("come") || Order.Act == TEXT("stay");
@@ -843,6 +902,12 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			Said.bHasAt = Json->TryGetNumberField(TEXT("lat"), Said.Lat) && Json->TryGetNumberField(TEXT("lon"), Said.Lon);
 			OnSay.Broadcast(Said);
 		}
+	}
+	else if (Type == TEXT("race"))
+	{
+		// The race in this room, whole, each time anything about it changes; none when it is over and cleared away.
+		Race = ReadRace(*Json);
+		OnRace.Broadcast();
 	}
 	else if (Type == TEXT("pet"))
 	{
@@ -1095,6 +1160,8 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 				}
 			}
 		}
+		Race = ReadRace(*Json);
+		OnRace.Broadcast();
 		Cars.Reset();
 		if (Json->TryGetArrayField(TEXT("cars"), Rows))
 		{
