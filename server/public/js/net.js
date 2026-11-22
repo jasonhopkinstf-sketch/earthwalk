@@ -170,6 +170,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "play", ...what });
   }
 
+  /** Food: `eat` something from my lunch box, ask for the `menu` of a "shop" or "food" place, or `buy` something `at` one. */
+  sendFood(what) {
+    this.send({ t: "food", ...what });
+  }
+
   /** A house of my own: `claim` the one I am in, `leave` mine, or `put` a piece in it. */
   sendHouse(what) {
     this.send({ t: "house", ...what });
@@ -290,6 +295,12 @@ export class Meetup extends EventTarget {
         this.emit("lived", msg);
         break;
       }
+      case "menu":
+        this.emit("menu", msg); // what the shop or café I am beside sells
+        break;
+      case "pep":
+        this.emit("pep", !!msg.on); // all five hearts full: quicker on my feet
+        break;
       case "house":
         this.house = msg.house ?? null;
         this.emit("house", this.house);

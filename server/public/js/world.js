@@ -470,6 +470,7 @@ export class World {
       this.signDoors(chunk, chunk.doors);
       this.nameHomesOf(chunk);
       this.nameBuildings(chunk, items.filter((it) => it.kind === "sign"));
+      chunk.shops = items.filter((it) => it.kind === "sign" && (it.use === "shop" || it.use === "food") && typeof it.text === "string"); // where food is sold (lunch.js)
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);
     }

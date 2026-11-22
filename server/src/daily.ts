@@ -23,6 +23,11 @@ export interface Daily {
   rode: Record<string, number>;
   /** Favours done today (favours.ts). Missing in days begun before there were favours. */
   favours?: number;
+  /** Food (food.ts): the kinds of good food eaten today, how many things were eaten, who has given food today, and whether the full hearts have been paid for. */
+  ate?: string[];
+  eaten?: number;
+  gifts?: string[];
+  fed?: boolean;
   /** Tasks done, with when; and whether the prize for all three has been paid. */
   done: Record<string, number>;
   bonus: boolean;
@@ -76,6 +81,8 @@ export const TASKS: Task[][] = [
     { id: "chats5", text: "Have five chats", goal: 5, unit: "chats", have: (t) => sum(t.talked) },
     { id: "chats3", text: "Have three chats", goal: 3, unit: "chats", have: (t) => sum(t.talked) },
     { id: "favour", text: "Do somebody a favour (ask anything you talk to: \"can I help?\")", goal: 1, unit: "", have: (t) => Math.min(1, t.favours ?? 0) },
+    { id: "eat3", text: "Eat three kinds of good food (B opens your lunch box)", goal: 3, unit: "kinds", have: (t) => (t.ate ?? []).length },
+    { id: "gift", text: "Be given something to eat (talk to a cow, a hen or a fruit tree)", goal: 1, unit: "", have: (t) => Math.min(1, (t.gifts ?? []).length) },
   ],
 ];
 

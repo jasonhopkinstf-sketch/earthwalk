@@ -20,6 +20,7 @@ import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
 import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
 import { type Feat, howWon, pieceById, PIECES } from "./home.ts";
+import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, LARDER_MAX, menuFor, thanksFood } from "./food.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
@@ -85,6 +86,9 @@ export interface JournalDoc {
   gamesWon: number;
   /** Pieces for a house of their own (home.ts): those bought, and the prizes won. */
   pieces: string[];
+  /** Food (food.ts): what is in their lunch box, by food, and the days on which all five hearts were filled. */
+  larder: Record<string, number>;
+  healthyDays: number;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -127,10 +131,12 @@ export interface JournalView {
   garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
   /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
   house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
+  /** Today's five hearts, whether all are full, and the lunch box: each food with the hearts it fills and how many are carried. */
+  food: { hearts: { group: string; title: string; full: boolean }[]; full: boolean; healthyDays: number; coinsFull: number; larder: { id: string; name: string; groups: string[]; n: number }[]; room: number };
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play" | "food";
   /** For a treasure just found: where its finder stood, so that their game can show it there. */
   at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
@@ -288,6 +294,7 @@ const STAMPS: StampRule[] = [
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
   { id: "halves", title: "Both halves", unit: "", steps: [1], count: (d) => (d.north !== null && d.south !== null && d.north > 0 && d.south < 0 ? 1 : 0), say: () => "You have stood on both halves of the world" },
   { id: "north", title: "Far north", unit: "", steps: [1], count: (d) => (d.north !== null && d.north > 66.5 ? 1 : 0), say: () => "You have been north of the Arctic Circle" },
+  { id: "healthy", title: "Healthy days", unit: "days", steps: [1, 3, 7, 14, 30, 100], count: (d) => d.healthyDays ?? 0, say: (n) => `You have filled all five hearts on ${one(n, "day")}` },
   { id: "south", title: "Far south", unit: "", steps: [1], count: (d) => (d.south !== null && d.south < -40 ? 1 : 0), say: () => "You have been to the far south" },
 ];
 
@@ -309,7 +316,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [],
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0,
   };
 }
 
@@ -375,6 +382,11 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
       bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
     }))(d.car ?? emptyGarage()),
+    food: ((ate, larder) => ({
+      hearts: heartsOf(ate), full: ate.length >= GROUPS.length, healthyDays: d.healthyDays ?? 0, coinsFull: HEALTHY_COINS,
+      larder: Object.entries(larder).filter(([id, n]) => n > 0 && foodById(id)).map(([id, n]) => ({ id, name: foodById(id)!.name, groups: foodById(id)!.groups, n })),
+      room: Math.max(0, LARDER_MAX - Object.values(larder).reduce((a, b) => a + b, 0)),
+    }))(today.ate ?? [], d.larder ?? {}),
     house: { pieces: PIECES.map((p) => ({ id: p.id, slot: p.slot, name: p.name, price: p.price ?? null, how: howWon(p), owned: (d.pieces ?? []).includes(p.id), hex: p.hex })) },
     kept: d.personId !== null,
     since: d.since,
@@ -630,6 +642,80 @@ export class Journals {
       this.note(w.open, "hat", { id, price: hat.price });
     }
     d.hat = id;
+    d.updated = this.now();
+    w.open.dirty = true;
+    return "ok";
+  }
+
+  // ---- food and hearts (food.ts)
+
+  /** Puts one of a food in the lunch box. False when the box is full. */
+  private stock(d: JournalDoc, id: string): boolean {
+    const larder = (d.larder ??= {});
+    if (Object.values(larder).reduce((a, b) => a + b, 0) >= LARDER_MAX) return false;
+    larder[id] = (larder[id] ?? 0) + 1;
+    return true;
+  }
+
+  /**
+   * Eats something from the lunch box: its hearts are filled for today, and with all five full the day is a
+   * healthy one, paid for once. "none" when there is none of it to eat.
+   */
+  eat(key: string, id: string): "ok" | "none" {
+    const w = this.walkers.get(key);
+    const food = foodById(id);
+    if (!w || !food || !((w.open.doc.larder ?? {})[id] > 0)) return "none";
+    this.note(w.open, "eat", { id });
+    this.change(key, w, (d) => {
+      if (--d.larder[id] <= 0) delete d.larder[id];
+      const t = this.today(d);
+      const ate = (t.ate ??= []);
+      const filled = food.groups.filter((g) => !ate.includes(g));
+      ate.push(...filled);
+      t.eaten = (t.eaten ?? 0) + 1;
+      const titles = filled.map((g) => GROUPS.find((x) => x.id === g)!.title.toLowerCase());
+      if (ate.length >= GROUPS.length && !t.fed) {
+        t.fed = true;
+        d.coins += HEALTHY_COINS;
+        d.healthyDays = (d.healthyDays ?? 0) + 1;
+        this.tell(key, { kind: "food", title: "All five hearts are full!", text: `You are full of beans: quicker on your feet until tomorrow, and ${HEALTHY_COINS} coins` });
+      } else {
+        this.tell(key, {
+          kind: "food", title: `You ate ${food.name}`,
+          text: filled.length ? `A heart filled for ${titles.join(" and for ")}: ${ate.length} of ${GROUPS.length} today`
+            : food.groups.length ? "Tasty. That heart was full already today" : "A treat: delicious, though it fills no heart",
+        });
+      }
+    });
+    return "ok";
+  }
+
+  /** Are all five hearts full today? Then the player is a little quicker on their feet. */
+  pepOf(key: string): boolean {
+    const w = this.walkers.get(key);
+    return !!w && (todayOf(w.open.doc, this.now()).ate ?? []).length >= GROUPS.length;
+  }
+
+  /** What a shop (`shop`) or somewhere to eat (`food`) would sell this player where they are. */
+  menuOf(key: string, use: "shop" | "food"): { country: string | null; items: Food[] } {
+    const w = this.walkers.get(key);
+    const country = (w && w.open.doc.places[w.placeKey]?.country) || null;
+    return { country, items: menuFor(use, country, w?.at?.lat ?? 45) };
+  }
+
+  /**
+   * Buys something to eat where the player is, into the lunch box. "poor" when there are not the coins, "full"
+   * when the lunch box is, "unknown" when it is not sold there.
+   */
+  buyFood(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown" {
+    const w = this.walkers.get(key);
+    const food = w ? this.menuOf(key, use).items.find((x) => x.id === id) : undefined;
+    if (!w || !food) return "unknown";
+    const d = w.open.doc;
+    if (d.coins - d.spent < food.price) return "poor";
+    if (!this.stock(d, food.id)) return "full";
+    d.spent += food.price;
+    this.note(w.open, "food", { id, price: food.price });
     d.updated = this.now();
     w.open.dirty = true;
     return "ok";
@@ -906,6 +992,13 @@ export class Journals {
         const keys = Object.keys(d.friends);
         if (keys.length > FRIEND_CAP) delete d.friends[keys.reduce((a, b) => (d.friends[a].last <= d.friends[b].last ? a : b))];
       }
+      // What it has to give (food.ts): once a day from each thing, into the lunch box.
+      const food = foodById(foodGiftOf(sp, thing, w.at?.lat ?? 45) ?? "");
+      const gifts = (t.gifts ??= []);
+      if (food && !gifts.includes(id) && gifts.length < 60 && this.stock(d, food.id)) {
+        gifts.push(id);
+        this.tell(key, { kind: "food", title: `${name} gave you ${food.name}`, text: "It is in your lunch box (B)" });
+      }
     });
     this.attempt(key, w, { talk: sp });
     // An album being filled: this may be a new kind for it.
@@ -967,6 +1060,9 @@ export class Journals {
       d.favours = d.favours.filter((x) => x !== f);
       d.favoursDone++;
       d.coins += f.coins;
+      // And something to eat, in thanks.
+      const food = foodById(thanksFood(f.thing));
+      if (food && this.stock(d, food.id)) this.tell(key, { kind: "food", title: `A thank-you: ${food.name}`, text: "It is in your lunch box (B)" });
       const t = this.today(d);
       t.favours = (t.favours ?? 0) + 1;
     });

@@ -11,6 +11,7 @@ import { Passport } from "./passport.js";
 import { Orders } from "./orders.js";
 import { Houses } from "./houses.js";
 import { Decor } from "./decor.js";
+import { Lunch } from "./lunch.js";
 import { Taxis } from "./taxi.js";
 import { Pets } from "./pets.js";
 import { Garage } from "./garage.js";
@@ -57,9 +58,9 @@ sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
 const life = new Life(scene, world, sounds, traffic);
 // What the E and T keys would do just now, shown together at the bottom of the screen.
-const hints = { ride: "", talk: "", door: "" };
+const hints = { ride: "", talk: "", door: "", food: "" };
 function showHints() {
-  const text = [hints.ride || hints.door, hints.talk].filter(Boolean).join("   ·   ");
+  const text = [hints.ride || hints.door, hints.talk, hints.food].filter(Boolean).join("   ·   ");
   $("ride").hidden = !text;
   $("ride").textContent = text;
 }
@@ -81,6 +82,10 @@ const houses = new Houses({
   world, player, meetup, decor,
   say: (text) => notice(text),
   hint: (text) => { if (hints.door !== text) { hints.door = text; showHints(); } },
+});
+const lunch = new Lunch({
+  panel: $("lunch"), hud: $("hearts"), meetup, world, player,
+  hint: (text) => { if (hints.food !== text) { hints.food = text; showHints(); } },
 });
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
@@ -219,7 +224,7 @@ meetup.addEventListener("journal", (e) => {
 });
 // A treasure found: the chest stands a few steps ahead of me, where I am looking.
 meetup.addEventListener("stamp", (e) => { if (e.detail.at) treasure.show(e.detail.at.lat, e.detail.at.lon, Math.sin(player.yaw) * 3.5, -Math.cos(player.yaw) * 3.5); });
-meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : e.detail.kind === "favour" ? "A favour" : e.detail.kind === "hunt" ? "Treasure hunt" : e.detail.kind === "expedition" ? "Expedition" : e.detail.kind === "race" ? "Race" : e.detail.kind === "play" ? "Game over" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" || e.detail.kind === "hunt" ? "" : " (P opens your passport)"}`));
+meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : e.detail.kind === "favour" ? "A favour" : e.detail.kind === "hunt" ? "Treasure hunt" : e.detail.kind === "expedition" ? "Expedition" : e.detail.kind === "race" ? "Race" : e.detail.kind === "play" ? "Game over" : e.detail.kind === "food" ? "Food" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" || e.detail.kind === "hunt" || e.detail.kind === "food" ? "" : " (P opens your passport)"}`));
 meetup.addEventListener("home", (e) => { if (e.detail) notice(`Home set to ${e.detail.name}. You will start there next time.`); });
 
 // ---------------------------------------------------------------- the world
@@ -262,6 +267,7 @@ function frame(now) {
   showcase.frame();
   talk.frame(dt);
   houses.frame(dt);
+  lunch.frame(dt);
   treasure.frame(dt);
   races.frame();
   play.frame(meetup.now());
@@ -384,6 +390,7 @@ addEventListener("keydown", (e) => {
     passport.close();
     showcase.close();
     decor.close();
+    lunch.close();
     talk.stop(); // and stop talking to whatever it was
   } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
     if (play.lead()) e.preventDefault(); // in a round-up, the animal beside me follows at once
@@ -396,7 +403,11 @@ addEventListener("keydown", (e) => {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
     if (!play.key()) races.key(); // join or start the game that is set up here; failing one, a race
+  } else if (e.code === "KeyB" && document.activeElement !== say && !e.repeat) {
+    decor.close();
+    lunch.toggle(); // my lunch box, my hearts, and what the shop beside me sells
   } else if (e.code === "KeyH" && document.activeElement !== say && !e.repeat) {
+    lunch.close();
     houses.home(); // make this house mine, furnish my own, or go home
   } else if (e.code === "KeyV" && document.activeElement !== say && !e.repeat) {
     // Riding or being carried: the seat, the view from above, the view from high up.
@@ -450,6 +461,9 @@ async function command(name, arg) {
     notice("    then back to your seat; the mouse swings the camera round and the wheel brings it nearer or further");
     notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
     notice("E   at the front door of a house: go in, and E again just inside it to come out");
+    notice("B   your lunch box and your five hearts: eat one of each kind of good food (fruit, vegetables, bread, protein, dairy)");
+    notice("    and you are quicker on your feet for the day. Cows, hens, fruit trees, tractors and boats give food when you talk to them,");
+    notice("    and beside a real shop or café B shows what it sells: every country has its own dishes");
     notice("H   a house of your own: inside a house nobody lives in, H makes it yours and puts your name over the door;");
     notice("    inside your own, H opens the furniture, paint and prizes; anywhere else, H takes you home (/house moveout gives it up)");
     notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");
@@ -495,6 +509,8 @@ async function command(name, arg) {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     wantClue = true;
     meetup.requestJournal();
+  } else if (name === "lunch" || name === "food") {
+    lunch.toggle();
   } else if (name === "house") {
     if (/^(move ?out|leave)$/i.test(arg ?? "")) houses.moveOut();
     else houses.home();
@@ -589,4 +605,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

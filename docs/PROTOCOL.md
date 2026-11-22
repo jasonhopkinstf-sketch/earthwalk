@@ -586,6 +586,34 @@ finished the state is `over` and the results stay for a minute. `stop` takes a r
 its maker (or when its maker leaves the room) it ends the race. A race nobody starts is cleared
 after ten minutes, and one nobody finishes after twenty.
 
+### Food and hearts
+
+A player has five hearts, one for each kind of good food: `fruit`, `veg`, `grain`, `protein`, `dairy`.
+Eating fills them for the day (the player's own day, as with the daily tasks); nothing empties them but
+midnight, and nothing bad comes of empty ones. Food is carried in a lunch box of thirty things, kept
+in the journal. A `talk` to a thing that has food to give puts it in the lunch box, once a day from
+each thing (a cow milk, a hen an egg, one tree in three its fruit); so does a favour done.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"food","eat":"milk"}` | Eat one of these from my lunch box. |
+| `{"t":"food","menu":"food"}` | What is sold where I am: `"shop"` for a shop, `"food"` for somewhere to eat. |
+| `{"t":"food","buy":"sushi","at":"food"}` | Buy one, from a shop or (`at` `"food"`) somewhere to eat, into my lunch box. It must be on that menu. |
+
+The answers: after eating, `{"t":"pep","on":true}` (true once all five hearts are full today: the
+player may then go about a tenth quicker on foot; it is also sent, true, on joining later the same
+day) and the `journal`; after buying, the `journal`; and for a menu
+
+```json
+{"t":"menu","use":"food","country":"Japan","items":[{"id":"sushi","name":"a plate of sushi","groups":["grain","protein"],"price":16}]}
+```
+
+A café's menu begins with the dishes of the country the player is in. News of food comes as `stamp`
+messages of kind `food`. The journal's `food` has `hearts` (the five, each `group`, `title`, `full`),
+`full`, `healthyDays`, `coinsFull`, `larder` (each `id`, `name`, `groups`, `n`) and `room`. A `sign`
+label of a shop or of somewhere to eat carries `use`: `"shop"` or `"food"`. Clients are expected to
+show the hearts, let the player eat from the lunch box, and offer the menu beside such a sign.
+
 ### A house of your own
 
 Any house that opens (see "Inside houses") can be made a player's own. One house a person; a guest's

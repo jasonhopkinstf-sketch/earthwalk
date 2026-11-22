@@ -235,6 +235,18 @@ passport, brings it to stand beside you, and only you can drive it; friends ride
 and body are chosen in the passport: four paints are free, nine more and a van are bought with the
 coins that tasks, favours and treasure pay (`server/src/garage.ts`, `server/public/js/garage.js`).
 
+Food and hearts (in the browser so far): five hearts in the corner, one for each kind of good food
+(fruit, vegetables, bread and grains, protein, dairy). Eating something fills its hearts for the day,
+and with all five full you are "full of beans" until your midnight: a little quicker on your feet,
+15 coins, and a healthy day for the passport. Empty hearts cost nothing; nobody is ever hungry. Food
+is carried in a lunch box (B). It comes from the world: a cow or a goat gives milk when you talk to
+it, a hen an egg, a boat a fish, a tractor something from its field, one tree in three its fruit
+(apples in the north, mangoes near the equator), once a day each; a favour done is thanked with
+something to eat; and beside a real shop or café on the map (its name is on a board) B shows what it
+sells for coins: groceries in a shop, and in a café the dishes of the country you are in (sushi in
+Japan, a cheese roll in the Netherlands, a meat pie in New Zealand). The foods, the gifts and the
+menus are `server/src/food.ts`; the journal keeps the lunch box.
+
 A house of your own (in the browser so far): go into any house nobody lives in (E at a door with a
 COME IN board) and press H. It is yours: your name goes up over the door for everybody, friends can
 walk in, and H anywhere else takes you home. Inside it, H opens a panel at the side where the paint

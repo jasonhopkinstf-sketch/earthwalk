@@ -126,6 +126,11 @@ export interface JournalKeeper {
   played?(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void;
   /** A piece for a house of their own: theirs already, or bought now. */
   takePiece?(key: string, id: string): "ok" | "poor" | "prize" | "unknown";
+  /** Food (food.ts): eating from the lunch box, whether all five hearts are full, what is sold where they are, and buying it. */
+  eat?(key: string, id: string): "ok" | "none";
+  pepOf?(key: string): boolean;
+  menuOf?(key: string, use: "shop" | "food"): { country: string | null; items: { id: string; name: string; groups: string[]; price: number }[] };
+  buyFood?(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown";
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -321,6 +326,7 @@ export class Rooms {
         void this.journal?.joined(me.id, me.personId, roomName, finite(msg.tz) ? msg.tz : undefined).then(() => {
           this.bringPet(r, arrived, this.journal?.petOf?.(arrived.id) ?? null);
           this.wearHat(r, arrived, this.journal?.hatOf?.(arrived.id) ?? null);
+          if (this.journal?.pepOf?.(arrived.id) && arrived.ws.readyState === arrived.ws.OPEN) arrived.ws.send(JSON.stringify({ t: "pep", on: true })); // all five hearts were filled earlier today
         }).catch(() => {});
         this.listener.joined?.(this.publicMember(me, roomName));
         if (this.options.peopleList) send({ t: "people", p: this.options.peopleList() });
@@ -459,6 +465,23 @@ export class Rooms {
         else if (drop) this.journal?.dropExpedition?.(me.id, drop);
         this.walkWith(me);
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+      } else if (msg.t === "food" && room) {
+        // Food (food.ts): eat something from my lunch box (`eat`), ask what a shop or a café sells where I am
+        // (`menu`: "shop" or "food"), or buy something there (`buy`, with `at` saying which of the two it is).
+        const eat = clean(msg.eat, 16), buy = clean(msg.buy, 16);
+        const use = msg.menu === "food" || msg.at === "food" ? "food" : "shop";
+        if (eat) {
+          if (this.journal?.eat?.(me.id, eat) !== "ok") { send({ t: "error", code: "locked", text: "There is none of that in your lunch box" }); return; }
+          send({ t: "pep", on: this.journal?.pepOf?.(me.id) ?? false });
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (buy) {
+          const got = this.journal?.buyFood?.(me.id, use, buy) ?? "unknown";
+          if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : got === "full" ? "Your lunch box is full: eat something first" : "That is not sold here" }); return; }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (msg.menu === "shop" || msg.menu === "food") {
+          const menu = this.journal?.menuOf?.(me.id, use);
+          send({ t: "menu", use, country: menu?.country ?? null, items: (menu?.items ?? []).map((x) => ({ id: x.id, name: x.name, groups: x.groups, price: x.price })) });
+        }
       } else if (msg.t === "house" && room) {
         // A house of my own (home.ts): make the one I am at mine (`claim`), give mine up (`leave`), or swap a
         // piece in it (`put`: a slot and a piece, or no piece for what the house came with; a prize goes `on` or off).
