@@ -137,6 +137,8 @@ export class Showcase {
       if (!best || score < best.score) best = { x, z, score, ...more };
     };
     if (show.find === "train") {
+      // The trains are counted afresh first: just after a journey, the last place's are still on the books.
+      this.traffic.sync(this.player.position);
       // A train standing still is easiest to board, so one of those is worth waiting a little longer for.
       for (const stop of this.traffic.boarding(this.meetup.now(), from, within)) consider(stop.x, stop.z, stop, stop.in + (stop.passing ? 25 : 0));
       return best;
@@ -177,8 +179,10 @@ export class Showcase {
       // Beside the track, on the side the player is already on.
       const h = rad(spot.heading);
       const side = (p.position.x - spot.x) * Math.cos(h) + (p.position.z - spot.z) * Math.sin(h) < 0 ? -1 : 1;
-      x += Math.cos(h) * 5.5 * side;
-      z += Math.sin(h) * 5.5 * side;
+      // A standing train can be looked at from a few steps back; a passing one must be within reach as it goes by.
+      const back = spot.passing ? 5.5 : 7;
+      x += Math.cos(h) * back * side;
+      z += Math.sin(h) * back * side;
       const soon = spot.in < 50 ? `about ${Math.max(5, Math.round(spot.in / 5) * 5)} seconds` : spot.in < 100 ? "about a minute" : `about ${Math.round(spot.in / 60)} minutes`;
       extra = spot.passing ? ` A train comes past here in ${soon} without stopping: press E as it goes by to jump on.`
         : spot.in < 3 ? " The train is standing right here." : ` The train draws in here in ${soon}.`;
@@ -224,7 +228,7 @@ export class Showcase {
         const spot = filled ? this.look(w.show, { x: 0, z: 0 }, w.hopped ? 400 : AT_PLACE_M) : null;
         // No train due here for a while: go along the line to where one is, once, and catch it there.
         const far = filled && w.show.find === "train" && !w.hopped && !(spot && spot.in <= TRAIN_SOON_S)
-          ? this.traffic.soonest(this.meetup.now()).sort((a, b) => a.in - b.in)[0] : null;
+          ? this.traffic.soonest(this.meetup.now()).sort((a, b) => a.in + (a.passing ? 10 : 0) - b.in - (b.passing ? 10 : 0))[0] : null;
         if (far) {
           const geo = this.world.sceneToGeo({ x: far.x, y: 0, z: far.z });
           w.hopped = true;

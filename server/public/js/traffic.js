@@ -275,10 +275,12 @@ export class Traffic {
         const b = trainPose(train, t + dt + 12);
         if (!b.moving && Math.abs(a.along - b.along) < 0.01) found = { in: dt, d: middle(a.along), passing: false };
       }
-      if (!found) {
-        const a = trainPose(train, t + lead);
-        found = { in: lead, d: middle(a.along), passing: a.moving };
+      // Failing that, where it will be on the move: a train standing now but about to leave is met as it sets off.
+      for (let dt = lead; dt <= lead + 120 && !found; dt++) {
+        const a = trainPose(train, t + dt);
+        if (a.moving) found = { in: dt, d: middle(a.along), passing: true };
       }
+      if (!found) continue;
       // Opposite the middle of a carriage, not the gap between two: within reach of a door, so to speak.
       const beside = Math.min(train.length, found.d + (CARRIAGE_M + COUPLING_M) / 2);
       const [x, z] = pointAt(train, beside);
