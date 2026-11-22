@@ -2,6 +2,9 @@
 // touched or found; here the field is marked out with flags, an arrow hangs over whoever is "it" (or
 // seeking), the seeker sees nothing while the others hide, and a small panel says how things stand.
 // R joins a game that is set up and starts your own; /tag and /hide set one up.
+//
+// A round-up (/herd) is played together, or alone: a pen of fence posts stands where it was set up,
+// T beside an animal has it follow you, and walking it into the pen counts it in.
 
 import * as THREE from "three";
 
@@ -9,9 +12,12 @@ const box = new THREE.BoxGeometry(1, 1, 1);
 const cone = new THREE.ConeGeometry(1, 1, 12);
 const POLE = new THREE.MeshLambertMaterial({ color: 0xf4f1ea });
 const FLAG = new THREE.MeshLambertMaterial({ color: 0xf08a3c });
+const FENCE = new THREE.MeshLambertMaterial({ color: 0x8a5a3a });
+/** Things that talk but cannot be led anywhere. */
+const ROOTED = new Set(["tree", "house", "car", "taxi", "tractor", "train", "boat", "sailboat"]);
 const ARROW = new THREE.MeshBasicMaterial({ color: 0xe0352b });
 const FLAGS = 28;
-const NAMES = { tag: "tag", hide: "hide and seek" };
+const NAMES = { tag: "tag", hide: "hide and seek", herd: "rounding up" };
 
 const mmss = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -61,6 +67,25 @@ export class Play {
         this.field = new THREE.Group();
         for (let i = 0; i < FLAGS; i++) {
           const flag = new THREE.Group();
+          if (play.kind === "herd") {
+            // A pen: fence posts with a rail to the next, and three left out for a gateway.
+            if (i < 3) { this.flags.push(flag); continue; }
+            const post = new THREE.Mesh(box, FENCE);
+            post.scale.set(0.14, 1.2, 0.14);
+            post.position.y = 0.6;
+            flag.add(post);
+            if (i < FLAGS - 1) {
+              const rail = new THREE.Mesh(box, FENCE);
+              const span = (2 * Math.PI * play.radius) / FLAGS;
+              rail.scale.set(span, 0.1, 0.06);
+              rail.position.set(span / 2, 0.85, 0);
+              flag.add(rail);
+            }
+            flag.visible = false;
+            this.flags.push(flag);
+            this.field.add(flag);
+            continue;
+          }
           const pole = new THREE.Mesh(box, POLE);
           pole.scale.set(0.08, 2.4, 0.08);
           pole.position.y = 1.2;
@@ -73,13 +98,18 @@ export class Play {
           this.field.add(flag);
         }
         this.scene.add(this.field);
-        this.say(play.by === me ? `Your game of ${NAMES[play.kind]} is set up, inside the ring of orange flags. Press R to start once a friend has joined.`
+        this.say(play.kind === "herd"
+          ? (play.by === me ? "Your round-up is set up: the pen is here. Press R to start, alone or once friends have joined." : `${play.byName} has set up a round-up. Press R to join in.`)
+          : play.by === me ? `Your game of ${NAMES[play.kind]} is set up, inside the ring of orange flags. Press R to start once a friend has joined.`
           : `${play.byName} has set up a game of ${NAMES[play.kind]}. Press R to join in.`);
       }
     }
     const was = this.before;
     if (play && was) {
-      if (was.state === "open" && play.state === "go") {
+      if (play.kind === "herd") {
+        if (was.state === "open" && play.state === "go") this.say(`Round them up! Press T beside an animal and it follows you; walk it into the pen. ${play.goal} are wanted.`);
+        if (play.penned.length > was.penned) this.say(`In the pen: ${play.penned.length} of ${play.goal}.`);
+      } else if (was.state === "open" && play.state === "go") {
         this.say(play.kind === "tag" ? (play.it === me ? "You are it! Touch somebody to pass it on." : `${this.nameOf(play.it)} is it. Keep away!`)
           : play.it === me ? "You are the seeker. Wait while they hide, then go and find them." : `${this.nameOf(play.it)} is the seeker. Hide, inside the ring of flags!`);
       } else if (play.kind === "tag" && play.state === "go" && was.it !== play.it) {
@@ -91,7 +121,7 @@ export class Play {
         }
       }
     }
-    this.before = play ? { state: play.state, it: play.it, found: new Set(play.players.filter((p) => p.found).map((p) => p.id)) } : null;
+    this.before = play ? { state: play.state, it: play.it, penned: play.penned?.length ?? 0, found: new Set(play.players.filter((p) => p.found).map((p) => p.id)) } : null;
     this.told = null;
   }
 
@@ -110,6 +140,19 @@ export class Play {
     if (!play.players.some((p) => p.id === meetup.me?.id)) meetup.sendPlay({ join: true });
     else if (play.by === meetup.me?.id) meetup.sendPlay({ go: true });
     else this.say(`You are in. ${play.byName} says when to start.`);
+    return true;
+  }
+
+  /**
+   * The T key in the middle of a round-up: the animal beside me is told to follow, without stopping to chat.
+   * True when a round-up is on (so that T does not also open a conversation).
+   */
+  lead() {
+    const { play, meetup, talk, world } = this;
+    if (!play || play.kind !== "herd" || play.state !== "go" || meetup.now() * 1000 < play.startAt || !play.players.some((p) => p.id === meetup.me?.id)) return false;
+    const near = talk.near;
+    if (!near || ROOTED.has(near.sp)) this.say("Stand beside an animal and press T: it will follow you.");
+    else meetup.sendTalk(near.thing, near.sp, "follow me", world.sceneToGeo({ x: near.x, y: 0, z: near.z }));
     return true;
   }
 
@@ -154,13 +197,13 @@ export class Play {
     // The ring of flags, each stood on the ground once the ground there has arrived.
     const centre = world.geoToScene(play.lat, play.lon);
     this.flags.forEach((flag, i) => {
-      if (flag.visible) return;
+      if (flag.visible || !flag.parent) return;
       const a = (i / FLAGS) * Math.PI * 2;
       const x = centre.x + Math.sin(a) * play.radius, z = centre.z + Math.cos(a) * play.radius;
       const y = world.groundHeight(x, z);
       if (y === null) return;
       flag.position.set(x, y, z);
-      flag.rotation.y = a;
+      flag.rotation.y = play.kind === "herd" ? a + Math.PI / FLAGS : a; // a fence rail runs on round the ring to the next post
       flag.visible = true;
     });
 
@@ -177,12 +220,16 @@ export class Play {
 
     // The panel.
     const lines = [];
-    const out = !!me && live && Math.hypot(player.position.x - centre.x, player.position.z - centre.z) > play.radius;
+    const out = !!me && live && play.kind !== "herd" && Math.hypot(player.position.x - centre.x, player.position.z - centre.z) > play.radius;
     if (play.state === "open") {
-      lines.push(`${play.kind === "tag" ? "Tag" : "Hide and seek"}, set up by ${play.byName}`, `In: ${play.players.map((p) => p.name).join(", ")}`,
-        !me ? "R: join in" : play.by === mine ? (play.players.length < 2 ? "Waiting for a friend to join" : "R: start the game") : `Waiting for ${play.byName} to start`);
+      lines.push(`${play.kind === "tag" ? "Tag" : play.kind === "hide" ? "Hide and seek" : "A round-up"}, set up by ${play.byName}`, `In: ${play.players.map((p) => p.name).join(", ")}`,
+        !me ? "R: join in" : play.by === mine ? (play.kind !== "herd" && play.players.length < 2 ? "Waiting for a friend to join" : "R: start the game") : `Waiting for ${play.byName} to start`);
     } else if (play.state === "go" && !live) {
       lines.push("Get ready...");
+    } else if (play.kind === "herd") {
+      if (play.state === "go") lines.push(`In the pen: ${play.penned.length} of ${play.goal}`, `${mmss(play.endAt - now)} left`, "T beside an animal: it follows you", "Walk it into the pen");
+      else lines.push(play.penned.length >= play.goal ? "The herd is home!" : "The round-up is over", `${play.penned.length} of ${play.goal} brought in`);
+      if (play.players.length > 1) for (const p of play.players) lines.push(`${p.name}: ${p.itMs}`);
     } else if (play.kind === "tag") {
       if (play.state === "go") lines.push(play.it === mine ? "You are IT: touch somebody!" : `${this.nameOf(play.it)} is it: keep away!`, `${mmss(play.endAt - now)} left`);
       else lines.push("Tag is over");
@@ -201,7 +248,7 @@ export class Play {
       }
     }
     if (out && play.state === "go") lines.unshift("Back inside the flags!");
-    if (play.state === "over") lines.push("/tag or /hide for another");
+    if (play.state === "over") lines.push("/tag, /hide or /herd for another");
     const text = lines.join("\n");
     if (text !== this.told) { this.told = text; this.panel.textContent = text; }
     this.panel.hidden = false;

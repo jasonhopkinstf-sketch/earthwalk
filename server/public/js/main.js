@@ -83,7 +83,7 @@ const orders = new Orders({ world, player, meetup, avatars, life, traffic, ridin
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 const pets = new Pets({ world, player, meetup, avatars, riding });
 const garage = new Garage({ world, meetup, riding, traffic });
-const play = new Play({ scene, world, meetup, player, avatars, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
+const play = new Play({ scene, world, meetup, player, avatars, talk, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
 const races = new Races({ scene, world, meetup, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
@@ -377,7 +377,8 @@ addEventListener("keydown", (e) => {
     passport.close();
     talk.stop(); // and stop talking to whatever it was
   } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
-    if (talk.begin()) { e.preventDefault(); say.focus(); } // say hello, then type
+    if (play.lead()) e.preventDefault(); // in a round-up, the animal beside me follows at once
+    else if (talk.begin()) { e.preventDefault(); say.focus(); } // say hello, then type
   } else if (e.code === "KeyP" && document.activeElement !== say && !e.repeat) {
     passport.toggle(); // where I have been and what I have done
   } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
@@ -433,6 +434,8 @@ async function command(name, arg) {
     notice("    your coins and hats, countries, places, friends,");
     notice("/clue   hear again the clue of the treasure hunt you are on");
     notice("/car    bring your own car to where you are (choose its paint in your passport)");
+    notice("/herd   a round-up, alone or together: a pen appears where you stand; T beside an animal has it follow you,");
+    notice("    and walking it into the pen counts it in");
     notice("/tag and /hide   set up a game of tag, or of hide and seek, where you stand: friends press R to join, and you");
     notice("    press R to start. It takes two. (/tag stop leaves it, or ends your own.)");
     notice("R   a race along the roads here: R sets one up, R joins one a friend has set up, and R starts yours");
@@ -446,7 +449,7 @@ async function command(name, arg) {
     meetup.sendTaxi(arg);
   } else if (name === "passport" || name === "journal") {
     passport.toggle();
-  } else if (name === "tag" || name === "hide") {
+  } else if (name === "tag" || name === "hide" || name === "herd") {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     if (arg.toLowerCase() === "stop") play.stop();
     else play.make(name);

@@ -207,6 +207,11 @@ the world, joins them into runs and timetables a train along each, stopping at s
 on a run sends the same train, and the browser replays it and whistles as it passes.
 docs/PROTOCOL.md, "Trains".
 
+Rounding up (in the browser so far): `/herd` puts a pen of fence posts where you stand. Press T
+beside an animal and it follows you; walk it into the pen and it is counted in and stays there.
+Five are wanted for one player and more for a team, in five minutes, though nothing is lost if the
+clock wins. It can be played alone (`stepHerd` in `server/src/play.ts`).
+
 Tag, and hide and seek (in the browser so far): `/tag` or `/hide` (or a button in the passport) sets
 a game up inside a ring of orange flags where you stand; friends press R to join and you press R to
 start. At tag an arrow hangs over whoever is it, who runs a little faster; whoever was it least in

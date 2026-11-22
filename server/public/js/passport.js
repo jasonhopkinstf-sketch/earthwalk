@@ -265,7 +265,8 @@ export class Passport {
     setUp("A race along the roads here", () => this.meetup.sendRace("make"));
     setUp("Tag", () => this.meetup.sendPlay({ make: "tag" }));
     setUp("Hide and seek", () => this.meetup.sendPlay({ make: "hide" }));
-    games.append(el("span", "small", "Friends press R to join, and you press R to start. A race can be run alone; tag and hide and seek take two."));
+    setUp("Round up the animals", () => this.meetup.sendPlay({ make: "herd" }));
+    games.append(el("span", "small", "Friends press R to join, and you press R to start. A race or a round-up can be done alone; tag and hide and seek take two."));
 
     // The garage: my own car, its paint and its body, and a button to bring it here.
     const garage = el("div", "garage");

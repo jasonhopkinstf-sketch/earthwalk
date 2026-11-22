@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { Journals, type JournalView } from "../src/journal.ts";
 import { GuestDirectory } from "../src/people.ts";
-import { beginPlay, FIELD_M, HIDE_FOR_MS, joinPlay, leavePlay, newPlay, OUT_MS, outcomes, SAFE_MS, SEEK_FOR_MS, stalePlay, stepPlay, TAG_FOR_MS, type Where } from "../src/play.ts";
+import { beginPlay, FIELD_M, type Follower, HIDE_FOR_MS, joinPlay, leavePlay, newPlay, OUT_MS, outcomes, SAFE_MS, SEEK_FOR_MS, stalePlay, stepHerd, stepPlay, TAG_FOR_MS, type Where } from "../src/play.ts";
 import { Rooms } from "../src/rooms.ts";
 
 type Msg = Record<string, any>;
@@ -207,6 +207,103 @@ test("in a room: a game of tag from setting up to the coins, with the room told 
     assert.equal((await mum.next("play", (m) => m.play === null)).play, null);
     mum.ws.close();
     gran.ws.close();
+  } finally {
+    rooms.close();
+    server.close();
+    await journals.close();
+  }
+});
+
+test("a round-up: animals following a player count when their leader steps into the pen, and enough of them wins", () => {
+  const play = newPlay("herd", "mum", "Mum", 52.01, 4.71, 0);
+  assert.equal(play.radius, FIELD_M.herd);
+  assert.equal(beginPlay(play, 0, 1000), true, "one player is enough");
+  assert.deepEqual([play.goal, play.it, play.endAt], [5, null, 1000 + 5 * 60_000]);
+  const pair = newPlay("herd", "mum", "Mum", 52.01, 4.71, 0);
+  joinPlay(pair, "kid", "Kid");
+  beginPlay(pair, 0, 0);
+  assert.equal(pair.goal, 7, "two more for each friend");
+
+  const here = new Map<string, Where>([["mum", at(40, 0)]]);
+  const where = (id: string): Where | null => here.get(id) ?? null;
+  let led: Follower[] = [{ thing: 11, sp: "sheep" }, { thing: 12, sp: "sheep" }];
+  const followers = (): Follower[] => led;
+  assert.deepEqual(stepHerd(play, where, followers, 500), { changed: false, penned: [] }, "not begun");
+  assert.deepEqual(stepHerd(play, where, followers, 5000).penned, [], "leading them about the field is not bringing them in");
+  here.set("mum", at(3, 2));
+  assert.deepEqual(stepHerd(play, where, followers, 6000).penned, [{ thing: 11, sp: "sheep", by: "mum" }, { thing: 12, sp: "sheep", by: "mum" }]);
+  assert.deepEqual(stepHerd(play, where, followers, 7000), { changed: false, penned: [] }, "each animal counts once");
+  assert.equal(stepPlay(play, where, 7000), false, "the rules of tag have nothing to say here");
+  // Three more, of any kind: a cow, a duck and a snail.
+  led = [{ thing: 11, sp: "sheep" }, { thing: 20, sp: "cow" }, { thing: 21, sp: "duck" }, { thing: 22, sp: "snail" }, { thing: 23, sp: "pig" }];
+  const last = stepHerd(play, where, followers, 60_000);
+  assert.deepEqual([last.penned.map((f) => f.thing), play.state, play.penned.length], [[20, 21, 22], "over", 5], "the pen is full at five: the pig stays out");
+  assert.deepEqual(outcomes(play).map((o) => [o.won, o.coins, o.title, o.text]), [[true, 30, "The herd is home!", "5 of 5 brought in, 5 by you"]]);
+
+  // Time runs out with some in: nobody has failed, and everyone is paid for what was done.
+  here.set("kid", at(0, 1));
+  here.set("mum", at(50, 0));
+  stepHerd(pair, where, (id) => (id === "kid" ? [{ thing: 31, sp: "goat" }] : []), 10_000);
+  assert.deepEqual(stepHerd(pair, where, () => [], pair.endAt), { changed: true, penned: [] });
+  assert.deepEqual(outcomes(pair).map((o) => [o.id, o.won, o.coins, o.text]), [["mum", false, 12, "1 of 7 brought in, 0 by you"], ["kid", false, 12, "1 of 7 brought in, 1 by you"]]);
+  assert.equal(leavePlay(pair, "kid", 0), "gone");
+  const solo = newPlay("herd", "mum", "Mum", 52.01, 4.71, 0);
+  joinPlay(solo, "kid", "Kid");
+  beginPlay(solo, 0, 0);
+  assert.equal(leavePlay(solo, "kid", 1), "gone", "one may carry on a round-up alone");
+});
+
+test("in a room: a round-up alone, with animals told to follow and settled in the pen", async () => {
+  const journals = new Journals({});
+  const rooms = new Rooms(new GuestDirectory(""), { journal: journals, playCountdownMs: 50 });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const ws = new WebSocket(`ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`);
+  const inbox: Msg[] = [];
+  ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
+  await new Promise<void>((r) => ws.on("open", () => r()));
+  const next = async (t: string, ok: (m: Msg) => boolean = () => true): Promise<Msg> => {
+    for (let i = 0; i < 300; i++) {
+      const found = inbox.findIndex((m) => m.t === t && ok(m));
+      if (found >= 0) return inbox.splice(found, 1)[0];
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`timed out waiting for "${t}"`);
+  };
+  const go = (p: Where): void => ws.send(JSON.stringify({ t: "pos", lat: p.lat, lon: p.lon, alt: p.alt, yaw: 0 }));
+  try {
+    ws.send(JSON.stringify({ t: "hello", name: "Mum", room: "family", avatar: "fox" }));
+    const me = (await next("welcome")).id as string;
+    go(at(0, 0));
+    await new Promise((r) => setTimeout(r, 50));
+    ws.send(JSON.stringify({ t: "play", make: "herd" }));
+    assert.deepEqual([(await next("play")).play.kind], ["herd"]);
+    ws.send(JSON.stringify({ t: "play", go: true }));
+    const begun = (await next("play", (m) => m.play?.state === "go")).play;
+    assert.deepEqual([begun.goal, begun.penned], [5, []]);
+    await new Promise((r) => setTimeout(r, 100));
+    // Out in the field, a sheep is told to follow; nothing is in the pen until she walks back into it.
+    go(at(60, 0));
+    ws.send(JSON.stringify({ t: "talk", thing: 77, sp: "sheep", text: "Follow me!" }));
+    const following = await next("order", (m) => m.thing === 77);
+    assert.deepEqual([following.act, following.by], ["follow", me]);
+    go(at(30, 0));
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(inbox.some((m) => m.t === "play" && m.play?.penned.length), false);
+    go(at(2, 1));
+    const told = (await next("play", (m) => m.play?.penned.length === 1)).play;
+    assert.deepEqual([told.penned, told.players[0].itMs, told.state], [[77], 1, "go"]);
+    // The sheep stops following and stands in the pen, within its fence.
+    const stays = await next("order", (m) => m.thing === 77 && m.act === "stay");
+    const fromMiddle = Math.hypot((stays.lat - 52.01) * 111_320, (stays.lon - 4.71) * 111_320 * Math.cos((52.01 * Math.PI) / 180));
+    assert.ok(fromMiddle < FIELD_M.herd, `${fromMiddle.toFixed(1)} m from the middle of the pen`);
+
+    // Ending the game lets the animals go home.
+    ws.send(JSON.stringify({ t: "play", stop: true }));
+    assert.equal((await next("play", (m) => m.play === null)).play, null);
+    assert.deepEqual([(await next("order", (m) => m.thing === 77 && m.act === "home")).sp], ["sheep"]);
+    ws.close();
   } finally {
     rooms.close();
     server.close();
