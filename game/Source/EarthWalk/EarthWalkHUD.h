@@ -78,7 +78,7 @@ private:
 	void OpenMenu();
 	void CloseMenu();
 	void OpenAsk(const FString& Id);
-	/** H: the strip of buttons along the bottom, on or off, and remembered. */
+	/** Z: the strip of buttons along the bottom, on or off, and remembered. */
 	void ToggleStrip();
 	/** Typing into the chat box or into the box that asks "where to?": the keys are letters, not commands. */
 	bool Typing() const { return bChatOpen || bAskOpen; }

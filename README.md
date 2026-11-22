@@ -104,7 +104,7 @@ Controls (Unreal):
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
-| `H` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
 | `Esc`, `Esc` | Leave the game (Windows; it fills the screen, so there is no window to close). `/quit` does the same |
 | `P` | Your passport (`/passport` does the same) |
 | `G` | Show me: a list of things to show somebody; pick one and you are taken straight to it (`/show` does the same) |

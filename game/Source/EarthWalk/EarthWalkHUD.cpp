@@ -1490,7 +1490,8 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		OpenChat();
 	}
 	// The menu: Esc puts it away (and is then not "leave the game?"), and so does any key that does
-	// something of its own, which it then goes on to do. H turns the strip of buttons off and on.
+	// something of its own, which it then goes on to do. Z turns the strip of buttons off and on
+	// (not H or B: those are the house and the lunch box in the browser game, and will be here).
 	bMenuTookEsc = false;
 	if (bAskOpen && Menu.IsValid() && FSlateApplication::IsInitialized())
 	{
@@ -1517,7 +1518,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		{
 			CloseMenu();
 		}
-		if (PC->WasInputKeyJustPressed(EKeys::H))
+		if (PC->WasInputKeyJustPressed(EKeys::Z))
 		{
 			ToggleStrip();
 		}
@@ -2071,7 +2072,7 @@ void AEarthWalkHUD::ToggleStrip()
 		Menu->ShowStrip(bStripOn);
 	}
 	FEarthWalkConfig::Save(TEXT("Buttons"), bStripOn ? TEXT("on") : TEXT("off"));
-	AddLine(bStripOn ? TEXT("The buttons are back. H hides them.") : TEXT("The buttons are hidden. H brings them back, and Tab still shows everything you can do."), NoticeColor);
+	AddLine(bStripOn ? TEXT("The buttons are back. Z hides them.") : TEXT("The buttons are hidden. Z brings them back, and Tab still shows everything you can do."), NoticeColor);
 }
 
 void AEarthWalkHUD::MenuAction(const FString& Id)
@@ -2381,7 +2382,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	}
 	else if (Command == TEXT("help"))
 	{
-		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; H hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
 		AddLine(TEXT("The same things as typed commands, for those who like typing:"), NoticeColor);
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);
