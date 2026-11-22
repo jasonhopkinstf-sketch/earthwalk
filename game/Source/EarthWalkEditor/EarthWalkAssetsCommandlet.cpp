@@ -34,6 +34,10 @@ namespace
 	// The look is a drawn cartoon: flat painted colours, matt, with a little brushwork, and patterns
 	// that say "tiles" or "bricks" rather than photographs of them. M_EarthInk then bands the light and
 	// draws the outlines. Nothing here uses a texture: every mark is worked out from where the surface is.
+	//
+	// Three dials make the same materials a second look, flat like a television cartoon (EarthLook.cpp
+	// sets them): Flat takes the brushwork out and leaves one even colour, Vivid makes the colour
+	// brighter than it was sent, and Marks is how strongly the drawn patterns show.
 
 	/** Ground, roads and roofs: the colour, a little uneven as if brushed on, with a drawn pattern for some surfaces. */
 	const TCHAR* const TopCode = TEXT(R"HLSL(
@@ -43,7 +47,9 @@ float h = WorldPos.z / 100.0;
 float detail = 1.0 - saturate((length(WorldPos - CamPos) - 7000.0) / 11000.0); // drawn marks fade out with distance
 float blot = sin(p.x * 0.11 + 1.7 * sin(p.y * 0.07)) * sin(p.y * 0.13 + 1.3 * sin(p.x * 0.09));
 float daub = sin(p.x * 0.9 + p.y * 0.5) * sin(p.y * 1.1 - p.x * 0.4);
-float3 c = Tint * (1.0 + 0.13 * blot + 0.05 * daub * detail);
+float grey = dot(Tint, float3(0.299, 0.587, 0.114));
+float3 tint = max(lerp(float3(grey, grey, grey), Tint, 1.0 + Vivid), 0.0); // Vivid: the colour brighter than it was sent
+float3 c = tint * (1.0 + (0.13 * blot + 0.05 * daub * detail) * (1.0 - Flat));
 float mark = 0.0;
 if (Pattern > 0.5 && Pattern < 1.5)
 {
@@ -81,7 +87,7 @@ else if (Pattern > 4.5 && Pattern < 5.5)
 	float3 q = WorldPos / 21.0;
 	float dab = sin(q.x * 1.3 + 1.2 * sin(q.z * 1.7)) * sin(q.y * 1.1 + 1.2 * sin(q.x * 1.9)) * sin(q.z * 1.5 + q.y * 0.7);
 	mark = smoothstep(0.18, 0.3, dab) * 0.75;
-	c *= 1.0 + 0.16 * smoothstep(0.15, 0.3, -dab) * detail;
+	c *= 1.0 + 0.16 * smoothstep(0.15, 0.3, -dab) * detail * Marks;
 }
 else if (Pattern > 5.5)
 {
@@ -90,7 +96,7 @@ else if (Pattern > 5.5)
 	float along = dot(p, float2(d.y, -d.x));
 	mark = (frac(along / 0.17) < 0.2 ? 1.2 : 0.0) * saturate(1.0 - abs(n.z) * 4.0);
 }
-c *= 1.0 - 0.3 * mark * detail;
+c *= 1.0 - 0.3 * mark * detail * Marks;
 WorldNormal = n;
 Rough = 0.92;
 return saturate(c);
@@ -104,13 +110,15 @@ float along = dot(WorldPos.xy, t2) / 100.0;
 float height = WorldPos.z / 100.0;
 float detail = 1.0 - saturate((length(WorldPos - CamPos) - 5000.0) / 8000.0);
 float blot = sin(along * 0.35 + 1.4 * sin(height * 0.5)) * sin(height * 0.6 + along * 0.2);
-float3 wall = Tint * (1.0 + 0.06 * blot);
+float grey = dot(Tint, float3(0.299, 0.587, 0.114));
+float3 tint = max(lerp(float3(grey, grey, grey), Tint, 1.0 + Vivid), 0.0); // Vivid: the colour brighter than it was sent
+float3 wall = tint * (1.0 + 0.06 * blot * (1.0 - Flat));
 // Brick the way a cartoon says it: a few patches of courses, not every brick.
 float course = height / 0.3;
 float2 b = frac(float2(along / 0.62 + 0.5 * floor(course), course));
 float mortar = (b.x < 0.07 || b.y < 0.14) ? 1.0 : 0.0;
 float clump = smoothstep(0.30, 0.55, sin(along * 0.45 + 2.0) * sin(height * 0.7 + along * 0.13 + 1.0));
-wall *= 1.0 - 0.22 * mortar * clump * Bricks * detail;
+wall *= 1.0 - 0.22 * mortar * clump * Bricks * detail * Marks;
 // RowShift.x is where the building's ground floor sits within a 3 m storey (AEarthWorld::BuildChunk),
 // so window rows count up from the ground floor rather than from sea level. RowShift.y is a number
 // each building has to itself. Span is how far this point is along its wall and how long the wall
@@ -142,11 +150,13 @@ float sill = (f.x > 0.20 && f.x < 0.80 && f.y > 0.215 && f.y < 0.255) ? 1.0 : 0.
 // Glazing bars: a cross on some homes, one upright on others, a plain pane on the rest.
 float barPick = frac(own * 8.3);
 float bars = ((barPick < 0.8 && abs(f.x - 0.5) < 0.011 / wide) || (barPick < 0.45 && abs(f.y - 0.56) < 0.009)) ? 1.0 : 0.0;
-// The pane: sky blue, lighter towards the top, with two slanting streaks of shine.
+// The pane: sky blue, lighter towards the top, with two slanting streaks of shine. In the flat look
+// it is one blue with one streak.
 float2 pane = (f - float2(0.28, 0.30)) / float2(0.44, 0.48);
 float slant = pane.x + pane.y;
-float shine = (abs(slant - 0.72) < 0.07 || abs(slant - 0.93) < 0.025) ? 1.0 : 0.0;
+float shine = (abs(slant - 0.72) < 0.07 || (abs(slant - 0.93) < 0.025 && Flat < 0.5)) ? 1.0 : 0.0;
 float3 glass = lerp(float3(0.30, 0.56, 0.80), float3(0.52, 0.76, 0.93), pane.y);
+glass = lerp(glass, float3(0.36, 0.66, 0.93), Flat);
 glass = lerp(glass, float3(0.93, 0.97, 1.0), shine * 0.75 * detail);
 float3 trim = float3(0.97, 0.96, 0.92);
 float3 c = lerp(wall, trim * 0.9, sill * Win);
@@ -162,7 +172,7 @@ float shutter = (((f.x > 0.165 && f.x < 0.228) || (f.x > 0.772 && f.x < 0.835)) 
 float pick = frac(own * 9.1);
 float3 shutterPaint = pick < 0.3 ? float3(0.15, 0.36, 0.24) : pick < 0.55 ? float3(0.17, 0.28, 0.50) : pick < 0.8 ? float3(0.56, 0.16, 0.14) : float3(0.96, 0.95, 0.91);
 float slat = frac(height / 0.11) < 0.22 ? 1.0 : 0.0;
-c = lerp(c, shutterPaint * (1.0 - 0.2 * slat * detail), shutter * hasShutters * home);
+c = lerp(c, shutterPaint * (1.0 - 0.2 * slat * detail * Marks), shutter * hasShutters * home);
 float trough = (f.x > 0.255 && f.x < 0.745 && f.y > 0.15 && f.y < 0.218) ? 1.0 : 0.0;
 float leaves = (f.x > 0.265 && f.x < 0.735 && f.y > 0.218 && f.y < 0.243) ? 1.0 : 0.0;
 float bloomAt = (f.x - 0.26) / 0.48 * 6.0;
@@ -184,10 +194,12 @@ float2 p = WorldPos.xy / 100.0;
 float a = sin(p.x * 0.9 + Time * 0.8) + sin((p.x + p.y) * 0.5 + Time * 0.6);
 float b = sin(p.y * 1.1 - Time * 0.7) + sin((p.x - p.y) * 0.4 + Time * 0.5);
 float glint = smoothstep(0.60, 0.66, (a + b) * 0.25) * (1.0 - saturate((length(WorldPos - CamPos) - 6000.0) / 9000.0));
-float swell = 1.0 + 0.05 * sin(p.x * 0.13 + p.y * 0.09 + Time * 0.3);
+float swell = 1.0 + 0.05 * sin(p.x * 0.13 + p.y * 0.09 + Time * 0.3) * (1.0 - Flat);
+float grey = dot(Tint, float3(0.299, 0.587, 0.114));
+float3 tint = max(lerp(float3(grey, grey, grey), Tint, 1.0 + Vivid), 0.0); // Vivid: the colour brighter than it was sent
 WorldNormal = float3(0.0, 0.0, 1.0);
 Rough = 0.7;
-return saturate(lerp(Tint * swell, float3(0.95, 0.98, 1.0), glint * 0.7));
+return saturate(lerp(tint * swell, float3(0.95, 0.98, 1.0), glint * 0.7));
 )HLSL");
 
 	/**
@@ -217,10 +229,19 @@ float t1 = smoothstep(Band1 * (1.0 - Soft), Band1 * (1.0 + Soft), light);
 float t2 = smoothstep(Band2 * (1.0 - Soft), Band2 * (1.0 + Soft), light);
 float level = lerp(lerp(Level0, Level1, t1), Level2, t2);
 float3 toon = scene * (level / max(light, 1e-3));
+// Plain: the surface's own colour at that level, without the colour of the light, so shade is the
+// same paint darker and not blue from the sky.
+toon = lerp(toon, base * level, Plain);
 float3 c = lerp(scene, toon, isLit * (1.0 - haze * ToonFade));
 
 // Lines.
-float w = max(1.0, InkWidth * View.ViewSizeAndInvSize.y / 720.0);
+// FarWidth: how wide the line still is far away, as a part of its width close by.
+float w = max(1.0, InkWidth * View.ViewSizeAndInvSize.y / 720.0 * lerp(1.0, FarWidth, haze));
+// Small things (tufts of grass, flowers, crops) say so with an odd, very low specular (Sheen in
+// M_EarthFoliage); the sky and anything unlit has none at all. SmallInk is how much line they get: a
+// line as wide as the thing itself would only blot it out.
+float sheen = SceneTextureFetch(PPI_Specular, float2(0.0, 0.0)).r;
+float little = (sheen > 0.008 && sheen < 0.05) ? 1.0 : 0.0;
 float invDepth = 1.0 / max(depth, 1.0);
 float nearest = depth;
 float edge = 0.0;
@@ -229,6 +250,9 @@ for (int axis = 0; axis < 2; ++axis)
 	float2 o = axis == 0 ? float2(w, 0.0) : float2(0.0, w);
 	float d1 = SceneTextureFetch(PPI_SceneDepth, o).r;
 	float d2 = SceneTextureFetch(PPI_SceneDepth, -o).r;
+	float s1 = SceneTextureFetch(PPI_Specular, o).r;
+	float s2 = SceneTextureFetch(PPI_Specular, -o).r;
+	little = max(little, ((s1 > 0.008 && s1 < 0.05) || (s2 > 0.008 && s2 < 0.05)) ? 1.0 : 0.0);
 	nearest = min(nearest, min(d1, d2));
 	float bend = abs((1.0 / max(d1, 1.0) + 1.0 / max(d2, 1.0)) * 0.5 / invDepth - 1.0);
 	edge = max(edge, smoothstep(DepthEdge, DepthEdge * 2.5, bend));
@@ -245,8 +269,9 @@ for (int axis = 0; axis < 2; ++axis)
 	edge = max(edge, PaintInk * smoothstep(PaintEdge, PaintEdge * 1.6, paint) * isLit);
 }
 float nearFar = saturate((nearest - FadeStart) / max(FadeEnd - FadeStart, 1.0));
-float ink = edge * InkStrength * lerp(1.0, InkFar, nearFar);
-return lerp(c, c * float3(0.10, 0.075, 0.085), saturate(ink));
+float ink = edge * InkStrength * lerp(1.0, InkFar, nearFar) * lerp(1.0, SmallInk, little);
+// The line: the colour under it much darkened, or with InkBlack a plain black line.
+return lerp(c, c * float3(0.10, 0.075, 0.085) * (1.0 - InkBlack), saturate(ink));
 )HLSL");
 
 	/** Tree canopies and trunks (instanced): the tint, varied per tree, with ruffled normals for leaves. */
@@ -254,10 +279,13 @@ return lerp(c, c * float3(0.10, 0.075, 0.085), saturate(ink));
 float3 p = WorldPos / 70.0;
 float v = sin(p.x * 1.9 + p.y * 1.3) * sin(p.y * 1.7 + p.z * 2.1) * sin(p.z * 1.5 + p.x * 1.1);
 float3 hue = lerp(float3(0.85, 1.05, 0.7), float3(1.1, 0.95, 0.75), Rand);
-float3 c = Tint * hue * (0.8 + 0.3 * v);
+hue = lerp(hue, 0.5 * (hue + 1.0), Flat); // each tree still its own green, less far apart
+float grey = dot(Tint, float3(0.299, 0.587, 0.114));
+float3 tint = max(lerp(float3(grey, grey, grey), Tint, 1.0 + Vivid), 0.0); // Vivid: the colour brighter than it was sent
+float3 c = tint * hue * lerp(0.8 + 0.3 * v, 0.95, Flat);
 float3 q = WorldPos / 9.0;
 float3 bump = float3(sin(q.y * 1.3 + Rand * 6.0) * sin(q.z * 0.9), sin(q.z * 1.1 + Rand * 3.0) * sin(q.x * 0.8), sin(q.x * 1.2 + Rand) * sin(q.y * 0.7));
-WorldNormal = normalize(normalize(Normal) + Fluff * 0.35 * bump);
+WorldNormal = normalize(normalize(Normal) + Fluff * 0.35 * bump * (1.0 - Flat));
 Rough = 0.95;
 return saturate(c);
 )HLSL");
@@ -295,17 +323,19 @@ float up = saturate(d.z);
 float3 c = lerp(float3(0.42, 0.70, 0.95), float3(0.10, 0.36, 0.86), smoothstep(0.0, 0.34, up));
 c = lerp(c, float3(0.025, 0.15, 0.70), smoothstep(0.25, 0.95, up));
 float toSun = dot(d, sunDir);
-c += float3(0.10, 0.08, 0.02) * pow(saturate(toSun), 8.0);
+c += float3(0.10, 0.08, 0.02) * pow(saturate(toSun), 8.0) * (1.0 - Flat);
 // Below the horizon, where the land has run out: far country in haze.
 c = lerp(c, float3(0.40, 0.66, 0.66), smoothstep(-0.01, -0.09, d.z));
 c = lerp(c, float3(0.26, 0.52, 0.34), smoothstep(-0.09, -0.5, d.z));
+// The flat look: one blue from the horizon up.
+c = lerp(c, float3(0.09, 0.40, 1.0), Flat * smoothstep(-0.02, 0.0, d.z));
 c *= Bright;
 
 // The sun: a warm disc with a drawn edge and a pale ring of glow.
 float sunAngle = acos(clamp(toSun, -1.0, 1.0));
 float aa = 0.0014;
 float glow = exp(-sunAngle * 9.0);
-c = lerp(c, float3(1.0, 0.92, 0.60) * CloudBright, glow * 0.35);
+c = lerp(c, float3(1.0, 0.92, 0.60) * CloudBright, glow * 0.35 * (1.0 - Flat));
 float rim = 1.0 - smoothstep(SunSize + 0.006 - aa, SunSize + 0.006 + aa, sunAngle);
 float disc = 1.0 - smoothstep(SunSize - aa, SunSize + aa, sunAngle);
 c = lerp(c, float3(1.0, 0.42, 0.04) * CloudBright, rim);
@@ -355,11 +385,11 @@ for (int row = 0; row < 3; ++row)
 		float inside = 1.0 - smoothstep(-soft, soft, edge);
 		float lineWidth = CloudInk * 0.0032 / s;
 		float inked = smoothstep(-lineWidth - soft, -lineWidth + soft, edge);
-		float shaded = 1.0 - smoothstep(underside - 0.03, underside + 0.03, p.y);
+		float shaded = (1.0 - smoothstep(underside - 0.03, underside + 0.03, p.y)) * (1.0 - 0.75 * Flat);
 		float3 cloud = lerp(float3(1.0, 1.0, 0.985), float3(0.56, 0.69, 0.93), shaded) * CloudBright;
-		cloud = lerp(cloud, float3(0.05, 0.13, 0.38), inked * step(0.001, CloudInk));
+		cloud = lerp(cloud, lerp(float3(0.05, 0.13, 0.38), float3(0.01, 0.012, 0.02), Flat), inked * step(0.001, CloudInk));
 		// Far clouds sink into the air by the horizon.
-		cloud = lerp(cloud, c, row == 0 ? 0.30 : row == 1 ? 0.10 : 0.0);
+		cloud = lerp(cloud, c, (row == 0 ? 0.30 : row == 1 ? 0.10 : 0.0) * (1.0 - Flat));
 		c = lerp(c, cloud, inside);
 	}
 }
@@ -412,6 +442,17 @@ return saturate(c);
 		const FString ObjectPath = FString::Printf(TEXT("%s/%s.%s"), MaterialPath, *Name, *Name);
 		if (UMaterial* Existing = LoadObject<UMaterial>(nullptr, *ObjectPath))
 		{
+			// A material one of the game's classes loads as it is set up (AEarthLife loads M_EarthFigure
+			// in its constructor) is kept by the engine for good, and cannot be taken apart here: it is
+			// left as it is. To change such a material, delete its .uasset first and run this again.
+			for (const TObjectPtr<UMaterialExpression>& Expression : Existing->GetExpressions())
+			{
+				if (Expression && Expression->IsRooted())
+				{
+					UE_LOG(LogEarthWalkAssets, Display, TEXT("Left %s as it is: the game holds it loaded. Delete its .uasset to rebuild it."), *Name);
+					return nullptr;
+				}
+			}
 			UMaterialEditingLibrary::DeleteAllMaterialExpressions(Existing);
 			return Existing;
 		}
@@ -467,6 +508,17 @@ return saturate(c);
 		}
 	}
 
+	/** The dials of the look, as the barnyard look has them; the game turns them for the flat look (EarthLook.cpp). */
+	void ConnectLook(UMaterial* Material, UMaterialExpressionCustom* Custom, bool bMarks)
+	{
+		Connect(Scalar(Material, TEXT("Flat"), 0.f, 1000), Custom, TEXT("Flat"));
+		Connect(Scalar(Material, TEXT("Vivid"), 0.f, 1090), Custom, TEXT("Vivid"));
+		if (bMarks)
+		{
+			Connect(Scalar(Material, TEXT("Marks"), 1.f, 1180), Custom, TEXT("Marks"));
+		}
+	}
+
 	void FinishMaterial(UMaterial* Material, UMaterialExpressionCustom* Custom)
 	{
 		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT(""), MP_BaseColor);
@@ -485,7 +537,7 @@ return saturate(c);
 			UE_LOG(LogEarthWalkAssets, Error, TEXT("Could not create material %s"), *Name);
 			return;
 		}
-		TArray<FName> Inputs = { TEXT("WorldPos"), TEXT("Normal"), TEXT("CamPos"), TEXT("Tint") };
+		TArray<FName> Inputs = { TEXT("WorldPos"), TEXT("Normal"), TEXT("CamPos"), TEXT("Tint"), TEXT("Flat"), TEXT("Vivid"), TEXT("Marks") };
 		if (bWall)
 		{
 			Inputs.Add(TEXT("Windows"));
@@ -508,6 +560,7 @@ return saturate(c);
 		Connect(Node<UMaterialExpressionVertexNormalWS>(Material, -900, -300), Custom, TEXT("Normal"));
 		Connect(Node<UMaterialExpressionCameraPositionWS>(Material, -900, -150), Custom, TEXT("CamPos"));
 		Connect(Tint, Custom, TEXT("Tint"));
+		ConnectLook(Material, Custom, true);
 		if (bWall)
 		{
 			Connect(Scalar(Material, TEXT("Windows"), 1.f, 150), Custom, TEXT("Windows"));
@@ -549,7 +602,7 @@ return saturate(c);
 		struct FSetting { const TCHAR* Key; float Value; };
 		const FUse Scene[] = {
 			{ TEXT("UseColour"), PPI_PostProcessInput0 }, { TEXT("UseDepth"), PPI_SceneDepth }, { TEXT("UseBase"), PPI_BaseColor },
-			{ TEXT("UseNormal"), PPI_WorldNormal }, { TEXT("UseModel"), PPI_ShadingModelID },
+			{ TEXT("UseNormal"), PPI_WorldNormal }, { TEXT("UseModel"), PPI_ShadingModelID }, { TEXT("UseSheen"), PPI_Specular },
 		};
 		// Defaults found by eye at Titirangi and Queens Wharf; AEarthWalkGameMode can override any of them
 		// from the InkTuning setting without rebuilding this asset.
@@ -558,7 +611,8 @@ return saturate(c);
 			{ TEXT("DepthEdge"), 0.02f }, { TEXT("NormalEdge"), 0.35f }, { TEXT("PaintEdge"), 0.2f }, { TEXT("PaintInk"), 0.6f },
 			{ TEXT("Band1"), 0.9f }, { TEXT("Band2"), 2.2f }, { TEXT("Soft"), 0.06f },
 			{ TEXT("Level0"), 0.68f }, { TEXT("Level1"), 1.4f }, { TEXT("Level2"), 1.65f },
-			{ TEXT("FadeStart"), 12000.f }, { TEXT("FadeEnd"), 60000.f }, { TEXT("ToonFade"), 1.f },
+			{ TEXT("FadeStart"), 12000.f }, { TEXT("FadeEnd"), 60000.f }, { TEXT("ToonFade"), 1.f }, { TEXT("InkBlack"), 0.f }, { TEXT("Plain"), 0.f },
+			{ TEXT("FarWidth"), 1.f }, { TEXT("SmallInk"), 1.f },
 		};
 		for (const FUse& Use : Scene)
 		{
@@ -600,7 +654,7 @@ return saturate(c);
 		{
 			return;
 		}
-		UMaterialExpressionCustom* Custom = CustomNode(Material, FoliageCode, { TEXT("WorldPos"), TEXT("Normal"), TEXT("Tint"), TEXT("Rand"), TEXT("Fluff") });
+		UMaterialExpressionCustom* Custom = CustomNode(Material, FoliageCode, { TEXT("WorldPos"), TEXT("Normal"), TEXT("Tint"), TEXT("Rand"), TEXT("Fluff"), TEXT("Flat"), TEXT("Vivid") });
 		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
 		Tint->ParameterName = TEXT("Color");
 		Tint->DefaultValue = FLinearColor(0.2f, 0.5f, 0.18f);
@@ -609,10 +663,10 @@ return saturate(c);
 		Connect(Tint, Custom, TEXT("Tint"));
 		Connect(Node<UMaterialExpressionPerInstanceRandom>(Material, -900, 150), Custom, TEXT("Rand"));
 		Connect(Scalar(Material, TEXT("Fluff"), 1.f, 300), Custom, TEXT("Fluff"));
-		// Leaves and bark are matt: almost no specular highlight.
-		UMaterialExpressionConstant* Matt = Node<UMaterialExpressionConstant>(Material, -300, 400);
-		Matt->R = 0.08f;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Matt, TEXT(""), MP_Specular);
+		ConnectLook(Material, Custom, false);
+		// Leaves and bark are matt: almost no specular highlight. Small ground cover is given 0.02, which
+		// looks the same and tells the ink to go easy on it (InkCode).
+		UMaterialEditingLibrary::ConnectMaterialProperty(Scalar(Material, TEXT("Sheen"), 0.08f, 400), TEXT(""), MP_Specular);
 		// Wind, as a second small node moving the vertices.
 		UMaterialExpressionCustom* Wind = Node<UMaterialExpressionCustom>(Material, -300, 700);
 		Wind->Code = SwayCode;
@@ -675,7 +729,7 @@ return saturate(c);
 		{
 			return;
 		}
-		UMaterialExpressionCustom* Custom = CustomNode(Material, WaterCode, { TEXT("WorldPos"), TEXT("CamPos"), TEXT("Tint"), TEXT("Time") });
+		UMaterialExpressionCustom* Custom = CustomNode(Material, WaterCode, { TEXT("WorldPos"), TEXT("CamPos"), TEXT("Tint"), TEXT("Time"), TEXT("Flat"), TEXT("Vivid") });
 		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
 		Tint->ParameterName = TEXT("Color");
 		Tint->DefaultValue = FLinearColor(0.25f, 0.5f, 0.71f);
@@ -683,6 +737,7 @@ return saturate(c);
 		Connect(Node<UMaterialExpressionCameraPositionWS>(Material, -900, -150), Custom, TEXT("CamPos"));
 		Connect(Tint, Custom, TEXT("Tint"));
 		Connect(Node<UMaterialExpressionTime>(Material, -900, 150), Custom, TEXT("Time"));
+		ConnectLook(Material, Custom, false);
 		FinishMaterial(Material, Custom);
 	}
 }
@@ -736,8 +791,9 @@ namespace
 		struct FSetting { const TCHAR* Key; float Value; };
 		// Bright: how light the air is beside the sunlit ground, and CloudBright the clouds and sun. Clouds: how many of the places
 		// hold a cloud (0 none, 1 all). Drift: how fast they go round, radians a second. SunSize: radians.
+		// Flat: the flat look's sky, one blue with plain white clouds.
 		const FSetting Settings[] = {
-			{ TEXT("Bright"), 0.9f }, { TEXT("CloudBright"), 1.5f }, { TEXT("Clouds"), 0.66f }, { TEXT("CloudInk"), 1.f }, { TEXT("Drift"), 0.0025f }, { TEXT("SunSize"), 0.05f },
+			{ TEXT("Bright"), 0.9f }, { TEXT("CloudBright"), 1.5f }, { TEXT("Clouds"), 0.66f }, { TEXT("CloudInk"), 1.f }, { TEXT("Drift"), 0.0025f }, { TEXT("SunSize"), 0.05f }, { TEXT("Flat"), 0.f },
 		};
 		for (const TCHAR* Name : { TEXT("ToCamera"), TEXT("Sun"), TEXT("Time") })
 		{

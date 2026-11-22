@@ -32,6 +32,9 @@ public:
 	 */
 	static AEarthSky* Make(UWorld* World, const FVector& SunTravels);
 
+	/** Sets the sky for the look in use (EarthLook.h); /look calls it. */
+	void ApplyLook();
+
 	/** Far enough to lie behind everything, the photographic world from the air included. */
 	static constexpr double RadiusCm = 20000000.0;
 

@@ -77,6 +77,8 @@ private:
 	bool bPassportTested = false;
 	bool bShowsOpen = false;
 	bool bShowsTested = false;
+	bool bRunTested = false;
+	double QuitAskedAt = -100.0; // when Esc last asked "leave?"; Esc again within a few seconds leaves
 	bool bCluePending = false; // /clue asked for the journal, to read the clue out when it comes
 	double StartedAt = 0.0;
 	FString TalkingToShown;

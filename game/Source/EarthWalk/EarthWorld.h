@@ -162,8 +162,12 @@ public:
 	/**
 	 * Leafy or bark material for trees and plants (instanced), tinted; Fluff 1 ruffles the normals for
 	 * canopies, and SwayCm is how far the top of each shape moves in the wind (0 for trunks and stones).
+	 * bSmall is for things a hand's width across (tufts, flowers, crops): the flat look draws no line round them.
 	 */
-	UMaterialInstanceDynamic* MaterialForFoliage(uint32 Rgba, float Fluff, int32 SwayCm = 0);
+	UMaterialInstanceDynamic* MaterialForFoliage(uint32 Rgba, float Fluff, int32 SwayCm = 0, bool bSmall = false);
+
+	/** Repaints every material already made for the look in use (EarthLook.h); /look calls it. */
+	void ApplyLook();
 
 	int32 NumLoadedChunks() const { return Chunks.Num(); }
 	const FString& GetLastError() const { return LastError; }

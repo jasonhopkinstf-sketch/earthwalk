@@ -67,6 +67,14 @@ public:
 	double PhotoBelowMeters = 45.0;
 
 	/**
+	 * Which look the game starts in: "barnyard", the painted picture-book look, or "flat", bright even
+	 * colours with a bold black line like a television cartoon (EarthLook.h). A player changes it with
+	 * /look flat or /look barnyard, which is remembered; -EWLook= chooses for one run.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Look")
+	FString Look = TEXT("barnyard");
+
+	/**
 	 * The drawn look: light sorted into flat levels and ink outlines over the whole picture
 	 * (M_EarthInk). Off shows the same painted world lit plainly.
 	 */

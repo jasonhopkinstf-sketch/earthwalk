@@ -3,6 +3,7 @@
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
+#include "EarthLook.h"
 #include "EarthShowcase.h"
 #include "EarthSounds.h"
 #include "EarthWalkCharacter.h"
@@ -20,6 +21,7 @@
 #include "InputCoreTypes.h"
 #include "Misc/CommandLine.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Misc/Parse.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
@@ -324,7 +326,7 @@ public:
 					[
 						SAssignNew(Input, SEditableTextBox)
 						.Font(Font)
-						.HintText(FText::FromString(TEXT("Press Enter to chat. Type /help for commands.")))
+						.HintText(FText::FromString(TEXT("Press Enter to chat. Type /help for commands. Esc twice to quit.")))
 						.ClearKeyboardFocusOnCommit(true)
 						.OnTextCommitted(this, &SEarthWalkOverlay::HandleCommitted)
 					]
@@ -1581,8 +1583,21 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::Escape))
 		{
-			ClosePassport();
-			Friends->StopTalking(); // and stop talking to whatever it was
+			if (bPassportOpen || Friends->IsTalking())
+			{
+				ClosePassport();
+				Friends->StopTalking(); // and stop talking to whatever it was
+			}
+			else if (FPlatformTime::Seconds() - QuitAskedAt < 5.0)
+			{
+				// The game fills the screen, with no window to close: Esc, and Esc again, is the way out.
+				UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);
+			}
+			else
+			{
+				QuitAskedAt = FPlatformTime::Seconds();
+				AddLine(TEXT("Leave EarthWalk? Press Esc again to quit. Any other key and you stay."), NoticeColor);
+			}
 		}
 		if (bPassportOpen)
 		{
@@ -1599,7 +1614,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 	if (TalkingTo != TalkingToShown)
 	{
 		TalkingToShown = TalkingTo;
-		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
+		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands. Esc twice to quit.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
 	}
 	Overlay->SetHint(Friends->GetHint());
 	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
@@ -1664,6 +1679,22 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		if (FParse::Param(FCommandLine::Get(), TEXT("EWShowList")))
 		{
 			ToggleShows();
+		}
+	}
+
+	// -EWRun=<command_with_underscores> runs one chat command by itself a few seconds in (look_flat, quit...), for tests.
+	FString Run;
+	if (!bRunTested && FPlatformTime::Seconds() - StartedAt > 12.0)
+	{
+		bRunTested = true;
+		if (FParse::Value(FCommandLine::Get(), TEXT("-EWRun="), Run))
+		{
+			FString Command, Argument;
+			if (!Run.Split(TEXT("_"), &Command, &Argument))
+			{
+				Command = Run;
+			}
+			RunCommand(Command.ToLower(), Argument.Replace(TEXT("_"), TEXT(" ")));
 		}
 	}
 
@@ -2079,11 +2110,13 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("    (your passport, P, has the six animals to choose from too: \"Your animal\")"), NoticeColor);
 		AddLine(TEXT("G   Show me: a list of things to show somebody (catch a train, ride a horse, drive a car, walk into a house...)."), NoticeColor);
 		AddLine(TEXT("    Click one, or press its number, and you are taken straight to it. /show train does the same without the list."), NoticeColor);
+		AddLine(TEXT("Esc, and Esc again   leave the game (or /quit). Where you are is remembered for next time."), NoticeColor);
 		AddLine(TEXT("/server <address>   /code <access code>"), NoticeColor);
 		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
 		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
+		AddLine(TEXT("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look"), NoticeColor);
 		AddLine(TEXT("/world auto   ours on foot, Google's photographic 3D world from the air (needs /mapskey <key>)"), NoticeColor);
 		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
@@ -2195,6 +2228,25 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			{
 				AddLine(Reason, ErrorColor);
 			}
+		}
+	}
+	else if (Command == TEXT("quit") || Command == TEXT("exit"))
+	{
+		UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);
+	}
+	else if (Command == TEXT("look"))
+	{
+		EEarthLook Look;
+		if (EarthLook::Parse(Argument, Look))
+		{
+			EarthLook::Choose(GetWorld(), Look);
+			AddLine(Look == EEarthLook::Flat
+				? TEXT("The flat look: bright even colours and a bold black line. /look barnyard goes back.")
+				: TEXT("The barnyard look: painted, with brushwork. /look flat is the other one."), NoticeColor);
+		}
+		else
+		{
+			AddLine(FString::Printf(TEXT("This is the %s look. /look flat   bright flat colours and bold black lines        /look barnyard   the painted look"), EarthLook::Name(EarthLook::Current())), NoticeColor);
 		}
 	}
 	else if (Command == TEXT("mapskey") && !Argument.IsEmpty())

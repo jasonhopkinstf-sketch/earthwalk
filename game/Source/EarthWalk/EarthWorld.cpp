@@ -6,6 +6,7 @@
 #include "EarthGroundCover.h"
 #include "EarthLife.h"
 #include "EarthLifeMotion.h"
+#include "EarthLook.h"
 #include "EarthSounds.h"
 #include "EarthPhotoWorld.h"
 #include "EarthShowcase.h"
@@ -932,7 +933,8 @@ namespace
 	 * How each server surface id is drawn: which master material, in what colour, with which drawn
 	 * pattern. Ground and roads take their colour from here, the barnyard palette (bright, warm, a
 	 * picture-book farm), instead of the server's, which the browser still uses. Buildings keep the
-	 * server's colour: it paints every house its own.
+	 * server's colour: it paints every house its own. The flat look (EarthLook.h) has its own, brighter
+	 * colour for each of the ground's.
 	 */
 	struct FSurfaceStyle
 	{
@@ -942,28 +944,29 @@ namespace
 		float Windows; // M_EarthWall
 		float Bricks; // M_EarthWall: patches of drawn brick
 		float Homely; // M_EarthWall: somebody's house, so some get shutters and some boxes of flowers
+		uint32 FlatColor = 0; // the flat look's colour for this surface, or 0 for the same as the barnyard look's
 	};
 
 	const FSurfaceStyle* StyleFor(uint32 SurfaceId)
 	{
 		static const TMap<uint32, FSurfaceStyle> Styles = {
 			// Ground cover (server/src/chunk.ts MATERIALS)
-			{ 0, { TEXT("M_EarthTop"), 0x7fc04f, 4.f, 0.f, 0.f, 0.f } }, // unclassified land: meadow
-			{ 1, { TEXT("M_EarthTop"), 0x63b944, 4.f, 0.f, 0.f, 0.f } }, // parks and grass
-			{ 2, { TEXT("M_EarthTop"), 0x4e9a3e, 0.f, 0.f, 0.f, 0.f } }, // forest floor
-			{ 3, { TEXT("M_EarthTop"), 0xe6c85a, 2.f, 0.f, 0.f, 0.f } }, // farmland: wheat gold, furrowed
-			{ 4, { TEXT("M_EarthTop"), 0xf3e2a6, 0.f, 0.f, 0.f, 0.f } }, // sand
-			{ 5, { TEXT("M_EarthTop"), 0x88c653, 4.f, 0.f, 0.f, 0.f } }, // residential land: lawns
-			{ 6, { TEXT("M_EarthTop"), 0xcbc4b4, 3.f, 0.f, 0.f, 0.f } }, // paved
-			{ 7, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f } },
-			{ 8, { TEXT("M_EarthTop"), 0xa59c90, 0.f, 0.f, 0.f, 0.f } }, // rock
+			{ 0, { TEXT("M_EarthTop"), 0x7fc04f, 4.f, 0.f, 0.f, 0.f, 0x79d23c } }, // unclassified land: meadow
+			{ 1, { TEXT("M_EarthTop"), 0x63b944, 4.f, 0.f, 0.f, 0.f, 0x5cc832 } }, // parks and grass
+			{ 2, { TEXT("M_EarthTop"), 0x4e9a3e, 0.f, 0.f, 0.f, 0.f, 0x3f9f35 } }, // forest floor
+			{ 3, { TEXT("M_EarthTop"), 0xe6c85a, 2.f, 0.f, 0.f, 0.f, 0xf0d660 } }, // farmland: wheat gold, furrowed
+			{ 4, { TEXT("M_EarthTop"), 0xf3e2a6, 0.f, 0.f, 0.f, 0.f, 0xf9e79f } }, // sand
+			{ 5, { TEXT("M_EarthTop"), 0x88c653, 4.f, 0.f, 0.f, 0.f, 0x86d94a } }, // residential land: lawns
+			{ 6, { TEXT("M_EarthTop"), 0xcbc4b4, 3.f, 0.f, 0.f, 0.f, 0xd9d4c8 } }, // paved
+			{ 7, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f, 0x3aa8f2 } },
+			{ 8, { TEXT("M_EarthTop"), 0xa59c90, 0.f, 0.f, 0.f, 0.f, 0xaaa59c } }, // rock
 			// Roads
-			{ 10, { TEXT("M_EarthTop"), 0x7f838c, 0.f, 0.f, 0.f, 0.f } },
-			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f, 0.f } }, // paths
-			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f, 0.f } }, // railway
-			{ 13, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f } }, // streams
-			{ 14, { TEXT("M_EarthTop"), 0xd9d2c0, 3.f, 0.f, 0.f, 0.f } }, // pavements
-			{ 15, { TEXT("M_EarthTop"), 0xf7f4ea, 0.f, 0.f, 0.f, 0.f } }, // road markings
+			{ 10, { TEXT("M_EarthTop"), 0x7f838c, 0.f, 0.f, 0.f, 0.f, 0x8d919c } },
+			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f, 0.f, 0xefcb8a } }, // paths
+			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f, 0.f, 0x80593f } }, // railway
+			{ 13, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f, 0x3aa8f2 } }, // streams
+			{ 14, { TEXT("M_EarthTop"), 0xd9d2c0, 3.f, 0.f, 0.f, 0.f, 0xe6e1d5 } }, // pavements
+			{ 15, { TEXT("M_EarthTop"), 0xf7f4ea, 0.f, 0.f, 0.f, 0.f, 0xffffff } }, // road markings
 			// Building walls, with windows, in the server's paint
 			{ 20, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 1.f } }, // painted houses
 			{ 21, { TEXT("M_EarthWall"), 0, 0.f, 1.f, 0.f, 0.f } }, // large painted buildings
@@ -977,8 +980,8 @@ namespace
 			{ 27, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 28, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 1.f, 0.f } },
 			// Gardens
-			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f } }, // hedges
-			{ 33, { TEXT("M_EarthFence"), 0xf6f3ea, 0.f, 0.f, 0.f, 0.f } }, // picket fences
+			{ 32, { TEXT("M_EarthTop"), 0x45a548, 5.f, 0.f, 0.f, 0.f, 0x3bae42 } }, // hedges
+			{ 33, { TEXT("M_EarthFence"), 0xf6f3ea, 0.f, 0.f, 0.f, 0.f, 0xffffff } }, // picket fences
 			// Inside houses: floors, walls, ceilings, furniture, windows and frames, rugs, each in the server's colour
 			{ 40, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
 			{ 41, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },
@@ -994,6 +997,34 @@ namespace
 	T* LoadArt(const TCHAR* Folder, const FString& Name)
 	{
 		return LoadObject<T>(nullptr, *FString::Printf(TEXT("/Game/EarthWalk/%s/%s.%s"), Folder, *Name, *Name));
+	}
+
+	/**
+	 * Paints one of the world's materials for the look in use: its colour (the surface's own in that
+	 * look, or the one the server sent) and how flat it is drawn. Called when a material is made, and
+	 * again for all of them when the look changes. Leaves and bark (ids from 100) keep their colour.
+	 */
+	void PaintForLook(UMaterialInstanceDynamic* Material, uint32 SurfaceId, uint32 Rgba)
+	{
+		if (const FSurfaceStyle* Style = StyleFor(SurfaceId))
+		{
+			const uint32 Own = EarthLook::Current() == EEarthLook::Flat && Style->FlatColor ? Style->FlatColor : Style->Color;
+			const uint32 Rgb = Own ? Own : (Rgba >> 8);
+			const FColor Color((Rgb >> 16) & 0xff, (Rgb >> 8) & 0xff, Rgb & 0xff, 255);
+			Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
+		}
+		EarthLook::PaintSurface(Material);
+	}
+}
+
+void AEarthWorld::ApplyLook()
+{
+	for (const TPair<uint64, TObjectPtr<UMaterialInstanceDynamic>>& Pair : SurfaceMaterials)
+	{
+		if (Pair.Value)
+		{
+			PaintForLook(Pair.Value, static_cast<uint32>(Pair.Key >> 32), static_cast<uint32>(Pair.Key & 0xffffffffu));
+		}
 	}
 }
 
@@ -1013,9 +1044,7 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Master, this);
 	if (Material)
 	{
-		const uint32 Rgb = Style->Color ? Style->Color : (Rgba >> 8);
-		const FColor Color((Rgb >> 16) & 0xff, (Rgb >> 8) & 0xff, Rgb & 0xff, 255);
-		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
+		PaintForLook(Material, SurfaceId, Rgba);
 		Material->SetScalarParameterValue(TEXT("Pattern"), Style->Pattern);
 		Material->SetScalarParameterValue(TEXT("Windows"), Style->Windows);
 		Material->SetScalarParameterValue(TEXT("Bricks"), Style->Bricks);
@@ -1025,9 +1054,9 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	return Material;
 }
 
-UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Fluff, int32 SwayCm)
+UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Fluff, int32 SwayCm, bool bSmall)
 {
-	const uint64 Key = (static_cast<uint64>((Fluff > 0.5f ? 101 : 100) + 16 * FMath::Clamp(SwayCm, 0, 60)) << 32) | Rgba;
+	const uint64 Key = (static_cast<uint64>((Fluff > 0.5f ? 101 : 100) + (bSmall ? 2 : 0) + 16 * FMath::Clamp(SwayCm, 0, 60)) << 32) | Rgba;
 	if (const TObjectPtr<UMaterialInstanceDynamic>* Found = SurfaceMaterials.Find(Key))
 	{
 		return *Found;
@@ -1044,6 +1073,8 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Flu
 		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(Color));
 		Material->SetScalarParameterValue(TEXT("Fluff"), Fluff);
 		Material->SetScalarParameterValue(TEXT("Sway"), static_cast<float>(SwayCm));
+		Material->SetScalarParameterValue(TEXT("Sheen"), bSmall ? 0.02f : 0.08f);
+		EarthLook::PaintSurface(Material);
 	}
 	SurfaceMaterials.Add(Key, Material);
 	return Material;

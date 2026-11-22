@@ -238,7 +238,7 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 		}
 		if (!Tufts)
 		{
-			Tufts = AddPart(Parts, ConeMesh, World->MaterialForFoliage(TuftColor, 0.f, 4));
+			Tufts = AddPart(Parts, ConeMesh, World->MaterialForFoliage(TuftColor, 0.f, 4, true));
 		}
 		// A tuft: one blade upright and two leaning out from it. The engine cone is 100 cm wide and tall.
 		const FRotator Spin(0.0, Turn, 0.0);
@@ -270,8 +270,8 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 			}
 			if (!Stems)
 			{
-				Stems = AddPart(Parts, CylinderMesh, World->MaterialForFoliage(StemColor, 0.f, 5));
-				Blooms = AddPart(Parts, SphereMesh, World->MaterialForFoliage(Petal, 0.f, 5));
+				Stems = AddPart(Parts, CylinderMesh, World->MaterialForFoliage(StemColor, 0.f, 5, true));
+				Blooms = AddPart(Parts, SphereMesh, World->MaterialForFoliage(Petal, 0.f, 5, true));
 			}
 			Stems->AddInstance(FTransform(FRotator::ZeroRotator, Base + FVector(0, 0, Tall * 0.5), FVector(0.022, 0.022, Tall / 100.0)), true);
 			Blooms->AddInstance(FTransform(FRotator::ZeroRotator, Base + FVector(0, 0, Tall), FVector(0.15, 0.15, 0.1)), true);
@@ -319,7 +319,7 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 		}
 		if (!Stones)
 		{
-			Stones = AddPart(Parts, SphereMesh, World->MaterialForFoliage(StoneColor, 0.f));
+			Stones = AddPart(Parts, SphereMesh, World->MaterialForFoliage(StoneColor, 0.f, 0, true));
 		}
 		Stones->AddInstance(FTransform(FRotator(0.0, Turn, 0.0), Base + FVector(0, 0, 3.0 * Size), FVector(0.22, 0.16, 0.1) * Size), true);
 	}
@@ -373,8 +373,8 @@ bool AEarthGroundCover::Plant(AEarthWorld* World, FIntPoint Square, double Aroun
 				}
 				if (!Plants)
 				{
-					Plants = Crop == 1 ? AddPart(Parts, SphereMesh, World->MaterialForFoliage(CabbageColor, 1.f, 1))
-						: AddPart(Parts, ConeMesh, World->MaterialForFoliage(Crop == 0 ? WheatColor : CornColor, 0.f, Crop == 0 ? 6 : 8));
+					Plants = Crop == 1 ? AddPart(Parts, SphereMesh, World->MaterialForFoliage(CabbageColor, 1.f, 1, true))
+						: AddPart(Parts, ConeMesh, World->MaterialForFoliage(Crop == 0 ? WheatColor : CornColor, 0.f, Crop == 0 ? 6 : 8, true));
 				}
 				const FVector SizeM = Crop == 0 ? FVector(0.16, 0.16, 0.6) : Crop == 1 ? FVector(0.42, 0.42, 0.28) : FVector(0.26, 0.26, 1.5);
 				Plants->AddInstance(FTransform(FRotator::ZeroRotator, Base + FVector(0, 0, SizeM.Z * 50.0 * Size - 2.0), SizeM * Size), true);

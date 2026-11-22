@@ -1,5 +1,6 @@
 #include "EarthSky.h"
 
+#include "EarthLook.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -41,23 +42,14 @@ AEarthSky* AEarthSky::Make(UWorld* World, const FVector& SunTravels)
 	Sky->Paint = UMaterialInstanceDynamic::Create(Material, Sky);
 	const FVector ToSun = -SunTravels.GetSafeNormal();
 	Sky->Paint->SetVectorParameterValue(TEXT("Sun"), FLinearColor(ToSun.X, ToSun.Y, ToSun.Z));
-
-	FString Tries;
-	if (FParse::Value(FCommandLine::Get(), TEXT("-EWSky="), Tries, /*bShouldStopOnSeparator*/ false))
-	{
-		TArray<FString> Parts;
-		Tries.ParseIntoArray(Parts, TEXT(","));
-		for (const FString& Part : Parts)
-		{
-			FString Name, Value;
-			if (Part.Split(TEXT(":"), &Name, &Value))
-			{
-				Sky->Paint->SetScalarParameterValue(FName(*Name.TrimStartAndEnd()), FCString::Atof(*Value));
-			}
-		}
-	}
+	Sky->ApplyLook(); // and -EWSky=Name:value,... on top
 	Sky->Dome->SetMaterial(0, Sky->Paint);
 	return Sky;
+}
+
+void AEarthSky::ApplyLook()
+{
+	EarthLook::TuneSky(Paint);
 }
 
 void AEarthSky::Tick(float DeltaSeconds)

@@ -1,5 +1,6 @@
 #include "EarthWalkGameMode.h"
 
+#include "EarthLook.h"
 #include "EarthSky.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkHUD.h"
@@ -78,33 +79,29 @@ void AEarthWalkGameMode::InitGame(const FString& MapName, const FString& Options
 	}
 
 	// The drawn look: M_EarthInk (built by game\Tools\build-assets.cmd) over the whole view.
-	UMaterialInterface* Ink = Settings->bInkOutlines ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/EarthWalk/Materials/M_EarthInk.M_EarthInk")) : nullptr;
-	if (APostProcessVolume* Volume = Ink ? World->SpawnActor<APostProcessVolume>() : nullptr)
+	UMaterialInterface* InkArt = Settings->bInkOutlines ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/EarthWalk/Materials/M_EarthInk.M_EarthInk")) : nullptr;
+	if (APostProcessVolume* Volume = InkArt ? World->SpawnActor<APostProcessVolume>() : nullptr)
 	{
 		Volume->bUnbound = true;
-		if (UMaterialInstanceDynamic* Tuned = UMaterialInstanceDynamic::Create(Ink, Volume))
+		LookVolume = Volume;
+		Ink = UMaterialInstanceDynamic::Create(InkArt, Volume);
+		if (Ink)
 		{
-			for (const TPair<FString, float>& Pair : Settings->InkTuning)
-			{
-				Tuned->SetScalarParameterValue(FName(*Pair.Key), Pair.Value);
-			}
-			// -EWInk=Band1:0.9,InkWidth:2 tries values for one run.
-			FString Tries;
-			if (FParse::Value(FCommandLine::Get(), TEXT("-EWInk="), Tries, /*bShouldStopOnSeparator*/ false))
-			{
-				TArray<FString> Parts;
-				Tries.ParseIntoArray(Parts, TEXT(","));
-				for (const FString& Part : Parts)
-				{
-					FString Name, Value;
-					if (Part.Split(TEXT(":"), &Name, &Value))
-					{
-						Tuned->SetScalarParameterValue(FName(*Name.TrimStartAndEnd()), FCString::Atof(*Value));
-					}
-				}
-			}
-			Volume->Settings.WeightedBlendables.Array.Add(FWeightedBlendable(1.f, Tuned));
+			// The look's own line and levels of light, then the InkTuning setting and -EWInk= on top.
+			ApplyLook();
+			Volume->Settings.WeightedBlendables.Array.Add(FWeightedBlendable(1.f, Ink));
 		}
+	}
+}
+
+void AEarthWalkGameMode::ApplyLook()
+{
+	EarthLook::TuneInk(Ink);
+	if (LookVolume)
+	{
+		// A drawn picture is as bright at its corners as in the middle; the engine darkens them like a lens.
+		LookVolume->Settings.bOverride_VignetteIntensity = EarthLook::Current() == EEarthLook::Flat;
+		LookVolume->Settings.VignetteIntensity = 0.f;
 	}
 }
 
