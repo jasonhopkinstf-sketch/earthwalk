@@ -2,7 +2,7 @@
 // world generator understands: buildings, roads and ground-cover areas.
 
 import { roofPaint, wallPaint } from "./paint.ts";
-import { CHUNK_Z, hash32, latToY, lonToX, xToLon, yToLat } from "./geo.ts";
+import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { cacheHas, cacheRead, cacheWrite } from "./cache.ts";
 import { httpGet, Pool, USER_AGENT } from "./net.ts";
 
@@ -44,7 +44,13 @@ export interface Building {
   holes?: Pt[][];
   /** The pieces a building is mapped in, when somebody has mapped it in 3D. It is then drawn from these, not from its outline. */
   parts?: BuildingPart[];
+  /** What it is called, where the map says (its own name, or that of the one named place standing in it). */
+  name?: string;
+  /** What it is, where the map says, as one of the kinds of place that are drawn as themselves. */
+  use?: BuildingUse;
 }
+/** A church (or any place of worship that is not one of the next two), a mosque, a temple; a shop, somewhere to eat or drink, a school, a petrol station, a hospital. */
+export type BuildingUse = "church" | "mosque" | "temple" | "shop" | "food" | "school" | "fuel" | "hospital";
 /**
  * One piece of a building mapped in 3D (building:part): a tower's shaft, its pod, its mast. `height`
  * is how far its top is above the ground, and `minHeight` how far its foot is.
@@ -54,6 +60,8 @@ export interface BuildingPart extends Pick<Building, "id" | "ring" | "height" | 
   storeys?: boolean;
   /** True when its height is mapped in metres (to the top of its roof). */
   measured?: boolean;
+  /** True when it is a roof and nothing else (wall=no, building:part=roof): a canopy, a sloping leg of a lattice tower. */
+  roofOnly?: boolean;
 }
 /** A named place mapped as a point: a café, a shop, a museum. `kind` is its tag, as "amenity=cafe". */
 export interface NamedPlace { id: number; at: Pt; name: string; kind: string }
@@ -813,13 +821,37 @@ const street = (tags: Record<string, string>): { street?: string } => (tags["add
 const address = (tags: Record<string, string>): { housenumber?: string; street?: string } =>
   tags["addr:housenumber"]?.trim() ? { housenumber: tags["addr:housenumber"].trim(), ...street(tags) } : {};
 
+/** What a building (or a named place) is, from its tags, where it is one of the kinds drawn as themselves. */
+export function useOf(tags: Record<string, string>): BuildingUse | null {
+  const { amenity = "", building = "", shop = "" } = tags;
+  if (amenity === "place_of_worship" || /^(church|cathedral|chapel|mosque|temple|synagogue|shrine)$/.test(building)) {
+    const faith = tags.religion ?? (building === "mosque" ? "muslim" : /^(temple|synagogue|shrine)$/.test(building) ? "other" : "christian");
+    return faith === "muslim" ? "mosque" : faith === "christian" ? "church" : "temple";
+  }
+  if (amenity === "fuel") return "fuel";
+  if (/^(hospital|clinic)$/.test(amenity) || building === "hospital") return "hospital";
+  if (/^(school|kindergarten|college|university)$/.test(amenity) || /^(school|kindergarten|college|university)$/.test(building)) return "school";
+  if (/^(cafe|restaurant|pub|bar|fast_food|ice_cream|food_court|biergarten)$/.test(amenity)) return "food";
+  if ((shop && shop !== "no" && shop !== "vacant") || /^(retail|supermarket|kiosk)$/.test(building) || /^(bank|pharmacy|post_office|marketplace)$/.test(amenity)) return "shop";
+  return null;
+}
+
+/** A name fit for a sign: one line, not too long (cut at a word where it can be). */
+export function signName(name: string | undefined): string | null {
+  const text = (name ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  if (text.length <= 30) return text;
+  const cut = text.slice(0, 30);
+  return (cut.lastIndexOf(" ") > 14 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).trim();
+}
+
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 
 function roofOf(tags: Record<string, string>): Pick<Building, "roof" | "roofHeight" | "roofColour" | "roofDirection" | "roofAcross"> {
   const out: Pick<Building, "roof" | "roofHeight" | "roofColour" | "roofDirection" | "roofAcross"> = {};
   if (tags["roof:shape"]) out.roof = tags["roof:shape"];
   const h = num(tags["roof:height"]);
-  if (h && h > 0 && h < 50) out.roofHeight = h;
+  if (h && h > 0 && h < 400) out.roofHeight = h; // a spire, or the leaning leg of a lattice tower, is all roof
   const paint = roofPaint(tags);
   if (paint !== null) out.roofColour = paint;
   const facing = tags["roof:direction"]?.trim().toUpperCase();
@@ -887,7 +919,7 @@ export function addExtras(out: Features, extra: OsmJson): void {
       });
     }
   }
-  if (!pieces.length) return;
+  if (!pieces.length && !places.length) return;
   const boxes = out.buildings.map((b) => {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const [x, y] of b.ring) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
@@ -897,22 +929,43 @@ export function addExtras(out: Features, extra: OsmJson): void {
     let mx = 0, my = 0;
     for (const [x, y] of piece.ring) { mx += x / piece.ring.length; my += y / piece.ring.length; }
     const home = boxes.find((o) => mx >= o.x0 && mx <= o.x1 && my >= o.y0 && my <= o.y1 && inRing(mx, my, o.b.ring))?.b;
-    // (A piece that is the whole outline over again says nothing new unless it is one of several.)
-    if (!home) continue;
     const t = piece.tags;
     const metres = num(t.height) ?? num(t["building:height"]);
     const levels = num(t["building:levels"]);
     const from = num(t.min_height) ?? (num(t["building:min_level"]) ?? 0) * 3.1;
-    const height = metres && metres > 0.5 && metres < 1000 ? metres : levels && levels > 0 && levels < 250 ? from + levels * 3.1 + (from > 0 ? 0 : 1.2) : home.height;
+    const height = metres && metres > 0.5 && metres < 1000 ? metres : levels && levels > 0 && levels < 250 ? from + levels * 3.1 + (from > 0 ? 0 : 1.2) : home?.height ?? from + 8;
     if (height - from < 0.3) continue;
     const part: BuildingPart = {
       id: piece.id, ring: piece.ring, height, ...roofOf(t), ...(wallPaint(t) ?? {}),
       ...(from >= 0.3 ? { minHeight: from } : {}), ...(levels && levels > 0 ? { storeys: true } : {}), ...(metres ? { measured: true } : {}),
+      ...(t.wall === "no" || t["building:part"] === "roof" ? { roofOnly: true } : {}),
     };
-    (home.parts ??= []).push(part);
+    if (home) (home.parts ??= []).push(part);
+    // A piece standing in no building (a tower mapped as a tower and not as a building, a canopy that
+    // overhangs its outline) is drawn all the same, as a building of that one piece.
+    else out.buildings.push({ id: piece.id > 0 ? -(piece.id * 8 + 7) : piece.id * 8 - 7, ring: piece.ring, height, parts: [part] });
+  }
+  // A named place standing in a building that has no name of its own gives it its name and what it is:
+  // the café on the corner. Only the first for each building, and not for the biggest buildings, where one
+  // shop among fifty would name the lot.
+  const S = metersPerTile(out.buildings[0]?.ring[0][1] ?? 0);
+  for (const place of places) {
+    const [px, py] = place.at;
+    const home = boxes.find((o) => px >= o.x0 && px <= o.x1 && py >= o.y0 && py <= o.y1 && inRing(px, py, o.b.ring));
+    if (!home || home.b.name || home.size * S * S > 2500) continue;
+    const name = signName(place.name);
+    if (!name) continue;
+    home.b.name = name;
+    const [key, value] = place.kind.split("=");
+    const use = home.b.use ?? useOf({ [key]: value });
+    if (use) home.b.use = use;
   }
   // One piece that only repeats the outline is no 3D model; the building is drawn as any other.
-  for (const b of out.buildings) if (b.parts?.length === 1 && b.parts[0].id === b.id) delete b.parts;
+  // Among several, the outline over again would only wrap the others up.
+  for (const b of out.buildings) {
+    if (b.parts?.length === 1 && b.parts[0].id === b.id) delete b.parts;
+    else if (b.parts && b.parts.length > 1) b.parts = b.parts.filter((p) => p.id !== b.id);
+  }
 }
 
 export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
@@ -955,7 +1008,12 @@ export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
     const measured = metres && metres > 1 && metres < 1000 ? { measured: true } : {};
     const guessed = metres || num(tags["building:levels"]) ? {} : { guessed: true };
     const height = buildingHeight(id, tags);
-    out.buildings.push({ id, ring, height, ...address(tags), ...roofOf(tags), ...wallsOf(tags, height), ...kind, ...guessed, ...measured, ...(holes.length ? { holes } : {}) });
+    const name = signName(tags.name);
+    const use = useOf(tags);
+    out.buildings.push({
+      id, ring, height, ...address(tags), ...roofOf(tags), ...wallsOf(tags, height), ...kind, ...guessed, ...measured, ...(holes.length ? { holes } : {}),
+      ...(name ? { name } : {}), ...(use ? { use } : {}),
+    });
   };
 
   const usedAsOuter = new Set<number>();

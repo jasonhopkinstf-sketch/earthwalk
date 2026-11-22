@@ -218,7 +218,7 @@ test("the pieces of a building mapped in 3D go to the building they stand in, wi
       // The second building is its own piece and nothing more: that is no 3D model.
       n(11, 40, 0), n(12, 50, 0), n(13, 50, 10), n(14, 40, 10),
       { type: "way", id: 101, nodes: [11, 12, 13, 14, 11], tags: { "building:part": "yes" } },
-      // A piece standing in no building is left out.
+      // A piece standing in no building is a building of that one piece.
       n(21, 80, 80), n(22, 90, 80), n(23, 90, 90), n(24, 80, 90),
       { type: "way", id: 202, nodes: [21, 22, 23, 24, 21], tags: { "building:part": "yes", height: "9" } },
       n(31, 3, 3, { name: " Tower Café ", amenity: "cafe", cuisine: "coffee", phone: "1234" }),
@@ -240,6 +240,9 @@ test("the pieces of a building mapped in 3D go to the building they stand in, wi
   assert.equal(spire.roof, "pyramidal");
   assert.equal(spire.measured, true);
   assert.equal(f.buildings.find((b) => b.id === 101)!.parts, undefined);
+  const alone = f.buildings.find((b) => b.parts?.[0]?.id === 202)!;
+  assert.equal(alone.height, 9);
+  assert.equal(f.buildings.length, 3);
   assert.deepEqual(f.places?.map((p) => [p.name, p.kind]), [["Tower Café", "amenity=cafe"]]);
 });
 

@@ -1194,12 +1194,12 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
         const partWalls = sec(painted(plain ? MATERIALS.plain : brick ? MATERIALS.wall3 : h % 2 ? MATERIALS.wall1 : MATERIALS.wall2, hex));
         // A piece has the roof the map gives it, and a flat one otherwise.
         const partLook: RoofLook = { form: "pitched", maxPitched: 0, pitch: 1, eaves: 0.15 };
-        const { minHeight: _from, colour: _colour, brick: _brick, storeys: _storeys, measured: _measured, ...roofed } = part;
+        const { minHeight: _from, colour: _colour, brick: _brick, storeys: _storeys, measured: _measured, roofOnly, ...roofed } = part;
         const rise = Math.min(tall, roofRise({ ...roofed, height: tall }, partM2, tall, partLook));
         // A height in metres is to the top of the roof; one counted in floors has the roof on top of it.
         const wallTop = mid + part.height - (part.measured ? rise : 0);
         const foot = from > 0.3 ? mid + from : base;
-        if (wallTop - foot > 0.02) {
+        if (wallTop - foot > 0.02 && !roofOnly) {
           for (let i = 0; i < outline.length; i++) {
             const [ae, an] = outline[i];
             const [be, bn] = outline[(i + 1) % outline.length];
@@ -1214,14 +1214,29 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
             partWalls.tri(v0, v2, v3);
           }
         }
-        if (from > 0.3) {
+        if (from > 0.3 && !roofOnly) {
           const tris = earcut(outline.flat());
           for (let i = 0; i < tris.length; i += 3) face(partWalls, [0, 1, 2].map((k) => [outline[tris[i + k]][0], outline[tris[i + k]][1], foot] as [number, number, number]), [0, 0, -1]);
         }
         const roofHex = part.roofColour ?? b.roofColour;
         const flatHex = roofHex ?? FLAT_ROOFS[(hash32(part.id) >>> 8) % FLAT_ROOFS.length];
+        const pitchedSec = sec(roofIn(roofHex ?? hex));
+        const flatSec = sec(roofHex !== undefined ? roofIn(flatHex) : painted(MATERIALS.roof0, flatHex));
+        const marks = [pitchedSec, flatSec].map((s) => [s.count, s.idx.length]);
+        // A roof and nothing else has no walls under it, not even those that would fill in below a slope:
+        // they go to a section that is thrown away.
         addRoof(outline, wallTop, { ...roofed, height: tall, ...(rise > 0 ? { roofHeight: rise } : {}) }, partM2, Math.max(wallTop - foot, rise * 1.7, 0.1), partLook,
-          partWalls, sec(roofIn(roofHex ?? hex)), sec(roofHex !== undefined ? roofIn(flatHex) : painted(MATERIALS.roof0, flatHex)), sec(MATERIALS.trim));
+          roofOnly ? new Section(partWalls.mat) : partWalls, pitchedSec, flatSec, sec(MATERIALS.trim));
+        if (roofOnly) {
+          // Seen from below as well: the same surface again, turned over.
+          [pitchedSec, flatSec].forEach((s, k) => {
+            if (k === 1 && flatSec === pitchedSec) return;
+            const [v0, i0] = marks[k];
+            const v1 = s.count, i1 = s.idx.length;
+            for (let v = v0; v < v1; v++) s.vert(s.pos[v * 3], s.pos[v * 3 + 1], s.pos[v * 3 + 2] - 0.05, -s.nrm[v * 3], -s.nrm[v * 3 + 1], -s.nrm[v * 3 + 2]);
+            for (let i = i0; i < i1; i += 3) s.tri(s.idx[i] - v0 + v1, s.idx[i + 2] - v0 + v1, s.idx[i + 1] - v0 + v1);
+          });
+        }
       }
       continue;
     }
