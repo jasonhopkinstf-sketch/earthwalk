@@ -60,7 +60,8 @@ export class Meetup extends EventTarget {
     this.ws = ws;
     ws.addEventListener("open", () => {
       const { name, room, avatar, code } = this.hello;
-      ws.send(JSON.stringify({ t: "hello", room, ...(name ? { name } : {}), ...(avatar ? { avatar } : {}), ...(code ? { token: code } : {}) }));
+      // `tz` is how far this clock is ahead of UTC, in minutes: the day's tasks turn over at the player's own midnight.
+      ws.send(JSON.stringify({ t: "hello", room, ...(name ? { name } : {}), ...(avatar ? { avatar } : {}), ...(code ? { token: code } : {}), tz: -new Date().getTimezoneOffset() }));
     });
     ws.addEventListener("message", (e) => {
       if (this.ws !== ws) return;
@@ -134,6 +135,16 @@ export class Meetup extends EventTarget {
     this.send(sp ? { t: "pet", sp } : { t: "pet" });
   }
 
+  /** Buys a hat with my coins and puts it on. */
+  buyHat(id) {
+    this.send({ t: "hat", buy: id });
+  }
+
+  /** Puts on a hat I own (nothing for none). */
+  wearHat(id) {
+    this.send(id ? { t: "hat", wear: id } : { t: "hat" });
+  }
+
   /** Asks for my own journal; it comes as a "journal" event. */
   requestJournal() {
     this.send({ t: "journal" });
@@ -167,7 +178,7 @@ export class Meetup extends EventTarget {
         this.me = { id: msg.id, name: msg.name, room: msg.room, avatar: msg.avatar, signedIn: !!msg.signedIn, personId: msg.personId ?? null, home: msg.home ?? null };
         this.peers.clear();
         for (const p of msg.peers ?? []) {
-          this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number", ride: p.ride ?? null, pet: p.pet ?? null });
+          this.peers.set(p.id, { name: p.name, avatar: p.avatar ?? "fox", lat: p.lat, lon: p.lon, alt: p.alt ?? 0, yaw: p.yaw ?? 0, hasPosition: typeof p.lat === "number", ride: p.ride ?? null, pet: p.pet ?? null, hat: p.hat ?? null });
         }
         this.left = new Map((msg.left ?? []).map((l) => [l.thing, l]));
         this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
@@ -228,6 +239,14 @@ export class Meetup extends EventTarget {
         this.emit("pet", { id: msg.id, pet });
         break;
       }
+      case "hat": {
+        // Somebody has put a hat on, or taken it off.
+        const hat = typeof msg.hat === "string" ? msg.hat : null;
+        if (msg.id === this.me?.id) this.me.hat = hat;
+        else if (this.peers.has(msg.id)) this.peers.get(msg.id).hat = hat;
+        this.emit("hat", { id: msg.id, hat });
+        break;
+      }
       case "journal":
         this.emit("journal", msg.journal ?? null);
         break;
@@ -238,7 +257,7 @@ export class Meetup extends EventTarget {
         if (typeof msg.thing === "number") this.emit("say", msg); // a thing spoke, to me or to someone nearby
         break;
       case "join":
-        this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false, ride: null, pet: null });
+        this.peers.set(msg.id, { name: msg.name, avatar: msg.avatar ?? "fox", lat: 0, lon: 0, alt: 0, yaw: 0, hasPosition: false, ride: null, pet: null, hat: null });
         this.emit("notice", `${msg.name} joined. Type /join ${msg.name} to go to them.`);
         break;
       case "leave": {

@@ -3,6 +3,7 @@
 // over the network, so better models can replace these without changing anything else.
 
 import * as THREE from "three";
+import { makeHat } from "./hats.js";
 
 export const ANIMALS = [
   { id: "fox", label: "Fox", emoji: "🦊", body: 0xd9682b, belly: 0xf4ede2, ears: "pointed", tail: "bushy" },
@@ -127,8 +128,16 @@ export class Avatars {
         group.add(label);
         group.position.copy(target);
         this.scene.add(group);
-        entry = { group, label, name: peer.name, avatar: peer.avatar };
+        entry = { group, label, name: peer.name, avatar: peer.avatar, hat: null, hatMesh: null };
         this.shown.set(id, entry);
+      }
+      // The hat they are wearing, if any.
+      if ((peer.hat ?? null) !== entry.hat) {
+        if (entry.hatMesh) entry.group.remove(entry.hatMesh);
+        entry.hat = peer.hat ?? null;
+        entry.hatMesh = entry.hat ? makeHat(entry.hat) : null;
+        if (entry.hatMesh) entry.group.add(entry.hatMesh);
+        entry.label.position.y = entry.hatMesh ? 2.08 : 1.85; // the name clears the tallest hat
       }
       // Glide to the latest reported position; jump if they travelled.
       const g = entry.group;
