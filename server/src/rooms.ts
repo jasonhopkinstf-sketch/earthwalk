@@ -70,7 +70,9 @@ interface Left { thing: number; sp: string; lat: number; lon: number; alt: numbe
  */
 interface Order { thing: number; sp: string; act: "follow" | "come" | "stay"; by: string; lat: number; lon: number; to?: [number, number]; at: number; until: number }
 interface ChatLine { id: string; name: string; text: string; ts: number }
-interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi> }
+/** A player's own car, standing where they called it or last got out of it (garage.ts). */
+interface OwnCar { id: string; thing: number; body: string; paint: number; lat: number; lon: number; yaw: number }
+interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi>; cars: Map<string, OwnCar> }
 /** Where a named place is, and the way there by road when there is one. */
 export interface Way { name: string; lat: number; lon: number; path?: [number, number][] }
 /** A taxi somebody called: where it is coming from (`path`, ending beside them), where it will take them, and who is aboard. */
@@ -109,6 +111,9 @@ export interface JournalKeeper {
   dropHunt?(key: string): boolean;
   startExpedition?(key: string, id: string): "ok" | "unknown" | "done" | "full" | "busy";
   dropExpedition?(key: string, id: string): boolean;
+  /** The garage: choosing (and buying) a paint or a body for my car, and how it looks. */
+  setCar?(key: string, choice: { paint?: string; body?: string }): "ok" | "poor" | "unknown";
+  carOf?(key: string): { body: string; paint: number };
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -254,7 +259,7 @@ export class Rooms {
         if (ws.readyState !== ws.OPEN) return;
         roomName = hello.room.toLowerCase();
         let r = this.rooms.get(roomName);
-        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map() }));
+        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map(), cars: new Map() }));
         if (r.members.size >= MAX_ROOM_SIZE) { send({ t: "error", code: "full", text: "Room is full" }); ws.close(4002, "full"); return; }
         // Names must be unique in a room so "/join <name>" is unambiguous.
         let name = clean(person.displayName, MAX_NAME) || "Guest";
@@ -271,6 +276,7 @@ export class Rooms {
           peers: [...r.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, ...(m.hasPos ? { lat: m.lat, lon: m.lon, alt: m.alt, yaw: m.yaw } : {}), ...(m.ride ? { ride: m.ride } : {}), ...(m.pet ? { pet: m.pet } : {}), ...(m.hat ? { hat: m.hat } : {}) })),
           left: [...r.left.values()].filter((l) => l.until > Date.now()),
           orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
+          cars: [...r.cars.values()],
           taxis: [...r.taxis.values()].filter((x) => !x.aboard && x.until > Date.now()).map((x) => this.publicTaxi(x)),
           history: r.history,
           signedIn: me.personId !== null,
@@ -322,6 +328,9 @@ export class Rooms {
         const taken = new Set([...room.members.values()].filter((m) => m.ride?.thing === thing && m.ride.sp === sp).map((m) => m.ride!.seat));
         let seat = sp === "train" ? 1 : 0;
         while (sp !== "train" && taken.has(seat)) seat++;
+        // Somebody's own car is theirs to drive. Others ride along when its owner is at the wheel.
+        const owner = sp === "car" ? [...room.cars.values()].find((c) => c.thing === thing) : undefined;
+        if (owner && owner.id !== me.id && seat === 0) { send({ t: "error", code: "taken", text: `That is ${room.members.get(owner.id)?.name ?? "somebody"}'s car. Hop in when they are driving.` }); return; }
         if (seat >= SEATS) { send({ t: "error", code: "taken", text: "There is no room left on that one" }); return; }
         me.ride = { thing, sp, seat };
         this.journal?.rode(me.id, sp, thing);
@@ -419,6 +428,33 @@ export class Rooms {
           if (!this.journal?.wearHat?.(me.id, wear)) { send({ t: "error", code: "locked", text: "That hat is not yours yet" }); return; }
           this.wearHat(room, me, wear);
         }
+      } else if (msg.t === "garage" && room) {
+        // My own car: bring it to where I stand (`call`), send it away (`away`), or choose its paint or body.
+        const mine = room.cars.get(me.id);
+        const driving = !!mine && me.ride?.thing === mine.thing;
+        if (msg.call === true) {
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          if (driving) { send({ t: "error", code: "locked", text: "You are sitting in it" }); return; }
+          if (mine) for (const m of room.members.values()) if (m.ride?.thing === mine.thing) this.dismount(room, m);
+          // It draws up three metres to the right of where I am facing: near enough to get straight in.
+          const side = ((me.yaw + 90) * Math.PI) / 180;
+          const seed = parseInt((me.personId ?? me.id).slice(0, 8), 16) | 0;
+          const car: OwnCar = {
+            id: me.id, thing: (hash32(seed, 0x43415253) >>> 0) || 1, ...(this.journal?.carOf?.(me.id) ?? { body: "car", paint: 0xd94a3a }),
+            lat: +(me.lat + (Math.cos(side) * 3) / 111_320).toFixed(7), lon: +(me.lon + (Math.sin(side) * 3) / (111_320 * Math.cos((me.lat * Math.PI) / 180))).toFixed(7), yaw: +me.yaw.toFixed(1),
+          };
+          room.cars.set(me.id, car);
+          room.left.delete(car.thing);
+          this.broadcast(room, { t: "car", ...car });
+        } else if (msg.away === true) {
+          if (mine && !driving) { room.cars.delete(me.id); this.broadcast(room, { t: "car", id: me.id }); }
+        } else {
+          const paint = clean(msg.paint, 16), body = clean(msg.body, 16);
+          const got = this.journal?.setCar?.(me.id, paint ? { paint } : { body }) ?? "unknown";
+          if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : "The garage has nothing of that kind" }); return; }
+          if (mine) { Object.assign(mine, this.journal?.carOf?.(me.id)); this.broadcast(room, { t: "car", ...mine }); }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        }
       } else if (msg.t === "favour") {
         // Give up a favour I was asked (`drop` is its id). My journal comes back without it.
         if (this.journal?.dropFavour?.(me.id, clean(msg.drop, 40))) send({ t: "journal", journal: this.journal.view(me.id) });
@@ -453,6 +489,7 @@ export class Rooms {
       if (!room || !me) return;
       this.dismount(room, me);
       for (const o of [...room.orders.values()]) if (o.by === me.id) this.release(room, o.thing); // their followers go home
+      if (room.cars.delete(me.id)) this.broadcast(room, { t: "car", id: me.id }); // and their car goes with them
       for (const x of [...room.taxis.values()]) if (x.by === me.id && !x.aboard) this.dismiss(room, x.thing); // and their taxi drives off
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
@@ -476,6 +513,7 @@ export class Rooms {
     this.broadcast(room, { t: "ride", id: m.id });
     if (ride.seat !== 0 || ride.sp === "train") return;
     if (ride.sp === "taxi") room.taxis.delete(ride.thing); // the ride is over; it stands a minute like anything left, then is gone
+    const own = ride.sp === "car" ? [...room.cars.values()].find((c) => c.thing === ride.thing) : undefined;
     for (const other of room.members.values()) {
       if (other.ride?.thing !== ride.thing || other.ride.sp !== ride.sp) continue;
       other.ride = null;
@@ -483,6 +521,11 @@ export class Rooms {
       this.broadcast(room, { t: "ride", id: other.id });
     }
     if (!m.hasPos) return;
+    if (own) {
+      // Somebody's own car stays where they got out of it, for as long as they are here.
+      Object.assign(own, { lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7), yaw: +m.yaw.toFixed(1) });
+      return this.broadcast(room, { t: "car", ...own });
+    }
     const now = Date.now();
     for (const [thing, l] of room.left) if (l.until <= now) room.left.delete(thing);
     if (room.left.size >= LEFT_CAP) room.left.delete(room.left.keys().next().value!);

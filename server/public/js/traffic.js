@@ -208,7 +208,8 @@ export class Traffic {
 
   /** Draws a car that somebody is driving, or has left standing, where they took it. */
   putMount(life, m, t, counts) {
-    const { rig, coat, size } = looks(m.thing, m.sp);
+    // Somebody's own car has the body and paint they chose (garage.js); any other is as its identity makes it.
+    const { rig, coat, size } = this.owned?.(m.thing) ?? looks(m.thing, m.sp);
     // A driven car tilts to the ground and leans in a bend (riding.js): turned first, then nose up or down, then leaning.
     life.base.compose(this.v.set(m.x, m.y, m.z), this.q.setFromEuler(this.euler.set(m.pitch ?? 0, m.yaw, m.roll ?? 0, "YXZ")), this.s.set(size, size, size));
     life.put(rig, coat, counts, null, 0, 0, t, 0);

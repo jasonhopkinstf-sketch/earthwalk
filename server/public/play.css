@@ -91,6 +91,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #stamp.favour { border-color: #2f8f8a; }
 #stamp.hunt { border-color: #b5372e; border-style: solid; }
 #stamp.expedition { border-color: #2f6fb0; border-style: solid; }
+#passport .garage { display: flex; flex-direction: column; gap: 8px; }
+#passport .garage .bring { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#passport .garage .go { background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+#passport .garage .go:disabled { opacity: .5; cursor: default; }
+#passport .paints { display: flex; flex-wrap: wrap; gap: 6px; }
+#passport .paint { display: flex; align-items: center; gap: 6px; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 16px; padding: 3px 12px 3px 5px; font: inherit; font-size: 13px; cursor: pointer; }
+#passport .paint i { width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .25); }
+#passport .paint b { font-weight: 600; }
+#passport .paint.owned { border-color: #3f7f4f; }
+#passport .paint.on { border-color: #3f7f4f; background: #e9f3e4; }
+#passport .paint:disabled { cursor: default; }
+#passport .paint:disabled b, #passport .paint:disabled .small { opacity: .6; }
 #passport .journeys { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
 #passport .journey { display: flex; flex-direction: column; gap: 4px; border: 2px solid #c9bd9a; border-radius: 10px; padding: 8px 10px; background: #fffaf0; }
 #passport .journey.active { border-color: #2f6fb0; }

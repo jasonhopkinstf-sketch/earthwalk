@@ -387,6 +387,7 @@ Client to server:
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
+| `{"t":"garage","call":true}` / `{"t":"garage","away":true}` / `{"t":"garage","paint":"blue"}` / `{"t":"garage","body":"van"}` | My own car: bring it to where I stand, send it away, or choose (and if need be buy) its paint or body. See "The garage". |
 | `{"t":"favour","drop":"cow:918398760"}` | Give up a favour I was asked. The answer is my `journal` without it. See "Favours". |
 | `{"t":"hat","buy":"cap"}` / `{"t":"hat","wear":"cap"}` / `{"t":"hat"}` | Buy a hat with my coins and put it on, put on one I own, or take my hat off. See "Daily tasks, coins and hats". |
 | `{"t":"talk",..,"lat":..,"lon":..}` | `talk` may say where the client sees the thing, in case it is asked to do something from there. See "Doing as asked". |
@@ -403,6 +404,7 @@ Server to client:
 | `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
 | `{"t":"taxi","thing":..,"by":"..","name":"Hackney","path":[[lat,lon],..],"at":..,"until":..,"dest":"Goat Island Beach, Leigh"}` / `{"t":"taxi","thing":..,"gone":true}` | A taxi is on its way to whoever called it, or one nobody boarded has driven off. See "Taxis". |
 | `{"t":"pet","id":"..","sp":"cow","thing":3049913570}` / `{"t":"pet","id":".."}` | A member's companion has come along, or gone home. Sent to the room; `welcome` gives each peer's as `pet: { sp, thing }`. |
+| `{"t":"car","id":"..","thing":322932241,"body":"car","paint":15239605,"lat":..,"lon":..,"yaw":0}` / `{"t":"car","id":".."}` | A member's own car stands here, with this body and paint (a colour as a number); or has gone. Sent to the room; `welcome` lists them as `cars`. |
 | `{"t":"hat","id":"..","hat":"cap"}` / `{"t":"hat","id":".."}` | A member has put a hat on, or taken it off. Sent to the room; `welcome` gives each peer's as `hat: "cap"`. |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
@@ -487,6 +489,24 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### The garage
+
+Every player has a car of their own (`server/src/garage.ts`). `garage` with `call` brings it to
+stand three metres to their right; the room is told with `car`, and clients draw a car of that
+`body` (`car` or `van`, both already in the clients' figure tables) in that `paint` at that place,
+under the identity `thing`. It is ridden like any car (`ride` with `sp` `car` and that `thing`), but
+only its owner may take the wheel: anyone else is refused with `error` code `taken` unless the owner
+is driving, when they get a passenger's seat. When its owner gets out it stays where it is, told
+again with `car` (not `left`), until they call it elsewhere, send it `away`, or leave the room.
+
+`garage` with `paint` or `body` chooses one, paying for it in coins the first time (`error` code
+`poor` without them); four paints and the car body are free. The answer is the `journal`, whose
+`garage` is `{ body, paint, paints: [{ id, name, hex, price, owned }], bodies: [{ id, name, price,
+owned }] }`. A car that is standing in the room is repainted at once.
+
+How a car drives is each client's own affair (the browser's `cardrive.js`); the server passes on
+its driver's positions as for anything ridden.
 
 ### Treasure hunts and expeditions
 
