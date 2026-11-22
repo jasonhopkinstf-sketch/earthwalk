@@ -807,6 +807,55 @@ public:
 			}
 		}
 
+		// ---- companions: the answers of solved riddles, any one of which will follow you about
+		{
+			Heading(TEXT("Companions"));
+			TArray<FString> Won;
+			const TArray<TSharedPtr<FJsonValue>>* Pets = nullptr;
+			if (Journal->TryGetArrayField(TEXT("pets"), Pets))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Pets)
+				{
+					if (Value.IsValid() && !Value->AsString().IsEmpty())
+					{
+						Won.Add(Value->AsString());
+					}
+				}
+			}
+			const FString With = JsonStr(Journal, TEXT("pet"));
+			if (Won.Num() == 0)
+			{
+				Note(TEXT("Solve a riddle and its answer will keep you company."));
+			}
+			else
+			{
+				const TSharedRef<SWrapBox> Choices = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
+				const auto Choice = [&](const FString& Name, const FString& Sp)
+				{
+					const bool bOn = With == Sp;
+					Choices->AddSlot()
+					[
+						SNew(SBorder).BorderImage(&CardBrush).BorderBackgroundColor(bOn ? CardDoneColor : CardColor).Padding(FMargin(10.f, 6.f))
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[TextLine(Name, TEXT("Bold"), 12, FLinearColor::White)]
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8.f, 0.f, 0.f, 0.f)
+							[
+								bOn ? StaticCastSharedRef<SWidget>(TextLine(TEXT("with you"), TEXT("Regular"), 10, DimColor)) : Button(TEXT("Choose"), TEXT("pet"), Sp)
+							]
+						]
+					];
+				};
+				Choice(TEXT("Nobody"), FString());
+				for (const FString& Sp : Won)
+				{
+					const TCHAR* Kind = EarthMounts::Called(Sp);
+					Choice(Kind ? FString(Kind) : Sp, Sp);
+				}
+				PassportBody->AddSlot()[Choices];
+			}
+		}
+
 		// ---- the stamps
 		PassportBody->AddSlot().Padding(0.f, 0.f, 0.f, 4.f)[TextLine(TEXT("Stamps"), TEXT("Bold"), 14, FLinearColor::White)];
 		const TSharedRef<SWrapBox> Stamps = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.0, 8.0));
@@ -1389,6 +1438,10 @@ void AEarthWalkHUD::PassportAction(const FString& What, const FString& Id)
 		{
 			Friends->CallCar(What == TEXT("car-away"));
 		}
+	}
+	else if (What == TEXT("pet"))
+	{
+		Net->SendPet(Id);
 	}
 	else if (What == TEXT("car-paint") || What == TEXT("car-body"))
 	{

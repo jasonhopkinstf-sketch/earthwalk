@@ -572,6 +572,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	OrdersFrame(Dt, T); // and everything doing as it was told
 	TaxiFrame(T); // and taxis on their way to whoever called them
 	GarageFrame(); // and players' own cars, standing or driven, in their paint
+	PetFrame(Dt); // and everyone's companion, trotting after them
 
 	// ---- what would E hop on?
 	bNear = false;
@@ -1189,6 +1190,86 @@ void UEarthCompany::OrdersFrame(double Dt, double T)
 // ------------------------------------------------------------------------------------------------
 // Taxis
 // ------------------------------------------------------------------------------------------------
+
+/**
+ * Companions (pets.js). Solving a riddle wins its answer as an animal that keeps its player company; a
+ * lost animal being taken home walks along the same way. Every game works a companion out for itself
+ * from where its player is, so friends agree to within a step or two.
+ */
+void UEarthCompany::PetFrame(double Dt)
+{
+	const UEarthWalkNet* Room = Net.Get();
+	const AEarthWalkCharacter* Me = Player.Get();
+	if (!Room || !Me)
+	{
+		return;
+	}
+	// How fast each kind keeps up, in metres a second; anything not listed trots.
+	static const TMap<FString, double> Pace = {
+		{ TEXT("snail"), 1.5 }, { TEXT("tortoise"), 1.8 }, { TEXT("ladybird"), 2.0 }, { TEXT("crab"), 3.0 }, { TEXT("frog"), 4.0 }, { TEXT("mouse"), 4.0 },
+		{ TEXT("hedgehog"), 3.0 }, { TEXT("penguin"), 3.0 }, { TEXT("duck"), 3.5 }, { TEXT("goose"), 4.0 }, { TEXT("cow"), 5.0 }, { TEXT("panda"), 4.5 }, { TEXT("koala"), 3.0 },
+	};
+	constexpr double Trot = 7.0;
+	constexpr double PetLostM = 60.0;
+	TSet<uint32> Live;
+	const auto Keep = [&](const FEarthPet& Pet, bool bOwner, double Ox, double Oz)
+	{
+		const bool bBig = EarthMounts::Find(Pet.Sp) != nullptr;
+		if (!Pet.bOn || !bOwner || (!EarthRigs::Find(Pet.Sp) && !bBig))
+		{
+			return;
+		}
+		Live.Add(Pet.Thing);
+		if (Hidden.Contains(Pet.Thing))
+		{
+			PetPoses.Remove(Pet.Thing); // being ridden: it is drawn under its rider
+			return;
+		}
+		FOrderPose* Pose = PetPoses.Find(Pet.Thing);
+		// A little behind and to one side of its player, so it is in view when they look round.
+		const double Heel = bBig ? 2.6 : 1.6; // the big ones keep a little further off
+		const double Dx = Ox - (Pose ? Pose->X : Ox - Heel), Dz = Oz - (Pose ? Pose->Z : Oz);
+		const double Left = std::hypot(Dx, Dz);
+		if (!Pose || Left > PetLostM)
+		{
+			FOrderPose Fresh;
+			Fresh.X = Ox - (Left > 0.0 ? (Dx / Left) * Heel : Heel);
+			Fresh.Z = Oz - (Left > 0.0 ? (Dz / Left) * Heel : 0.0);
+			Fresh.Yaw = Pose ? Pose->Yaw : 0.0;
+			Pose = &PetPoses.Add(Pet.Thing, Fresh);
+		}
+		bool bMoving = false;
+		if (Left > Heel && Left <= PetLostM)
+		{
+			const double* Own = Pace.Find(Pet.Sp);
+			const double Speed = (Own ? *Own : Trot) * (Left > 8.0 ? 2.2 : 1.0); // hurry when left behind
+			const double Step = FMath::Min(Left - Heel, Speed * Dt);
+			Pose->X += (Dx / Left) * Step;
+			Pose->Z += (Dz / Left) * Step;
+			Pose->D += Step;
+			Pose->Yaw = std::atan2(-Dx, -Dz);
+			bMoving = Step > 0.001;
+		}
+		Stand(Pet.Thing, Pet.Sp, Pose->X, Pose->Z, Pose->Yaw, Pose->D, bMoving, 0.0, 0.0);
+	};
+	double Px = 0.0, Pz = 0.0;
+	if (!Me->IsWaitingForGround() && PlayerAt(Px, Pz))
+	{
+		Keep(Room->GetMyPet(), true, Px, Pz);
+	}
+	for (const TPair<FString, FEarthPeer>& Pair : Room->GetPeers())
+	{
+		double Ox = 0.0, Oz = 0.0;
+		Keep(Pair.Value.Pet, WhereIs(Pair.Key, Ox, Oz), Ox, Oz);
+	}
+	for (auto It = PetPoses.CreateIterator(); It; ++It)
+	{
+		if (!Live.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+}
 
 void UEarthCompany::CallCar(bool bAway)
 {

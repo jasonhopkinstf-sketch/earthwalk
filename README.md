@@ -270,7 +270,7 @@ three tasks on one day and on seven. Nothing can be failed and nothing runs out
 the passport: favours for the things you talk to, treasure hunts, races and a house of your own come
 next.
 
-Riddles and companions (in the browser so far): the passport has riddles, a few more at each level
+Riddles and companions: the passport has riddles, a few more at each level
 ("I carry my house on my back and leave a silver road behind me"). A riddle is solved out in the
 world, by finding its answer and talking to it or riding it, and each one solved wins that animal
 as a companion that follows you about, where friends can see it too. Thirty-four riddles so far
@@ -326,8 +326,8 @@ and expeditions, hats, riddles), with buttons for the mouse; hats are built in
 Driving is `EarthMounts::StepCar` (the sums of `cardrive.js`) and `AEarthWalkCharacter::DriveTick`,
 which carries the player at the car's velocity and puts the camera behind it; players' own cars are
 drawn by `UEarthCompany::GarageFrame`, and the garage is a page of the passport.
-Not in the Windows game yet: companions (so a lost animal being taken home is not seen walking
-along), and races.
+Companions are `UEarthCompany::PetFrame` (the sums of `pets.js`): each trots after its player, and
+can be talked to and, if big enough, ridden. Not in the Windows game yet: races.
 
 ## Art assets and the look
 

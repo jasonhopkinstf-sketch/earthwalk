@@ -84,11 +84,20 @@ struct FEarthSay
 	double Lon = 0.0;
 };
 
+/** The animal that keeps a player company: its kind and its own identity (docs/PROTOCOL.md, "Riddles and companions"). */
+struct FEarthPet
+{
+	bool bOn = false;
+	FString Sp;
+	uint32 Thing = 0;
+};
+
 /** Someone else in the same room. */
 struct FEarthPeer
 {
 	FEarthRide Ride;
 	FString Hat; // the hat they are wearing; empty for none
+	FEarthPet Pet;
 	FString Name;
 	FString Avatar; // which animal they chose
 	double Lat = 0.0;
@@ -195,6 +204,9 @@ public:
 	void SendHatBuy(const FString& Id);
 	void SendHatWear(const FString& Id);
 	const FString& GetMyHat() const { return MyHat; }
+	/** Chooses the companion that follows me, from those I have won; empty sends it home. */
+	void SendPet(const FString& Sp);
+	const FEarthPet& GetMyPet() const { return MyPet; }
 	/** Sets out on an expedition from the passport ("hunt" is the treasure hunt of where I stand), or gives one up. My journal comes back. */
 	void SendExpedition(const FString& Id, bool bStart);
 	/** Gives up a favour I was asked; my journal comes back without it. */
@@ -262,6 +274,7 @@ private:
 	TArray<FEarthPerson> People;
 	FEarthRide MyRide;
 	FString MyHat;
+	FEarthPet MyPet;
 	TMap<uint32, FEarthLeft> Left;
 	TMap<uint32, FEarthOrder> Orders;
 	TMap<uint32, FEarthTaxi> Taxis;

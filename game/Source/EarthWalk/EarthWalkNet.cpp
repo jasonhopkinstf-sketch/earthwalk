@@ -289,6 +289,21 @@ void UEarthWalkNet::RequestJournal()
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendPet(const FString& Sp)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("pet"));
+	if (!Sp.IsEmpty())
+	{
+		Message->SetStringField(TEXT("sp"), Sp);
+	}
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendHatBuy(const FString& Id)
 {
 	if (!bJoined)
@@ -705,6 +720,13 @@ namespace
 		return true;
 	}
 
+	FEarthPet ReadPet(const FJsonObject& Json)
+	{
+		FEarthPet Pet;
+		Pet.bOn = Json.TryGetStringField(TEXT("sp"), Pet.Sp) && ReadThing(Json, Pet.Thing);
+		return Pet;
+	}
+
 	bool StaysInForce(const FEarthOrder& Order)
 	{
 		return Order.Act == TEXT("follow") || Order.Act == TEXT("come") || Order.Act == TEXT("stay");
@@ -820,6 +842,20 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			Json->TryGetStringField(TEXT("q"), Said.Asked);
 			Said.bHasAt = Json->TryGetNumberField(TEXT("lat"), Said.Lat) && Json->TryGetNumberField(TEXT("lon"), Said.Lon);
 			OnSay.Broadcast(Said);
+		}
+	}
+	else if (Type == TEXT("pet"))
+	{
+		// A member's companion has come along, or gone home.
+		const FString Id = Json->GetStringField(TEXT("id"));
+		const FEarthPet Pet = ReadPet(*Json);
+		if (Id == MyId)
+		{
+			MyPet = Pet;
+		}
+		else if (FEarthPeer* Peer = Peers.Find(Id))
+		{
+			Peer->Pet = Pet;
 		}
 	}
 	else if (Type == TEXT("car"))
@@ -957,6 +993,7 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		MyId = Json->GetStringField(TEXT("id"));
 		MyName = Json->GetStringField(TEXT("name"));
 		MyHat.Reset(); // the server says which hat I have on right after this, if any
+		MyPet = FEarthPet(); // and which companion is with me
 		RoomName = Json->GetStringField(TEXT("room"));
 		bJoined = true;
 		Json->TryGetBoolField(TEXT("signedIn"), bSignedIn);
@@ -1018,6 +1055,11 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 						Peer.Ride = ReadRide(**Riding);
 					}
 					(*Object)->TryGetStringField(TEXT("hat"), Peer.Hat);
+					const TSharedPtr<FJsonObject>* Companion = nullptr;
+					if ((*Object)->TryGetObjectField(TEXT("pet"), Companion))
+					{
+						Peer.Pet = ReadPet(**Companion);
+					}
 					Names.Add(Peer.Name);
 					Peers.Add((*Object)->GetStringField(TEXT("id")), Peer);
 				}

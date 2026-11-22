@@ -101,6 +101,7 @@ private:
 	void OnTaxi(const FEarthTaxi& Taxi, bool bGone);
 	void TaxiFrame(double T);
 	void GarageFrame();
+	void PetFrame(double Dt);
 	void DoorFrame(double Dt);
 	void UseDoor();
 
@@ -192,6 +193,9 @@ private:
 	bool bRemount = false;
 	uint32 RemountThing = 0;
 	FString RemountSp;
+
+	// Where each companion has got to, by its identity.
+	TMap<uint32, FOrderPose> PetPoses;
 
 	// Taxis somebody has boarded (riding draws those), and the ones whose arrival I have been told of.
 	TSet<uint32> TaxisUsed;
