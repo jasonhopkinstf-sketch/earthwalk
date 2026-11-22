@@ -297,8 +297,8 @@ c = lerp(c, float3(0.025, 0.15, 0.70), smoothstep(0.25, 0.95, up));
 float toSun = dot(d, sunDir);
 c += float3(0.10, 0.08, 0.02) * pow(saturate(toSun), 8.0);
 // Below the horizon, where the land has run out: far country in haze.
-c = lerp(c, float3(0.30, 0.58, 0.52), smoothstep(0.0, -0.05, d.z));
-c = lerp(c, float3(0.17, 0.42, 0.22), smoothstep(-0.05, -0.35, d.z));
+c = lerp(c, float3(0.40, 0.66, 0.66), smoothstep(-0.01, -0.09, d.z));
+c = lerp(c, float3(0.26, 0.52, 0.34), smoothstep(-0.09, -0.5, d.z));
 c *= Bright;
 
 // The sun: a warm disc with a drawn edge and a pale ring of glow.

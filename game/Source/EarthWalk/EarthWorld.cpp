@@ -1393,6 +1393,7 @@ void AEarthWorld::UpdateAvatars()
 		if (Avatar)
 		{
 			Avatar->SetTarget(Target, Peer.Yaw);
+			Avatar->SetSeated(Peer.Ride.bOn);
 		}
 	}
 }
