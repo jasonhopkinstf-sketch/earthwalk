@@ -12,7 +12,6 @@ import { Orders } from "./orders.js";
 import { Houses } from "./houses.js";
 import { Taxis } from "./taxi.js";
 import { Pets } from "./pets.js";
-import { Garage } from "./garage.js";
 import { Treasure } from "./treasure.js";
 import { Talk } from "./talk.js";
 import { Traffic } from "./traffic.js";
@@ -80,7 +79,6 @@ const houses = new Houses({
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 const pets = new Pets({ world, player, meetup, avatars, riding });
-const garage = new Garage({ world, meetup, riding, traffic });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 let started = false;
@@ -424,7 +422,6 @@ async function command(name, arg) {
     notice("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,");
     notice("    your coins and hats, countries, places, friends,");
     notice("/clue   hear again the clue of the treasure hunt you are on");
-    notice("/car    bring your own car to where you are (choose its paint in your passport)");
     notice("    stamps, your level, riddles to solve");
     notice("    and the companions you have won by solving them");
   } else if (name === "taxi") {
@@ -434,10 +431,6 @@ async function command(name, arg) {
     meetup.sendTaxi(arg);
   } else if (name === "passport" || name === "journal") {
     passport.toggle();
-  } else if (name === "car") {
-    if (!meetup.joined) return problem("Not connected to the meetup server.");
-    notice("Your car is on its way. Press E beside it to get in.");
-    meetup.callCar();
   } else if (name === "clue") {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     wantClue = true;
@@ -532,4 +525,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, garage, sounds, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, taxis, pets, treasure, sounds, command, isStarted: () => started };
