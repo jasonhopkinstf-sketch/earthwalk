@@ -17,6 +17,7 @@ import { ALL_TASKS_COINS, type Daily, dayNumber, emptyDaily, hatById, HATS, RIDD
 import { asksUnprompted, type Favour, FAVOUR_DAYS, favourOf, FAVOURS_OPEN, progressOf, thanksLine } from "./favours.ts";
 import { aKind } from "./talk.ts";
 import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
+import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
@@ -75,6 +76,9 @@ export interface JournalDoc {
   morePets: string[];
   /** Their car (garage.ts): the body and paint chosen, and those bought. */
   car: Garage;
+  /** Races finished, and those won against somebody else (race.ts). */
+  races: number;
+  racesWon: number;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -118,7 +122,7 @@ export interface JournalView {
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race";
   /** For a treasure just found: where its finder stood, so that their game can show it there. */
   at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
@@ -267,6 +271,8 @@ const STAMPS: StampRule[] = [
   { id: "riddles", title: "Riddles solved", unit: "riddles", steps: [1, 5, 10, 20, 30], count: (d) => Object.keys(d.solved).length, say: (n) => `You have solved ${one(n, "riddle")}` },
   { id: "favours", title: "Favours done", unit: "favours", steps: [1, 5, 20, 50, 100], count: (d) => d.favoursDone ?? 0, say: (n) => `You have done ${one(n, "favour")}` },
   { id: "hunts", title: "Treasures found", unit: "treasures", steps: [1, 5, 20, 50], count: (d) => d.huntsDone ?? 0, say: (n) => `You have found ${one(n, "treasure")}` },
+  { id: "races", title: "Races run", unit: "races", steps: [1, 5, 20, 50], count: (d) => d.races ?? 0, say: (n) => `You have finished ${one(n, "race")}` },
+  { id: "wins", title: "Races won", unit: "races", steps: [1, 5, 20], count: (d) => d.racesWon ?? 0, say: (n) => `You have won ${one(n, "race")}` },
   { id: "expeditions", title: "Expeditions", unit: "expeditions", steps: [1, 3, 6, 10, 15], count: (d) => Object.keys(d.expeditionsDone ?? {}).length, say: (n) => `You have finished ${one(n, "expedition")}` },
   { id: "tree", title: "Tree talker", unit: "", steps: [1], count: (d) => (d.talked.tree ? 1 : 0), say: () => "You have talked to a tree" },
   { id: "train", title: "All aboard", unit: "", steps: [1], count: (d) => (d.ridden.train ? 1 : 0), say: () => "You have ridden a train" },
@@ -280,7 +286,8 @@ const STAMPS: StampRule[] = [
 export function pointsOf(d: JournalDoc): number {
   return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
     + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6
-    + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4 + (d.huntsDone ?? 0) * 6 + Object.keys(d.expeditionsDone ?? {}).length * 8;
+    + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4 + (d.huntsDone ?? 0) * 6 + Object.keys(d.expeditionsDone ?? {}).length * 8
+    + (d.races ?? 0) * 3 + (d.racesWon ?? 0) * 4;
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -293,7 +300,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(),
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0,
   };
 }
 
@@ -620,6 +627,24 @@ export class Journals {
     d.updated = this.now();
     w.open.dirty = true;
     return "ok";
+  }
+
+  /**
+   * A player has finished a race: where they came (1 for first) among how many runners, and their time. Finishing
+   * pays coins, and beating somebody pays more; a race run alone is against the clock only.
+   */
+  raced(key: string, place: number, of: number, ms: number): void {
+    const w = this.walkers.get(key);
+    if (!w) return;
+    const won = place === 1 && of > 1;
+    const coins = 15 + (won ? 15 : 0);
+    this.note(w.open, "race", { place, of, ms });
+    this.tell(key, { kind: "race", title: won ? "You won the race!" : of > 1 ? `You came ${ordinal(place)} of ${of}` : "Race finished", text: `${clock(ms)}: ${coins} coins` });
+    this.change(key, w, (d) => {
+      d.races = (d.races ?? 0) + 1;
+      if (won) d.racesWon = (d.racesWon ?? 0) + 1;
+      d.coins += coins;
+    });
   }
 
   /** How a player's car looks: its body, and its paint as a colour. */

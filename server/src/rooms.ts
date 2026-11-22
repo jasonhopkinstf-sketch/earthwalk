@@ -8,6 +8,7 @@ import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
 import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
+import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import type { TalkNews } from "./journal.ts";
 
 const MAX_NAME = 24;
@@ -72,7 +73,7 @@ interface Order { thing: number; sp: string; act: "follow" | "come" | "stay"; by
 interface ChatLine { id: string; name: string; text: string; ts: number }
 /** A player's own car, standing where they called it or last got out of it (garage.ts). */
 interface OwnCar { id: string; thing: number; body: string; paint: number; lat: number; lon: number; yaw: number }
-interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi>; cars: Map<string, OwnCar> }
+interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi>; cars: Map<string, OwnCar>; race: Race | null; raceMaking: boolean }
 /** Where a named place is, and the way there by road when there is one. */
 export interface Way { name: string; lat: number; lon: number; path?: [number, number][] }
 /** A taxi somebody called: where it is coming from (`path`, ending beside them), where it will take them, and who is aboard. */
@@ -114,6 +115,8 @@ export interface JournalKeeper {
   /** The garage: choosing (and buying) a paint or a body for my car, and how it looks. */
   setCar?(key: string, choice: { paint?: string; body?: string }): "ok" | "poor" | "unknown";
   carOf?(key: string): { body: string; paint: number };
+  /** A race finished: where they came among how many, and their time in milliseconds. */
+  raced?(key: string, place: number, of: number, ms: number): void;
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -132,6 +135,10 @@ export interface RoomsOptions {
   taxiRemarkMs?: [number, number];
   /** Finds a place a rider has asked to be taken to, near where they are, with the way there by road if it is close. */
   wayTo?: (lat: number, lon: number, place: string, sp: string) => Promise<Way | null>;
+  /** Makes a race course along the roads near a position (race.ts). Without it there are no races. */
+  course?: (lat: number, lon: number, seed: number) => Promise<Course | null>;
+  /** How long after "go" a race begins (the tests do not wait five seconds). */
+  raceCountdownMs?: number;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
   journal?: JournalKeeper;
 }
@@ -259,7 +266,7 @@ export class Rooms {
         if (ws.readyState !== ws.OPEN) return;
         roomName = hello.room.toLowerCase();
         let r = this.rooms.get(roomName);
-        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map(), cars: new Map() }));
+        if (!r) this.rooms.set(roomName, (r = { members: new Map(), history: [], left: new Map(), orders: new Map(), taxis: new Map(), cars: new Map(), race: null, raceMaking: false }));
         if (r.members.size >= MAX_ROOM_SIZE) { send({ t: "error", code: "full", text: "Room is full" }); ws.close(4002, "full"); return; }
         // Names must be unique in a room so "/join <name>" is unambiguous.
         let name = clean(person.displayName, MAX_NAME) || "Guest";
@@ -277,6 +284,7 @@ export class Rooms {
           left: [...r.left.values()].filter((l) => l.until > Date.now()),
           orders: [...r.orders.values()].filter((o) => o.until > Date.now()),
           cars: [...r.cars.values()],
+          race: r.race,
           taxis: [...r.taxis.values()].filter((x) => !x.aboard && x.until > Date.now()).map((x) => this.publicTaxi(x)),
           history: r.history,
           signedIn: me.personId !== null,
@@ -306,6 +314,13 @@ export class Rooms {
         me.hasPos = true;
         me.dirty = true;
         this.journal?.moved(me.id, me.lat, me.lon);
+        // In a race, this may take them through their next gate, or over the line.
+        const race = room?.race;
+        if (race && room) {
+          const got = passed(race, me.id, me.lat, me.lon, Date.now());
+          if (got === "finish") this.journal?.raced?.(me.id, placeOf(race, me.id), race.runners.length, race.runners.find((r) => r.id === me!.id)?.time ?? 0);
+          if (got) this.broadcast(room, { t: "race", race });
+        }
       } else if (msg.t === "chat" && room) {
         const text = clean(msg.text, MAX_CHAT);
         if (!text) return;
@@ -428,6 +443,35 @@ export class Rooms {
           if (!this.journal?.wearHat?.(me.id, wear)) { send({ t: "error", code: "locked", text: "That hat is not yours yet" }); return; }
           this.wearHat(room, me, wear);
         }
+      } else if (msg.t === "race" && room) {
+        // Set a race up where I stand (`make`), join the one that is set up (`join`), say go (`go`, its maker only),
+        // or leave it (`stop`: its maker ends it for everyone). The room is told the whole race each time.
+        const now = Date.now();
+        if (room.race && stale(room.race, now)) room.race = null;
+        const race = room.race;
+        if (msg.make === true) {
+          if (race && race.state !== "over") { send({ t: "error", code: "locked", text: `${race.byName} has a race set up already` }); return; }
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          if (!this.options.course || room.raceMaking) { send({ t: "error", code: "locked", text: "No race can be set up just now" }); return; }
+          room.raceMaking = true;
+          const course = await this.options.course(me.lat, me.lon, hash32(parseInt(me.id, 16) | 0, now & 0x7fffffff)).catch(() => null).finally(() => { room!.raceMaking = false; });
+          if (!room.members.has(me.id)) return;
+          if (!course || course.gates.length < 2) { send({ t: "error", code: "nowhere", text: "There are no roads here to race along. Try beside a street." }); return; }
+          room.race = newRace(me.id, me.name, course, Date.now());
+        } else if (!race) {
+          send({ t: "error", code: "locked", text: "There is no race just now" });
+          return;
+        } else if (msg.join === true) {
+          if (race.state !== "open") { send({ t: "error", code: "locked", text: "That race has already started" }); return; }
+          if (!race.runners.some((r) => r.id === me!.id)) race.runners.push({ id: me.id, name: me.name, gate: 0, time: null });
+        } else if (msg.go === true) {
+          if (race.by !== me.id) { send({ t: "error", code: "locked", text: `Only ${race.byName} can start this race` }); return; }
+          if (race.state === "open") { race.state = "go"; race.startAt = now + (this.options.raceCountdownMs ?? COUNTDOWN_MS); }
+        } else if (msg.stop === true) {
+          this.leaveRace(room, me.id);
+          return;
+        } else return;
+        this.broadcast(room, { t: "race", race: room.race });
       } else if (msg.t === "garage" && room) {
         // My own car: bring it to where I stand (`call`), send it away (`away`), or choose its paint or body.
         const mine = room.cars.get(me.id);
@@ -490,6 +534,7 @@ export class Rooms {
       this.dismount(room, me);
       for (const o of [...room.orders.values()]) if (o.by === me.id) this.release(room, o.thing); // their followers go home
       if (room.cars.delete(me.id)) this.broadcast(room, { t: "car", id: me.id }); // and their car goes with them
+      this.leaveRace(room, me.id);
       for (const x of [...room.taxis.values()]) if (x.by === me.id && !x.aboard) this.dismiss(room, x.thing); // and their taxi drives off
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
@@ -567,7 +612,21 @@ export class Rooms {
   }
 
   /** Every few seconds: taxis that waited too long leave, and those with a fare aboard say something now and then. */
+  /** Someone leaves the race (or the room). Its maker leaving ends it; so does the last runner; otherwise the rest run on. */
+  private leaveRace(room: Room, id: string): void {
+    const race = room.race;
+    if (!race || !race.runners.some((r) => r.id === id)) return;
+    race.runners = race.runners.filter((r) => r.id !== id);
+    if (race.by === id || race.runners.length === 0) room.race = null;
+    else if (race.state === "go" && race.runners.every((r) => r.time !== null)) { race.state = "over"; race.ended = Date.now(); }
+    this.broadcast(room, { t: "race", race: room.race });
+  }
+
   private taxiRound(): void {
+    // (Every few seconds is also often enough to clear away a race that has run its time.)
+    for (const room of this.rooms.values()) {
+      if (room.race && stale(room.race, Date.now())) { room.race = null; this.broadcast(room, { t: "race", race: null }); }
+    }
     const now = Date.now();
     for (const [roomName, room] of this.rooms) {
       for (const x of [...room.taxis.values()]) {

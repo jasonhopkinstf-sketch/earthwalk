@@ -387,6 +387,7 @@ Client to server:
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
+| `{"t":"race","make":true}` / `{"t":"race","join":true}` / `{"t":"race","go":true}` / `{"t":"race","stop":true}` | Set a race up where I stand, join the one set up, start mine, or leave (my own: end it). See "Races". |
 | `{"t":"garage","call":true}` / `{"t":"garage","away":true}` / `{"t":"garage","paint":"blue"}` / `{"t":"garage","body":"van"}` | My own car: bring it to where I stand, send it away, or choose (and if need be buy) its paint or body. See "The garage". |
 | `{"t":"favour","drop":"cow:918398760"}` | Give up a favour I was asked. The answer is my `journal` without it. See "Favours". |
 | `{"t":"hat","buy":"cap"}` / `{"t":"hat","wear":"cap"}` / `{"t":"hat"}` | Buy a hat with my coins and put it on, put on one I own, or take my hat off. See "Daily tasks, coins and hats". |
@@ -404,6 +405,7 @@ Server to client:
 | `{"t":"order","thing":918398760,"sp":"dog","act":"follow","by":"..","lat":..,"lon":..,"at":..,"until":..}` | A thing was told to do something and agreed. See "Doing as asked". |
 | `{"t":"taxi","thing":..,"by":"..","name":"Hackney","path":[[lat,lon],..],"at":..,"until":..,"dest":"Goat Island Beach, Leigh"}` / `{"t":"taxi","thing":..,"gone":true}` | A taxi is on its way to whoever called it, or one nobody boarded has driven off. See "Taxis". |
 | `{"t":"pet","id":"..","sp":"cow","thing":3049913570}` / `{"t":"pet","id":".."}` | A member's companion has come along, or gone home. Sent to the room; `welcome` gives each peer's as `pet: { sp, thing }`. |
+| `{"t":"race","race":{..}}` / `{"t":"race","race":null}` | The race in this room, whole, whenever anything about it changes; null when it is cleared away. `welcome` carries it as `race`. |
 | `{"t":"car","id":"..","thing":322932241,"body":"car","paint":15239605,"lat":..,"lon":..,"yaw":0}` / `{"t":"car","id":".."}` | A member's own car stands here, with this body and paint (a colour as a number); or has gone. Sent to the room; `welcome` lists them as `cars`. |
 | `{"t":"hat","id":"..","hat":"cap"}` / `{"t":"hat","id":".."}` | A member has put a hat on, or taken it off. Sent to the room; `welcome` gives each peer's as `hat: "cap"`. |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
@@ -489,6 +491,25 @@ somewhere else.
   another, goes with `gone`.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
+
+### Races
+
+A room has at most one race (`server/src/race.ts`). `race` with `make` sets one up near where its
+maker stands: the server plans a course by road of 350 to 1600 m, with a gate about every 120 m
+(refused with `error` code `nowhere` where there are no roads). Anyone in the room may `join` while
+it is open; its maker says `go`, and it begins five seconds later. The race object is `{ by,
+byName, gates: [[lat, lon], ..], metres, state, startAt, made, ended, runners: [{ id, name, gate,
+time }] }`: `state` is `open`, `go` or `over`; `startAt` is in the server's time (the shared clock);
+a runner's `gate` is how many gates they have passed and `time` their time in milliseconds once
+finished.
+
+Runners go by any means. The server watches their `pos` messages: a gate counts when a runner is
+within 22 m of it, in turn, and only once the race has begun, so everyone must come through the
+start gate first. Each gate passed is told to the room with `race`. A finisher is told with a
+`stamp` of kind `race`; finishing pays 15 coins and beating somebody 15 more. When every runner has
+finished the state is `over` and the results stay for a minute. `stop` takes a runner out; from
+its maker (or when its maker leaves the room) it ends the race. A race nobody starts is cleared
+after ten minutes, and one nobody finishes after twenty.
 
 ### The garage
 

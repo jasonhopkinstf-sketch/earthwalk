@@ -11,6 +11,7 @@ import { CHUNK_Z } from "./geo.ts";
 import { generateLabels, LABELS_REV, partialLabels } from "./labels.ts";
 import { geocode, geocodeNear, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
 import { planRoute, type Route } from "./route.ts";
+import { planCourse } from "./race.ts";
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
 import { Talker } from "./talk.ts";
@@ -160,7 +161,9 @@ export function createApp(options: AppOptions = {}): App {
     }
     return { dest, pickup };
   };
-  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs });
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs,
+    course: (lat, lon, seed) => planCourse(lat, lon, seed, (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon)),
+  });
   const presence = new Presence(accounts, rooms, placeName);
   const google = options.google;
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
