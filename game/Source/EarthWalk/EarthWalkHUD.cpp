@@ -1170,7 +1170,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
 		AddLine(TEXT("P   your passport (or /passport): countries, places, friends, stamps and your level"), NoticeColor);
 		AddLine(TEXT("E   at a front door with a yellow COME IN sign: go in, and E again just inside it to come out"), NoticeColor);
-		AddLine(TEXT("/house   say where the nearest house you can go into is (most houses do not open)"), NoticeColor);
+		AddLine(TEXT("/house   say where the nearest house you can go into is"), NoticeColor);
 		AddLine(TEXT("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there"), NoticeColor);
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
@@ -1300,7 +1300,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		const UEarthCompany* Friends = Company();
 		const FString Where = Friends ? Friends->NearestHouse() : FString();
 		AddLine(Where.IsEmpty()
-			? FString(TEXT("No house near here can be gone into. Only plain, four-cornered houses on level ground open; try another street or town."))
+			? FString(TEXT("No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not."))
 			: FString::Printf(TEXT("The nearest house you can go into is %s. Look for the yellow COME IN sign over its front door, and press E there."), *Where), NoticeColor);
 	}
 	else if (Command == TEXT("taxi"))

@@ -286,10 +286,16 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 
 		if (Kind == TEXT("door"))
 		{
-			// A front door that opens (AEarthWorld keeps where it is). Most doors do not, so this one gets a
-			// yellow board over it that says so, to be seen from the street: At is the door on its wall at the
-			// height of the floor inside, and Facing is the way out.
-			const FVector Board = At + Facing.RotateVector(FVector(14.0, 0.0, 292.0));
+			// A front door that opens (AEarthWorld keeps where it is). It gets a yellow board over it that says
+			// so, to be seen from the street. At is the door on its wall at the height of the floor inside,
+			// which on a hillside can be metres above the door itself: `g` is the ground outside the door,
+			// and the board hangs from there. Where a porch roof covers the door (it reaches a metre out, its
+			// top 2.76 m up) the board stands on the front of that. Facing is the way out.
+			double Ground = H, Porch = 0.0;
+			Json.TryGetNumberField(TEXT("g"), Ground);
+			Json.TryGetNumberField(TEXT("porch"), Porch);
+			const FVector Doorstep(At.X, At.Y, ChunkOrigin.Z + Ground * 100.0);
+			const FVector Board = Doorstep + Facing.RotateVector(Porch > 0.5 ? FVector(103.0, 0.0, 276.0 + 22.0) : FVector(14.0, 0.0, 292.0));
 			AddBox(Board, Facing, FVector(6.0, 96.0, 32.0), World->MaterialFor(0xf5c518ff));
 			AddText(TEXT("COME IN"), Board + Facing.RotateVector(FVector(3.8, 0.0, 0.0)), Facing, 17.f, FColor(38, 34, 31));
 			++Count;
