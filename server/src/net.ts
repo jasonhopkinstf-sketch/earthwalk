@@ -22,6 +22,27 @@ export async function httpGet(url: string, timeoutMs = 30000, init: RequestInit 
  * nothing else is waiting, never takes the last free place, and is dropped when too many are queued.
  * `hurry` turns a quiet job into an ordinary one, for when somebody arrives who does want it.
  */
+/** Lets only so many jobs run at once; the rest wait their turn, first come first served. */
+export class Gate {
+  private running = 0;
+  private readonly waiting: (() => void)[] = [];
+  private readonly size: number;
+  constructor(size: number) {
+    this.size = size;
+  }
+  async run<T>(job: () => Promise<T>): Promise<T> {
+    if (this.running >= this.size) await new Promise<void>((go) => this.waiting.push(go));
+    else this.running++;
+    try {
+      return await job();
+    } finally {
+      const next = this.waiting.shift();
+      if (next) next(); // the turn passes straight on
+      else this.running--;
+    }
+  }
+}
+
 export class Pool {
   private readonly loud: { start: () => void; drop: () => void }[] = [];
   private readonly quiet: { start: () => void; drop: () => void }[] = [];

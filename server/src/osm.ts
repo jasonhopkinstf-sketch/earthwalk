@@ -4,7 +4,7 @@
 import { roofPaint, wallPaint } from "./paint.ts";
 import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { cacheHas, cacheRead, cacheWrite } from "./cache.ts";
-import { httpGet, Pool, USER_AGENT } from "./net.ts";
+import { Gate, httpGet, Pool, USER_AGENT } from "./net.ts";
 
 /** OSM data is kept, and handed to the generator, in tiles at this zoom (2x2 chunks each). */
 export const DATA_Z = 15;
@@ -627,7 +627,9 @@ let owedRead: Promise<void> | null = null;
 const readOwed = (): Promise<void> => (owedRead ??= cacheRead(OWED_REL).then((buf) => {
   if (buf) for (const key of JSON.parse(buf.toString("utf8")) as string[]) owed.add(key);
 }).catch(() => undefined));
-const writeOwed = (): Promise<void> => cacheWrite(OWED_REL, JSON.stringify([...owed].slice(-4000)));
+/** One write at a time: two at once fall over each other's temporary file. */
+let owedWritten: Promise<void> = Promise.resolve();
+const writeOwed = (): Promise<void> => (owedWritten = owedWritten.then(() => cacheWrite(OWED_REL, JSON.stringify([...owed].slice(-4000)))));
 const arrived: ((bx: number, by: number) => void)[] = [];
 /** Asks to be told when the extras of a block come after something was built there without them. */
 export function onExtras(listener: (bx: number, by: number) => void): void {
@@ -672,6 +674,8 @@ export async function fetchExtras(dx: number, dy: number, ask: (query: string) =
     }).finally(() => { extraLoads.delete(rel); });
     extraLoads.set(rel, load);
   }
+  // A block already owed its extras is not waited for again: what is built there now is built without.
+  if (owed.has(key)) return null;
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), waitMs); });
   try {
@@ -1095,21 +1099,77 @@ export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
 }
 
 const parsed = new Map<string, Features>();
-
-/** Parsed features for one DATA_Z tile, with a small in-memory cache. */
-export async function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile, extras: (dx: number, dy: number) => Promise<OsmJson | null> = fetcher === fetchOsmTile ? fetchExtras : async () => ({ elements: [] })): Promise<Features> {
-  const key = `${dx}/${dy}`;
-  let f = parsed.get(key);
-  // Parsed without its extras, it is parsed again as soon as they can be had (afresh, since what was
-  // worked out from it, such as which houses have a front door, is remembered against the old one).
-  if (!f || f.partial) {
-    const [json, extra] = await Promise.all([fetcher(dx, dy), extras(dx, dy)]);
-    if (f?.partial && !extra) return f;
-    f = parseOsm(json, extra);
-    if (!extra) f.partial = true;
-    // (Sixteen tiles, where it was sixty-four: a parsed tile of a city centre is tens of megabytes, and the live server has few to spare.)
-    if (parsed.size >= 16) parsed.delete(parsed.keys().next().value!);
-    parsed.set(key, f);
+/**
+ * How heavy each parsed tile is, as the number of things in its map (points, ways and relations): a
+ * suburb's is twenty thousand and holds 2 to 8 MB parsed, the middle of Auckland's eighty thousand and
+ * 25 MB. The cache keeps to a weight, not a number of tiles, so that a walk through a city centre does
+ * not fill the server's memory.
+ */
+const weights = new Map<string, number>();
+const PARSED_WEIGHT = 260_000;
+const PARSED_LEAST = 3;
+let parsedWeight = 0;
+const keepParsed = (key: string, f: Features, weight: number): void => {
+  parsedWeight += weight - (weights.get(key) ?? 0);
+  parsed.delete(key); // so that it counts as the newest
+  parsed.set(key, f);
+  weights.set(key, weight);
+  while (parsedWeight > PARSED_WEIGHT && parsed.size > PARSED_LEAST) {
+    const oldest = parsed.keys().next().value!;
+    parsedWeight -= weights.get(oldest) ?? 0;
+    parsed.delete(oldest);
+    weights.delete(oldest);
   }
-  return f;
+};
+/**
+ * A tile's raw map, read from the cache and parsed, is ten times the size of its file, and is held until
+ * its features have been taken out of it. Only two are held at once for that (the railway takes its own,
+ * one at a time: rail.ts), however many tiles are being asked for.
+ */
+const reading = new Gate(2);
+/** Tiles being parsed now. A player arriving asks for a dozen chunks of one tile at once, and each used to parse it for itself. */
+const parsing = new Map<string, Promise<Features>>();
+
+/**
+ * Parsed features for one DATA_Z tile, with a small in-memory cache. However many ask at once, a tile
+ * is read and parsed once: a city centre's is tens of megabytes parsed, and the live server has 512 MB
+ * in all (it ran out, 2026-11-23).
+ */
+export function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile, extras: (dx: number, dy: number) => Promise<OsmJson | null> = fetcher === fetchOsmTile ? fetchExtras : async () => ({ elements: [] })): Promise<Features> {
+  const key = `${dx}/${dy}`;
+  const ready = parsed.get(key);
+  if (ready && !ready.partial) return Promise.resolve(ready);
+  let load = parsing.get(key);
+  if (!load) {
+    load = (async () => {
+      const had = parsed.get(key);
+      let json: OsmJson;
+      let extra: OsmJson | null;
+      if (had?.partial) {
+        // Parsed without its extras: it is left as it is until they have come, and only then read and
+        // parsed again (afresh, since what was worked out from it, such as which houses have a front
+        // door, is remembered against the old one).
+        extra = await extras(dx, dy);
+        if (!extra) return had;
+      } else if (fetcher === fetchOsmTile && !onDisk.has(tileRel(dx, dy)) && !(await cacheHas(tileRel(dx, dy))) && !(await cacheHas(oldTileRel(dx, dy)))) {
+        // Not downloaded yet: the map and its extras are asked for together, since both take a while.
+        // (Downloads go two at a time as it is, so few raw tiles are held this way.)
+        [json, extra] = await Promise.all([fetcher(dx, dy), extras(dx, dy)]);
+        const fresh = parseOsm(json, extra);
+        if (!extra) fresh.partial = true;
+        keepParsed(key, fresh, json.elements.length + (extra?.elements.length ?? 0));
+        return fresh;
+      } else extra = await extras(dx, dy);
+      // The extras first, and only then the tile itself, read and parsed and let go of at once.
+      return reading.run(async () => {
+        const raw = await fetcher(dx, dy);
+        const fresh = parseOsm(raw, extra);
+        if (!extra) fresh.partial = true;
+        keepParsed(key, fresh, raw.elements.length + (extra?.elements.length ?? 0));
+        return fresh;
+      });
+    })().finally(() => parsing.delete(key));
+    parsing.set(key, load);
+  }
+  return load;
 }

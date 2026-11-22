@@ -13,6 +13,7 @@
 
 import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile } from "./geo.ts";
 import { clipPolyline } from "./chunk.ts";
+import { Gate } from "./net.ts";
 import { BLOCK_Z, DATA_Z, fetchOsmTile, type OsmJson, type Pt } from "./osm.ts";
 
 export const RAIL_Z = BLOCK_Z;
@@ -34,24 +35,40 @@ const STATION_STOP_S = 14;
 
 // ---------------------------------------------------------------- the tracks of a square
 
+const railReading = new Gate(1);
+
 /** The railway tracks and stations of one rail square, out of the map of its four data tiles. */
 export async function fetchRail(rx: number, ry: number): Promise<OsmJson> {
   const per = 2 ** (DATA_Z - RAIL_Z);
-  const tiles: Promise<OsmJson>[] = [];
-  for (let j = 0; j < per; j++) for (let i = 0; i < per; i++) tiles.push(fetchOsmTile(rx * per + i, ry * per + j));
-  const seen = new Set<number>();
-  const elements: OsmJson["elements"] = [];
-  for (const tile of await Promise.all(tiles)) {
-    for (const el of tile.elements) {
-      // A track that crosses from one tile into the next is in both, whole: once is enough.
-      if (el.type === "node") elements.push(el);
-      else if (el.type === "way" && el.tags?.railway === "rail" && !seen.has(el.id)) {
-        seen.add(el.id);
-        elements.push(el);
+  // One tile at a time, and one square at a time, taking from each only the tracks, the points they are
+  // made of and the stations: the four tiles of a city centre are a quarter of a million points, and
+  // all four used to be held at once, whole, for every square being worked on.
+  return railReading.run(async () => {
+    const seen = new Set<number>();
+    const have = new Set<number>();
+    const elements: OsmJson["elements"] = [];
+    for (let j = 0; j < per; j++) {
+      for (let i = 0; i < per; i++) {
+        const tile = await fetchOsmTile(rx * per + i, ry * per + j);
+        const needed = new Set<number>();
+        for (const el of tile.elements) {
+          if (el.type !== "way" || el.tags?.railway !== "rail") continue;
+          for (const id of el.nodes ?? []) needed.add(id);
+          // A track that crosses from one tile into the next is in both, whole: once is enough.
+          if (seen.has(el.id)) continue;
+          seen.add(el.id);
+          elements.push(el);
+        }
+        for (const el of tile.elements) {
+          if (el.type !== "node" || have.has(el.id)) continue;
+          if (!needed.has(el.id) && el.tags?.railway !== "station" && el.tags?.railway !== "halt") continue;
+          have.add(el.id);
+          elements.push(el);
+        }
       }
     }
-  }
-  return { elements };
+    return { elements };
+  });
 }
 
 /** Main-line tracks that are drawn (not in tunnels, not sidings) and the stations, in world coordinates. */
@@ -186,6 +203,8 @@ export function buildTrains(rx: number, ry: number, data: RailData): Train[] {
 }
 
 const built = new Map<string, Train[]>();
+/** Squares whose trains are being worked out now: the labels of sixteen chunks all want the same ones. */
+const building = new Map<string, Promise<Train[]>>();
 
 /** The trains whose run passes through a chunk. Throws when the tracks cannot be fetched. */
 export async function trainsFor(cx: number, cy: number, load = fetchRail): Promise<Train[]> {
@@ -194,9 +213,17 @@ export async function trainsFor(cx: number, cy: number, load = fetchRail): Promi
   const k = `${rx}/${ry}`;
   let trains = built.get(k);
   if (!trains) {
-    trains = buildTrains(rx, ry, parseRail(await load(rx, ry)));
-    if (built.size >= 32) built.delete(built.keys().next().value!);
-    built.set(k, trains);
+    let job = building.get(k);
+    if (!job) {
+      job = load(rx, ry).then((json) => {
+        const made = buildTrains(rx, ry, parseRail(json));
+        if (built.size >= 32) built.delete(built.keys().next().value!);
+        built.set(k, made);
+        return made;
+      }).finally(() => building.delete(k));
+      building.set(k, job);
+    }
+    trains = await job;
   }
   const m = 0.05;
   return trains.filter((t) => t.path.some(([x, y]) => x >= cx - m && x <= cx + 1 + m && y >= cy - m && y <= cy + 1 + m));

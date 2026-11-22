@@ -42,7 +42,8 @@ export class Elevation {
   private readonly fetcher: ElevationFetcher;
   private readonly maxTiles: number;
 
-  constructor(fetcher: ElevationFetcher = fetchTile, maxTiles = 256) {
+  // (Ninety-six tiles of heights are 25 MB; the 256 there were came to 67.)
+  constructor(fetcher: ElevationFetcher = fetchTile, maxTiles = 96) {
     this.fetcher = fetcher;
     this.maxTiles = maxTiles;
   }
