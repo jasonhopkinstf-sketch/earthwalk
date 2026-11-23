@@ -19,6 +19,7 @@ export const NEWS: NewsEntry[] = [
       { text: "A little map in the top right corner shows your friends, doors that open, stations, cars and the way you are going. M makes it bigger.", in: "windows" },
       { text: "A taxi, or your own car, really drives you where you asked. A taxi waits for you on the street: look for the T on the map." },
       { text: "Taxis tell you a story on the way, about somebody they once drove." },
+      { text: "While you ride or are carried, V looks down from above, then from high up over the rooftops.", in: "windows" },
       { text: "This card: what is new since you were last here. It is in the Tab menu too.", in: "windows" },
     ],
   },
@@ -29,7 +30,7 @@ export const NEWS: NewsEntry[] = [
       { text: "Five hearts and a lunch box. Animals, trees and real shops give food; a good mix fills your hearts.", in: "browser" },
       { text: "Cook in your own kitchen, and give food to a friend.", in: "browser" },
       { text: "Teach your companion tricks, feed hungry wild animals, raise a chick, a lamb, a piglet or a calf in your garden, and run an agility course.", in: "browser" },
-      { text: "While riding or being carried, V looks down from above.", in: "browser" },
+      { text: "While riding or being carried, V looks down from above." },
     ],
   },
   {

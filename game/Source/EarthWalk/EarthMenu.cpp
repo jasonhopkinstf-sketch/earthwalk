@@ -34,6 +34,7 @@ namespace
 		{ TEXT("fly"), TEXT("Go somewhere"), TEXT("Fly, or land"), TEXT("Up into the air and down again."), TEXT("F"), TEXT("fly"), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("ride"), TEXT("Ride and drive"), TEXT("Hop on, or hop off"), TEXT("The nearest animal, car, tractor, boat or train. At a door with a COME IN sign, go in."), TEXT("E"), TEXT(""), TEXT(""), TEXT(""), TEXT("Ride") },
+		{ TEXT("above"), TEXT("Ride and drive"), TEXT("Look from above"), TEXT("While you ride or are carried: a camera above and behind, then one high over the rooftops, then your seat again."), TEXT("V"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("car"), TEXT("Ride and drive"), TEXT("Call my car"), TEXT("Your own car drives to where you are."), TEXT(""), TEXT("car"), TEXT(""), TEXT(""), TEXT("My car") },
 		{ TEXT("caraway"), TEXT("Ride and drive"), TEXT("Send my car away"), TEXT("It goes back to wherever it waits."), TEXT(""), TEXT("car away"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("taketo"), TEXT("Ride and drive"), TEXT("Take me to..."), TEXT("On an animal or in a car: tell it where, and it carries you there by itself."), TEXT(""), TEXT(""), TEXT("Where should it take you?"), TEXT("the beach"), TEXT("") },

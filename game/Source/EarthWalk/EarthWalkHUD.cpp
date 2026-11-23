@@ -2338,6 +2338,15 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	{
 		OpenNews(false);
 	}
+	else if (Id == TEXT("above"))
+	{
+		const APlayerController* PC = GetOwningPlayerController();
+		AEarthWalkCharacter* Me = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+		const FString Name = Me ? Me->NextRideView() : FString();
+		AddLine(Name.IsEmpty() ? TEXT("V looks down from above while you are riding something, or being carried: hop on first (E).")
+			: Me->GetRideView() == 0 ? TEXT("Back in your seat.")
+			: *FString::Printf(TEXT("Looking %s. Hold the mouse button and move it to swing the camera, the wheel brings it nearer or further, and V moves on."), *Name), NoticeColor);
+	}
 	else if (Id == TEXT("look"))
 	{
 		RunCommand(TEXT("look"), EarthLook::Current() == EEarthLook::Flat ? TEXT("barnyard") : TEXT("flat"));

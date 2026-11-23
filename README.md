@@ -98,7 +98,7 @@ Controls (Unreal):
 | `W A S D` | Move |
 | Left-drag the mouse, or `Left`/`Right` arrows | Look around (`Up`/`Down` tilt). The pointer stays free when you are not dragging, so a trackpad works |
 | `2` / `1` | Run / walk (or hold `Shift` to run) |
-| `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
+| `V` | On foot (Windows): the camera view: first person, over the shoulder, far behind. Riding or being carried (both games): your seat, from above, from high up. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
@@ -299,7 +299,7 @@ lasts for the visit. The catalogue and who lives where are `server/src/home.ts` 
 not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
 things on a developer's own machine; it is not set on the live server.
 
-The view from above (in the browser so far): riding anything, or being carried by a train, a taxi or a
+The view from above (both games; `HoverTick` in `EarthWalkCharacter.cpp` is the Windows one, and `-EWRideView=1` or `2` goes to it by itself once the player is on something): riding anything, or being carried by a train, a taxi or a
 friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
 rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken
 along, it follows the way the ride is going and circles slowly until the mouse is touched; steering, it
