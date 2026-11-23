@@ -6,6 +6,7 @@ import WebSocket from "ws";
 import { EXPEDITIONS, expeditionById, type Homecoming } from "../src/expeditions.ts";
 import { huntCell, type HuntStop, planHunt, wayTo } from "../src/hunt.ts";
 import { Journals, type JournalView, type StampNews } from "../src/journal.ts";
+import { levelPrizes } from "../src/progress.ts";
 import { latToY, lonToX, metersPerTile } from "../src/geo.ts";
 import type { Features, Pt } from "../src/osm.ts";
 import { GuestDirectory } from "../src/people.ts";
@@ -125,7 +126,7 @@ test("a hunt is begun from where you stand, each clue is found by standing there
   clock.now += 60_000;
   journals.moved("a", 48.849, 2.3541);
   v = journals.view("a") as JournalView;
-  assert.deepEqual([v.hunt, v.huntsDone, v.huntBestMinutes, v.coins], [null, 1, 4, 50]);
+  assert.deepEqual([v.hunt, v.huntsDone, v.huntBestMinutes, v.coins], [null, 1, 4, 50 + levelPrizes(1, v.level.n)]); // the treasure, and the prizes of the levels reached on the way
   const treasure = news.get("a")!.find((n) => n.title === "Treasure found!")!;
   assert.deepEqual(treasure.at, { lat: 48.849, lon: 2.3541 }, "where the finder stood");
   assert.equal(treasure.text, "It was at Rue du Test. 3 clues in 4 minutes: 50 coins.");

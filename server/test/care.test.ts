@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { dayNumber } from "../src/daily.ts";
 import { foodById } from "../src/food.ts";
 import { CARE_COINS, CARE_PETS, Journals, type JournalView } from "../src/journal.ts";
+import { levelPrizes } from "../src/progress.ts";
 import { dayOf, HUNGRY_ONE_IN, hungerOf, WANTS } from "../public/js/care.js";
 
 test("hungry animals: about one in five each day, the same for everyone, and each wants a food there is", () => {
@@ -51,10 +52,10 @@ test("the journal: a hungry animal says what it would like, is fed from the lunc
 
   // With it in the lunch box: fed, paid, and not hungry again today.
   assert.equal(journals.buyFood("a", "shop", first.want), "ok");
-  const coins = (journals.view("a") as JournalView).coins;
+  const { coins, level } = journals.view("a") as JournalView;
   journals.talked("a", first.thing, "horse", "Bramble", "", "Neigh.");
   v = journals.view("a") as JournalView;
-  assert.deepEqual([v.coins, v.care.fed, v.care.today, v.food.larder, v.stamps.find((s) => s.id === "cared")!.have], [coins + CARE_COINS, 1, [`horse:${first.thing}`], [], 1]);
+  assert.deepEqual([v.coins, v.care.fed, v.care.today, v.food.larder, v.stamps.find((s) => s.id === "cared")!.have], [coins + CARE_COINS + levelPrizes(level.n, v.level.n), 1, [`horse:${first.thing}`], [], 1]); // and the prize of any level it reached
   assert.match(told.splice(0).join(" | "), /^You fed Bramble\. .* was just what it wanted: 12 coins$/);
   assert.equal(journals.buyFood("a", "shop", first.want), "ok");
   journals.talked("a", first.thing, "horse", "Bramble", "", "Neigh.");

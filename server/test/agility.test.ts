@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { Journals, type JournalView } from "../src/journal.ts";
+import { levelPrizes } from "../src/progress.ts";
 import { GuestDirectory } from "../src/people.ts";
 import { AGILITY_REACH_M, agilityCourse, newRace, passed } from "../src/race.ts";
 import { type JournalKeeper, Rooms } from "../src/rooms.ts";
@@ -47,13 +48,13 @@ test("the journal: a round is paid for, and the quickest kept", async () => {
   journals.listen((_key, news) => { if (news.kind === "race") told.push(`${news.title}. ${news.text}`); });
   await journals.joined("a", null, "family");
   assert.deepEqual((journals.view("a") as JournalView).agility, { runs: 0, bestSeconds: null });
-  const coins = (journals.view("a") as JournalView).coins;
+  const { coins, level } = journals.view("a") as JournalView;
   journals.agility("a", 1, 1, 31_400);
   journals.agility("a", 1, 1, 40_000);
   journals.agility("a", 1, 1, 28_000);
   journals.agility("a", 1, 2, 29_000);
   const v = journals.view("a") as JournalView;
-  assert.deepEqual([v.agility, v.coins - coins, v.stamps.find((s) => s.id === "agility")!.have], [{ runs: 4, bestSeconds: 28 }, 12 + 12 + 17 + 20, 4]);
+  assert.deepEqual([v.agility, v.coins - coins, v.stamps.find((s) => s.id === "agility")!.have], [{ runs: 4, bestSeconds: 28 }, 12 + 12 + 17 + 20 + levelPrizes(level.n, v.level.n), 4]); // and the prize of any level the rounds reached
   assert.deepEqual(told.map((t) => t.split(".")[0]), ["A clear round", "A clear round", "Your quickest round yet!", "You and your companion won!"]);
   await journals.close();
 });

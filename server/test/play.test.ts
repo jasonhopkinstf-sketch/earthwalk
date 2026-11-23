@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { Journals, type JournalView } from "../src/journal.ts";
+import { levelPrizes } from "../src/progress.ts";
 import { GuestDirectory } from "../src/people.ts";
 import { beginPlay, FIELD_M, type Follower, HIDE_FOR_MS, joinPlay, leavePlay, newPlay, OUT_MS, outcomes, SAFE_MS, SEEK_FOR_MS, stalePlay, stepHerd, stepPlay, TAG_FOR_MS, type Where } from "../src/play.ts";
 import { Rooms } from "../src/rooms.ts";
@@ -197,7 +198,7 @@ test("in a room: a game of tag from setting up to the coins, with the room told 
     kid.ws.send(JSON.stringify({ t: "journal" }));
     const [a, b] = [(await mum.next("journal")).journal as JournalView, (await kid.next("journal")).journal as JournalView];
     assert.deepEqual([a.stamps.find((s) => s.id === "games")!.have, b.stamps.find((s) => s.id === "games")!.have], [1, 1]);
-    assert.equal(a.coins + b.coins, 30, "ten each for playing and ten for the winner");
+    assert.equal(a.coins + b.coins, 30 + levelPrizes(1, a.level.n) + levelPrizes(1, b.level.n), "ten each for playing and ten for the winner (and the prize of any level reached)");
     assert.equal(gran.inbox.filter((m) => m.t === "stamp" && m.kind === "play").length, 0);
 
     // Hide and seek can be set up while the results are still showing; its maker leaving ends it.

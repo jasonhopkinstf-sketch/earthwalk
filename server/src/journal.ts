@@ -24,6 +24,7 @@ import { TRICK_COINS, trickById, TRICKS, tricksView } from "./tricks.ts";
 import { hungerOf } from "../public/js/care.js";
 import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, HELPINGS, ingredients, LARDER_MAX, menuFor, needName, recipeById, RECIPES, recipesKnown, thanksFood } from "./food.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
+import { countsOf, hintOf, levelPrizes, type LevelView, pointsFrom, type ProgressNews, whyOf } from "./progress.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
 interface Friend { name: string; sp: string; first: number; last: number; times: number }
@@ -100,6 +101,9 @@ export interface JournalDoc {
   /** Agility courses run with a companion, and the quickest in milliseconds. */
   agilityRuns: number;
   agilityBest: number | null;
+  /** Progress (progress.ts): hearts filled on any day, counted from when hearts began to earn points; and the highest level whose prize of coins has been paid. */
+  heartsFilled?: number;
+  paidLevel?: number;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -108,7 +112,8 @@ export interface StampView { id: string; title: string; have: number; steps: num
 export interface JournalView {
   kept: boolean;
   since: number;
-  level: { n: number; title: string; points: number; from: number; next: number };
+  /** The level, with `hint`: the nearest next step to the one after it, in a few words. */
+  level: LevelView;
   totals: { km: number; kmRidden: number; minutes: number; visits: number; countries: number; continents: number; places: number; friends: number };
   countries: { name: string; first: number }[];
   continents: string[];
@@ -323,12 +328,14 @@ const STAMPS: StampRule[] = [
   { id: "south", title: "Far south", unit: "", steps: [1], count: (d) => (d.south !== null && d.south < -40 ? 1 : 0), say: () => "You have been to the far south" },
 ];
 
-/** What a journal adds up to. Countries and new friends count most. */
+/** What a journal adds up to (progress.ts says what each thing is worth). Countries and new friends count most. */
 export function pointsOf(d: JournalDoc): number {
-  return Object.keys(d.countries).length * 10 + Object.keys(d.continents).length * 15 + d.placeCount * 2 + Math.floor(d.metresOnFoot / 1000)
-    + Math.floor(d.metresRidden / 2000) + d.friendCount + Object.keys(d.talked).length * 3 + Object.keys(d.ridden).length * 3 + Object.keys(d.earned).length * 2 + Object.keys(d.solved).length * 6
-    + (d.days ?? 0) * 5 + (d.favoursDone ?? 0) * 4 + (d.huntsDone ?? 0) * 6 + Object.keys(d.expeditionsDone ?? {}).length * 8
-    + (d.races ?? 0) * 3 + (d.racesWon ?? 0) * 4 + (d.games ?? 0) * 3 + (d.gamesWon ?? 0) * 3;
+  return pointsFrom(countsOf(d));
+}
+/** A journal's level, with the nearest next step to the one after it. */
+export function standingOf(d: JournalDoc, now: number): LevelView {
+  const level = levelOf(pointsOf(d));
+  return { ...level, hint: hintOf(d, level, now, RIDDLES.filter((r) => r.level <= level.n && !d.solved[r.id]).length) };
 }
 export function levelOf(points: number): { n: number; title: string; points: number; from: number; next: number } {
   let n = 1;
@@ -428,7 +435,7 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
     house: { pieces: PIECES.map((p) => ({ id: p.id, slot: p.slot, name: p.name, price: p.price ?? null, how: howWon(p), owned: (d.pieces ?? []).includes(p.id), hex: p.hex })) },
     kept: d.personId !== null,
     since: d.since,
-    level: levelOf(pointsOf(d)),
+    level: standingOf(d, now),
     totals: {
       km: +(d.metresOnFoot / 1000).toFixed(1), kmRidden: +(d.metresRidden / 1000).toFixed(1), minutes: Math.round(d.minutes), visits: d.visits,
       countries: Object.keys(d.countries).length, continents: Object.keys(d.continents).length, places: d.placeCount, friends: d.friendCount,
@@ -497,6 +504,7 @@ export class Journals {
   private readonly walkers = new Map<string, Walker>(); // member id -> their journal
   private readonly byPerson = new Map<string, Open>();
   private tell: (key: string, news: StampNews) => void = () => {};
+  private tellProgress: (key: string, news: ProgressNews) => void = () => {};
   private readonly timer: NodeJS.Timeout;
   /** Writes not yet finished, including those of players who have just left. */
   private readonly writing = new Set<Promise<void>>();
@@ -514,6 +522,11 @@ export class Journals {
   /** Who to tell when a player earns something: the rooms, which pass it to that player alone. */
   listen(tell: (key: string, news: StampNews) => void): void {
     this.tell = tell;
+  }
+
+  /** Who to tell when a player's points rise, and where they stand when they come in: the rooms, likewise. */
+  listenProgress(tell: (key: string, news: ProgressNews) => void): void {
+    this.tellProgress = tell;
   }
 
   async close(): Promise<void> {
@@ -559,8 +572,8 @@ export class Journals {
     open.log.push(JSON.stringify({ at: this.now(), k: kind, ...more }));
   }
 
-  /** Stamps and levels reached since the last look, told to the player once each. */
-  private check(key: string, open: Open, levelBefore: number): void {
+  /** Stamps and levels reached since the last look, told to the player once each. Gives back the coins a new level paid. */
+  private check(key: string, open: Open, levelBefore: number): number {
     const d = open.doc;
     for (const s of STAMPS) {
       const have = s.count(d);
@@ -612,11 +625,20 @@ export class Journals {
       });
     }
     const level = levelOf(pointsOf(d));
+    let prize = 0;
     if (level.n > levelBefore) {
-      this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}` });
+      // A new level pays a small prize of coins, once: a level is never paid twice, whatever becomes of the sums.
+      const paid = Math.max(d.paidLevel ?? 0, levelBefore);
+      prize = levelPrizes(paid, level.n);
+      d.paidLevel = Math.max(paid, level.n);
+      d.coins += prize;
+      open.dirty = true;
+      this.note(open, "level", { n: level.n, coins: prize });
+      this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}${prize ? `: ${prize} coins` : ""}` });
       const fresh = RIDDLES.filter((r) => r.level > levelBefore && r.level <= level.n).length;
       if (fresh) this.tell(key, { kind: "riddle", title: fresh === 1 ? "A new riddle" : `${fresh} new riddles`, text: "Open your passport (P) to read them" });
     }
+    return prize;
   }
 
   /**
@@ -745,6 +767,7 @@ export class Journals {
       const ate = (t.ate ??= []);
       const filled = food.groups.filter((g) => !ate.includes(g));
       ate.push(...filled);
+      d.heartsFilled = (d.heartsFilled ?? 0) + filled.length;
       t.eaten = (t.eaten ?? 0) + 1;
       const titles = filled.map((g) => GROUPS.find((x) => x.id === g)!.title.toLowerCase());
       if (ate.length >= GROUPS.length && !t.fed) {
@@ -1003,11 +1026,23 @@ export class Journals {
   }
 
   private change(key: string, w: Walker, edit: (d: JournalDoc) => void): void {
-    const before = levelOf(pointsOf(w.open.doc)).n;
-    edit(w.open.doc);
-    w.open.doc.updated = this.now();
+    const d = w.open.doc;
+    const counts = countsOf(d);
+    const points = pointsFrom(counts);
+    const before = levelOf(points).n;
+    edit(d);
+    d.updated = this.now();
     w.open.dirty = true;
-    this.check(key, w.open, before);
+    const prize = this.check(key, w.open, before);
+    // The bar on the player's screen moves the moment points are earned, and says what earned them.
+    const after = countsOf(d);
+    const gained = pointsFrom(after) - points;
+    if (gained <= 0) return;
+    const level = standingOf(d, this.now());
+    this.tellProgress(key, {
+      level, gained, why: whyOf(d, counts, after, this.now()),
+      ...(level.n > before ? { up: { n: level.n, title: level.title, coins: prize, riddles: RIDDLES.filter((r) => r.level > before && r.level <= level.n).length } } : {}),
+    });
   }
 
   /**
@@ -1034,6 +1069,8 @@ export class Journals {
     const t = todayOf(open.doc, this.now());
     const left = tasksFor(t.day).filter((task) => !t.done[task.id]);
     if (left.length) this.tell(key, { kind: "task", title: left.length === 3 ? "Three tasks for today" : left.length === 1 ? "One task left today" : "Two tasks left today", text: left.map((task) => task.text).join(" · ") });
+    // Where they stand, for the bar that is on screen from the start.
+    this.tellProgress(key, { level: standingOf(open.doc, this.now()), gained: 0, why: null });
   }
 
   /** Someone left: their time is added up and their journal written. */

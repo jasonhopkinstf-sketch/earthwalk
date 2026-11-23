@@ -116,7 +116,7 @@ test("a signed-in person's journal is kept on disk, with a log of everything; a 
 
     assert.deepEqual((await readdir(dir)).sort(), ["abc123.json", "abc123.log"], "one summary and one log, and nothing for the guest");
     const log = (await readFile(path.join(dir, "abc123.log"), "utf8")).trim().split("\n").map((l) => JSON.parse(l) as Msg);
-    assert.deepEqual([...new Set(log.map((l) => l.k))].filter((k) => k !== "task" && k !== "day").sort(), ["at", "go", "join", "leave", "place", "riddle", "stamp", "talk"]);
+    assert.deepEqual([...new Set(log.map((l) => l.k))].filter((k) => k !== "task" && k !== "day").sort(), ["at", "go", "join", "leave", "level", "place", "riddle", "stamp", "talk"]);
     const talk = log.find((l) => l.k === "talk")!;
     assert.deepEqual([talk.sp, talk.thing, talk.name, talk.said, talk.reply], ["cow", 42, "Daisy", "what do you eat?", "Grass, mostly."]);
     assert.ok(log.filter((l) => l.k === "at").length >= 8, "a point of the trail about every hundred metres");

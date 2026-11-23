@@ -650,6 +650,7 @@ Server to client:
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
 | `{"t":"guide","q":"..","text":"..","ai":false,"place":{..},"go":[..],"ask":[..]}` | The guide's answer, to the asker alone. See "The guide". |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
+| `{"t":"progress","level":{"n":3,"title":"Wanderer","points":52,"from":40,"next":90,"hint":"One new country to level 4"},"gained":3,"why":"fed a hungry cow"}` | The player's points rose, just now, or (with `gained` 0) this is where they stand as they come in. Sent to that player alone. See "Progress". |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
 | `{"t":"peers","p":[[id,lat,lon,alt,yaw],...]}` | People who moved since the last update (10 per second). |
@@ -1151,7 +1152,7 @@ The journal object:
 | --- | --- |
 | `kept` | `true` when it is stored (signed in), `false` for a guest |
 | `since` | when it was started, milliseconds since 1970 |
-| `level` | `{ n, title, points, from, next }`: the level, its name, the points so far, and the points at which this level began and the next begins |
+| `level` | `{ n, title, points, from, next, hint }`: the level, its name, the points so far, the points at which this level began and the next begins, and the nearest next step in a few words (see "Progress") |
 | `totals` | `{ km, kmRidden, minutes, visits, countries, continents, places, friends }` |
 | `countries` | `[{ name, first }]` in the order first visited |
 | `continents` | names |
@@ -1165,6 +1166,37 @@ something and as walked otherwise; a step of more than 400 m is a journey by `/g
 A place is the position rounded to two decimals, named by the same lookup as `GET /v1/place`, at
 most one lookup every four seconds a player. Continents come from rough boxes (`continentOf` in
 `server/src/journal.ts`).
+
+### Progress
+
+Every journal adds up to points, and points to a level (`level` in the journal). So that a game can keep
+a bar on screen without asking for the whole journal, the server says so the moment points are earned:
+
+```json
+{"t":"progress","level":{"n":3,"title":"Wanderer","points":52,"from":40,"next":90,"hint":"One new country to level 4"},
+ "gained":3,"why":"fed a hungry cow"}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `level` | The same object as the journal's `level`. The bar is `(points - from) / (next - from)` full. |
+| `level.hint` | The nearest next step to the level after this one, as a sentence to show as it is: "Two new places to level 4", "Three new friends to level 4", "One new country to level 5", "Solve one riddle for level 4", "Fill your last two hearts for level 3". Whatever it names is always enough. |
+| `gained` | The points just earned. 0 in the one sent right after `welcome` (once the journal is open), which only says where the player stands. |
+| `why` | In a few words, lower case, what earned them: "fed a hungry cow", "a new country: France", "met your first hedgehog", "made friends with Daisy", "a new place: Montmartre", "filled a heart", "filled all five hearts", "cooked a meal", "taught a trick", "walked a kilometre", "a new stamp"... When several things rose at once it names the one most worth saying. `null` when `gained` is 0. |
+| `up` | Only when these points reached a new level: `{ n, title, coins, riddles }`, the level, its name, the coins it paid and how many riddles it opened. |
+
+It goes to that player alone, after any `stamp` messages of the same moment (a new level is still told
+as a `stamp` of kind `level`, whose text now names the coins, for games that show no bar). A server that
+keeps no journals sends none.
+
+What earns points (`server/src/progress.ts`): a new country 10, a continent 15, a place 2, a kilometre
+on foot 1, two kilometres ridden 1, a new friend 1, a new kind of friend 3, a new kind of thing ridden
+3, a stamp 2, a riddle 6, a day with all three tasks done 5, a favour 4, a treasure 6, an expedition 8,
+a race 3 and winning one 4 more, a game 3 and winning one 3 more; and for looking after yourself and
+others: a heart filled 1, a day with all five full 5 more, a hungry animal fed 3, a meal cooked 2, a
+trick taught 3, an agility round 2. Level `n` begins at `10 * (n - 1)^2` points. A new level pays
+`10 * n` coins, once, and opens the riddles of that level. Points are only ever added: nothing takes
+them away, and no level locks anybody out of anything but riddles not yet opened.
 
 ### Riding
 
