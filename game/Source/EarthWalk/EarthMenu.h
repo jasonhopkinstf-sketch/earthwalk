@@ -68,6 +68,8 @@ public:
 	/** Puts the question of an action up (null takes it away). */
 	void ShowAsk(const FEarthAction* Action, const TArray<FString>& Choices = TArray<FString>());
 	void ShowStrip(bool bShow);
+	/** The seeker at hide and seek sees nothing while the others hide: the screen is covered, with these words on it. Nothing takes it away. */
+	void ShowBlind(const FString& Text);
 	/**
 	 * The choice once a place is found: there at once (Enter), or flown there to watch (F). Title is the
 	 * place, Sub how far it is, FlyAbout what the flight will be like.
@@ -113,6 +115,9 @@ private:
 	TSharedPtr<SWidget> Strip;
 	TSharedPtr<SBorder> NewsPanel;
 	TSharedPtr<SBorder> ChoicePanel;
+	TSharedPtr<SBorder> BlindPanel;
+	TSharedPtr<STextBlock> BlindText;
+	FSlateRoundedBoxBrush BlindBrush = FSlateRoundedBoxBrush(FLinearColor::White, 0.f);
 	TSharedPtr<SBorder> TalkPanel;
 	TSharedPtr<STextBlock> TalkName;
 	TSharedPtr<STextBlock> TalkWords;

@@ -470,6 +470,25 @@ void UEarthWalkNet::SendGarden(const FString& Verb, const FString& Sp, int32 Ind
 	}
 }
 
+void UEarthWalkNet::SendPlay(const FString& Verb, const FString& Kind)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("play"));
+	if (Verb == TEXT("make"))
+	{
+		Message->SetStringField(TEXT("make"), Kind);
+	}
+	else
+	{
+		Message->SetBoolField(Verb, true); // join, go, stop
+	}
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendTaxi(const FString& Place, bool bAt, double Lat, double Lon)
 {
 	if (!bJoined)
@@ -941,6 +960,56 @@ namespace
 	}
 
 	/** The race of a welcome or a race message; not on when the field is missing or null. */
+	FEarthGame ReadGame(const FJsonObject& Json)
+	{
+		FEarthGame Game;
+		const TSharedPtr<FJsonObject>* Object = nullptr;
+		if (!Json.TryGetObjectField(TEXT("play"), Object) || !(*Object)->TryGetStringField(TEXT("kind"), Game.Kind))
+		{
+			return Game; // none: over and cleared away
+		}
+		Game.bOn = true;
+		(*Object)->TryGetStringField(TEXT("by"), Game.By);
+		(*Object)->TryGetStringField(TEXT("byName"), Game.ByName);
+		(*Object)->TryGetStringField(TEXT("state"), Game.State);
+		(*Object)->TryGetStringField(TEXT("it"), Game.It);
+		(*Object)->TryGetNumberField(TEXT("lat"), Game.Lat);
+		(*Object)->TryGetNumberField(TEXT("lon"), Game.Lon);
+		(*Object)->TryGetNumberField(TEXT("radius"), Game.Radius);
+		(*Object)->TryGetNumberField(TEXT("made"), Game.Made);
+		(*Object)->TryGetNumberField(TEXT("startAt"), Game.StartAt);
+		(*Object)->TryGetNumberField(TEXT("seekAt"), Game.SeekAt);
+		(*Object)->TryGetNumberField(TEXT("endAt"), Game.EndAt);
+		(*Object)->TryGetNumberField(TEXT("since"), Game.Since);
+		double Goal = 0.0;
+		(*Object)->TryGetNumberField(TEXT("goal"), Goal);
+		Game.Goal = FMath::RoundToInt32(Goal);
+		const TArray<TSharedPtr<FJsonValue>>* Penned = nullptr;
+		if ((*Object)->TryGetArrayField(TEXT("penned"), Penned))
+		{
+			Game.Penned = Penned->Num();
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Players = nullptr;
+		if ((*Object)->TryGetArrayField(TEXT("players"), Players))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Players)
+			{
+				const TSharedPtr<FJsonObject>* Row = nullptr;
+				if (Value.IsValid() && Value->TryGetObject(Row))
+				{
+					FEarthPlayer Player;
+					double Found = 0.0;
+					(*Row)->TryGetStringField(TEXT("id"), Player.Id);
+					(*Row)->TryGetStringField(TEXT("name"), Player.Name);
+					(*Row)->TryGetNumberField(TEXT("itMs"), Player.ItMs);
+					Player.bFound = (*Row)->TryGetNumberField(TEXT("found"), Found) && Found > 0.0; // when they were found; none while hidden
+					Game.Players.Add(Player);
+				}
+			}
+		}
+		return Game;
+	}
+
 	FEarthRace ReadRace(const FJsonObject& Json)
 	{
 		FEarthRace Race;
@@ -1111,6 +1180,12 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		// The race in this room, whole, each time anything about it changes; none when it is over and cleared away.
 		Race = ReadRace(*Json);
 		OnRace.Broadcast();
+	}
+	else if (Type == TEXT("play"))
+	{
+		// The game of tag, of hide and seek or the round-up in this room, whole, each time anything about it changes.
+		Game = ReadGame(*Json);
+		OnPlay.Broadcast();
 	}
 	else if (Type == TEXT("pet"))
 	{
@@ -1501,6 +1576,8 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		}
 		Race = ReadRace(*Json);
 		OnRace.Broadcast();
+		Game = ReadGame(*Json);
+		OnPlay.Broadcast();
 		Cars.Reset();
 		if (Json->TryGetArrayField(TEXT("cars"), Rows))
 		{

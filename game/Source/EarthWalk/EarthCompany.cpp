@@ -771,6 +771,44 @@ bool UEarthCompany::KeyTalk()
 	return true;
 }
 
+bool UEarthCompany::LeadNearest()
+{
+	// The nearest animal within reach: not whatever is nearest of all, which is as often a tree or a parked car
+	// (things that talk but cannot be led anywhere).
+	static const TSet<FString> Rooted = { TEXT("tree"), TEXT("house"), TEXT("car"), TEXT("taxi"), TEXT("tractor"), TEXT("train"), TEXT("railcar"), TEXT("boat"), TEXT("sailboat") };
+	UEarthWalkNet* Room = Net.Get();
+	const AEarthLife* Life = World.IsValid() ? World->GetLife() : nullptr;
+	double Px = 0.0, Pz = 0.0;
+	if (!Room || !Life || !PlayerAt(Px, Pz))
+	{
+		return false;
+	}
+	const FEarthThing* Best = nullptr;
+	double BestD = TNumericLimits<double>::Max();
+	const TArray<FEarthThing>* const Lists[] = { &Life->GetNearby(), &Life->GetRideable() };
+	for (const TArray<FEarthThing>* List : Lists)
+	{
+		for (const FEarthThing& Candidate : *List)
+		{
+			const FCalled* Row = CalledRow(Candidate.Sp);
+			const double D = std::hypot(Candidate.X - Px, Candidate.Z - Pz);
+			if (Row && !Rooted.Contains(Candidate.Sp) && D < Row->Reach && D < BestD)
+			{
+				BestD = D;
+				Best = &Candidate;
+			}
+		}
+	}
+	if (!Best)
+	{
+		return false;
+	}
+	double Lat = 0.0, Lon = 0.0, Alt = 0.0;
+	World->WorldToGeo(SceneToEngine(Best->X, 0.0, Best->Z), Lat, Lon, Alt);
+	Room->SendTalk(Best->Thing, Best->Sp, TEXT("follow me"), true, Lat, Lon);
+	return true;
+}
+
 bool UEarthCompany::TalkingIndoors() const
 {
 	const AEarthInside* Indoors = World.IsValid() ? World->GetInside() : nullptr;

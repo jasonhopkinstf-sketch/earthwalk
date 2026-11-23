@@ -61,6 +61,8 @@ public:
 
 	/** The T key: say hello to whatever is nearest. True if there was something to talk to. */
 	bool KeyTalk();
+	/** A round-up: whatever animal is beside me is told "follow me", with no conversation. False when nothing that can be led is near. */
+	bool LeadNearest();
 	/** Something typed while talking to a thing goes to it. */
 	void Say(const FString& Text);
 	void StopTalking();

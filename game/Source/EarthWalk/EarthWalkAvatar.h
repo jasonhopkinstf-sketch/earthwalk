@@ -33,6 +33,9 @@ public:
 	/** Riding something: the figure sits. */
 	void SetSeated(bool bInSeated) { bSeated = bInSeated; }
 
+	/** The name over their head: shown, but for somebody hiding from me at hide and seek. */
+	void SetNameShown(bool bShown);
+
 	/** Scale applied to the 1.4 m browser figure so it matches the player's capsule. */
 	static constexpr double FigureScale = 1.2;
 

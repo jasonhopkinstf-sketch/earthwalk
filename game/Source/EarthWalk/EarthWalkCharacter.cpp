@@ -844,7 +844,7 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	}
 	const bool bShift = Down(EKeys::LeftShift) || Down(EKeys::RightShift);
 	bRunningNow = bShift || bRunToggled;
-	Movement->MaxWalkSpeed = (bRunningNow ? RunSpeed : WalkSpeed) * (bPep ? 1.12f : 1.f); // full of beans
+	Movement->MaxWalkSpeed = (bRunningNow ? RunSpeed : WalkSpeed) * (bPep ? 1.12f : 1.f) * PlayBoost; // full of beans; and "it" at tag
 	Movement->MaxFlySpeed = bRunningNow ? FastFlySpeed : FlySpeed;
 
 	const float Forward = (Down(EKeys::W) || bAutoWalk ? 1.f : 0.f) - (Down(EKeys::S) ? 1.f : 0.f);

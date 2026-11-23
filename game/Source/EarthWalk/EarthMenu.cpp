@@ -50,6 +50,10 @@ namespace
 		{ TEXT("clue"), TEXT("Play"), TEXT("Hear the clue again"), TEXT("The clue of the treasure hunt you are on."), TEXT(""), TEXT("clue"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("tricks"), TEXT("Play"), TEXT("My companion's tricks"), TEXT("Teach the companion at your side its next trick, and have it do the ones it knows."), TEXT("K"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("agility"), TEXT("Play"), TEXT("An agility course"), TEXT("Nine obstacles in a ring before you, for you and your companion. R starts it."), TEXT(""), TEXT("agility"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("tag"), TEXT("Play"), TEXT("A game of tag"), TEXT("Sets one up where you stand. Friends press R to join, and you press R to start. It takes two."), TEXT(""), TEXT("tag"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("hide"), TEXT("Play"), TEXT("Hide and seek"), TEXT("Sets one up where you stand, the same way as tag."), TEXT(""), TEXT("hide"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("herd"), TEXT("Play"), TEXT("A round-up"), TEXT("A pen appears where you stand. T beside an animal has it follow you: walk it into the pen."), TEXT(""), TEXT("herd"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("playstop"), TEXT("Play"), TEXT("Leave the game"), TEXT("Leaves the tag, the hide and seek or the round-up, or ends your own."), TEXT(""), TEXT("tag stop"), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("animal"), TEXT("Me"), TEXT("Change my animal..."), TEXT("Fox, bear, rabbit, cat, owl or frog."), TEXT(""), TEXT("animal"), TEXT("Which animal? Fox, bear, rabbit, cat, owl or frog"), TEXT("bear"), TEXT("") },
 		{ TEXT("name"), TEXT("Me"), TEXT("Change my name..."), TEXT("What other people see over your head."), TEXT(""), TEXT("name"), TEXT("What should people call you?"), TEXT("your name"), TEXT("") },
@@ -330,6 +334,19 @@ void SEarthMenu::Construct(const FArguments&, AEarthWalkHUD* InOwner)
 				]
 			]
 		]
+		// The seeker's blindfold at hide and seek: over the whole screen.
+		+ SOverlay::Slot().HAlign(HAlign_Fill).VAlign(VAlign_Fill)
+		[
+			SAssignNew(BlindPanel, SBorder)
+			.BorderImage(&BlindBrush)
+			.BorderBackgroundColor(FLinearColor(FColor(14, 18, 28, 255)))
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			.Visibility(EVisibility::Collapsed)
+			[
+				SAssignNew(BlindText, STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Bold", 30)).ColorAndOpacity(FLinearColor::White)
+			]
+		]
 		// The choice once a place is found: there at once, or flown there to watch.
 		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, 170.f, 0.f, 0.f)
 		[
@@ -488,6 +505,12 @@ void SEarthMenu::ShowChoice(bool bShow, const FString& Title, const FString& Sub
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)[Option(1, TEXT("F"), TEXT("Fly there and watch"), FlyAbout)]
 			+ SVerticalBox::Slot().AutoHeight()[Line(TEXT("Click one, or press its yellow key. Esc to change your mind."), TEXT("Regular"), 11, DimColor)]
 		]);
+}
+
+void SEarthMenu::ShowBlind(const FString& Text)
+{
+	BlindPanel->SetVisibility(Text.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible);
+	BlindText->SetText(FText::FromString(Text));
 }
 
 void SEarthMenu::ShowStrip(bool bShow)

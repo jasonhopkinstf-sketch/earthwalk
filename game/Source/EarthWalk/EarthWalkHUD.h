@@ -11,6 +11,7 @@ class UEarthLunch;
 class UEarthFlight;
 class UEarthHome;
 class UEarthCare;
+class UEarthPlay;
 class SEarthWalkOverlay;
 class UEarthCompany;
 
@@ -83,6 +84,8 @@ public:
 	void CloseNews();
 	/** Esc on the bubble's line: the conversation is over. */
 	void EndTalk() { CloseTalk(true); }
+	/** Covers the screen with these words (the seeker at hide and seek, while the others hide); nothing takes it away. */
+	void SetBlind(const FString& Text);
 	/** The choice once a place is found was made: 0 go there now, 1 be flown there and watch; anything else is a change of mind. */
 	void ChoiceDone(int32 Which);
 	/** Asks the guide something in plain words (Q, the menu, "/guide ..."): the answer comes in the bubble at the foot of the screen. */
@@ -132,6 +135,9 @@ private:
 	/** Food and hearts: the five hearts in the corner and the lunch box (EarthLunch.h). B opens and closes it. */
 	UPROPERTY()
 	TObjectPtr<UEarthLunch> Lunch;
+	/** Tag, hide and seek, and the round-up (EarthPlay.h). */
+	UPROPERTY()
+	TObjectPtr<UEarthPlay> Play;
 	/** Being flown to a place and watching (EarthFlight.h). */
 	UPROPERTY()
 	TObjectPtr<UEarthFlight> Flight;

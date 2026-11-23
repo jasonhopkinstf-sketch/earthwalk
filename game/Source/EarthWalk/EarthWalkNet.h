@@ -140,6 +140,37 @@ struct FEarthRace
 	TArray<FString> Obstacles; // an agility course: what stands at each gate (start, jump, hoop, weave, tunnel, table, finish)
 };
 
+/** Somebody in a game of tag, of hide and seek, or in a round-up. */
+struct FEarthPlayer
+{
+	FString Id;
+	FString Name;
+	double ItMs = 0.0;   // tag: how long they have been it; a round-up: how many animals they have brought in
+	bool bFound = false; // hide and seek
+};
+
+/** The game of tag, of hide and seek, or the round-up in this room, if any (docs/PROTOCOL.md, "Tag, and hide and seek"). */
+struct FEarthGame
+{
+	bool bOn = false;
+	FString Kind;  // tag, hide, herd
+	FString By;    // the member who set it up
+	FString ByName;
+	FString State; // open, go, over
+	FString It;    // who is it, or seeking
+	double Lat = 0.0; // the middle of the field, or of the pen
+	double Lon = 0.0;
+	double Radius = 0.0;
+	double Made = 0.0;    // times on the server's clock, in milliseconds
+	double StartAt = 0.0;
+	double SeekAt = 0.0;
+	double EndAt = 0.0;
+	double Since = 0.0;   // tag: since when the one who is it has been
+	int32 Goal = 0;       // a round-up: how many animals are wanted
+	int32 Penned = 0;     // and how many are in
+	TArray<FEarthPlayer> Players;
+};
+
 /** A house somebody lives in (docs/PROTOCOL.md, "A house of your own"): which, where its front door is, whose, and how often it has been changed. */
 struct FEarthLived
 {
@@ -233,6 +264,7 @@ DECLARE_MULTICAST_DELEGATE(FOnEarthRideFail);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthSay, const FEarthSay& /*Said*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthOrder, const FEarthOrder& /*Order*/);
 DECLARE_MULTICAST_DELEGATE(FOnEarthRace);
+DECLARE_MULTICAST_DELEGATE(FOnEarthPlay);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthHat, const FString& /*MemberId*/, const FString& /*Hat, or empty*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*Lon*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
@@ -333,6 +365,9 @@ public:
 	/** The garden of my house: "adopt" a young animal (Sp), or "feed", "gather" from or "release" the one at a place (Index). */
 	void SendGarden(const FString& Verb, const FString& Sp, int32 Index = 0);
 	const FEarthRace& GetRace() const { return Race; }
+	/** Tag, hide and seek, the round-up: "make" one (Kind: tag, hide or herd) where I stand, "join" the one set up, "go" to start mine, "stop" to leave. */
+	void SendPlay(const FString& Verb, const FString& Kind = FString());
+	const FEarthGame& GetGame() const { return Game; }
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. With bAt the place's position is known already (from the guide), and the name is not looked up again. */
 	void SendTaxi(const FString& Place, bool bAt = false, double Lat = 0.0, double Lon = 0.0);
 	/** Asks the guide something in plain words; the answer comes through OnGuide. */
@@ -394,6 +429,8 @@ public:
 	FOnEarthHat OnHat;
 	/** The room's race has changed in some way: set up, joined, begun, a gate passed, over, cleared away. */
 	FOnEarthRace OnRace;
+	/** The room's game of tag, hide and seek or its round-up has changed in some way, or is over and cleared away. */
+	FOnEarthPlay OnPlay;
 	/** A treasure was found by me, at this place: a chest is shown there. */
 	FOnEarthTreasure OnTreasure;
 	FOnEarthJournal OnJournal;
@@ -435,6 +472,7 @@ private:
 	TSharedPtr<class FJsonObject> MyHouse;
 	void ReadLived(const TSharedPtr<class FJsonObject>& Row);
 	FEarthRace Race;
+	FEarthGame Game;
 	FEarthHome Home;
 	FString MyId;
 	FString MyName;

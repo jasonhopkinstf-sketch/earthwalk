@@ -6,6 +6,7 @@
 #include "EarthFlight.h"
 #include "EarthHome.h"
 #include "EarthCare.h"
+#include "EarthPlay.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -130,7 +131,7 @@ namespace
 	{
 		return Kind == TEXT("country") ? TEXT("New country") : Kind == TEXT("level") ? TEXT("Level up") : Kind == TEXT("riddle") ? TEXT("Riddles")
 			: Kind == TEXT("task") ? TEXT("Today") : Kind == TEXT("prize") ? TEXT("A prize") : Kind == TEXT("favour") ? TEXT("A favour")
-			: Kind == TEXT("hunt") ? TEXT("Treasure hunt") : Kind == TEXT("expedition") ? TEXT("Expedition") : Kind == TEXT("race") ? TEXT("Race") : TEXT("New stamp");
+			: Kind == TEXT("hunt") ? TEXT("Treasure hunt") : Kind == TEXT("expedition") ? TEXT("Expedition") : Kind == TEXT("race") ? TEXT("Race") : Kind == TEXT("play") ? TEXT("A game") : TEXT("New stamp");
 	}
 	/** The objects in a list inside a JSON object; none when the field is missing or null. */
 	TArray<TSharedPtr<FJsonObject>> JsonRows(const TSharedPtr<FJsonObject>& Json, const TCHAR* Field)
@@ -1354,6 +1355,8 @@ void AEarthWalkHUD::BeginPlay()
 		House->Setup(this);
 		Care = NewObject<UEarthCare>(this);
 		Care->Setup(this);
+		Play = NewObject<UEarthPlay>(this);
+		Play->Setup(this);
 		// In a house of one's own, or by its door, the lunch box is a kitchen too.
 		Lunch->SetKitchen([this]() { return House && House->AtHome(); });
 	}
@@ -1503,6 +1506,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (Care)
 	{
 		Care->Shutdown();
+		if (Play)
+		{
+			Play->Shutdown();
+			Play = nullptr;
+		}
 		Care = nullptr;
 	}
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
@@ -1554,6 +1562,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	if (Care)
 	{
 		Care->Frame(DeltaSeconds);
+		if (Play)
+		{
+			Play->Frame(DeltaSeconds);
+		}
 	}
 
 	APlayerController* PC = GetOwningPlayerController();
@@ -1860,14 +1872,21 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::T))
 		{
-			if (Friends->KeyTalk())
+			if (Play && Play->Lead())
+			{
+				// In the middle of a round-up T has the animal follow, with no stopping to chat.
+			}
+			else if (Friends->KeyTalk())
 			{
 				OpenTalk(); // it says hello in its bubble, and there is a line there to answer on
 			}
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::R))
 		{
-			Friends->KeyRace(); // set a race up, join one, or (if it is mine) start it
+			if (!(Play && Play->Key())) // a game of tag, hide and seek or a round-up comes first: join it, or start mine
+			{
+				Friends->KeyRace(); // set a race up, join one, or (if it is mine) start it
+			}
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::G))
 		{
@@ -1927,7 +1946,9 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		}
 		Overlay->SetHint(Hints);
 	}
-	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
+	// (A room has a race or a game, never both: whichever there is has the panel and the countdown.)
+	const bool bGame = Play && Play->IsOn();
+	Overlay->SetRace(bGame ? Play->GetPanel() : Friends->GetRacePanel(), bGame ? Play->GetCount() : Friends->GetRaceCount());
 	// What things have said, each above the thing that said it; but not above the one being talked to,
 	// whose words are in the conversation bubble at the foot of the screen already.
 	if (bTalkOpen)
@@ -2679,6 +2700,14 @@ void AEarthWalkHUD::AskDone(const FString& Typed)
 	}
 }
 
+void AEarthWalkHUD::SetBlind(const FString& Text)
+{
+	if (Menu.IsValid())
+	{
+		Menu->ShowBlind(Text);
+	}
+}
+
 void AEarthWalkHUD::GoChoose(const FString& Query)
 {
 	LookUpPlace(Query, [this](const FString& Name, double Lat, double Lon)
@@ -3225,6 +3254,33 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			AddLine(TEXT("Your companion does not know that one yet. K shows what it knows and what it could learn next."), NoticeColor);
 		}
 	}
+	else if (Command == TEXT("tag") || Command == TEXT("hide") || Command == TEXT("herd"))
+	{
+		// "/tag", "/hide", "/herd" set one up where I stand; "/tag stop" leaves whichever is on.
+		if (Play)
+		{
+			if (Argument.ToLower() == TEXT("stop"))
+			{
+				Play->Stop();
+			}
+			else
+			{
+				Play->Make(Command);
+			}
+		}
+	}
+	else if (Command == TEXT("play"))
+	{
+		// For tests: "/play go" is the R key of a game (join, or start mine), "/play lead" the T key of a round-up.
+		if (Play && Argument == TEXT("lead"))
+		{
+			Play->Lead();
+		}
+		else if (Play)
+		{
+			Play->Key();
+		}
+	}
 	else if (Command == TEXT("agility"))
 	{
 		if (Care)
@@ -3320,6 +3376,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
 		AddLine(TEXT("C   your car comes to you (not while flying, when C is down)        X   a taxi: it asks where to, comes to you, and drives you there"), NoticeColor);
 		AddLine(TEXT("Q   ask the guide in plain words: where am I, what is near here, how do I get to the beach? Or type /guide and your question."), NoticeColor);
+		AddLine(TEXT("/tag   /hide   /herd   set up a game of tag, hide and seek, or a round-up where you stand. R joins, and starts yours. /tag stop leaves."), NoticeColor);
 		AddLine(TEXT("/flyto <place>   be flown there and watch the world go by: over the rooftops across a town, and for further up through the haze and down again."), NoticeColor);
 		AddLine(TEXT("K   tricks: what your companion knows (a click has it do one), a lesson in the next, and an agility course to set up."), NoticeColor);
 		AddLine(TEXT("H   the home key: inside a house nobody lives in, make it yours; inside your own, furnish it; anywhere else, go home."), NoticeColor);

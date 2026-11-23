@@ -34,6 +34,14 @@ void AEarthWalkAvatar::BeginPlay()
 	}
 }
 
+void AEarthWalkAvatar::SetNameShown(bool bShown)
+{
+	if (Label)
+	{
+		Label->SetVisibility(bShown);
+	}
+}
+
 void AEarthWalkAvatar::SetDisplayName(const FString& Name)
 {
 	Label->SetText(FText::FromString(Name));

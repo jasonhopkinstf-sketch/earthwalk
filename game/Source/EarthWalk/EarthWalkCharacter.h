@@ -56,6 +56,8 @@ public:
 	void RefreshFigure();
 	/** All five hearts are full today: a little quicker on foot (the server's `pep`; docs/PROTOCOL.md, "Food and hearts"). */
 	void SetPep(bool bOn) { bPep = bOn; }
+	/** Whoever is "it" at tag is a fifth quicker on foot, or nobody would ever be caught (EarthPlay.h). 1 for the usual pace. */
+	void SetPlayBoost(float Times) { PlayBoost = Times; }
 
 	/** While true (chat box open), movement and look keys are ignored. */
 	bool bTyping = false;
@@ -158,6 +160,7 @@ private:
 	bool bDriveFriction = false;
 	bool bCarried = false;
 	bool bFlown = false;
+	float PlayBoost = 1.f;
 	bool bSteering = false;
 	bool bPep = false;
 	bool bAutopilot = false;
