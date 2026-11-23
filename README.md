@@ -98,11 +98,15 @@ Controls (Unreal):
 | `W A S D` | Move |
 | Left-drag the mouse, or `Left`/`Right` arrows | Look around (`Up`/`Down` tilt). The pointer stays free when you are not dragging, so a trackpad works |
 | `2` / `1` | Run / walk (or hold `Shift` to run) |
-| `V` | Camera view: first person, over the shoulder, far behind. Mouse wheel moves it closer or further |
+| `V` | On foot (Windows): the camera view: first person, over the shoulder, far behind. Riding or being carried (both games): your seat, from above, from high up. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
+| `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
+| `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `M` | Windows: the little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, and the road to where you are being taken |
+| `T` | Talk to what is nearest. In the Windows game the conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; Esc finishes. Nothing a thing says goes in the chat window |
 | `Esc`, `Esc` | Leave the game (Windows; it fills the screen, so there is no window to close). `/quit` does the same |
 | `P` | Your passport (`/passport` does the same) |
 | `G` | Show me: a list of things to show somebody; pick one and you are taken straight to it (`/show` does the same) |
@@ -321,7 +325,7 @@ wall or within a step of a doorway, so nobody can be shut in. Ten things can be 
 there are five more to buy: a potted palm, a standing lamp, a beanbag, a toy box and a bookcase
 (`spotIn`, `turnedIn` and `standing` in `server/src/interior.ts`; `placed` in a house's `decor`).
 
-The view from above (in the browser so far): riding anything, or being carried by a train, a taxi or a
+The view from above (both games; `HoverTick` in `EarthWalkCharacter.cpp` is the Windows one, and `-EWRideView=1` or `2` goes to it by itself once the player is on something): riding anything, or being carried by a train, a taxi or a
 friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
 rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken
 along, it follows the way the ride is going and circles slowly until the mouse is touched; steering, it
@@ -339,9 +343,19 @@ passing train to hop on, and E again to hop off. You steer what you ride; a frie
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
+What's new: the release notes, in plain words, are `NEWS` in `server/src/news.ts`, newest first;
+a release adds an entry at the top (a test fails when the version in `package.json` has none). The
+Windows game asks for the ones since the version its player last read (`NewsSeen` in its settings)
+a few seconds after arriving and shows them on a card; "What's new" in the Tab menu shows the newest
+three again. docs/PROTOCOL.md, "What is new". The browser game does not show them yet.
+
 Taxis: `/taxi the beach` calls one. A yellow cab comes along the road from a
 few streets away and waits; hop on with E and it drives you there, by road when the place is close
-and in one jump when it is not, saying odd and thoughtful things as it goes. Friends can share it.
+and in one jump when it is not, saying odd and thoughtful things as it goes: first a little story in
+four parts about somebody it once drove, then remarks. Friends can share it.
+It waits on the nearest proper street, not up a driveway (the little map shows where), and a car
+being driven somewhere that meets something in its way is set down ten metres farther along its
+road (Windows; `-EWTripLog` writes the trip to the log each second, `-EWTripHop` holds it up once).
 `server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
 
 Fifty-four kinds of animal now live in the world (`server/src/life.ts` places them,
@@ -570,7 +584,8 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
-is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMapTripShotAt=<seconds>` moves that picture. `-EWNewsSeen=<version>` shows the "What's new" card as if those were the last notes read (9.9.9 for no card). `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
+table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_underscores>` then answers that box as if typed. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
 (`look_flat`, `quit`). Cars, vans and taxis are ready-made
 models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
 `EarthModels.gen.inl` and `server/public/js/models.gen.js` by `node game/Tools/gen-models.mjs`),

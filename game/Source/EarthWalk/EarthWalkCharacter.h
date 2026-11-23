@@ -85,6 +85,13 @@ public:
 	void ClearAutopilot() { bAutopilot = false; }
 	/** True while the player holds W, A, S or D. */
 	bool IsSteering() const { return bSteering; }
+	/**
+	 * The V key while riding or being carried (the view from above of server/public/js/player.js): from
+	 * the seat to a camera hovering above and behind, then to one high up over the rooftops, then back.
+	 * Returns the name of the view now in use ("from above"), or nothing when the player is on foot.
+	 */
+	FString NextRideView();
+	int32 GetRideView() const { return RideView; }
 	/** Where the soles of the player's feet are. */
 	FVector FeetLocation() const;
 	/** Puts the player's feet at a place, at once. */
@@ -100,6 +107,23 @@ private:
 	void DriveTick(float DeltaSeconds, APlayerController* PC, float Throttle, float Steer, bool bHandbrake, bool bAuto);
 	void ApplyDriveView();
 	void SetDriveFriction(bool bDriving);
+	void SetRideView(int32 NewView);
+	void HoverTick(float DeltaSeconds, APlayerController* PC);
+	/** True while something else is taking the player along: a train, a friend, or a mount finding its own way. */
+	bool IsTaken() const { return bCarried || (Mount && bAutopilot && !bSteering); }
+
+	// The view from above: which (0 the seat, 1 from above, 2 from high up), nearer or further by the wheel,
+	// how far round from behind the camera has been swung and how much lower or higher than usual (degrees),
+	// the way the ride has been going, and the tilt in use now (steeper where a building is in the way).
+	int32 RideView = 0;
+	double RideZoom = 1.0;
+	double RideOrbit = 0.0;
+	double RideLift = 0.0;
+	double RideCourse = 0.0;
+	double RideTiltNow = 0.0;
+	bool bRideDrift = false; // circling slowly by itself, until the mouse says where to look
+	bool bRideViewTested = false;
+	FVector RideWas = FVector::ZeroVector;
 
 	UPROPERTY()
 	TObjectPtr<USpringArmComponent> Boom;

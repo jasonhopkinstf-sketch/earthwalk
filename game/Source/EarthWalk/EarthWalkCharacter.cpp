@@ -148,6 +148,127 @@ void AEarthWalkCharacter::ApplyView()
 	}
 }
 
+namespace
+{
+	/** The views while riding: how far off the camera hovers, in metres, and how steeply it looks down, in degrees. As VIEWS in player.js. */
+	const struct FRideView { double FarM; double TiltDeg; const TCHAR* Name; } RideViews[] = {
+		{ 0.0, 0.0, TEXT("your seat") },
+		{ 17.0, 28.6, TEXT("from above") },
+		{ 62.0, 48.7, TEXT("from high up") },
+	};
+	/** Being carried, the hovering camera circles slowly until the mouse says where to look: degrees a second. */
+	constexpr double RideDriftDeg = 5.2;
+}
+
+FString AEarthWalkCharacter::NextRideView()
+{
+	if (!Mount && !bCarried)
+	{
+		return FString();
+	}
+	SetRideView((RideView + 1) % UE_ARRAY_COUNT(RideViews));
+	return RideViews[RideView].Name;
+}
+
+void AEarthWalkCharacter::SetRideView(int32 NewView)
+{
+	RideView = FMath::Clamp(NewView, 0, static_cast<int32>(UE_ARRAY_COUNT(RideViews)) - 1);
+	RideZoom = 1.0;
+	RideOrbit = 0.0;
+	RideLift = 0.0;
+	RideTiltNow = 0.0;
+	bRideDrift = RideView > 0;
+	RideWas = GetActorLocation();
+	RideCourse = FacingYaw();
+	const bool bHover = RideView > 0;
+	// Hovering, the arm is pointed by HoverTick, whichever way the player or the car is facing.
+	Boom->bUsePawnControlRotation = !bHover;
+	Boom->SetUsingAbsoluteRotation(bHover);
+	if (bHover)
+	{
+		Boom->bDoCollisionTest = false; // HoverTick looks from steeper instead, over the rooftops
+		Boom->bEnableCameraLag = false;
+		Boom->SocketOffset = FVector::ZeroVector;
+		Boom->TargetOffset = FVector(0, 0, 60);
+		Figure->SetVisibility(true, true);
+	}
+	else
+	{
+		Boom->SetRelativeRotation(FRotator::ZeroRotator);
+		if (IsDriving())
+		{
+			ApplyDriveView();
+		}
+		else
+		{
+			ApplyView();
+		}
+	}
+}
+
+/**
+ * The camera hovering over the ride, looking down at it. Steering, it stays behind; taken along, it
+ * follows the way the ride is going, circles slowly by itself, and goes where the mouse swings it.
+ */
+void AEarthWalkCharacter::HoverTick(float DeltaSeconds, APlayerController* PC)
+{
+	if (!Mount && !bCarried)
+	{
+		SetRideView(0); // on foot again
+		return;
+	}
+	// Which way the ride is going, from where it was a frame ago.
+	const FVector Here = GetActorLocation();
+	const FVector Step = Here - RideWas;
+	RideWas = Here;
+	const double Moved = Step.Size2D();
+	if (DeltaSeconds > 0.f && Moved < 5000.0 && Moved / DeltaSeconds > 100.0)
+	{
+		const double Going = FMath::RadiansToDegrees(FMath::Atan2(Step.Y, Step.X));
+		RideCourse += FMath::FindDeltaAngleDegrees(RideCourse, Going) * (1.0 - FMath::Exp(-2.5 * DeltaSeconds));
+	}
+	if (IsTaken())
+	{
+		if (bRideDrift)
+		{
+			RideOrbit += RideDriftDeg * DeltaSeconds;
+		}
+	}
+	else
+	{
+		// At the reins again: the camera comes back round behind.
+		RideOrbit = FRotator::NormalizeAxis(RideOrbit) * FMath::Exp(-4.0 * DeltaSeconds);
+	}
+	// A train or a friend carries the player whichever way they look; anything else goes the way the player (or its own autopilot) is turned.
+	const double Yaw = (bCarried ? RideCourse : PC->GetControlRotation().Yaw) + RideOrbit;
+	const double Far = RideViews[RideView].FarM * 100.0 * RideZoom;
+	const double WantTilt = FMath::Clamp(RideViews[RideView].TiltDeg + RideLift, 7.0, 83.0);
+
+	// Over the rooftops, not behind them: where a building is in the way, look from steeper; under a roof, come in close.
+	const FVector Eye = Boom->GetComponentLocation() + Boom->TargetOffset;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(EarthWalkHover), false, this);
+	double Tilt = WantTilt;
+	double Arm = Far;
+	for (;;)
+	{
+		FHitResult Hit;
+		const FVector Back = -FRotator(-Tilt, Yaw, 0.0).Vector();
+		if (!GetWorld()->LineTraceSingleByChannel(Hit, Eye, Eye + Back * (Far + 50.0), ECC_Camera, Params))
+		{
+			break;
+		}
+		if (Tilt >= 86.0)
+		{
+			Arm = FMath::Max(Far * 0.1, static_cast<double>(Hit.Distance) - 50.0);
+			break;
+		}
+		Tilt = FMath::Min(86.0, Tilt + 11.5);
+	}
+	RideTiltNow = RideTiltNow <= 0.0 ? Tilt : FMath::FInterpTo(RideTiltNow, Tilt, DeltaSeconds, 5.0);
+	Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, static_cast<float>(Arm), DeltaSeconds, 6.f);
+	Boom->SetWorldRotation(FRotator(-RideTiltNow, Yaw, 0.0));
+}
+
 FVector AEarthWalkCharacter::FeetLocation() const
 {
 	return GetActorLocation() - FVector(0.0, 0.0, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
@@ -209,6 +330,10 @@ void AEarthWalkCharacter::ApplySeat()
 
 void AEarthWalkCharacter::SetMount(const FEarthMount* InMount)
 {
+	if (RideView != 0 && InMount != Mount)
+	{
+		SetRideView(0); // on or off something else: back to the seat's own view first
+	}
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (IsDriving() && PC)
 	{
@@ -257,6 +382,10 @@ void AEarthWalkCharacter::SetCarried(bool bInCarried)
 	if (bCarried == bInCarried)
 	{
 		return;
+	}
+	if (RideView != 0 && !bInCarried && !Mount)
+	{
+		SetRideView(0);
 	}
 	bCarried = bInCarried;
 	if (bCarried)
@@ -401,7 +530,10 @@ void AEarthWalkCharacter::DriveTick(float DeltaSeconds, APlayerController* PC, f
 		PC->SetControlRotation(Look);
 	}
 	SetActorRotation(FRotator(0.0, FMath::RadiansToDegrees(Car.Heading), 0.0));
-	Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, static_cast<float>((6.8 + FMath::Abs(Car.Speed) * 0.07) * 100.0), DeltaSeconds, 6.f);
+	if (RideView == 0)
+	{
+		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, static_cast<float>((6.8 + FMath::Abs(Car.Speed) * 0.07) * 100.0), DeltaSeconds, 6.f);
+	}
 	bRunningNow = false;
 	StopJumping();
 }
@@ -521,6 +653,25 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		const float Tilt = (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Down) ? 1.f : 0.f);
 		Look.Yaw += Turn * TurnDegreesPerSecond * DeltaSeconds;
 		Pitch += Tilt * TiltDegreesPerSecond * DeltaSeconds;
+		if (RideView > 0)
+		{
+			// From above, looking up and down lowers and raises the hovering camera; and while something
+			// else is doing the steering, looking round swings the camera round the ride.
+			const FRotator Was = PC->GetControlRotation();
+			const double WasPitch = FRotator::NormalizeAxis(Was.Pitch);
+			RideLift = FMath::Clamp(RideLift - (Pitch - WasPitch) * 0.7, -30.0, 45.0);
+			Pitch = WasPitch;
+			if (IsTaken())
+			{
+				const double Round = FMath::FindDeltaAngleDegrees(Was.Yaw, Look.Yaw);
+				if (Round != 0.0)
+				{
+					RideOrbit += Round;
+					bRideDrift = false;
+				}
+				Look.Yaw = Was.Yaw;
+			}
+		}
 		if (IsDriving())
 		{
 			// At the wheel the mouse and the arrow keys look round the car; the car goes where it is steered.
@@ -537,11 +688,32 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		Look.Roll = 0.0;
 		PC->SetControlRotation(Look);
 
-		if (PC->WasInputKeyJustPressed(EKeys::V) && !IsDriving())
+		if (PC->WasInputKeyJustPressed(EKeys::V) && (Mount || bCarried))
+		{
+			// Riding or being carried: the seat, the view from above, the view from high up.
+			const FString Name = NextRideView();
+			if (const UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+			{
+				Room->OnNotice.Broadcast(RideView == 0 ? FString(TEXT("Back in your seat."))
+					: FString::Printf(TEXT("Looking %s. Hold the mouse button and move it to swing the camera, the wheel brings it nearer or further, and V moves on."), *Name));
+			}
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::V))
 		{
 			CycleView();
 		}
-		if (bThirdPerson && !IsDriving())
+		if (RideView > 0)
+		{
+			if (PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))
+			{
+				RideZoom = FMath::Clamp(RideZoom / ZoomStep, 0.4, 2.5);
+			}
+			if (PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))
+			{
+				RideZoom = FMath::Clamp(RideZoom * ZoomStep, 0.4, 2.5);
+			}
+		}
+		else if (bThirdPerson && !IsDriving())
 		{
 			const float MinArm = View == EEarthView::Shoulder ? 120.f : 400.f;
 			const float MaxArm = View == EEarthView::Shoulder ? 500.f : 2500.f;
@@ -556,7 +728,18 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 			(View == EEarthView::Shoulder ? ShoulderDistance : FarDistance) = ArmTarget;
 		}
 	}
-	if (bThirdPerson && !IsDriving())
+	// -EWRideView=1 or 2 goes to the view from above (or from high up) as soon as the player is on something, for pictures.
+	static const int32 TestRideView = []() { int32 Value = 0; FParse::Value(FCommandLine::Get(), TEXT("-EWRideView="), Value); return Value; }();
+	if (TestRideView > 0 && !bRideViewTested && (Mount || bCarried))
+	{
+		bRideViewTested = true;
+		SetRideView(TestRideView);
+	}
+	if (RideView > 0)
+	{
+		HoverTick(DeltaSeconds, PC);
+	}
+	else if (bThirdPerson && !IsDriving())
 	{
 		Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, ArmTarget, DeltaSeconds, 10.f);
 	}

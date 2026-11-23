@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { createApp } from "../src/app.ts";
-import { deedsOf, persona, Talker, wishFrom, type Ask } from "../src/talk.ts";
+import { deedsOf, persona, STORY_PARTS, Talker, wishFrom, type Ask } from "../src/talk.ts";
 
 type Msg = Record<string, any>;
 
@@ -12,16 +12,23 @@ test("a taxi is somebody too: it can be told where to go, and it has things to s
   assert.deepEqual(deedsOf("taxi"), ["stay", "home", "noise", "goto"]);
   assert.deepEqual(wishFrom("take me to the zoo", "taxi"), { deed: "goto", place: "zoo" });
 
-  // Without the AI: its own stock of remarks, a different one each time.
+  // Without the AI: a story of its own in four parts about a fare it once had, then its stock of remarks; no two things the same.
   const plain = new Talker({ ask: null, spendFile: null });
-  const said = new Set<string>();
+  const said: string[] = [];
   for (let n = 0; n < 8; n++) {
-    const remark = await plain.muse("family", 5, "taxi", "Leigh", "the beach", n);
+    const remark = await plain.muse("family", 5, "taxi", "Leigh", "the beach", n, 77);
     assert.deepEqual([remark.name, remark.ai], [persona(5, "taxi").name, false]);
-    assert.ok(remark.text.length > 20);
-    said.add(remark.text);
+    assert.ok(remark.text.length > 20 && remark.text.length < 260, "short enough for a speech bubble");
+    said.push(remark.text);
   }
-  assert.equal(said.size, 8, "eight remarks, no two the same");
+  assert.equal(new Set(said).size, 8, "eight remarks, no two the same");
+  assert.equal(STORY_PARTS, 4);
+  // The next ride of the same taxi hears another story, and the same ride hears the same one again (the server may be asked twice).
+  const next = new Talker({ ask: null, spendFile: null });
+  assert.notEqual((await next.muse("family", 5, "taxi", null, null, 0, 78)).text, said[0], "another ride, another story");
+  assert.equal((await next.muse("family", 5, "taxi", null, null, 1, 77)).text, said[1], "the same ride, the same story");
+  // An animal that carries somebody has no story: it muses from the first.
+  assert.notEqual((await next.muse("family", 5, "horse", null, null, 0, 77)).text, said[0]);
 
   // With the AI: told it is a taxi that talks, where it is and where it is going; and it is one conversation with what is said to it.
   const calls: { system: string; messages: Msg[] }[] = [];
@@ -35,9 +42,25 @@ test("a taxi is somebody too: it can be told where to go, and it has things to s
   assert.match(calls[0].messages[0].content, /driving your passenger through Leigh, Rodney on the way to Goat Island/);
   await talker.reply("family", 5, "taxi", "what did you mean?", "owl", "Leigh, Rodney", true);
   assert.deepEqual(calls[1].messages.map((m) => m.role), ["user", "assistant", "user"], "it remembers its own remark when asked about it");
+  assert.ok(calls[0].system.includes("ONE little story about a passenger you once carried"));
+  assert.match(calls[0].messages[0].content, /Begin your story now/);
   await talker.muse("family", 5, "taxi", null, null, 1);
   assert.equal(calls[2].messages.length, 5);
-  assert.match(calls[2].messages[4].content, /driving your passenger\. Say something/);
+  assert.match(calls[2].messages[4].content, /Carry on with your story/);
+  await talker.muse("family", 5, "taxi", null, null, 3);
+  assert.match(calls[3].messages.at(-1)!.content, /Finish your story now/);
+  // After the story, a remark of its own, with no more said about stories.
+  await talker.muse("family", 5, "taxi", null, null, 4);
+  assert.match(calls[4].messages.at(-1)!.content, /driving your passenger\. Say something of your own now/);
+  assert.ok(!calls[4].system.includes("ONE little story"));
+
+  // A story the AI began is not finished by a stock one when the AI fails: the taxi loses its thread instead.
+  let fail = false;
+  const shaky = new Talker({ ask: async () => { if (fail) throw new Error("down"); return { text: "Once I drove a penguin.", inputTokens: 900, outputTokens: 40 }; }, monthlyUsd: 30, spendFile: null });
+  assert.equal((await shaky.muse("family", 6, "taxi", null, null, 0, 1)).ai, true);
+  fail = true;
+  const lostIt = await shaky.muse("family", 6, "taxi", null, null, 1, 1);
+  assert.deepEqual([lostIt.ai, /gone clean out of my head/.test(lostIt.text)], [false, true]);
 });
 
 test("calling a taxi: it comes by road, takes its fare where they asked, and talks on the way", async () => {

@@ -1254,6 +1254,62 @@ bool AEarthLife::NearestParked(double FromX, double FromZ, double Within, FEarth
 	return bFound;
 }
 
+void AEarthLife::ParkedNear(double FromX, double FromZ, double Within, TArray<FEarthSpot>& Out) const
+{
+	for (const TPair<FIntPoint, FChunk>& Pair : Chunks)
+	{
+		for (const FParked& Car : Pair.Value.Parked)
+		{
+			if (FMath::Abs(Car.X - FromX) > Within || FMath::Abs(Car.Z - FromZ) > Within || Taken.Contains(Car.Id))
+			{
+				continue;
+			}
+			FEarthSpot& Spot = Out.AddDefaulted_GetRef();
+			Spot.X = Car.X;
+			Spot.Z = Car.Z;
+			Spot.Sp = TEXT("car");
+			Spot.Yaw = Car.Yaw;
+		}
+	}
+}
+
+void AEarthLife::StopsNear(double FromX, double FromZ, double Within, TArray<FEarthSpot>& Out) const
+{
+	EachTrain([&](const EarthLife::FTrip& Trip)
+	{
+		if (Trip.N < 2 || Trip.Length <= TrainM)
+		{
+			return;
+		}
+		const auto Consider = [&](double Along)
+		{
+			const FEarthSpot Stop = TrainStop(Trip, TrainMiddle(Trip, Along), 0.0, false);
+			if (FMath::Abs(Stop.X - FromX) > Within || FMath::Abs(Stop.Z - FromZ) > Within)
+			{
+				return;
+			}
+			for (const FEarthSpot& Had : Out)
+			{
+				if (FMath::Abs(Had.X - Stop.X) + FMath::Abs(Had.Z - Stop.Z) < 40.0)
+				{
+					return; // two trains use the one station
+				}
+			}
+			Out.Add(Stop);
+		};
+		// Its timetable is points along the track with the time at each: it stands wherever two share a place.
+		Consider(0.0);
+		for (int32 i = 0; i + 1 < Trip.N; ++i)
+		{
+			if (Trip.Dist[i + 1] - Trip.Dist[i] <= 0.0 && Trip.Path[(i + 1) * 3 + 2] - Trip.Path[i * 3 + 2] >= 8.0)
+			{
+				Consider(Trip.Dist[i]);
+			}
+		}
+		Consider(Trip.Length);
+	});
+}
+
 void AEarthLife::Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z)
 {
 	const FEarthRig* Rig = EarthRigs::Find(Sp);

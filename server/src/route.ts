@@ -11,6 +11,15 @@ const TILE_CAP = 12;
 /** A start or an end must be this near a road. */
 const SNAP_M = 200;
 const POINT_CAP = 500;
+/**
+ * Driveways, car park aisles and pedestrian streets are lanes: a car uses one when it must, but a
+ * route starts and ends on a proper street when there is one this much farther off, and a metre of
+ * lane counts as this many of street. A driveway ends beside a house, often under its carport, and a
+ * car that starts there meets the wall.
+ */
+const LANE_SHY_M = 80;
+const LANE_COST = 2.5;
+const isLane = (hw: string | undefined): boolean => hw === "service" || hw === "pedestrian";
 
 export interface Route { path: [number, number][]; metres: number }
 
@@ -69,11 +78,12 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
   // told apart by where they are, so the pieces join up.
   const ids = new Map<string, number>();
   const xs: number[] = [], ys: number[] = [];
-  const next: [number, number][][] = []; // node -> [neighbour, metres]
+  const next: [number, number][][] = []; // node -> [neighbour, metres as the route counts them]
+  const street: boolean[] = []; // node -> a proper street runs through it
   const node = (x: number, y: number): number => {
     const key = `${x},${y}`;
     let id = ids.get(key);
-    if (id === undefined) { ids.set(key, (id = xs.length)); xs.push(x); ys.push(y); next.push([]); }
+    if (id === undefined) { ids.set(key, (id = xs.length)); xs.push(x); ys.push(y); next.push([]); street.push(false); }
     return id;
   };
   const seen = new Set<number>();
@@ -82,9 +92,11 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
       // Every street counts, pedestrian ones too: an old town centre is otherwise cut off from the rest.
       if (road.cls !== "road" || seen.has(road.id)) continue;
       seen.add(road.id);
+      const lane = isLane(road.hw);
       for (let i = 0; i + 1 < road.pts.length; i++) {
         const a = node(road.pts[i][0], road.pts[i][1]), b = node(road.pts[i + 1][0], road.pts[i + 1][1]);
-        const m = Math.hypot(xs[b] - xs[a], ys[b] - ys[a]) * S;
+        if (!lane) street[a] = street[b] = true;
+        const m = Math.hypot(xs[b] - xs[a], ys[b] - ys[a]) * S * (lane ? LANE_COST : 1);
         if (a === b || m === 0) continue;
         next[a].push([b, m]);
         next[b].push([a, m]);
@@ -106,12 +118,16 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
     }
     networks++;
   }
-  /** For each network, its point nearest a position (and how far, in tile units), when within reach. */
+  /**
+   * For each network, its point nearest a position (and how far, in tile units), when within reach.
+   * A point on a lane counts as farther off than it is, so that a street nearby is chosen first.
+   */
   const nearestIn = (x: number, y: number): Map<number, [number, number]> => {
     const out = new Map<number, [number, number]>();
     for (let i = 0; i < xs.length; i++) {
-      const d = Math.hypot(xs[i] - x, ys[i] - y);
-      if (d > SNAP_M / S) continue;
+      const near = Math.hypot(xs[i] - x, ys[i] - y);
+      if (near > SNAP_M / S) continue;
+      const d = near + (street[i] ? 0 : LANE_SHY_M / S);
       const had = out.get(network[i]);
       if (!had || d < had[1]) out.set(network[i], [i, d]);
     }
@@ -147,11 +163,13 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
   const path: [number, number][] = [];
   const add = (x: number, y: number): void => { path.push([+yToLat(y).toFixed(6), +xToLon(x).toFixed(6)]); };
   add(xs[nodes[0]], ys[nodes[0]]);
-  const spacing = Math.max(8, cost[end] / POINT_CAP);
+  let metres = 0;
+  for (let i = 1; i < nodes.length; i++) metres += Math.hypot(xs[nodes[i]] - xs[nodes[i - 1]], ys[nodes[i]] - ys[nodes[i - 1]]) * S;
+  const spacing = Math.max(8, metres / POINT_CAP);
   for (let i = 1; i < nodes.length; i++) {
     const ax = xs[nodes[i - 1]], ay = ys[nodes[i - 1]], bx = xs[nodes[i]], by = ys[nodes[i]];
     const steps = Math.max(1, Math.round((Math.hypot(bx - ax, by - ay) * S) / spacing));
     for (let k = 1; k <= steps; k++) add(ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps);
   }
-  return { path, metres: Math.round(cost[end]) };
+  return { path, metres: Math.round(metres) };
 }

@@ -11,6 +11,7 @@ class AEarthLife;
 class AEarthRaceCourse;
 class AEarthWalkCharacter;
 class AEarthWorld;
+struct FEarthMapMark;
 
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthThingLine, const FString& /*Who*/, const FString& /*Text*/, bool /*bFromThing*/);
 
@@ -64,6 +65,18 @@ public:
 	bool IsTalking() const { return bTalking; }
 	/** "Daisy the cow", or "the cow" until she has introduced herself. */
 	FString TalkingTo() const { return Title(To); }
+	/** What kind of thing is being talked to ("cow", "car", "taxi", "tree"...), which thing it is, and whether I am riding it. */
+	FString TalkingKind() const { return To.Sp; }
+	uint32 TalkingThing() const { return To.Thing; }
+	bool IsRidingIt() const { return bTalking && Mine.bOn && Mine.Thing == To.Thing; }
+	/** The thing that spoke last, as OnLine is being told of it. */
+	uint32 LastSpoke() const { return Spoke; }
+
+	/**
+	 * For the little map (EarthMiniMap.h): my own car and the taxi I called, wherever they stand; the
+	 * gates of a race still to pass; and where I am being taken, with the road there from here and its name.
+	 */
+	void MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutWay, FString& OutGoing) const;
 
 	/** What E and T would do just now, for the line at the foot of the screen; empty when nothing is near. */
 	const FString& GetHint() const { return Hint; }
@@ -81,6 +94,9 @@ public:
 
 	/** A line for the chat log: what somebody asked a thing, and what it answered. */
 	FOnEarthThingLine OnLine;
+
+private:
+	uint32 Spoke = 0;
 
 private:
 	// ---- riding
@@ -199,6 +215,8 @@ private:
 		bool bHasBest = false; // the nearest the end has been, to tell when the way is blocked
 		double Best = 0.0;
 		double Held = 0.0;
+		int32 Hops = 0; // times it was lifted past something in the way
+		double Age = 0.0; // seconds since it set off
 	};
 	FTrip Trip;
 	bool bRemount = false;

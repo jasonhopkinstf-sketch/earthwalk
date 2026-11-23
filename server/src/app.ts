@@ -25,6 +25,7 @@ import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 import { LookAhead } from "./ahead.ts";
 import { SHOWS } from "./showcase.ts";
+import { newsSince } from "./news.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -493,6 +494,11 @@ export function createApp(options: AppOptions = {}): App {
         // Things to show people, each with a place where it is right there (showcase.ts).
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
         return json(res, 200, { shows: SHOWS });
+      }
+      if (p === "/v1/news") {
+        // What is new since the version a player last saw (news.ts); with no `since`, the newest few.
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        return json(res, 200, newsSince(url.searchParams.get("since")));
       }
       if (p === "/v1/geocode") {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });

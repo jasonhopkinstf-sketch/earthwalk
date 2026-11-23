@@ -103,6 +103,10 @@ public:
 	bool NearestHome(const TArray<FString>& Kinds, double FromX, double FromZ, double Within, FEarthSpot& Out) const;
 	/** The nearest parked car that nobody has driven off. */
 	bool NearestParked(double FromX, double FromZ, double Within, FEarthSpot& Out) const;
+	/** Every parked car within so many metres that nobody has driven off, for the little map. */
+	void ParkedNear(double FromX, double FromZ, double Within, TArray<FEarthSpot>& Out) const;
+	/** Every place within so many metres where a train stands for a while, whenever that is: its stations and the ends of its run. */
+	void StopsNear(double FromX, double FromZ, double Within, TArray<FEarthSpot>& Out) const;
 
 	UEarthSounds* GetSounds() const { return Sounds; }
 	int32 NumShown() const { return Shown; }

@@ -363,6 +363,23 @@ A game may use a thing of the same kind that is already near its player, and not
 `title`, `text` (what will be seen) and `how` (what to press) are for showing to the player. A game
 should skip a show whose `find` it does not know.
 
+## What is new: `GET /v1/news?since=0.2.42`
+
+The release notes in plain words, for a card that a game shows on arriving
+(`server/src/news.ts`). Needs the access code or a player token. `since` is the version whose
+notes the player last saw: the answer has the releases after it, newest first, three at most. With
+no `since` it has the newest three. `latest` is the newest version there are notes for; a game
+keeps it as what its player has seen.
+
+```json
+{ "latest": "0.2.45",
+  "news": [ { "version": "0.2.45", "date": "2026-11-23", "title": "Easier to find your way about",
+              "items": [ { "text": "Taxis tell you a story on the way.", "in": "windows" } ] } ] }
+```
+
+`in`, when present, says that only one of the two games (`browser` or `windows`) has the thing
+so far: the other game says so beside it.
+
 ## Place search: `GET /v1/geocode?q=...`
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.
@@ -500,7 +517,7 @@ What is to be done comes as `order`:
 | `stay` | the room | It waits at `lat`/`lon`. |
 | `home` | the room | It goes back to its timetable: forget any order for it. Also sent when whoever gave the order leaves, when someone hops on the thing, and when one player has more than six things under orders (the oldest goes home). |
 | `trick`, `noise` | the room | Done once, now, wherever each client has the thing: a jump and a spin with its noise, or the noise alone. Not remembered. |
-| `goto` | the asker alone | Only for a thing the asker is riding (seat 0). `name`, `lat`, `lon` are the place, found near the rider first and then anywhere; `path`, when present, is the way there by road as `[lat, lon]` points about 8 m apart (cars and tractors, places within 2.5 km). The rider's own client carries them: along `path`, or straight across country on an animal when the place is within 1.5 km, or in one jump (hop off, travel, hop on again). Friends see it through `ride` and the positions already shared. |
+| `goto` | the asker alone | Only for a thing the asker is riding (seat 0). `name`, `lat`, `lon` are the place, found near the rider first and then anywhere; `path`, when present, is the way there by road as `[lat, lon]` points about 8 m apart (cars and tractors, places within 2.5 km). The way starts and ends on a proper street when one is within reach, not up a driveway or a car park aisle, which often end against a wall; a taxi waits at that same point of the street. The rider's own client carries them: along `path`, or straight across country on an animal when the place is within 1.5 km, or in one jump (hop off, travel, hop on again). Friends see it through `ride` and the positions already shared. |
 
 `welcome` carries `orders`: the `follow`, `come` and `stay` orders still in force. Clients draw a thing
 under orders where the order puts it and not where its timetable would (as they do a ridden thing).
@@ -522,9 +539,12 @@ somewhere else.
   waiting), whoever takes seat 0 is the fare: after the `ride` message they are sent an `order` with
   `act` `goto` for the place asked for, and their client carries them there as for any "take me to"
   ("Doing as asked"). Friends who hop on too ride along.
-- While the fare is aboard the taxi says something of its own about every half minute, ten times at
-  most: a `say` with no `q`, heard like any other. With the AI these come from the same character
-  that answers when it is talked to; without it, from a stock of remarks.
+- While the fare is aboard the taxi says something of its own, ten times at most: a `say` with no
+  `q`, heard like any other. The first four, about a quarter of a minute apart, are the parts of
+  one story about a fare it once carried (a different story each ride); the rest, about every half
+  minute, are remarks. With the AI these come from the same character that answers when it is talked
+  to; without it, from a stock of twelve stories and of remarks (`server/src/talk.ts`). A game
+  should keep such a bubble with the taxi as it drives.
 - When the fare gets out the ride is over: the taxi stands where it stopped for a minute, like
   anything a rider has left, and is then gone. A taxi nobody boards, or whose caller leaves or calls
   another, goes with `gone`.

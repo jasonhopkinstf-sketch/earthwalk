@@ -1,5 +1,7 @@
 #include "EarthWalkHUD.h"
 
+#include "EarthMenu.h"
+#include "EarthMiniMap.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -206,7 +208,7 @@ public:
 				SAssignNew(BubbleCanvas, SCanvas).Visibility(EVisibility::HitTestInvisible)
 			]
 			// What E and T would do just now.
-			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 58.f)
+			+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 92.f)
 			[
 				SAssignNew(Hint, STextBlock)
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 15))
@@ -326,7 +328,7 @@ public:
 					[
 						SAssignNew(Input, SEditableTextBox)
 						.Font(Font)
-						.HintText(FText::FromString(TEXT("Press Enter to chat. Type /help for commands. Esc twice to quit.")))
+						.HintText(FText::FromString(TEXT("Press Enter to chat. Tab shows everything you can do. Esc twice to quit.")))
 						.ClearKeyboardFocusOnCommit(true)
 						.OnTextCommitted(this, &SEarthWalkOverlay::HandleCommitted)
 					]
@@ -429,6 +431,11 @@ public:
 					];
 				Shown.Add(Entry);
 			}
+		}
+		// A bubble goes along with a thing on the move (a taxi talking as it drives): where each is, afresh every frame.
+		for (int32 i = 0; i < Shown.Num() && i < Bubbles.Num(); ++i)
+		{
+			Shown[i].Where = Bubbles[i].Where;
 		}
 		const double Now = FPlatformTime::Seconds();
 		for (FShownBubble& Entry : Shown)
@@ -1323,6 +1330,24 @@ void AEarthWalkHUD::BeginPlay()
 		SAssignNew(Overlay, SEarthWalkOverlay, this);
 		Overlay->SetHitTestable(false);
 		GEngine->GameViewport->AddViewportWidgetContent(Overlay.ToSharedRef(), 10);
+		// The menu, the box that asks "where to?" and the strip of buttons, over everything else.
+		SAssignNew(Menu, SEarthMenu, this);
+		FString Buttons;
+		bStripOn = !(FEarthWalkConfig::HasOverride(TEXT("Buttons"), Buttons) && Buttons.Equals(TEXT("off"), ESearchCase::IgnoreCase));
+		Menu->ShowStrip(bStripOn);
+		GEngine->GameViewport->AddViewportWidgetContent(Menu.ToSharedRef(), 11);
+		MiniMap = NewObject<UEarthMiniMap>(this);
+		MiniMap->Setup(this);
+	}
+	// Tab is the menu. It is bound, not just looked at each frame, so that it is used up here: left to
+	// itself Tab moves the keyboard from one thing on the screen to the next, as it does in any window.
+	if (APlayerController* MenuPC = GetOwningPlayerController())
+	{
+		EnableInput(MenuPC);
+		if (InputComponent)
+		{
+			InputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AEarthWalkHUD::ToggleMenu);
+		}
 	}
 
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
@@ -1403,9 +1428,9 @@ void AEarthWalkHUD::BeginPlay()
 
 	ApplyGameInputMode(GetOwningPlayerController());
 	StartedAt = FPlatformTime::Seconds();
-	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly, Enter to chat. Try /goto Sydney Opera House."), NoticeColor);
-	AddLine(TEXT("Walk up to an animal, a car or a train: E hops on, T talks to it (trees and houses too). P opens your passport."), NoticeColor);
-	AddLine(TEXT("Showing it to somebody? Press G for a list of things to see: catch a train, ride a horse, drive a car..."), NoticeColor);
+	AddLine(TEXT("Welcome to EarthWalk. WASD to move, drag or arrow keys to look, 2 to run, V for camera view, F to fly."), NoticeColor);
+	AddLine(TEXT("Press Tab to see everything you can do: go to a place, call your car or a taxi, open your passport. The buttons along the bottom do the same."), NoticeColor);
+	AddLine(TEXT("Walk up to an animal, a car or a train: E hops on, T talks to it (trees and houses too)."), NoticeColor);
 }
 
 void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
@@ -1429,6 +1454,11 @@ void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
 
 void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (MiniMap)
+	{
+		MiniMap->Shutdown();
+		MiniMap = nullptr;
+	}
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 	{
 		Net->OnChat.Remove(ChatHandle);
@@ -1442,6 +1472,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		GEngine->GameViewport->RemoveViewportWidgetContent(Overlay.ToSharedRef());
 	}
 	Overlay.Reset();
+	if (Menu.IsValid() && GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->RemoveViewportWidgetContent(Menu.ToSharedRef());
+	}
+	Menu.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -1456,15 +1491,124 @@ void AEarthWalkHUD::AddLine(const FString& Text, const FLinearColor& Color)
 void AEarthWalkHUD::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (MiniMap)
+	{
+		MiniMap->Frame(DeltaSeconds);
+	}
 
 	APlayerController* PC = GetOwningPlayerController();
 	if (!PC || !Overlay.IsValid())
 	{
 		return;
 	}
-	if (!bChatOpen && FPlatformTime::Seconds() - ChatClosedAt > 0.2 && PC->WasInputKeyJustPressed(EKeys::Enter))
+	if (!Typing() && FPlatformTime::Seconds() - ChatClosedAt > 0.2 && PC->WasInputKeyJustPressed(EKeys::Enter))
 	{
+		CloseMenu();
 		OpenChat();
+	}
+	// The menu: Esc puts it away (and is then not "leave the game?"), and so does any key that does
+	// something of its own, which it then goes on to do. Z turns the strip of buttons off and on
+	// (not H or B: those are the house and the lunch box in the browser game, and will be here).
+	bMenuTookEsc = false;
+	if (bAskOpen && Menu.IsValid() && FSlateApplication::IsInitialized())
+	{
+		// The box that asks keeps the keyboard until it is answered or Esc sends it away, wherever the pointer clicks.
+		if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			AskDone(FString());
+			bMenuTookEsc = true;
+		}
+		else if (FSlateApplication::Get().IsActive() && !Menu->GetAskInput()->HasKeyboardFocus())
+		{
+			FSlateApplication::Get().SetKeyboardFocus(Menu->GetAskInput(), EFocusCause::SetDirectly);
+		}
+	}
+	else if (bTalkOpen && Menu.IsValid() && FSlateApplication::IsInitialized())
+	{
+		// The conversation: it ends when the thing has been left behind, or on Esc; its name appears once
+		// it has introduced itself; and its line keeps the keyboard, wherever the pointer clicks.
+		const UEarthCompany* Talk = Company();
+		if (!Talk || !Talk->IsTalking())
+		{
+			CloseTalk(false);
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			CloseTalk(true);
+			bMenuTookEsc = true;
+		}
+		else
+		{
+			if (Talk->TalkingTo() != TalkNameShown)
+			{
+				TalkNameShown = Talk->TalkingTo();
+				Menu->SetTalkName(TalkNameShown);
+			}
+			if (FSlateApplication::Get().IsActive() && !Menu->GetTalkInput()->HasKeyboardFocus())
+			{
+				FSlateApplication::Get().SetKeyboardFocus(Menu->GetTalkInput(), EFocusCause::SetDirectly);
+			}
+		}
+	}
+	if (!Typing())
+	{
+		// A conversation begun some other way (a test switch) gets its bubble all the same.
+		if (const UEarthCompany* Begun = Company(); Begun && Begun->IsTalking())
+		{
+			OpenTalk();
+		}
+	}
+	if (!Typing())
+	{
+		if (bNewsOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			CloseNews();
+			bMenuTookEsc = true;
+		}
+		else if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			CloseMenu();
+			bMenuTookEsc = true;
+		}
+		else if (bMenuOpen && (PC->WasInputKeyJustPressed(EKeys::E) || PC->WasInputKeyJustPressed(EKeys::T) || PC->WasInputKeyJustPressed(EKeys::R)
+			|| PC->WasInputKeyJustPressed(EKeys::G) || PC->WasInputKeyJustPressed(EKeys::P)))
+		{
+			CloseMenu();
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::Z))
+		{
+			ToggleStrip();
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::M))
+		{
+			CycleMap();
+		}
+	}
+	// -EWAsk=<words_with_underscores> answers the box that asks "where to?" three seconds after it comes up, as if typed, for tests.
+	if (bAskOpen && AskOpenedAt > 0.0 && FPlatformTime::Seconds() - AskOpenedAt > 3.0)
+	{
+		AskOpenedAt = 0.0;
+		FString Answer;
+		if (FParse::Value(FCommandLine::Get(), TEXT("-EWAsk="), Answer))
+		{
+			AskDone(Answer.Replace(TEXT("_"), TEXT(" ")));
+		}
+	}
+	// What is new since last time, a few seconds after arriving: once the world is on the screen, and not over anything else.
+	if (!bNewsChecked && FPlatformTime::Seconds() - StartedAt > 8.0 && !Typing() && !bMenuOpen && !bPassportOpen && !bShowsOpen)
+	{
+		bNewsChecked = true;
+		OpenNews(true);
+	}
+
+	// -EWMenu opens the menu by itself a few seconds in, for pictures.
+	if (!bMenuTested && FPlatformTime::Seconds() - StartedAt > 11.0)
+	{
+		bMenuTested = true;
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWMenu")))
+		{
+			OpenMenu();
+		}
 	}
 	UpdateCompany(PC);
 
@@ -1520,10 +1664,16 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 	if (!bCompanyBound)
 	{
 		bCompanyBound = true;
-		// What somebody asked a thing, and what it answered, go in the log as well as in its bubble.
-		Friends->OnLine.AddWeakLambda(this, [this](const FString& Who, const FString& Text, bool bFromThing)
+		// What a thing says is in the bubble over its head, for everybody near; when it is the thing I am
+		// talking to, it is in the conversation's own bubble too. None of it goes in the chat window,
+		// which is for people.
+		Friends->OnLine.AddWeakLambda(this, [this](const FString&, const FString& Text, bool bFromThing)
 		{
-			AddLine(FString::Printf(TEXT("%s: %s"), *Who, *Text), bFromThing ? ThingColor : FLinearColor::White);
+			const UEarthCompany* Talk = Company();
+			if (bTalkOpen && bFromThing && Menu.IsValid() && Talk && Talk->LastSpoke() == Talk->TalkingThing())
+			{
+				Menu->SetTalkWords(Text);
+			}
 		});
 		// Where "Show me" is taking the player, and what to press there.
 		const AEarthWorld* ShowWorld = AEarthWorld::Get(this);
@@ -1535,7 +1685,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 			});
 		}
 	}
-	if (!bChatOpen && bShowsOpen)
+	if (!Typing() && bShowsOpen)
 	{
 		// The list of things to show is up: a number picks one, G or Esc puts it away, and nothing else is listening.
 		static const FKey Row[10] = { EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five, EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine, EKeys::Zero };
@@ -1555,7 +1705,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 			CloseShows();
 		}
 	}
-	else if (!bChatOpen)
+	else if (!Typing())
 	{
 		if (PC->WasInputKeyJustPressed(EKeys::E))
 		{
@@ -1565,8 +1715,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			if (Friends->KeyTalk())
 			{
-				Overlay->SetInputHint(FString::Printf(TEXT("Say something to %s..."), *Friends->TalkingTo()));
-				OpenChat(); // say hello, then type
+				OpenTalk(); // it says hello in its bubble, and there is a line there to answer on
 			}
 		}
 		else if (PC->WasInputKeyJustPressed(EKeys::R))
@@ -1581,7 +1730,7 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			TogglePassport(); // where I have been and what I have done
 		}
-		else if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		else if (PC->WasInputKeyJustPressed(EKeys::Escape) && !bMenuTookEsc)
 		{
 			if (bPassportOpen || Friends->IsTalking())
 			{
@@ -1609,20 +1758,14 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 			}
 		}
 	}
-	// What is typed goes to the thing being talked to, and the box says so.
-	const FString TalkingTo = Friends->IsTalking() ? Friends->TalkingTo() : FString();
-	if (TalkingTo != TalkingToShown)
-	{
-		TalkingToShown = TalkingTo;
-		Overlay->SetInputHint(TalkingTo.IsEmpty() ? FString(TEXT("Press Enter to chat. Type /help for commands. Esc twice to quit.")) : FString::Printf(TEXT("Say something to %s..."), *TalkingTo));
-	}
+	// (What is said to a thing is typed in its own bubble: the chat box is for people.)
 	Overlay->SetHint(Friends->GetHint());
 	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
 	Overlay->SetBubbles(Friends->GetBubbles(), PC);
 
 	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
 	// P and Esc still close it. If a click has left the keyboard somewhere else, give it back.
-	if ((bPassportOpen || bShowsOpen) && !bChatOpen && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
+	if ((bPassportOpen || bShowsOpen) && !Typing() && FSlateApplication::IsInitialized() && GEngine && GEngine->GameViewport)
 	{
 		const TSharedPtr<SWidget> Focused = FSlateApplication::Get().GetUserFocusedWidget(0);
 		const TSharedPtr<SWidget> Viewport = GEngine->GameViewport->GetGameViewportWidget();
@@ -1951,6 +2094,451 @@ void AEarthWalkHUD::CloseChat()
 	}
 }
 
+void AEarthWalkHUD::ToggleMenu()
+{
+	if (Typing())
+	{
+		return;
+	}
+	if (bMenuOpen)
+	{
+		CloseMenu();
+	}
+	else
+	{
+		OpenMenu();
+	}
+}
+
+void AEarthWalkHUD::OpenMenu()
+{
+	if (!Menu.IsValid() || bMenuOpen)
+	{
+		return;
+	}
+	CloseShows();
+	ClosePassport();
+	bMenuOpen = true;
+	Menu->ShowMenu(true);
+}
+
+void AEarthWalkHUD::CloseMenu()
+{
+	if (bMenuOpen && Menu.IsValid())
+	{
+		bMenuOpen = false;
+		Menu->ShowMenu(false);
+	}
+}
+
+namespace
+{
+	/** Below zero when version A ("0.2.44") is older than B. */
+	int32 CompareVersions(const FString& A, const FString& B)
+	{
+		TArray<FString> PartsA, PartsB;
+		A.ParseIntoArray(PartsA, TEXT("."));
+		B.ParseIntoArray(PartsB, TEXT("."));
+		for (int32 i = 0; i < FMath::Max(PartsA.Num(), PartsB.Num()); ++i)
+		{
+			const int32 Difference = (PartsA.IsValidIndex(i) ? FCString::Atoi(*PartsA[i]) : 0) - (PartsB.IsValidIndex(i) ? FCString::Atoi(*PartsB[i]) : 0);
+			if (Difference != 0)
+			{
+				return Difference;
+			}
+		}
+		return 0;
+	}
+}
+
+void AEarthWalkHUD::OpenNews(bool bOnlyNew)
+{
+	// The version whose notes this player has read (NewsSeen in the settings; -EWNewsSeen=0.2.41 for one run).
+	FString Seen;
+	const bool bSeen = FEarthWalkConfig::HasOverride(TEXT("NewsSeen"), Seen);
+	FString Url = FString::Printf(TEXT("%s/v1/news"), *FEarthWalkConfig::ServerUrl());
+	if (bOnlyNew && bSeen)
+	{
+		Url += FString::Printf(TEXT("?since=%s"), *FGenericPlatformHttp::UrlEncode(Seen));
+	}
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(Url);
+	Request->SetVerb(TEXT("GET"));
+	Request->SetTimeout(20.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, bOnlyNew, bSeen](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		TSharedPtr<FJsonObject> Json;
+		const TArray<TSharedPtr<FJsonValue>>* List = nullptr;
+		if (!bConnected || !Response.IsValid() || Response->GetResponseCode() != 200
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), Json) || !Json.IsValid()
+			|| !Json->TryGetArrayField(TEXT("news"), List))
+		{
+			// An older server has no notes: on arriving that is nothing to mention.
+			if (!bOnlyNew)
+			{
+				AddLine(TEXT("Could not fetch what is new just now."), ErrorColor);
+			}
+			return;
+		}
+		TArray<FEarthNewsEntry> Entries;
+		for (const TSharedPtr<FJsonValue>& Value : *List)
+		{
+			const TSharedPtr<FJsonObject>* Row = nullptr;
+			const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+			FEarthNewsEntry Entry;
+			if (!Value.IsValid() || !Value->TryGetObject(Row) || !(*Row)->TryGetStringField(TEXT("version"), Entry.Version)
+				|| !(*Row)->TryGetStringField(TEXT("title"), Entry.Title) || !(*Row)->TryGetArrayField(TEXT("items"), Items))
+			{
+				continue;
+			}
+			for (const TSharedPtr<FJsonValue>& ItemValue : *Items)
+			{
+				const TSharedPtr<FJsonObject>* Item = nullptr;
+				FString Text, In;
+				if (ItemValue.IsValid() && ItemValue->TryGetObject(Item) && (*Item)->TryGetStringField(TEXT("text"), Text))
+				{
+					(*Item)->TryGetStringField(TEXT("in"), In);
+					Entry.Items.Emplace(Text, In == TEXT("browser") ? FString(TEXT("In the browser game so far; coming to this one.")) : FString());
+				}
+			}
+			Entries.Add(MoveTemp(Entry));
+		}
+		FString Latest;
+		Json->TryGetStringField(TEXT("latest"), Latest);
+		// Somebody new here is told of the newest things only, not of everything there ever was.
+		if (bOnlyNew && !bSeen && Entries.Num() > 1)
+		{
+			Entries.SetNum(1);
+		}
+		if (!Latest.IsEmpty())
+		{
+			FEarthWalkConfig::Save(TEXT("NewsSeen"), Latest);
+		}
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: news: %d releases to tell of, the newest %s"), Entries.Num(), *Latest);
+		if (Entries.Num() == 0)
+		{
+			if (!bOnlyNew)
+			{
+				AddLine(TEXT("Nothing new to tell of just now."), NoticeColor);
+			}
+			return;
+		}
+		if (!Menu.IsValid() || (bOnlyNew && (Typing() || bMenuOpen || bPassportOpen || bShowsOpen)))
+		{
+			return; // busy with something else by now: it is in the menu when wanted
+		}
+		const FString Mine = GameVersion();
+		const FString Foot = !Latest.IsEmpty() && Mine != TEXT("dev") && CompareVersions(Mine, Latest) < 0
+			? FString::Printf(TEXT("You are playing EarthWalk %s, and the newest is %s. Some of this needs the newest: install it from where you got this one."), *Mine, *Latest)
+			: FString();
+		CloseMenu();
+		Menu->ShowNews(true, Entries, Foot);
+		bNewsOpen = true;
+	});
+	Request->ProcessRequest();
+}
+
+void AEarthWalkHUD::CloseNews()
+{
+	if (bNewsOpen && Menu.IsValid())
+	{
+		bNewsOpen = false;
+		Menu->ShowNews(false);
+	}
+}
+
+void AEarthWalkHUD::CycleMap()
+{
+	if (MiniMap)
+	{
+		AddLine(MiniMap->Cycle(), NoticeColor);
+	}
+}
+
+void AEarthWalkHUD::ToggleStrip()
+{
+	bStripOn = !bStripOn;
+	if (Menu.IsValid())
+	{
+		Menu->ShowStrip(bStripOn);
+	}
+	FEarthWalkConfig::Save(TEXT("Buttons"), bStripOn ? TEXT("on") : TEXT("off"));
+	AddLine(bStripOn ? TEXT("The buttons are back. Z hides them.") : TEXT("The buttons are hidden. Z brings them back, and Tab still shows everything you can do."), NoticeColor);
+}
+
+void AEarthWalkHUD::MenuAction(const FString& Id)
+{
+	const FEarthAction* Action = EarthMenu::Find(Id);
+	if (!Action)
+	{
+		AddLine(FString::Printf(TEXT("There is nothing called \"%s\" to do. Tab shows everything there is."), *Id), ErrorColor);
+		return;
+	}
+	CloseMenu();
+	if (FSlateApplication::IsInitialized() && !Typing())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport(); // a click on a button must not keep the keyboard
+	}
+	if (Action->Ask[0])
+	{
+		OpenAsk(Id);
+		return;
+	}
+	UEarthCompany* Friends = Company();
+	if (Id == TEXT("ride"))
+	{
+		if (Friends)
+		{
+			Friends->KeyRide();
+		}
+	}
+	else if (Id == TEXT("talk"))
+	{
+		if (Friends && Friends->KeyTalk())
+		{
+			OpenTalk();
+		}
+		else
+		{
+			AddLine(TEXT("There is nothing near enough to talk to. Walk up to an animal, a car, a tree or a house."), NoticeColor);
+		}
+	}
+	else if (Id == TEXT("race"))
+	{
+		if (Friends)
+		{
+			Friends->KeyRace();
+		}
+	}
+	else if (Id == TEXT("shows"))
+	{
+		ToggleShows();
+	}
+	else if (Id == TEXT("passport"))
+	{
+		TogglePassport();
+	}
+	else if (Id == TEXT("chat"))
+	{
+		OpenChat();
+	}
+	else if (Id == TEXT("strip"))
+	{
+		ToggleStrip();
+	}
+	else if (Id == TEXT("map"))
+	{
+		CycleMap();
+	}
+	else if (Id == TEXT("news"))
+	{
+		OpenNews(false);
+	}
+	else if (Id == TEXT("above"))
+	{
+		const APlayerController* PC = GetOwningPlayerController();
+		AEarthWalkCharacter* Me = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+		const FString Name = Me ? Me->NextRideView() : FString();
+		AddLine(Name.IsEmpty() ? TEXT("V looks down from above while you are riding something, or being carried: hop on first (E).")
+			: Me->GetRideView() == 0 ? TEXT("Back in your seat.")
+			: *FString::Printf(TEXT("Looking %s. Hold the mouse button and move it to swing the camera, the wheel brings it nearer or further, and V moves on."), *Name), NoticeColor);
+	}
+	else if (Id == TEXT("look"))
+	{
+		RunCommand(TEXT("look"), EarthLook::Current() == EEarthLook::Flat ? TEXT("barnyard") : TEXT("flat"));
+	}
+	else if (Id == TEXT("sound"))
+	{
+		const AEarthWorld* Earth = AEarthWorld::Get(this);
+		const UEarthSounds* Sounds = Earth && Earth->GetLife() ? Earth->GetLife()->GetSounds() : nullptr;
+		RunCommand(TEXT("sound"), Sounds && Sounds->IsEnabled() ? TEXT("off") : TEXT("on"));
+	}
+	else
+	{
+		// Everything else is a command by another name.
+		FString Command = Action->Command, Argument;
+		if (!Command.Split(TEXT(" "), &Command, &Argument))
+		{
+			Command = Action->Command;
+		}
+		RunCommand(Command, Argument);
+	}
+}
+
+void AEarthWalkHUD::OpenAsk(const FString& Id)
+{
+	APlayerController* PC = GetOwningPlayerController();
+	const FEarthAction* Action = EarthMenu::Find(Id);
+	if (!PC || !Menu.IsValid() || !Action)
+	{
+		return;
+	}
+	CloseShows();
+	ClosePassport();
+	bAskOpen = true;
+	AskOpenedAt = FPlatformTime::Seconds();
+	AskAction = Id;
+	if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+	{
+		Character->bTyping = true;
+	}
+	Menu->ShowAsk(Action);
+	FInputModeGameAndUI Mode;
+	Mode.SetWidgetToFocus(Menu->GetAskInput());
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(Mode);
+	PC->bShowMouseCursor = true;
+	FSlateApplication::Get().SetKeyboardFocus(Menu->GetAskInput(), EFocusCause::SetDirectly);
+}
+
+void AEarthWalkHUD::AskDone(const FString& Typed)
+{
+	if (!bAskOpen)
+	{
+		return;
+	}
+	const FString Id = AskAction;
+	bAskOpen = false;
+	AskAction.Reset();
+	ChatClosedAt = FPlatformTime::Seconds(); // the Enter that answered is not also "open the chat"
+	if (Menu.IsValid())
+	{
+		Menu->ShowAsk(nullptr);
+	}
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+		{
+			Character->bTyping = bShowsOpen;
+		}
+		ApplyGameInputMode(PC);
+	}
+	const FEarthAction* Action = EarthMenu::Find(Id);
+	if (Id == TEXT("taketo"))
+	{
+		// Said to whatever I am on (or in): "take me to the beach". It answers in its bubble.
+		UEarthCompany* Friends = Company();
+		if (Typed.IsEmpty())
+		{
+			return;
+		}
+		if (Friends && Friends->IsRiding() && (Friends->IsRidingIt() || Friends->KeyTalk()))
+		{
+			OpenTalk();
+			TalkSay(FString::Printf(TEXT("take me to %s"), *Typed));
+		}
+		else
+		{
+			AddLine(TEXT("Hop on something first (E beside an animal or a car), then ask it to take you. Or call a taxi: it comes to you."), NoticeColor);
+		}
+	}
+	else if (Action && !Typed.IsEmpty())
+	{
+		RunCommand(Action->Command, Typed);
+	}
+}
+
+void AEarthWalkHUD::OpenTalk()
+{
+	APlayerController* PC = GetOwningPlayerController();
+	const UEarthCompany* Friends = Company();
+	if (!PC || !Menu.IsValid() || !Friends || !Friends->IsTalking())
+	{
+		return;
+	}
+	if (bTalkOpen)
+	{
+		return; // already in it: "Take me to..." from its own button
+	}
+	CloseShows();
+	ClosePassport();
+	CloseMenu();
+	CloseChat();
+	bTalkOpen = true;
+	TalkNameShown = Friends->TalkingTo();
+	if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+	{
+		Character->bTyping = true;
+	}
+	// A few things to say with one click, by what it is: a car is told where to go, an animal what to do.
+	const FString Kind = Friends->TalkingKind();
+	TArray<TPair<FString, FString>> Replies;
+	const bool bDriven = Kind == TEXT("car") || Kind == TEXT("taxi") || Kind == TEXT("tractor");
+	const bool bStands = Kind == TEXT("tree") || Kind == TEXT("house") || Kind == TEXT("train") || Kind == TEXT("railcar");
+	if (Friends->IsRidingIt() || bDriven)
+	{
+		Replies.Emplace(TEXT("Take me to..."), TEXT("..."));
+	}
+	if (bDriven)
+	{
+		Replies.Emplace(TEXT("Stay here"), TEXT("stay"));
+		Replies.Emplace(TEXT("Go home"), TEXT("go home"));
+		Replies.Emplace(TEXT("Toot!"), TEXT("make your noise"));
+	}
+	else if (!bStands)
+	{
+		Replies.Emplace(TEXT("Follow me"), TEXT("follow me"));
+		Replies.Emplace(TEXT("Come here"), TEXT("come here"));
+		Replies.Emplace(TEXT("Stay"), TEXT("stay"));
+		Replies.Emplace(TEXT("Go home"), TEXT("go home"));
+		Replies.Emplace(TEXT("Do a trick"), TEXT("do a trick"));
+	}
+	Replies.Emplace(TEXT("Can I help?"), TEXT("can I help?"));
+	Replies.Emplace(TEXT("Tell me about here"), TEXT("tell me about this place"));
+	Menu->ShowTalk(true, TalkNameShown, Replies);
+	FInputModeGameAndUI Mode;
+	Mode.SetWidgetToFocus(Menu->GetTalkInput());
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PC->SetInputMode(Mode);
+	PC->bShowMouseCursor = true;
+	FSlateApplication::Get().SetKeyboardFocus(Menu->GetTalkInput(), EFocusCause::SetDirectly);
+}
+
+void AEarthWalkHUD::CloseTalk(bool bStopTalking)
+{
+	if (!bTalkOpen)
+	{
+		return;
+	}
+	bTalkOpen = false;
+	ChatClosedAt = FPlatformTime::Seconds();
+	if (Menu.IsValid())
+	{
+		Menu->ShowTalk(false);
+	}
+	if (UEarthCompany* Friends = bStopTalking ? Company() : nullptr)
+	{
+		Friends->StopTalking();
+	}
+	if (APlayerController* PC = GetOwningPlayerController())
+	{
+		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+		{
+			Character->bTyping = bShowsOpen;
+		}
+		ApplyGameInputMode(PC);
+	}
+}
+
+void AEarthWalkHUD::TalkSay(const FString& Text)
+{
+	UEarthCompany* Friends = Company();
+	if (!Friends || !Friends->IsTalking() || Text.IsEmpty())
+	{
+		return;
+	}
+	Friends->Say(Text);
+	if (Menu.IsValid())
+	{
+		Menu->SetTalkMine(FString::Printf(TEXT("You: %s"), *Text));
+		Menu->SetTalkWords(TEXT("..."));
+	}
+}
+
 void AEarthWalkHUD::UpdateWhere()
 {
 	const APlayerController* PC = GetOwningPlayerController();
@@ -2077,12 +2665,8 @@ void AEarthWalkHUD::Submit(const FString& Text)
 {
 	if (!Text.StartsWith(TEXT("/")))
 	{
-		UEarthCompany* Friends = Company();
-		if (Friends && Friends->IsTalking())
-		{
-			Friends->Say(Text); // to the cow, not to the room
-		}
-		else if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
+		// To the room. (A thing is spoken to on the line of its own bubble: TalkSay.)
+		if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 		{
 			Net->SendChat(Text);
 		}
@@ -2102,8 +2686,39 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	APlayerController* PC = GetOwningPlayerController();
 	AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
 
-	if (Command == TEXT("help"))
+	if (Command == TEXT("menu"))
 	{
+		if (bMenuOpen)
+		{
+			CloseMenu();
+		}
+		else
+		{
+			OpenMenu();
+		}
+	}
+	else if (Command == TEXT("buttons"))
+	{
+		ToggleStrip();
+	}
+	else if (Command == TEXT("map"))
+	{
+		CycleMap();
+	}
+	else if (Command == TEXT("news"))
+	{
+		OpenNews(false);
+	}
+	else if (Command == TEXT("do"))
+	{
+		// One thing from the menu by its name there ("/do goto"): what a button of the strip does.
+		MenuAction(Argument.ToLower());
+	}
+	else if (Command == TEXT("help"))
+	{
+		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("M   the little map in the corner: bigger, hidden, and back. It shows friends, doors that open, where trains stop, cars, and the way to where you are being taken."), NoticeColor);
+		AddLine(TEXT("The same things as typed commands, for those who like typing:"), NoticeColor);
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);
 		AddLine(TEXT("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>"), NoticeColor);
@@ -2125,8 +2740,8 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/car   bring your own car to where you are (choose its paint in your passport); /car away sends it off"), NoticeColor);
 		AddLine(TEXT("R   a race along the roads here: R sets one up, R joins one a friend has set up, and R starts yours"), NoticeColor);
 		AddLine(TEXT("    (/race stop leaves it, or ends your own). Go on foot, on a horse or in a car: every gate in turn."), NoticeColor);
-		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses); what you then type goes to it. Esc stops."), NoticeColor);
-		AddLine(TEXT("    Tell it what to do: follow me, come here, stay, go home, do a trick. Riding it, say where to: take me to the beach"), NoticeColor);
+		AddLine(TEXT("T   talk to what is nearest (animals, cars, trains, trees, houses): it answers in a bubble with a line to type on. Esc finishes."), NoticeColor);
+		AddLine(TEXT("    Tell it what to do, with the buttons in the bubble or in your own words: follow me, come here, stay, go home, do a trick. Riding it: take me to the beach"), NoticeColor);
 		AddLine(TEXT("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,"), NoticeColor);
 		AddLine(TEXT("    your coins and hats, riddles, countries, places, friends, stamps and your level. Its buttons work with the mouse."), NoticeColor);
 		AddLine(TEXT("/clue   hear again the clue of the treasure hunt you are on"), NoticeColor);
