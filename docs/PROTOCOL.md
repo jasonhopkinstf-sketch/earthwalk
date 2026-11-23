@@ -690,6 +690,17 @@ that leads out of it, `name` its owner's, `rev` counting its changes), and
 as `lived`, and the player's own as `house`. Errors: `nowhere`, `nohome` (no such house, or none of
 their own), `far`, `taken`, `many`, `poor`, `locked` (no such piece, or a prize not won yet), `busy`.
 
+**A plan of one's own.** `{"t":"house","plan":{…}}` gives my house a floor plan (the object the server
+made when it read my picture: `floors`, each with `rooms` (`name`, `kind`, and `a0`, `a1`, `b0`, `b1` in
+metres from the front door: `a` along the front wall, `b` back into the house) and `doors` (pairs of
+rooms); `entrance`, the room behind the front door; `stairs`, or null). It is checked again and refused
+if it cannot be built. `"plan":null` goes back to the rooms the house was built with. A house with a
+plan is told to everybody with `lift` (3000) and `floors`: its inside stands `lift` metres above the
+real house, is fetched with `GET /v1/interior/16/x/y/id?r=<rev>&plan=1`, and a player going in at its
+front door is to be put on its floor up there (and set down in the street on coming out). Without
+`plan=1` the same address gives the house's ordinary rooms. The owner's `house` also has `planned`,
+the plan in words, a line a floor.
+
 **The garden.** A house's owner may keep up to four young animals before its front door.
 
 | Message | Meaning |

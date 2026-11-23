@@ -295,6 +295,17 @@ lasts for the visit. The catalogue and who lives where are `server/src/home.ts` 
 not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
 things on a developer's own machine; it is not set on the live server.
 
+A house from a plan of your own (in the browser so far; the upload is not built yet): a house that is
+lived in can be given a floor plan (`server/src/plan.ts`): up to two floors of rectangular rooms in
+metres, doors between them, a staircase and a front door. `normalisePlan` tidies a rough plan (as read
+off a picture) into one that can be built: rooms kept from overlapping, the plan turned so the front
+door is at the origin, every room given a way in, the staircase made to fit both floors with standing
+room at each end. The house is then built from it at its true size (`buildInterior` with a plan),
+`PLAN_LIFT_M` (three kilometres) straight above the real house, where the fog hides it from the
+ground: going in at the front door lifts the player there, coming out sets them down in the street,
+and the stairs are walked up. A game that does not ask for the planned house (`?plan=1`) is given the
+ordinary rooms. Things on show stand against walls there; free placing does not work in it yet.
+
 Free placing (in the browser so far): anything on show in your house can be put where you like. Stand
 in the house where you want it and press Here under it in the house panel: it is put down a step in
 front of you, facing you, square to the walls, and the room's own furniture arranges itself round

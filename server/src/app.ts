@@ -411,10 +411,13 @@ export function createApp(options: AppOptions = {}): App {
         const lived = homes.at(x, y, id);
         if (lived) {
           if (lived.gen !== GENERATOR_REV) homes.measured(lived, await measureHome(x, y, id).catch(() => null), GENERATOR_REV); // the world was made again since
-          const key = `${x}/${y}/${id}/${lived.rev}`;
+          // A game that knows about houses built from their owner's plan asks for that (`?plan=1`), and is given it far
+          // above the real house; any other is given the house's ordinary rooms, where it expects them.
+          const planned = url.searchParams.get("plan") === "1" && lived.plan ? lived.plan : null;
+          const key = `${x}/${y}/${id}/${lived.rev}${planned ? "/plan" : ""}`;
           let inside = furnished.get(key);
           if (!inside) {
-            inside = furnishedInterior(x, y, lived.home, lived.decor);
+            inside = furnishedInterior(x, y, lived.home, lived.decor, planned);
             if (furnished.size >= 40) furnished.delete(furnished.keys().next().value!);
             furnished.set(key, inside);
           }

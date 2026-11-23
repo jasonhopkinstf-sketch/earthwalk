@@ -13,6 +13,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { HomeDoor } from "./chunk.ts";
+import { checkedPlan, type HousePlan, PLAN_LIFT_M } from "./plan.ts";
 
 /** What can be swapped: the paint on the walls, the floors, the sofa, the beds, the rugs; and prizes put on show. */
 export type Slot = "walls" | "floor" | "sofa" | "bed" | "rug" | "prize";
@@ -189,12 +190,20 @@ export interface Lived {
   gen: number;
   /** The young animals in its garden. Missing in houses from before there were any. */
   garden?: Young[];
+  /** A floor plan of its owner's own (plan.ts): the inside is then built from it, at its true size. */
+  plan?: HousePlan;
 }
 /** What everybody is told of a house that is lived in: `garden` is the animals before its door, each with what it is and how big (0.45 to 1). */
-export interface LivedView { x: number; y: number; id: number; lat: number; lon: number; yaw: number; name: string; rev: number; garden?: { sp: string; size: number }[] }
+export interface LivedView {
+  x: number; y: number; id: number; lat: number; lon: number; yaw: number; name: string; rev: number; garden?: { sp: string; size: number }[];
+  /** For a house built from its owner's plan: how far above the real house its inside stands (the front door leads there), and how many floors it has. */
+  lift?: number;
+  floors?: number;
+}
 export const viewOfLived = (l: Lived): LivedView => ({
   x: l.x, y: l.y, id: l.id, lat: l.lat, lon: l.lon, yaw: l.yaw, name: l.name, rev: l.rev,
   ...(l.garden?.length ? { garden: l.garden.map((y) => ({ sp: y.sp, size: Math.round(sizeOf(y) * 100) / 100 })) } : {}),
+  ...(l.plan ? { lift: PLAN_LIFT_M, floors: l.plan.floors.length } : {}),
 });
 
 export const houseKey = (x: number, y: number, id: number): string => `${x}/${y}/${id}`;
@@ -230,6 +239,8 @@ export class Homes {
     for (const l of kept) {
       if (!l || typeof l.owner !== "string" || !l.home || this.byOwner.has(l.owner)) continue;
       const lived: Lived = { ...l, lasting: true, decor: cleanDecor(l.decor), rev: l.rev | 0 };
+      const plan = l.plan ? checkedPlan(l.plan) : null; // a plan that no longer passes is forgotten, and the house is as it was built
+      if (plan) lived.plan = plan; else delete lived.plan;
       this.byKey.set(houseKey(l.x, l.y, l.id), lived);
       this.byOwner.set(l.owner, lived);
     }
@@ -256,7 +267,7 @@ export class Homes {
     const before = this.byOwner.get(owner) ?? null;
     if (!before && this.byKey.size >= HOMES_MAX) return { got: "full", left: null };
     if (before) this.byKey.delete(houseKey(before.x, before.y, before.id));
-    const lived: Lived = { ...where, owner, name, lasting, decor: before?.decor ?? emptyDecor(), rev: this.tick(), since: this.now(), ...(before?.garden?.length ? { garden: before.garden } : {}) }; // the animals move house too
+    const lived: Lived = { ...where, owner, name, lasting, decor: before?.decor ?? emptyDecor(), rev: this.tick(), since: this.now(), ...(before?.garden?.length ? { garden: before.garden } : {}), ...(before?.plan ? { plan: before.plan } : {}) }; // the animals move house too, and so does a plan of one's own
     this.byKey.set(key, lived);
     this.byOwner.set(owner, lived);
     this.keep();
@@ -281,6 +292,16 @@ export class Homes {
     if (edit.name && edit.name !== lived.name) lived.name = edit.name;
     lived.rev = this.tick();
     this.keep();
+    return lived;
+  }
+
+  /** Gives a house the plan of its owner's own (already checked), or with null goes back to the rooms it was built with. Returns it, or null when they have none. */
+  setPlan(owner: string, plan: HousePlan | null): Lived | null {
+    const lived = this.byOwner.get(owner);
+    if (!lived) return null;
+    if (plan) lived.plan = plan; else delete lived.plan;
+    lived.rev = this.tick();
+    if (lived.lasting) this.keep();
     return lived;
   }
 
