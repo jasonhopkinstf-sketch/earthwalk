@@ -61,6 +61,7 @@ settings (environment variables):
 | `EARTHWALK_OVERTURE` | `0` leaves Overture Maps out: no buildings or named places beyond OpenStreetMap's own |
 | `EARTHWALK_OVERTURE_LEAVE_OUT` | Sets of building outlines within Overture to leave out, by Overture's name for them, comma-separated (for example `Google Open Buildings`; by default none is left out) |
 | `EARTHWALK_COVER` | `0` leaves the satellite maps out: ground cover and tree heights only where OpenStreetMap gives them |
+| `EARTHWALK_CROWDED` | How many buildings of its own a chunk may have before it is drawn more plainly (default 400; `0` never). Every house of such a chunk keeps its walls, roof and front door, and goes without a house's chimney, porch, front garden, door step and the parapet of a flat roof. Without it one arrival in the old middle of Jaipur was 66 MB; with it 34 MB |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
 | `EARTHWALK_WEATHER` | `0` turns the live weather off: every game then has its fine day (see "The weather" in [docs/PROTOCOL.md](docs/PROTOCOL.md)) |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |

@@ -1226,7 +1226,7 @@ public:
 		// (Open-Meteo asks to be named wherever its weather is shown.)
 		return (bPhotoWorld
 			? FString::Printf(TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors"), *GameVersion())
-			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion()))
+			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors, Overture Maps Foundation  ·  ESA WorldCover  ·  Meta & WRI"), *GameVersion()))
 			+ (bWeather ? TEXT("  ·  Weather data by Open-Meteo.com") : TEXT(""));
 	}
 	/** bGoogleLine: the plugin is drawing Google's own credit line, which can start before the tiles are shown. bWeather: the real weather is being drawn. */
