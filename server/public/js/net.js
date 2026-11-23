@@ -384,6 +384,9 @@ export class Meetup extends EventTarget {
       case "stamp":
         this.emit("stamp", msg); // I earned something
         break;
+      case "progress":
+        this.emit("progress", msg); // my points rose, or where I stand as I come in (progress.js)
+        break;
       case "say":
         if (typeof msg.thing === "number") this.emit("say", msg); // a thing spoke, to me or to someone nearby
         break;

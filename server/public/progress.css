@@ -1,0 +1,37 @@
+/* The progress bar (js/progress.js): my level, its name, how far to the next and the nearest next step.
+   It sits just above the five hearts, bottom right, so that health and progress are read together. */
+#progress { position: fixed; right: 14px; bottom: 114px; width: 258px; display: flex; align-items: center; gap: 9px; text-align: left; background: var(--panel); color: #fff; border: 0; border-radius: 16px; padding: 6px 12px 7px 7px; font: inherit; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, .35); }
+#progress[hidden] { display: none; }
+#progress:hover { background: rgba(34, 42, 54, .9); }
+#progress .badge { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, #ffe58a, #f2c94c 55%, #d49a1a); color: #3a2c08; font-size: 19px; font-weight: 800; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .18), 0 0 0 2px rgba(255, 255, 255, .25); font-variant-numeric: tabular-nums; }
+#progress .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+#progress .title { font-size: 14px; font-weight: 700; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#progress .track { display: block; height: 9px; border-radius: 5px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+#progress .fill { display: block; height: 100%; width: 0; border-radius: 5px; background: linear-gradient(90deg, #5fae4e, #9bd45a); transition: width .6s cubic-bezier(.2, .8, .2, 1); }
+#progress .fill.jump { transition: none; }
+#progress .hint { font-size: 11.5px; line-height: 1.2; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Points have just arrived: the bar shines for a moment. */
+#progress.gain .fill { background: linear-gradient(90deg, #f2c94c, #ffe58a); box-shadow: 0 0 8px rgba(242, 201, 76, .9); }
+#progress.gain .badge { animation: progress-bump .5s ease-out; }
+@keyframes progress-bump { 0% { transform: scale(1); } 40% { transform: scale(1.22); } 100% { transform: scale(1); } }
+/* The note that says what earned them, popping up above the bar. */
+#progress .note { position: absolute; right: 0; bottom: calc(100% + 8px); max-width: 320px; display: flex; align-items: baseline; gap: 7px; background: #f6efd9; color: #2b2620; border-radius: 12px; padding: 5px 12px 6px; font-size: 14px; line-height: 1.25; box-shadow: 0 3px 12px rgba(0, 0, 0, .4); pointer-events: none; animation: progress-note .45s cubic-bezier(.2, 1.4, .4, 1) both; }
+#progress .note[hidden] { display: none; }
+#progress .note b { flex: none; color: #2f7d32; font-size: 17px; font-weight: 800; }
+#progress .note::after { content: ""; position: absolute; right: 34px; top: 100%; border: 7px solid transparent; border-top-color: #f6efd9; border-bottom: 0; }
+@keyframes progress-note { 0% { transform: translateY(14px) scale(.7); opacity: 0; } 100% { transform: none; opacity: 1; } }
+/* A new level: a glow round the bar, a bigger note, and a burst of paper from the badge. */
+#progress.up { box-shadow: 0 0 0 2px #f2c94c, 0 0 22px rgba(242, 201, 76, .9); }
+#progress.up .badge { animation: progress-level 1s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes progress-level { 0% { transform: scale(.3) rotate(-200deg); } 60% { transform: scale(1.45) rotate(10deg); } 100% { transform: none; } }
+#progress .note.up { flex-direction: column; align-items: flex-start; gap: 0; padding: 8px 16px 9px; border: 3px solid #f2c94c; font-size: 14px; }
+#progress .note.up b { color: #8a5a00; font-size: 24px; line-height: 1.1; }
+#progress .note.up::after { border-top-color: #f2c94c; }
+#progress .party { position: absolute; left: 26px; top: 50%; width: 0; height: 0; pointer-events: none; }
+#progress .party i { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 2px; opacity: 0; animation: progress-paper 1.5s ease-out both; }
+@keyframes progress-paper { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(var(--dx), calc(var(--dy) + 60px)) rotate(var(--spin)); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #progress .fill { transition: none; }
+  #progress .note, #progress.gain .badge, #progress.up .badge { animation: none; }
+  #progress .party { display: none; }
+}
