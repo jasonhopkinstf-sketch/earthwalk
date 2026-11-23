@@ -174,7 +174,7 @@ kbd { flex: none; background: #f5c518; color: #26221f; border-radius: 5px; paddi
 #talkbox .replies button:hover { background: #f5c518; }
 #talkbox input { width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 2px solid #26221f; background: #fff; color: #26221f; font: inherit; font-size: 16px; color-scheme: light; }
 #talkbox input:focus { outline: 2px solid #f5c518; }
-body.talking #ride { display: none; }
+body.talking #ride, body.talking #speedo { display: none; }
 @media (max-width: 1180px) { #talkbox { left: 50%; bottom: 310px; } }
 /* "What's new": a card on arriving, with what has been added since last time. */
 #news { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(696px, calc(100vw - 24px)); background: rgba(22, 28, 38, .96); border-radius: 14px; padding: 20px 28px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); z-index: 6; }
