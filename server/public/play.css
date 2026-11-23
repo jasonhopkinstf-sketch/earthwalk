@@ -159,6 +159,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 kbd { flex: none; background: #f5c518; color: #26221f; border-radius: 5px; padding: 1px 7px 2px; font: inherit; font-size: 12px; font-weight: 700; box-shadow: 0 2px 0 rgba(0, 0, 0, .35); }
 @media (max-width: 1100px) { #menu .groups { columns: 2; } }
 @media (max-width: 700px) { #menu .groups { columns: 1; } }
+/* The conversation with a thing: a speech bubble at the foot of the screen, beside the chat. */
+#talkbox { position: fixed; left: max(50%, 852px); bottom: 84px; transform: translateX(-50%); width: min(600px, calc(100vw - 24px)); background: rgba(255, 253, 244, .97); color: #26221f; border: 3px solid #26221f; border-radius: 20px; padding: 12px 20px 14px; box-shadow: 0 6px 22px rgba(0, 0, 0, .45); z-index: 4; }
+#talkbox::before { content: ""; position: absolute; left: 50%; top: -15px; width: 24px; height: 24px; margin-left: -12px; background: inherit; border-left: 3px solid #26221f; border-top: 3px solid #26221f; transform: rotate(45deg); border-top-left-radius: 5px; }
+#talkbox .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; position: relative; }
+#talkbox .name { font-size: 18px; font-weight: 700; color: #8a4f2d; }
+#talkbox .dim { font-size: 12px; opacity: .6; }
+#talkbox .words { font-size: 19px; line-height: 1.35; margin-top: 4px; min-height: 1.35em; overflow-wrap: anywhere; }
+#talkbox .mine { font-size: 13px; font-style: italic; opacity: .6; margin-top: 6px; overflow-wrap: anywhere; }
+#talkbox .replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+#talkbox .replies button { background: #f5e9c4; color: #26221f; border: 2px solid #26221f; border-radius: 14px; padding: 3px 11px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+#talkbox .replies button:hover { background: #f5c518; }
+#talkbox input { width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 2px solid #26221f; background: #fff; color: #26221f; font: inherit; font-size: 16px; color-scheme: light; }
+#talkbox input:focus { outline: 2px solid #f5c518; }
+body.talking #ride { display: none; }
+@media (max-width: 1180px) { #talkbox { left: 50%; bottom: 310px; } }
 /* The question an action asks: where to, who, which. */
 #ask { position: fixed; top: 170px; left: 50%; transform: translateX(-50%); width: min(584px, calc(100vw - 24px)); background: rgba(22, 28, 38, .94); border-radius: 12px; padding: 16px 22px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); z-index: 7; }
 #ask .title { font-size: 21px; font-weight: 700; }

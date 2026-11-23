@@ -1,6 +1,8 @@
-// The menu of everything (Tab), and the small box that asks "Where to?" when a thing to do needs a
-// place or a name. What there is to do is the table in actions.js; what each one does is main.js's
-// business (`act`, and `answer` for what was typed into the box). The Windows game's is SEarthMenu
+// The menu of everything (Tab), the strip of buttons along the bottom, the small box that asks
+// "Where to?" when a thing to do needs a place or a name, and the speech bubble at the foot of the
+// screen in which a thing is talked to. What there is to do is the table in actions.js; what each one
+// does is main.js's business (`act`, `answer` for what was typed into the box, `talkSay` and
+// `talkEnd` for the conversation). The Windows game's is SEarthMenu
 // (game/Source/EarthWalk/EarthMenu.cpp), and this is laid out the same way.
 
 import { ACTIONS, actionGroups, findAction } from "./actions.js";
@@ -22,7 +24,8 @@ function keepFocus(node) {
 
 export class Menu {
   /**
-   * @param {{ panel: HTMLElement, askBox: HTMLElement, strip: HTMLElement, act: (id: string) => void, answer: (id: string, text: string) => void }} parts
+   * @param {{ panel: HTMLElement, askBox: HTMLElement, strip: HTMLElement, talkBox: HTMLElement, act: (id: string) => void,
+   *   answer: (id: string, text: string) => void, talkSay: (words: string) => void, talkEnd: () => void }} parts
    */
   constructor(parts) {
     Object.assign(this, parts);
@@ -30,6 +33,84 @@ export class Menu {
     this.buildMenu();
     this.buildAsk();
     this.buildStrip();
+    this.buildTalk();
+  }
+
+  // ---------------------------------------------------------------- the conversation with a thing
+  buildTalk() {
+    const head = el("div", "head");
+    this.talkName = el("span", "name");
+    head.append(this.talkName, el("span", "dim", "Esc to finish"));
+    this.talkWords = el("div", "words");
+    this.talkMine = el("div", "mine");
+    this.talkReplies = el("div", "replies");
+    this.talkInput = el("input");
+    this.talkInput.maxLength = 300;
+    this.talkInput.autocomplete = "off";
+    this.talkBox.replaceChildren(head, this.talkWords, this.talkMine, this.talkReplies, this.talkInput);
+    keepFocus(this.talkBox); // the typing line keeps the keyboard when a reply is clicked
+    this.talkReplies.addEventListener("click", (e) => {
+      const words = e.target.closest("button")?.dataset.words;
+      if (words) this.talkSay(words);
+    });
+    // Enter says it and leaves the line ready for the next thing.
+    this.talkInput.addEventListener("keydown", (e) => {
+      if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
+      e.preventDefault();
+      const typed = this.talkInput.value.trim();
+      this.talkInput.value = "";
+      if (typed) this.talkSay(typed);
+    });
+  }
+
+  get talking() {
+    return !this.talkBox.hidden;
+  }
+
+  /** Opens the bubble on a thing: its name, and a few things to say with one click (each [label, words]). */
+  showTalk(name, replies) {
+    this.close();
+    document.exitPointerLock?.();
+    this.setTalkName(name);
+    this.talkWords.textContent = "...";
+    this.setTalkMine("");
+    this.talkInput.value = "";
+    this.talkReplies.replaceChildren(...replies.map(([label, words]) => {
+      const button = el("button", "", label);
+      button.type = "button";
+      button.dataset.words = words;
+      return button;
+    }));
+    this.talkBox.hidden = false;
+    document.body.classList.add("talking");
+    this.talkInput.focus();
+  }
+
+  closeTalk() {
+    if (!this.talking) return;
+    this.talkBox.hidden = true;
+    document.body.classList.remove("talking");
+    this.talkInput.blur();
+  }
+
+  focusTalk() {
+    if (this.talking && !this.asking) this.talkInput.focus();
+  }
+
+  setTalkName(name) {
+    this.talkName.textContent = name;
+    this.talkInput.placeholder = `Say something to ${name}, and press Enter`;
+  }
+
+  /** What the thing has just said. */
+  setTalkWords(text) {
+    this.talkWords.textContent = text;
+  }
+
+  /** What I said to it last, small, under its words. */
+  setTalkMine(text) {
+    this.talkMine.hidden = !text;
+    this.talkMine.textContent = text;
   }
 
   // ---------------------------------------------------------------- the strip of buttons
@@ -143,12 +224,21 @@ export class Menu {
     this.askBox.hidden = true;
     this.askInput.blur();
     if (text) this.answer(action.id, text);
+    this.focusTalk(); // asked from inside a conversation ("Take me to..."): back to it
   }
 
-  /** Esc: everything of the menu's that is up goes away. */
+  /**
+   * Esc: the box that asks goes first, by itself (a change of mind is not the end of the conversation);
+   * otherwise the menu and the conversation both go. True if only the box went.
+   */
   escape() {
+    if (this.asking) {
+      this.askDone("");
+      return true;
+    }
     this.close();
-    this.askDone("");
+    if (this.talking) this.talkEnd();
+    return false;
   }
 }
 

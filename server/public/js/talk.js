@@ -1,6 +1,7 @@
 // Talking to things. Walk up to an animal, a car, a train, a tree or a house and press T: it says
-// hello, and what you then type goes to it instead of to the room. Its answers appear in a speech
-// bubble above it, for everyone nearby, and in the chat log.
+// hello in a speech bubble of its own at the foot of the screen (menu.js), with a line there to
+// answer on. What it says also floats in a bubble above it, for everyone nearby. None of it goes
+// into the chat window: that is for people.
 //
 // Who each thing is (its name, its character) is decided on the server from its identity, so it is
 // the same for everyone (docs/PROTOCOL.md, "Talking").
@@ -76,7 +77,8 @@ export class Talk {
   /**
    * @param {{ scene: THREE.Scene, world: import("./world.js").World, player: import("./player.js").Player, meetup: import("./net.js").Meetup,
    *   life: import("./life.js").Life, traffic: import("./traffic.js").Traffic, riding: import("./riding.js").Riding,
-   *   hint: (text: string) => void, line: (text: string, kind: string, name: string) => void, changed: () => void }} parts
+   *   hint: (text: string) => void, said: (msg: { thing: number, sp: string, name: string, text: string }) => void, changed: () => void }} parts
+   *   `said` hears everything a thing says near me; `changed` is told when who I am talking to changes, or has told me its name.
    */
   constructor(parts) {
     Object.assign(this, parts);
@@ -166,7 +168,7 @@ export class Talk {
       this.sinceScan = 0;
       if (p.waitingForGround) this.near = null; else this.scan();
       if (this.to && (p.waitingForGround || Math.hypot(this.to.x - p.position.x, this.to.z - p.position.z) > WALKED_OFF_M)) this.stop();
-      this.hint(this.to ? `Talking to ${this.title(this.to)} · Enter to speak · Esc to stop` : this.near ? `T: talk to ${this.title(this.near)}` : "");
+      this.hint(!this.to && this.near ? `T: talk to ${this.title(this.near)}` : "");
     }
     const now = performance.now();
     for (const [thing, b] of this.bubbles) {
@@ -184,9 +186,7 @@ export class Talk {
     if (!CALLED[msg.sp] || typeof msg.text !== "string" || typeof msg.name !== "string") return;
     const { world, meetup } = this;
     this.names.set(msg.thing, msg.name);
-    const who = msg.by === meetup.me?.id ? meetup.me.name : meetup.peers.get(msg.by)?.name ?? "Someone";
-    if (msg.q) this.line(msg.q, "", `${who} to ${msg.name}`);
-    this.line(msg.text, "thing", `${msg.name} the ${CALLED[msg.sp]}`);
+    this.said(msg);
 
     // Where is it? Beside me if I can see it; otherwise where the player who spoke to it stands.
     let at = this.to?.thing === msg.thing ? this.to : null;

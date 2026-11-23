@@ -24,6 +24,7 @@ import { Treasure } from "./treasure.js";
 import { Showcase } from "./showcase.js";
 import { Talk } from "./talk.js";
 import { findAction, Menu } from "./menu.js";
+import { quickReplies } from "./actions.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
@@ -76,8 +77,9 @@ const riding = new Riding({
 const talk = new Talk({
   scene, world, player, meetup, life, traffic, riding,
   hint: (text) => { if (hints.talk !== text) { hints.talk = text; showHints(); } },
-  line: (text, kind, name) => addLine(text, kind, name),
-  changed: () => { $("say").placeholder = talk.to ? `Say something to ${talk.title(talk.to)}...` : "Press Enter to chat. Type /help for commands."; },
+  // What a thing says goes into its own bubble at the foot of the screen, never into the chat window.
+  said: (msg) => { if (menu.talking && talk.to?.thing === msg.thing) menu.setTalkWords(msg.text); },
+  changed: () => { if (!talk.to) menu.closeTalk(); else if (menu.talking) menu.setTalkName(talkName()); },
 });
 life.riding = riding;
 traffic.riding = riding;
@@ -105,7 +107,27 @@ const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, 
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 // The menu of everything (Tab), and the box that asks "Where to?" (menu.js).
-const menu = new Menu({ panel: $("menu"), askBox: $("ask"), strip: $("strip"), act: (id) => menuAction(id), answer: (id, text) => askDone(id, text) });
+const menu = new Menu({
+  panel: $("menu"), askBox: $("ask"), strip: $("strip"), talkBox: $("talkbox"),
+  act: (id) => menuAction(id), answer: (id, text) => askDone(id, text), talkSay: (words) => talkSay(words), talkEnd: () => talk.stop(),
+});
+/** "Daisy the cow"; "The cow" until she has said who she is. */
+const talkName = () => talk.title(talk.to).replace(/^./, (c) => c.toUpperCase());
+/** The conversation with a thing opens: its bubble at the foot of the screen, with a line to type on. */
+function openTalk() {
+  if (!talk.to || menu.talking) return;
+  passport.close();
+  showcase.close();
+  menu.showTalk(talkName(), quickReplies(talk.to.sp, riding.mine?.thing === talk.to.thing));
+}
+/** Something said to the thing: typed on its line, or one of the things to say with one click. */
+function talkSay(words) {
+  if (!talk.to || !words) return;
+  if (words === "...") return menuAction("taketo"); // "Take me to...": where to, first
+  talk.say(words);
+  menu.setTalkMine(`You: ${words}`);
+  menu.setTalkWords("...");
+}
 // The strip of buttons along the bottom: there unless it was hidden (Z), and that is remembered.
 let stripOn = saved.strip !== "off";
 menu.showStrip(stripOn);
@@ -418,11 +440,12 @@ function rideKey() {
   if (houses.near && !riding.mine && !riding.near) void houses.use();
   else riding.key();
 }
-/** T: in a round-up the animal beside me follows at once; otherwise say hello, then type. True if there was something to talk to. */
+/** T: in a round-up the animal beside me follows at once; otherwise it says hello in its bubble, with a line to answer on. True if there was something to talk to. */
 function talkKey() {
   if (play.lead()) return true;
+  if (menu.talking) { menu.focusTalk(); return true; } // back to the line, after a walk about
   if (!talk.begin()) return false;
-  say.focus();
+  openTalk();
   return true;
 }
 /** R: join or start the game that is set up here; failing one, a race. */
@@ -493,7 +516,10 @@ function askDone(id, text) {
   const action = findAction(id);
   if (id === "taketo") {
     // Said to whatever I am on (or in): "take me to the beach".
-    if (riding.mine && talk.beginRide()) talk.say(`take me to ${text}`);
+    if (riding.mine && talk.beginRide()) {
+      openTalk();
+      talkSay(`take me to ${text}`); // it answers in its bubble
+    }
     else notice("Hop on something first (E beside an animal or a car), then ask it to take you. Or call a taxi: it comes to you.");
   } else if (action) void command(action.command, text);
 }
@@ -509,8 +535,8 @@ addEventListener("keydown", (e) => {
     menu.close();
     say.focus();
   } else if (e.code === "Escape") {
+    if (menu.escape()) return; // only the box that asked went: a change of mind
     if (document.activeElement === say) say.blur();
-    menu.escape();
     passport.close();
     showcase.close();
     decor.close();
@@ -553,10 +579,8 @@ say.addEventListener("keydown", (e) => {
   if (text.startsWith("/")) {
     const space = text.indexOf(" ");
     command(text.slice(1, space < 0 ? undefined : space).toLowerCase(), space < 0 ? "" : text.slice(space + 1).trim());
-  } else if (talk.to) {
-    talk.say(text); // to the cow, not to the room
   } else {
-    meetup.sendChat(text);
+    meetup.sendChat(text); // to the room, always: a thing is spoken to on the line of its own bubble
   }
 });
 
@@ -612,9 +636,9 @@ async function command(name, arg) {
     notice("    until it is grown, and then it gives you an egg, wool, a truffle or milk every day (H by your front door shows it too)");
     notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");
     notice("    and the mouse looks round the car");
-    notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
-    notice("    and tell it what to do: follow me, come here, stay, go home, do a trick, make your noise;");
-    notice("    riding it, say where to: take me to the beach");
+    notice("T   talk to the animal, car, train, tree or house beside you: it answers in a bubble with a line to type on. Esc finishes.");
+    notice("    Tell it what to do, with the buttons in the bubble or in your own words: follow me, come here, stay, go home,");
+    notice("    do a trick, make your noise. Riding it: take me to the beach");
     notice("    ask anything \"can I help?\" and it may ask you a favour: a ride, a walk, a hello to pass on");
     notice("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,");
     notice("    your coins and hats, countries, places, friends,");
@@ -765,4 +789,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, menuAction, openTalk, talkSay, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
