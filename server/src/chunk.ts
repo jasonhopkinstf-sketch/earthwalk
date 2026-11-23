@@ -19,13 +19,6 @@ export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
 export const GENERATOR_REV = 15;
-/**
- * More buildings of its own than this, and a chunk is drawn more plainly (0: never). A TRIAL, off unless
- * the setting EARTHWALK_CROWDED gives a number, until the game's owner has chosen. Measured 2026-11-24 on
- * one arrival in the old middle of Jaipur (25 chunks of 224 to 945 buildings): 84 MB as it is, 66 MB with
- * 600, 55 MB with 400. Devonport's fullest chunks have 460 to 530.
- */
-const CROWDED = Number(process.env.EARTHWALK_CROWDED ?? 0) || 0;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -1359,11 +1352,6 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
 
   /** How many 3D pieces this chunk has drawn: a city centre mapped piece by piece is capped. */
   let partsDrawn = 0;
-  // A chunk with a great many buildings of its own (the old middle of a city, mapped house by house) is drawn
-  // more plainly: every house keeps its walls, roof and front door, and goes without what is small or beside
-  // it (the door's step and knob, a porch, a chimney, a front garden). Otherwise such a chunk is four
-  // megabytes to send, most of it those. (TRIAL: behind a setting until the game's owner has seen both.)
-  const crowded = CROWDED > 0 && footprints.filter(([fx, fy]) => fx >= cx && fx < cx + 1 && fy >= cy && fy < cy + 1).length > CROWDED;
   /** A building's front: the wall facing the nearest road (failing any, its longest), as its middle, the way along it, the way out and its length. */
   const frontOf = (ring: XY[]): { x: number; y: number; t: XY; o: XY; len: number; from: XY } | null => {
     let front = -1;
@@ -1574,7 +1562,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     const ridge = addRoof(ring, top, roofed, areaM2, wallHeight, roofLook, walls, sec(roofMat), sec(flatMat), sec(MATERIALS.trim), holes);
 
     // A chimney astride the ridge of most houses, where houses have them, and on some city roofs.
-    if (!crowded && ridge && (h >>> 16) % 5 < (homely ? style.chimneys : block && tier === 2 ? style.cityChimneys : 0)) {
+    if (ridge && (h >>> 16) % 5 < (homely ? style.chimneys : block && tier === 2 ? style.cityChimneys : 0)) {
       const across: XY = [-ridge.along[1], ridge.along[0]];
       box(sec(MATERIALS.chimney), ridge.x, ridge.y, ridge.along, across, -0.38, 0.38, -0.38, 0.38, ridge.z - 0.6, ridge.z + 1.0, true);
       box(sec(painted(MATERIALS.trim, 0x4f5560)), ridge.x, ridge.y, ridge.along, across, -0.46, 0.46, -0.46, 0.46, ridge.z + 1.0, ridge.z + 1.12, true, true);
@@ -1621,7 +1609,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(leaf, x, y, t, o, -1.5, -0.04, 0.1, 0.16, g + 0.02, g + 3.0);
           box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
         } else {
-          const porch = !crowded && homely && (h >>> 21) % 2 === 0 && top - g > 3.4;
+          const porch = homely && (h >>> 21) % 2 === 0 && top - g > 3.4;
           shell.door = { x, y, along: t, out: o };
           // A house can be walked into. A plain four-square one gives the whole of itself to its
           // rooms; one of any other shape, or a very big one, the largest rectangle that fits
@@ -1639,10 +1627,8 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           }
           box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.5);
           box(sec(painted(MATERIALS.door, style.doors[(h >>> 18) % style.doors.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
-          if (!crowded) {
-            box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
-            box(sec(painted(MATERIALS.trim, 0xcfc8b8)), x, y, t, o, -0.85, 0.85, 0, 0.55, g - 0.4, g + 0.12);
-          }
+          box(sec(painted(MATERIALS.door, 0xe6c04a)), x, y, t, o, 0.3, 0.38, 0.14, 0.2, g + 1.0, g + 1.08, false, true);
+          box(sec(painted(MATERIALS.trim, 0xcfc8b8)), x, y, t, o, -0.85, 0.85, 0, 0.55, g - 0.4, g + 0.12);
           if (porch) {
             // A porch: a small roof over the door on two posts.
             box(sec(roofMat), x, y, t, o, -0.98, 0.98, 0, 1.0, g + 2.62, g + 2.76, false, true);
@@ -1654,7 +1640,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           // white fence or a low wall (whichever the place favours) with a gap for the gate. Only
           // houses have one, and only where there is room before the road's edge.
           const depth = Math.min(bestGap - 0.4, 5.5);
-          if (!crowded && homely && depth >= 2.2) {
+          if (homely && depth >= 2.2) {
             const at2 = (w: number, d: number): [number, number, number] => {
               const e = x + t[0] * w + o[0] * d, n = y + t[1] * w + o[1] * d;
               return [e, n, ground(cx + e / S, cy - n / S)];
