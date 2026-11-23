@@ -9,6 +9,7 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-
 import { decodeChunk, GRID, terrainHeight } from "./chunk.js";
 import { CHUNK_Z, TILES, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.js";
 import { look, onLook, paint, surfaceColor, unlined } from "./look.js";
+import { swayPatch } from "./sway.js";
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -79,6 +80,9 @@ const WINDOWS = `
       float bars = min(1.0, step(x, 0.04) + step(abs(y - 1.65), 0.04));
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.88, 0.8), frame);
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.4, 0.62), glass * (1.0 - bars));
+      // After dark a lamp is lit behind two windows in three (uNight: look.js).
+      float lamp = step(0.34, fract(sin(floor(vWall.x / bay) * 12.9898 + row * 78.233 + vWall.z * 3.7) * 43758.5453));
+      totalEmissiveRadiance += vec3(1.0, 0.74, 0.30) * glass * (1.0 - bars) * lamp * uNight;
     }
   }
 `;
@@ -163,8 +167,8 @@ const ENTRY_DARK = paint({ color: 0x4a4640 }, { world: true });
 /** What goes over the door of a place the map gives no name. */
 export const PLACE_WORDS = { office: "OFFICE", shop: "SHOP", cafe: "CAFÉ", mall: "SHOPS", lobby: "COME IN" };
 const BARK = paint({ color: 0x5a3d2a }, { world: true });
-const LEAF = paint({ color: 0x3f8a2f, flatShading: true }, { world: true });
-const NEEDLE = paint({ color: 0x2f6b2f, flatShading: true }, { world: true });
+const LEAF = paint({ color: 0x3f8a2f, flatShading: true }, { world: true, patch: swayPatch }); // (the crowns lean in the wind: sway.js)
+const NEEDLE = paint({ color: 0x2f6b2f, flatShading: true }, { world: true, patch: swayPatch });
 /** In the flat look a crown is a smooth ball in three even levels, not a cut stone. */
 function shadeTrees() {
   const faceted = look.name !== "flat";

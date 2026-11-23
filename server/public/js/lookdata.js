@@ -60,7 +60,7 @@ export const FLAT = {
   cloudInk: 1.7,
 };
 /** The sky's dials that do not change with the look (M_EarthSky). */
-export const SKY = { bright: 0.9, cloudBright: 1.5, clouds: 0.66, cloudInk: 1, drift: 0.0025, sunSize: 0.05 };
+export const SKY = { bright: 0.9, cloudBright: 1.5, clouds: 0.66, cloudInk: 1, drift: 0.0025, sunSize: 0.05, moonSize: 0.045 };
 
 /**
  * What "/look ..." asked for: { name, lines } with `lines` false for "flat nolines" (the black line

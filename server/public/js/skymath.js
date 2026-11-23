@@ -149,10 +149,11 @@ const AIR = {
   dusk: { zenith: [0.10, 0.13, 0.46], mid: [0.42, 0.27, 0.50], horizon: [1.0, 0.50, 0.20] },
   night: { zenith: [0.016, 0.03, 0.15], mid: [0.03, 0.065, 0.25], horizon: [0.07, 0.14, 0.36] },
 };
+// (`hour` is what the flat look, which takes no light, multiplies its colours by: the hour's own tint.)
 const LIGHT = {
-  day: { sun: [1.0, 0.89, 0.72], sky: [1, 1, 1], ground: [0.102, 0.144, 0.091], land: [1, 1, 1], cloud: [1.0, 1.0, 0.985], cloudShade: [0.56, 0.69, 0.93], flat: [0.09, 0.40, 1.0] },
-  dusk: { sun: [1.0, 0.55, 0.28], sky: [1.0, 0.80, 0.70], ground: [0.16, 0.12, 0.12], land: [0.95, 0.68, 0.56], cloud: [1.0, 0.78, 0.58], cloudShade: [0.60, 0.34, 0.50], flat: [0.80, 0.36, 0.30] },
-  night: { sun: [0.62, 0.74, 1.0], sky: [0.55, 0.68, 1.0], ground: [0.12, 0.16, 0.30], land: [0.20, 0.29, 0.52], cloud: [0.30, 0.37, 0.60], cloudShade: [0.13, 0.17, 0.34], flat: [0.03, 0.07, 0.34] },
+  day: { hour: [1, 1, 1], sun: [1.0, 0.89, 0.72], sky: [1, 1, 1], ground: [0.102, 0.144, 0.091], land: [1, 1, 1], cloud: [1.0, 1.0, 0.985], cloudShade: [0.56, 0.69, 0.93], flat: [0.09, 0.40, 1.0] },
+  dusk: { hour: [1.0, 0.80, 0.68], sun: [1.0, 0.55, 0.28], sky: [1.0, 0.80, 0.70], ground: [0.16, 0.12, 0.12], land: [0.95, 0.68, 0.56], cloud: [1.0, 0.78, 0.58], cloudShade: [0.60, 0.34, 0.50], flat: [0.80, 0.36, 0.30] },
+  night: { hour: [0.36, 0.44, 0.78], sun: [0.62, 0.74, 1.0], sky: [0.55, 0.68, 1.0], ground: [0.12, 0.16, 0.30], land: [0.20, 0.29, 0.52], cloud: [0.30, 0.37, 0.60], cloudShade: [0.13, 0.17, 0.34], flat: [0.03, 0.07, 0.34] },
 };
 /** How strong the lights are. The night's are high on purpose: a bright cartoon night that a family can play in, never black. */
 export const STRENGTH = { sun: 2.1, sky: 1.15, moon: 0.95, starlight: 0.45, nightSky: 1.3 };
@@ -170,9 +171,10 @@ export const HANDOVER_DEG = -5;
  *   day (0 night to 1 day), dusk (0 to 1: the warm light of a low sun), night (1 - day),
  *   zenith, mid, horizon: the air's colours; flatSky: the one colour of the flat look's sky;
  *   glow: added round the sun; duskGlow: added along the horizon under the sun at dusk;
- *   sunDisc: what the drawn sun's colours are multiplied by;
+ *   sunDisc: what the drawn sun's colours are multiplied by; sunShow (0 to 1: how strongly it is drawn);
  *   land: what far country under the horizon is multiplied by; haze: the colour far land sinks into (the fog's);
  *   cloud, cloudShade: the clouds' sunlit and shaded colours;
+ *   hour: what the flat look multiplies its colours by (it takes no light of its own);
  *   stars (0 to 1); moonShow (0 to 1: how strongly the moon is drawn); moonGlow;
  *   light: { from: "sun" | "moon" | "stars", alt, az, color, strength } the one light that casts;
  *   skyLight: { color, ground, strength } the light from all round.
@@ -214,13 +216,15 @@ export function skyLight(sun, moon, air = {}) {
     flatSky: greyed(blend("flat"), 0.7),
     glow: [0.10, 0.08, 0.02].map((v) => v * day * (1 - veil)),
     duskGlow: [0.55, 0.20, 0.04].map((v) => v * dusk * (1 - 0.8 * veil)),
-    sunDisc: mix3([1, 1, 1], [1.0, 0.62, 0.42], smooth(14, 0, altDeg)).map((v) => v * (1 - 0.85 * veil)),
+    sunDisc: mix3([1, 1, 1], [1.0, 0.62, 0.42], smooth(14, 0, altDeg)),
+    sunShow: (1 - 0.9 * veil) * (1 - mist),
     land, haze, fogColor,
-    cloud: greyed(blend("cloud"), 0.55).map((v) => v * (1 - 0.25 * veil)), cloudShade: greyed(blend("cloudShade"), 0.5).map((v) => v * (1 - 0.3 * veil)),
+    cloud: greyed(blend("cloud"), 0.55).map((v) => v * (1 - 0.42 * veil)), cloudShade: greyed(blend("cloudShade"), 0.5).map((v) => v * (1 - 0.48 * veil)),
     stars: smooth(-3, -10, altDeg) * (1 - veil) * (1 - mist),
     moonShow: moon ? smooth(-2, 1, moon.alt / RAD) * mix(1, 0.55, day) * (1 - 0.8 * veil) * (1 - mist) : 0,
     moonGlow: moonShine * night * (1 - veil),
     veil, mist,
+    hour: blend("hour").map((v) => v * (1 - 0.2 * veil)),
     light,
     skyLight: {
       color: greyed(blend("sky"), 0.3), ground: blend("ground"),

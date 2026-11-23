@@ -166,6 +166,8 @@ test("the night is a bright one: never black, and nothing jumps as the sun goes 
   assert.deepEqual(fine.horizon, [0.42, 0.70, 0.95]);
   assert.deepEqual(fine.cloud, [1.0, 1.0, 0.985]);
   assert.deepEqual(fine.land, [1, 1, 1]);
+  assert.deepEqual(fine.hour, [1, 1, 1]);
+  assert.ok(skyLight(sunLow(-30), noMoon).hour.every((v) => v > 0.3 && v < 0.85), "the flat look's night is dimmer than its day, and not dark");
   assert.equal(fine.light.strength, 2.1);
   assert.equal(fine.skyLight.strength, 1.15);
   assert.equal(fine.dusk, 0);

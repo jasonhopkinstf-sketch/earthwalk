@@ -5,8 +5,8 @@ export interface MoonPlace { alt: number; az: number; dec: number; ra: number; l
 export interface SkyLook {
   day: number; dusk: number; night: number;
   zenith: Rgb; mid: Rgb; horizon: Rgb; flatSky: Rgb; glow: Rgb; duskGlow: Rgb; sunDisc: Rgb;
-  land: Rgb; haze: Rgb; fogColor: Rgb; cloud: Rgb; cloudShade: Rgb;
-  stars: number; moonShow: number; moonGlow: number; veil: number; mist: number;
+  land: Rgb; hour: Rgb; haze: Rgb; fogColor: Rgb; cloud: Rgb; cloudShade: Rgb;
+  stars: number; sunShow: number; moonShow: number; moonGlow: number; veil: number; mist: number;
   light: { from: "sun" | "moon" | "stars"; alt: number; az: number; color: Rgb; strength: number };
   skyLight: { color: Rgb; ground: Rgb; strength: number };
 }
