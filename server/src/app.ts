@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { cacheRead, cacheRemove, cacheWrite, InFlight } from "./cache.ts";
+import { Gate } from "./net.ts";
 import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
@@ -95,6 +96,8 @@ export interface AppOptions {
   readCache?: (rel: string) => Promise<Buffer | null>;
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
+  /** How many chunks and label sets may be being built at one time (default 2; EARTHWALK_BUILDS_AT_ONCE overrides). */
+  buildsAtOnce?: number;
   /** Finds a place by name for "Go to...", asked from a position: the one close by, unless the whole world knows another. */
   findAround?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
@@ -266,7 +269,21 @@ export function createApp(options: AppOptions = {}): App {
   const signIn = options.signIn ?? (google ? googleSignIn(google) : undefined);
   const pendingAuth = new Map<string, { nonce: string; link: string | null; next: string; accessCode: string; created: number }>();
   const links = new Map<string, { token: string; name: string; avatar: string; created: number }>(); // game link code -> token waiting to be collected
+  // How much memory the process holds, in megabytes, and the most it has held since it started: on /health,
+  // because the live machine stops the server at 512 and nothing else says how near that is.
+  let memMost = 0;
+  const memNow = (): number => {
+    const mb = Math.round(process.memoryUsage().rss / 1048576);
+    memMost = Math.max(memMost, mb);
+    return mb;
+  };
+  setInterval(memNow, 2000).unref();
   const building = new InFlight<Buffer>();
+  // A game arriving somewhere new asks for fifty pieces at once (25 chunks and their labels). Built all
+  // together, each holds its half-made meshes while the others take their turns, and the memory that
+  // takes is what the 512 MB live machine ran out of (2026-11-23, after 0.2.47). Built a few at a time
+  // they take no longer in all: there is one processor, and they were only ever taking turns on it.
+  const buildsAtOnce = new Gate(Math.max(1, Number(process.env.EARTHWALK_BUILDS_AT_ONCE) || options.buildsAtOnce || 2));
   const coldBuilds = new Map<string, number[]>(); // caller address -> times of recent uncached builds
 
   const callerOf = (req: IncomingMessage): string => {
@@ -425,7 +442,7 @@ export function createApp(options: AppOptions = {}): App {
         return json(res, 429, { error: "exploring too fast; try again shortly" });
       }
       data = await building.get(rel, async () => {
-        const built = await build(x, y);
+        const built = await buildsAtOnce.run(() => build(x, y));
         if (keep(built)) await writeCache(rel, built); // something built with a piece missing is sent but not kept
         return built;
       });
@@ -443,7 +460,7 @@ export function createApp(options: AppOptions = {}): App {
     for (const [rel, build, keep] of pieces) {
       if (await readCache(rel)) continue;
       await building.get(rel, async () => {
-        const built = await build(x, y);
+        const built = await buildsAtOnce.run(() => build(x, y));
         if (keep(built)) await writeCache(rel, built);
         return built;
       });
@@ -592,7 +609,7 @@ export function createApp(options: AppOptions = {}): App {
         // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
       }
-      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, guide: guide.live, ...rooms.stats() });
+      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, guide: guide.live, ...rooms.stats(), mem: memNow(), memMost });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
       if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);

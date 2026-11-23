@@ -21,7 +21,7 @@ travels far.
 
 If the server was started with `EARTHWALK_ACCESS_CODE`, the chunk and place-search requests
 need it as `Authorization: Bearer <code>` (or `?code=<code>`), and the meetup `hello` needs it
-as `token`. Without it they answer `401`. `GET /health` is always open and reports
+as `token`. Without it they answer `401`. `GET /health` is always open (it also says how many megabytes of memory the server holds, `mem`, and the most since it started, `memMost`) and reports
 `codeRequired` and `googleSignIn`.
 
 A **player token** stands in for the access code everywhere the code is accepted. It is a
