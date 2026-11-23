@@ -186,6 +186,7 @@ function nameLabel(text) {
   const h = 0.035;
   sprite.scale.set((h * canvas.width) / canvas.height, h, 1);
   sprite.renderOrder = 10;
+  sprite.layers.set(1); // not on the little map (minimap.js, NOT_ON_MAP)
   return sprite;
 }
 

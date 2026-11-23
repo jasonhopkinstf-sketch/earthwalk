@@ -56,6 +56,19 @@ export function headingAt(trip, d, reach = TURN_M) {
 }
 
 /**
+ * Where a train stands to be boarded, as metres along its track: each end of its run, and every station
+ * on it (where the timetable has two points in one place, eight seconds or more apart).
+ */
+export function stopsAlong(train) {
+  const out = [0];
+  for (let i = 0; i + 1 < train.n; i++) {
+    if (train.dist[i + 1] - train.dist[i] <= 0 && train.path[(i + 1) * 3 + 2] - train.path[i * 3 + 2] >= 8) out.push(train.dist[i]);
+  }
+  out.push(train.length);
+  return out;
+}
+
+/**
  * Where a train is at shared time `t`: it waits at the start, runs out along its track (standing a
  * while at each station, where the path has two points in one place), waits at the far end and
  * runs back. A train is the same at both ends, so it never turns round.

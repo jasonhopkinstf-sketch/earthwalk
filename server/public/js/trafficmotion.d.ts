@@ -9,5 +9,6 @@ export interface TrainPose { along: number; back: boolean; moving: boolean; leg:
 export function prepare(trip: TripInput): PreparedTrip;
 export function pointAt(trip: PreparedTrip, d: number): [number, number];
 export function headingAt(trip: PreparedTrip, d: number, reach?: number): number;
+export function stopsAlong(train: PreparedTrip): number[];
 export function trainPose(train: PreparedTrip, t: number): TrainPose;
 export function tripPose(trip: PreparedTrip, t: number): CarPose;

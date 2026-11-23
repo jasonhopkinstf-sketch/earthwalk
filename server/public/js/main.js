@@ -25,6 +25,7 @@ import { Showcase } from "./showcase.js";
 import { Talk } from "./talk.js";
 import { findAction, Menu } from "./menu.js";
 import { quickReplies } from "./actions.js";
+import { MiniMap } from "./minimap.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
@@ -128,6 +129,9 @@ function talkSay(words) {
   menu.setTalkMine(`You: ${words}`);
   menu.setTalkWords("...");
 }
+// The little map in the corner (M): small unless it was made large or hidden, and that is remembered.
+const minimap = new MiniMap({ canvas: $("minimap"), renderer, scene, camera, world, player, meetup, riding, traffic, houses, orders, saved: saved.map, save: (name) => save({ map: name }) });
+const cycleMap = () => notice(minimap.cycle());
 // The strip of buttons along the bottom: there unless it was hidden (Z), and that is remembered.
 let stripOn = saved.strip !== "off";
 menu.showStrip(stripOn);
@@ -316,6 +320,7 @@ function frame(now) {
   life.update(dt, meetup.now(), everyone, camera);
   care.frame(meetup.now());
   renderer.render(scene, camera);
+  minimap.frame();
 }
 
 // ---------------------------------------------------------------- where am I?
@@ -498,6 +503,7 @@ function menuAction(id) {
   else if (id === "passport") passport.toggle();
   else if (id === "chat") say.focus();
   else if (id === "strip") toggleStrip();
+  else if (id === "map") cycleMap();
   else if (id === "above") viewKey();
   else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
   else if (id === "tricks") tricksKey();
@@ -569,6 +575,7 @@ const KEYS = {
   KeyV: viewKey,
   KeyE: rideKey,
   KeyZ: toggleStrip,
+  KeyM: cycleMap,
 };
 say.addEventListener("keydown", (e) => {
   if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
@@ -597,6 +604,8 @@ async function command(name, arg) {
     toggleMenu();
   } else if (name === "buttons") {
     toggleStrip();
+  } else if (name === "map") {
+    cycleMap();
   } else if (name === "do") {
     menuAction(arg.toLowerCase()); // one thing from the menu by its name there
   } else if (name === "houses") {
@@ -605,6 +614,8 @@ async function command(name, arg) {
       : "No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not.");
   } else if (name === "help") {
     notice("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back.");
+    notice("M   the little map in the corner: bigger, hidden, and back. It shows friends, doors that open, where trains stop, cars,");
+    notice("    and the way to where you are being taken.");
     notice("The same things as typed commands, for those who like typing:");
     notice("G   show me: a list of things to see and do, and you are taken straight to the one you pick");
     notice("    (or /show, and /show train goes at once)");
@@ -789,4 +800,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, openTalk, talkSay, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, menuAction, openTalk, talkSay, minimap, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

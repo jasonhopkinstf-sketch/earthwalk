@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import { hash32 } from "./lifemotion.js";
 import { VEHICLES } from "./liferigs.js";
-import { headingAt, pointAt, prepare, trainPose, tripPose } from "./trafficmotion.js";
+import { headingAt, pointAt, prepare, stopsAlong, trainPose, tripPose } from "./trafficmotion.js";
 
 const SHOW_M = 220;
 const MAX_PARKED = 40;
@@ -213,6 +213,24 @@ export class Traffic {
     // A driven car tilts to the ground and leans in a bend (riding.js): turned first, then nose up or down, then leaning.
     life.base.compose(this.v.set(m.x, m.y, m.z), this.q.setFromEuler(this.euler.set(m.pitch ?? 0, m.yaw, m.roll ?? 0, "YXZ")), this.s.set(size, size, size));
     life.put(rig, coat, counts, null, 0, 0, t, 0);
+  }
+
+  /**
+   * Where the trains this game has stop, within `within` metres east and south of a spot: the middle of the
+   * train as it stands at each end of its run and at every station, in scene metres. For the little map.
+   */
+  stops(from, within) {
+    const out = [];
+    for (const { train } of this.trains) {
+      if (train.n < 2) continue;
+      for (const along of stopsAlong(train)) {
+        const [x, z] = pointAt(train, TRAIN_M / 2 + (along * (train.length - TRAIN_M)) / train.length);
+        if (Math.abs(x - from.x) > within || Math.abs(z - from.z) > within) continue;
+        if (out.some((had) => Math.abs(had.x - x) + Math.abs(had.z - z) < 40)) continue; // two trains use the one station
+        out.push({ x, z });
+      }
+    }
+    return out;
   }
 
   /**

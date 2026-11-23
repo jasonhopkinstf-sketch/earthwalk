@@ -70,6 +70,7 @@ function bubble(name, text) {
   sprite.scale.set((h * canvas.width) / canvas.height, h, 1);
   sprite.center.set(0.5, 0);
   sprite.renderOrder = 11;
+  sprite.layers.set(1); // not on the little map (minimap.js, NOT_ON_MAP)
   return sprite;
 }
 
