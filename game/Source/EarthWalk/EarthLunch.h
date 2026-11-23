@@ -20,7 +20,7 @@ class SEarthLunchView;
  * little quicker on their feet for the rest of the day. Food comes from the world: a cow or a hen that
  * is talked to gives some, and so does a fruit tree.
  *
- * Not here yet: the kitchen (cooking is done in a house of one's own, which the Windows game has not got).
+ * In a house of one's own the lunch box is a kitchen too: recipes turn what is carried into meals, two helpings at a time.
  */
 UCLASS()
 class UEarthLunch : public UObject
@@ -39,11 +39,14 @@ public:
 	bool IsOpen() const { return bOpen; }
 	/** "B: buy food at ..." while a shop is within reach; empty the rest of the time. */
 	const FString& GetHint() const { return Hint; }
+	/** Says whether the player is in their own kitchen (a house of their own, or by its door), where recipes can be cooked. */
+	void SetKitchen(TFunction<bool()> InAtHome) { AtHome = MoveTemp(InAtHome); }
 
 	// What the buttons of the lunch box do.
 	void Eat(const FString& Id);
 	void Buy(const FString& Id);
 	void Give(const FString& Id);
+	void Cook(const FString& Id);
 
 private:
 	void Redraw();
@@ -71,5 +74,6 @@ private:
 	FString Hint;
 	double SinceScan = 0.0;
 	double AskJournalAt = 0.0; // when to ask for the journal (a moment after the welcome); 0 for not waiting
-	bool bTested = false;
+	TFunction<bool()> AtHome;
+	bool bHome = false; // in my own kitchen, as last looked
 };

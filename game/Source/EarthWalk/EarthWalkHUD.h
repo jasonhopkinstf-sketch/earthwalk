@@ -8,6 +8,7 @@
 class SEarthMenu;
 class UEarthMiniMap;
 class UEarthLunch;
+class UEarthHome;
 class SEarthWalkOverlay;
 class UEarthCompany;
 
@@ -103,6 +104,12 @@ private:
 	/** Food and hearts: the five hearts in the corner and the lunch box (EarthLunch.h). B opens and closes it. */
 	UPROPERTY()
 	TObjectPtr<UEarthLunch> Lunch;
+	/** A house of your own: the names over doors and the furnishing panel (EarthHome.h). H is the home key. */
+	UPROPERTY()
+	TObjectPtr<UEarthHome> House;
+	/** -EWRun's commands still to run, one after another, and when the next may (a "wait_3" among them holds the rest up). */
+	TArray<FString> RunQueue;
+	double RunNextAt = 0.0;
 
 	/**
 	 * "What's new": asks the server what has been added since the version this player last saw the

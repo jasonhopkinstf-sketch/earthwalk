@@ -153,6 +153,8 @@ public:
 	 * somebody goes in, and kept with its chunk after that. Done is told whether it is, and why not.
 	 */
 	void OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done);
+	/** How many times the house behind a door has been changed by whoever lives in it (0 for one nobody lives in). */
+	int64 HouseRev(const FEarthDoor& Door) const;
 	/** Riding, talking and telling things what to do (EarthCompany.h). */
 	UEarthCompany* GetCompany() const { return Company; }
 	/** "Show me...": the list of things to show somebody, and the going to them (EarthShowcase.h). */
@@ -235,6 +237,8 @@ private:
 	TMap<FString, TObjectPtr<UProceduralMeshComponent>> Interiors;
 	TMap<FIntPoint, TArray<FEarthDoor>> Doors;
 	TMap<FIntPoint, TArray<FEarthShop>> Shops;
+	/** Which furnishing each inside that is built shows: a house somebody lives in is fetched again when they change it. */
+	TMap<FString, int64> InteriorRevs;
 
 	/** Per chunk, which cells of the terrain (TerrainGrid a side) are water, row by row from the north-west corner. */
 	TMap<FIntPoint, TArray<uint8>> WaterMaps;

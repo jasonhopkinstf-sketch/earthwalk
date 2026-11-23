@@ -1783,6 +1783,11 @@ void UEarthCompany::DoorFrame(double Dt)
 	const AEarthWalkCharacter* Me = Player.Get();
 	bDoorNear = false;
 	double Px = 0.0, Pz = 0.0;
+	// Still in the house I went into? Not once I have been taken somewhere else, or wandered off (flying out through the roof).
+	if (bInHouse && (!Me || Me->IsWaitingForGround() || !PlayerAt(Px, Pz) || std::hypot(HouseIn.X - Px, HouseIn.Z - Pz) > 45.0 || FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H) > 12.0))
+	{
+		bInHouse = false;
+	}
 	if (Me && World.IsValid() && !Me->IsWaitingForGround() && !Me->GetMount() && !Me->IsCarried() && PlayerAt(Px, Pz))
 	{
 		const double FeetM = Me->FeetLocation().Z / 100.0;
@@ -1859,6 +1864,7 @@ void UEarthCompany::UseDoor()
 	const double Ox = std::sin(Out), Oz = -std::cos(Out);
 	if (bDoorInside)
 	{
+		bInHouse = false;
 		const double X = Door.X + Ox * 1.4, Z = Door.Z + Oz * 1.4;
 		double Ground = Door.H;
 		Earth->TerrainHeightAt(X, Z, Ground);
@@ -1891,6 +1897,8 @@ void UEarthCompany::UseDoor()
 		}
 		Walker->SetFlying(false);
 		Walker->PlaceFeetAt(SceneToEngine(Going.X - Ox * 0.9, Going.H + 0.05, Going.Z - Oz * 0.9));
+		Self->bInHouse = true;
+		Self->HouseIn = Going;
 		if (APlayerController* PC = Cast<APlayerController>(Walker->GetController()))
 		{
 			FRotator Look = PC->GetControlRotation();

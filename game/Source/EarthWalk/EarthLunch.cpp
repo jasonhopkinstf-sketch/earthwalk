@@ -387,6 +387,14 @@ void UEarthLunch::Buy(const FString& Id)
 	}
 }
 
+void UEarthLunch::Cook(const FString& Id)
+{
+	if (UEarthWalkNet* Net = Room())
+	{
+		Net->SendFood(TEXT("cook"), Id);
+	}
+}
+
 void UEarthLunch::Give(const FString& Id)
 {
 	if (UEarthWalkNet* Net = Room(); Net && !FriendId.IsEmpty())
@@ -456,7 +464,9 @@ void UEarthLunch::Frame(float DeltaSeconds)
 			NearName = Pair.Value.Name;
 		}
 	}
-	const bool bFriendChanged = NearId != FriendId;
+	const bool bHomeNow = AtHome && AtHome();
+	const bool bFriendChanged = NearId != FriendId || bHomeNow != bHome;
+	bHome = bHomeNow;
 	FriendId = NearId;
 	FriendName = NearName;
 	const bool bShopChanged = (Best != nullptr) != bShop || (Best && (Best->Text != ShopText || Best->Use != ShopUse));
@@ -584,6 +594,50 @@ void UEarthLunch::Redraw()
 		Note(TEXT("Empty. Talk (T) to a cow, a hen, a fruit tree, a tractor or a boat and it may give you something; or buy food at a real shop or café."));
 	}
 
+	// At home: the kitchen, and the recipes that are known.
+	const TArray<TSharedPtr<FJsonObject>> Recipes = FoodRows(Food, TEXT("recipes"));
+	if (bHome && Recipes.Num() > 0)
+	{
+		int32 Known = 0;
+		for (const TSharedPtr<FJsonObject>& Recipe : Recipes)
+		{
+			Known += FoodFlag(Recipe, TEXT("known")) ? 1 : 0;
+		}
+		Heading(FString::Printf(TEXT("Your kitchen (%d of %d recipes)"), Known, Recipes.Num()));
+		for (const TSharedPtr<FJsonObject>& Recipe : Recipes)
+		{
+			if (!FoodFlag(Recipe, TEXT("known")))
+			{
+				continue;
+			}
+			const FString Id = FoodStr(Recipe, TEXT("id"));
+			TArray<FString> Groups, Needs;
+			Recipe->TryGetStringArrayField(TEXT("groups"), Groups);
+			for (const TSharedPtr<FJsonObject>& Need : FoodRows(Recipe, TEXT("needs")))
+			{
+				Needs.Add(FoodStr(Need, TEXT("name")) + (FoodFlag(Need, TEXT("have")) ? TEXT("") : TEXT(" (not in the box)")));
+			}
+			Body->AddSlot().Padding(0.f, 0.f, 0.f, 4.f)
+			[
+				View->Row(FString::Printf(TEXT("%s  \u00d7%d  \u00b7  good for %s"), *LunchCap(FoodStr(Recipe, TEXT("name"))), FMath::RoundToInt32(FoodNum(Recipe, TEXT("makes"))), *LunchGoodFor(Groups)),
+					FString::Printf(TEXT("Cook it from %s"), *FString::Join(Needs, TEXT(" + "))), FoodFlag(Recipe, TEXT("can")), [Self, Id]()
+				{
+					if (UEarthLunch* Box = Self.Get())
+					{
+						Box->Cook(Id);
+					}
+				})
+			];
+		}
+		if (Known < Recipes.Num())
+		{
+			Note(TEXT("Cook something you have not cooked before, and you learn the next recipe in the book."));
+		}
+	}
+	else if (Recipes.Num() > 0 && !bShop)
+	{
+		Note(TEXT("In a house of your own (H) this is a kitchen too: recipes turn what you carry into meals, two helpings at a time."));
+	}
 	// Beside a shop or a café: what it sells.
 	if (bShop)
 	{
@@ -622,6 +676,5 @@ void UEarthLunch::Redraw()
 	{
 		Note(TEXT("Stand by a real shop or café with its name on a board, and B shows what it sells. Each country has its own food."));
 	}
-	Note(TEXT("Cooking in a kitchen of your own is in the browser game so far."));
 	Body->SetScrollOffset(Scrolled);
 }

@@ -105,6 +105,7 @@ Controls (Unreal):
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
 | `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `H` | The home key: inside a house nobody lives in, make it yours; inside your own (or by its door), furnish it; anywhere else, go home |
 | `B` | Your lunch box: your five hearts, the food you carry (a click eats it, or gives it to a friend standing by), and beside a shop or a café what it sells |
 | `M` | Windows: the little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, and the road to where you are being taken |
 | `T` | Talk to what is nearest. In the Windows game the conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; Esc finishes. Nothing a thing says goes in the chat window |
@@ -286,7 +287,7 @@ not come off is simply had again. A trick learnt is that kind of companion's for
 learns its own), pays ten coins, and is done whenever asked (K and a number, or `/trick spin`), for
 everybody nearby to see (`perform` in `server/public/js/pets.js`). `/teach` begins the next lesson.
 
-A house of your own (in the browser so far): go into any house nobody lives in (E at a door with a
+A house of your own (both games; the Windows half is `game/Source/EarthWalk/EarthHome.cpp`: H, the names over doors, the furnishing panel, and typed `/myhouse`, `/piece sofa royal`, `/piece prize piano`, `/moveout`, `/cook sandwich`; it has not the garden or a plan's upload, and shows a house built from a plan with its ordinary rooms): go into any house nobody lives in (E at a door with a
 COME IN board) and press H. It is yours: your name goes up over the door for everybody, friends can
 walk in, and H anywhere else takes you home. Inside it, H opens a panel at the side where the paint
 on the walls, the floors, the sofa, the beds and the rugs can each be swapped for another, bought
@@ -318,7 +319,7 @@ ground: going in at the front door lifts the player there, coming out sets them 
 and the stairs are walked up. A game that does not ask for the planned house (`?plan=1`) is given the
 ordinary rooms. Things on show stand against walls there; free placing does not work in it yet.
 
-Free placing (in the browser so far): anything on show in your house can be put where you like. Stand
+Free placing (both games): anything on show in your house can be put where you like. Stand
 in the house where you want it and press Here under it in the house panel: it is put down a step in
 front of you, facing you, square to the walls, and the room's own furniture arranges itself round
 it. Turn turns it a quarter; Wall sends it back to stand against a wall. It will not stand across a
@@ -585,7 +586,7 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
-is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMapTripShotAt=<seconds>` moves that picture. `-EWNewsSeen=<version>` shows the "What's new" card as if those were the last notes read (9.9.9 for no card). `-EWRun` takes several commands with a plus between them (`-EWRun=buy_meatpie+eat_meatpie+do_lunch`); the preview server `earthwalk-coins` (port 8793, in `.claude/launch.json`) starts everybody with 3000 coins for trying things that cost. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMapTripShotAt=<seconds>` moves that picture. `-EWNewsSeen=<version>` shows the "What's new" card as if those were the last notes read (9.9.9 for no card). `-EWRun` takes several commands with a plus between them, and `wait_3` among them holds the rest up three seconds (`-EWDoor -EWRun=myhouse+wait_4+piece_sofa_royal` goes into a house, makes it mine and swaps the sofa; a comma ends the switch, so name places, not coordinates); the preview server `earthwalk-coins` (port 8793, in `.claude/launch.json`) starts everybody with 3000 coins for trying things that cost. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
 table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_underscores>` then answers that box as if typed. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
 (`look_flat`, `quit`). Cars, vans and taxis are ready-made
 models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into

@@ -78,6 +78,13 @@ public:
 	 */
 	void MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutWay, FString& OutGoing) const;
 
+	/** The house the player went into by its front door and has not come out of, wandered off from or been taken away from. */
+	bool InHouse(FEarthDoor& Out) const
+	{
+		Out = HouseIn;
+		return bInHouse;
+	}
+
 	/** What E and T would do just now, for the line at the foot of the screen; empty when nothing is near. */
 	const FString& GetHint() const { return Hint; }
 
@@ -240,6 +247,8 @@ private:
 
 	// The door E would use, and which side of it I am on.
 	bool bDoorNear = false;
+	bool bInHouse = false;
+	FEarthDoor HouseIn;
 	bool bDoorInside = false;
 	bool bDoorBusy = false;
 	FEarthDoor Door;

@@ -116,6 +116,20 @@ struct FEarthRace
 	TArray<FEarthRunner> Runners;
 };
 
+/** A house somebody lives in (docs/PROTOCOL.md, "A house of your own"): which, where its front door is, whose, and how often it has been changed. */
+struct FEarthLived
+{
+	int32 X = 0; // the chunk it is in, wrapped to the world
+	int32 Y = 0;
+	int64 Id = 0; // its number there: the id of its door label
+	double Lat = 0.0;
+	double Lon = 0.0;
+	double Yaw = 0.0; // the compass heading that leads out of its door
+	FString Name;     // its owner's
+	int64 Rev = 0;    // tells one furnishing from the next (a large number): the inside is fetched again when it moves on
+	double Lift = 0.0; // a house built from its owner's plan stands this far above the real one (not shown by this game yet)
+};
+
 /** Something to eat, as a shop or a café sells it (docs/PROTOCOL.md, "Food and hearts"). */
 struct FEarthFood
 {
@@ -186,6 +200,8 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthMenu, const FEarthMenu& /*Menu*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthLived, const FString& /*Key: "x/y/id"*/, bool /*bGone*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthHouse, bool /*bFromWelcome: what a new connection says of my house is not news*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthPep, bool /*bAllHeartsFull*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
 
@@ -273,6 +289,16 @@ public:
 	 * "give" one to the member whose id With is. My journal comes back, and the menu through OnMenu.
 	 */
 	void SendFood(const FString& Verb, const FString& What, const FString& With = FString());
+	/**
+	 * A house of my own: Body is one of `claim`, `leave`, `put`, `place` or `plan` as
+	 * docs/PROTOCOL.md has them ("A house of your own"); `t` is added here. My house comes back through OnHouse.
+	 */
+	void SendHouse(const TSharedRef<class FJsonObject>& Body);
+	/** Every house somebody lives in, by "x/y/id" (HouseKey). */
+	const TMap<FString, FEarthLived>& GetHomes() const { return Homes; }
+	/** My own house as the server last told it (with its `decor`), or null when I have none. */
+	const TSharedPtr<class FJsonObject>& GetMyHouse() const { return MyHouse; }
+	static FString HouseKey(int64 X, int64 Y, int64 Id) { return FString::Printf(TEXT("%lld/%lld/%lld"), ((X % 65536) + 65536) % 65536, Y, Id); }
 	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
 	TMap<uint32, FEarthTaxi>& GetTaxis() { return Taxis; }
 
@@ -317,6 +343,10 @@ public:
 	FOnEarthMenu OnMenu;
 	/** All five hearts are full today (or, false, no longer): the player goes a little quicker on foot. */
 	FOnEarthPep OnPep;
+	/** A house has been moved into, furnished anew, or left. */
+	FOnEarthLived OnLived;
+	/** My own house has changed: got, furnished, or given up. */
+	FOnEarthHouse OnHouse;
 
 private:
 	void HandleMessage(const FString& Message);
@@ -338,6 +368,9 @@ private:
 	TMap<uint32, FEarthOrder> Orders;
 	TMap<uint32, FEarthTaxi> Taxis;
 	TMap<FString, FEarthOwnCar> Cars;
+	TMap<FString, FEarthLived> Homes;
+	TSharedPtr<class FJsonObject> MyHouse;
+	void ReadLived(const TSharedPtr<class FJsonObject>& Row);
 	FEarthRace Race;
 	FEarthHome Home;
 	FString MyId;

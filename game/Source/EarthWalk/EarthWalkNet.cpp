@@ -417,6 +417,58 @@ void UEarthWalkNet::SendFood(const FString& Verb, const FString& What, const FSt
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendHouse(const TSharedRef<FJsonObject>& Body)
+{
+	if (!bJoined)
+	{
+		OnNotice.Broadcast(TEXT("Not connected to the meetup server just now, so nothing can be done about a house."));
+		return;
+	}
+	Body->SetStringField(TEXT("t"), TEXT("house"));
+	SendJson(Body);
+	TArray<FString> Asked;
+	for (const auto& Pair : Body->Values)
+	{
+		Asked.Add(FString(Pair.Key));
+	}
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: net: asked about my house: %s"), *FString::Join(Asked, TEXT(", ")));
+}
+
+/** One house somebody lives in, from `welcome` or a `lived` message; `gone` takes it off the list. */
+void UEarthWalkNet::ReadLived(const TSharedPtr<FJsonObject>& Row)
+{
+	double X = 0.0, Y = 0.0, Id = 0.0;
+	if (!Row.IsValid() || !Row->TryGetNumberField(TEXT("x"), X) || !Row->TryGetNumberField(TEXT("y"), Y) || !Row->TryGetNumberField(TEXT("id"), Id))
+	{
+		return;
+	}
+	const FString Key = HouseKey(static_cast<int64>(X), static_cast<int64>(Y), static_cast<int64>(Id));
+	bool bGone = false;
+	Row->TryGetBoolField(TEXT("gone"), bGone);
+	if (bGone)
+	{
+		Homes.Remove(Key);
+	}
+	else
+	{
+		FEarthLived Lived;
+		Lived.X = static_cast<int32>(X);
+		Lived.Y = static_cast<int32>(Y);
+		Lived.Id = static_cast<int64>(Id);
+		Row->TryGetNumberField(TEXT("lat"), Lived.Lat);
+		Row->TryGetNumberField(TEXT("lon"), Lived.Lon);
+		Row->TryGetNumberField(TEXT("yaw"), Lived.Yaw);
+		Row->TryGetStringField(TEXT("name"), Lived.Name);
+		double Rev = 0.0;
+		Row->TryGetNumberField(TEXT("rev"), Rev);
+		Lived.Rev = static_cast<int64>(Rev);
+		Row->TryGetNumberField(TEXT("lift"), Lived.Lift);
+		Homes.Add(Key, Lived);
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: net: house %s is lived in by %s, change %lld"), *Key, *Lived.Name, Lived.Rev);
+	}
+	OnLived.Broadcast(Key, bGone);
+}
+
 void UEarthWalkNet::SendChat(const FString& Text)
 {
 	if (!bJoined)
@@ -994,6 +1046,17 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		const TSharedPtr<FJsonObject>* Journal = nullptr;
 		OnJournal.Broadcast(Json->TryGetObjectField(TEXT("journal"), Journal) ? *Journal : TSharedPtr<FJsonObject>());
 	}
+	else if (Type == TEXT("lived"))
+	{
+		ReadLived(Json);
+	}
+	else if (Type == TEXT("house"))
+	{
+		// My own house: got, furnished differently, or (null) given up.
+		const TSharedPtr<FJsonObject>* House = nullptr;
+		MyHouse = Json->TryGetObjectField(TEXT("house"), House) ? *House : TSharedPtr<FJsonObject>();
+		OnHouse.Broadcast(false);
+	}
 	else if (Type == TEXT("menu"))
 	{
 		// What the shop or café beside me sells.
@@ -1122,6 +1185,24 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			SyncClock();
 		}
 		Peers.Reset();
+
+		// Houses are in the world, not in a room: everybody is told of every one that is lived in, and of their own.
+		Homes.Reset();
+		const TArray<TSharedPtr<FJsonValue>>* LivedRows = nullptr;
+		if (Json->TryGetArrayField(TEXT("lived"), LivedRows))
+		{
+			for (const TSharedPtr<FJsonValue>& Row : *LivedRows)
+			{
+				const TSharedPtr<FJsonObject>* Object = nullptr;
+				if (Row.IsValid() && Row->TryGetObject(Object))
+				{
+					ReadLived(*Object);
+				}
+			}
+		}
+		const TSharedPtr<FJsonObject>* House = nullptr;
+		MyHouse = Json->TryGetObjectField(TEXT("house"), House) ? *House : TSharedPtr<FJsonObject>();
+		OnHouse.Broadcast(true);
 
 		Home = FEarthHome();
 		if (bSignedIn)

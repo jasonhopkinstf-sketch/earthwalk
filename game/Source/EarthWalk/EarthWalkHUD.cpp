@@ -3,6 +3,7 @@
 #include "EarthMenu.h"
 #include "EarthMiniMap.h"
 #include "EarthLunch.h"
+#include "EarthHome.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -1341,6 +1342,10 @@ void AEarthWalkHUD::BeginPlay()
 		MiniMap->Setup(this);
 		Lunch = NewObject<UEarthLunch>(this);
 		Lunch->Setup(this);
+		House = NewObject<UEarthHome>(this);
+		House->Setup(this);
+		// In a house of one's own, or by its door, the lunch box is a kitchen too.
+		Lunch->SetKitchen([this]() { return House && House->AtHome(); });
 	}
 	// Tab is the menu. It is bound, not just looked at each frame, so that it is used up here: left to
 	// itself Tab moves the keyboard from one thing on the screen to the next, as it does in any window.
@@ -1467,6 +1472,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		Lunch->Shutdown();
 		Lunch = nullptr;
 	}
+	if (House)
+	{
+		House->Shutdown();
+		House = nullptr;
+	}
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 	{
 		Net->OnChat.Remove(ChatHandle);
@@ -1506,6 +1516,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	if (Lunch)
 	{
 		Lunch->Frame(DeltaSeconds);
+	}
+	if (House)
+	{
+		House->Frame(DeltaSeconds);
 	}
 
 	APlayerController* PC = GetOwningPlayerController();
@@ -1582,6 +1596,11 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			Lunch->Close();
 			bMenuTookEsc = true;
 		}
+		else if (House && House->IsOpen() && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			House->Close();
+			bMenuTookEsc = true;
+		}
 		else if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
 		{
 			CloseMenu();
@@ -1603,7 +1622,20 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		if (Lunch && PC->WasInputKeyJustPressed(EKeys::B))
 		{
 			CloseMenu();
+			if (House)
+			{
+				House->Close();
+			}
 			Lunch->Toggle();
+		}
+		if (House && PC->WasInputKeyJustPressed(EKeys::H))
+		{
+			CloseMenu();
+			if (Lunch)
+			{
+				Lunch->Close();
+			}
+			House->KeyHome();
 		}
 	}
 	// -EWAsk=<words_with_underscores> answers the box that asks "where to?" three seconds after it comes up, as if typed, for tests.
@@ -1788,6 +1820,10 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		{
 			Hints += (Hints.IsEmpty() ? TEXT("") : TEXT("      ")) + Lunch->GetHint();
 		}
+		if (House && !House->GetHint().IsEmpty())
+		{
+			Hints += (Hints.IsEmpty() ? TEXT("") : TEXT("      ")) + House->GetHint();
+		}
 		Overlay->SetHint(Hints);
 	}
 	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
@@ -1874,19 +1910,26 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		bRunTested = true;
 		if (FParse::Value(FCommandLine::Get(), TEXT("-EWRun="), Run))
 		{
-			// Several, one after another, with a plus between them: -EWRun=buy_meatpie+do_lunch.
-			TArray<FString> Each;
-			Run.ParseIntoArray(Each, TEXT("+"));
-			for (const FString& One : Each)
-			{
-				FString Command, Argument;
-				if (!One.Split(TEXT("_"), &Command, &Argument))
-				{
-					Command = One;
-				}
-				RunCommand(Command.ToLower(), Argument.Replace(TEXT("_"), TEXT(" ")));
-			}
+			// Several, one after another, with a plus between them: -EWRun=buy_meatpie+do_lunch. "wait_3" among them holds the rest up three seconds.
+			Run.ParseIntoArray(RunQueue, TEXT("+"));
 		}
+	}
+
+	while (RunQueue.Num() > 0 && FPlatformTime::Seconds() >= RunNextAt)
+	{
+		const FString One = RunQueue[0];
+		RunQueue.RemoveAt(0);
+		FString Command, Argument;
+		if (!One.Split(TEXT("_"), &Command, &Argument))
+		{
+			Command = One;
+		}
+		if (Command.Equals(TEXT("wait"), ESearchCase::IgnoreCase))
+		{
+			RunNextAt = FPlatformTime::Seconds() + FCString::Atod(*Argument);
+			break;
+		}
+		RunCommand(Command.ToLower(), Argument.Replace(TEXT("_"), TEXT(" ")));
 	}
 
 	// -EWPassport opens the passport by itself a few seconds in, for pictures.
@@ -2393,6 +2436,13 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 			Lunch->Toggle();
 		}
 	}
+	else if (Id == TEXT("myhouse"))
+	{
+		if (House)
+		{
+			House->KeyHome();
+		}
+	}
 	else if (Id == TEXT("above"))
 	{
 		const APlayerController* PC = GetOwningPlayerController();
@@ -2771,6 +2821,39 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			Lunch->Toggle();
 		}
 	}
+	else if (Command == TEXT("myhouse"))
+	{
+		// What H does: make this house mine, furnish my own, or go home.
+		if (House)
+		{
+			House->KeyHome();
+		}
+	}
+	else if (Command == TEXT("moveout"))
+	{
+		if (House)
+		{
+			House->MoveOut(); // asks "really?" in the panel the first time
+			House->MoveOut();
+		}
+	}
+	else if (Command == TEXT("piece"))
+	{
+		// "/piece sofa royal" swaps a piece of my house; "/piece sofa" puts back what it came with. For those who type, and for tests.
+		FString Slot, Piece;
+		if (!Argument.Split(TEXT(" "), &Slot, &Piece))
+		{
+			Slot = Argument;
+		}
+		if (House && Slot.Equals(TEXT("prize"), ESearchCase::IgnoreCase) && !Piece.IsEmpty())
+		{
+			House->Show(Piece.ToLower(), true); // "/piece prize piano" puts a prize on show
+		}
+		else if (House && !Slot.IsEmpty())
+		{
+			House->Put(Slot.ToLower(), Piece.ToLower());
+		}
+	}
 	else if (Command == TEXT("buy"))
 	{
 		// "/buy meatpie": one of what the shop or café beside me sells, by the name the server knows it by.
@@ -2781,6 +2864,14 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		else
 		{
 			AddLine(TEXT("Stand by a real shop or caf\u00e9 with its name on a board first; then B shows what it sells, and a click buys it."), NoticeColor);
+		}
+	}
+	else if (Command == TEXT("cook"))
+	{
+		// "/cook sandwich": a recipe I know, from what is in my lunch box, in a house of my own or by its door.
+		if (Lunch && !Argument.IsEmpty())
+		{
+			Lunch->Cook(Argument.ToLower().Replace(TEXT(" "), TEXT("")));
 		}
 	}
 	else if (Command == TEXT("eat"))
@@ -2803,6 +2894,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("help"))
 	{
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("H   the home key: inside a house nobody lives in, make it yours; inside your own, furnish it; anywhere else, go home."), NoticeColor);
 		AddLine(TEXT("B   your lunch box: your five hearts, the food you carry (a click eats it), and beside a shop or a caf\u00e9 what it sells."), NoticeColor);
 		AddLine(TEXT("M   the little map in the corner: bigger, hidden, and back. It shows friends, doors that open, where trains stop, cars, and the way to where you are being taken."), NoticeColor);
 		AddLine(TEXT("The same things as typed commands, for those who like typing:"), NoticeColor);

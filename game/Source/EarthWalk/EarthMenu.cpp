@@ -48,6 +48,7 @@ namespace
 		{ TEXT("racestop"), TEXT("Play"), TEXT("Leave the race"), TEXT("Leaves it, or ends your own."), TEXT(""), TEXT("race stop"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("clue"), TEXT("Play"), TEXT("Hear the clue again"), TEXT("The clue of the treasure hunt you are on."), TEXT(""), TEXT("clue"), TEXT(""), TEXT(""), TEXT("") },
 
+		{ TEXT("myhouse"), TEXT("Me"), TEXT("My house"), TEXT("In a house nobody lives in: make it yours. In your own: choose the furniture. Anywhere else: go home."), TEXT("H"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("lunch"), TEXT("Me"), TEXT("My lunch box"), TEXT("Your five hearts, the food you carry, and what the shop beside you sells."), TEXT("B"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("animal"), TEXT("Me"), TEXT("Change my animal..."), TEXT("Fox, bear, rabbit, cat, owl or frog."), TEXT(""), TEXT("animal"), TEXT("Which animal? Fox, bear, rabbit, cat, owl or frog"), TEXT("bear"), TEXT("") },
 		{ TEXT("name"), TEXT("Me"), TEXT("Change my name..."), TEXT("What other people see over your head."), TEXT(""), TEXT("name"), TEXT("What should people call you?"), TEXT("your name"), TEXT("") },
