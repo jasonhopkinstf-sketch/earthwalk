@@ -26,7 +26,7 @@ const SCALE = 1.35;
 const MODELS = [
   { rig: "car", file: "sedan.glb" },
   { rig: "van", file: "van.glb" },
-  { rig: "taxi", file: "taxi.glb" },
+  { rig: "taxi", file: "taxi.glb", seat: 1.51 }, // beside its sign, not on it
   { rig: "hatch", file: "hatchback-sports.glb" },
   { rig: "suv", file: "suv.glb" },
   { rig: "pickup", file: "truck.glb" },
@@ -137,13 +137,71 @@ let text = `// Made by game/Tools/gen-models.mjs from Kenney's Car Kit 3.1 (www.
 // P: each corner's place in tenths of a centimetre, engine axes (X forward, Y right, Z up), wheels on
 // the ground at the origin. N: its normal, times 127. C: its colour as in the palette picture (sRGB),
 // then 255 where the car's own paint goes and 0 elsewhere. I: three corners to a triangle.
+// A model's body is one mesh without its wheels. The wheels are meshes of their own, each kind once (most
+// cars share one), with its middle at the origin and its hub to the car's left: Wheels says where each
+// model's stand (tenths of a centimetre), which are turned round for the right-hand side, and how big
+// they are, so that a game can roll them. Seat is how high a rider on the roof sits.
 `;
 const table = [];
 const forBrowser = [];
 const base64 = (typed) => Buffer.from(typed.buffer, typed.byteOffset, typed.byteLength).toString("base64");
+// The browser's axes are x east, y up, z south with the car facing north: the engine's (Y, Z, -X).
+const turned = (v) => v.flatMap((_, k) => (k % 3 === 0 ? [v[k + 1], v[k + 2], -v[k]] : []));
+/** Corners of some parts as one mesh: places through `place`, each corner's colour and whether it takes the car's paint. */
+function meshOf(parts, place, turn, own) {
+  const P = [], N = [], C = [], I = [], seen = new Map();
+  for (const part of parts) {
+    const ids = part.corners.map((c) => {
+      const p = place(c.p).map(Math.round);
+      const len = Math.hypot(...c.n) || 1;
+      const n = turn([c.n[2] / len, -c.n[0] / len, c.n[1] / len]).map((v) => Math.round(v * 127));
+      const col = [...colourAt(c.uv), own(part, c) ? 255 : 0];
+      const key = [...p, ...n, ...col].join(",");
+      if (!seen.has(key)) { seen.set(key, P.length / 3); P.push(...p); N.push(...n); C.push(...col); }
+      return seen.get(key);
+    });
+    for (let i = 0; i < part.idx.length; i += 3) {
+      const [a, b, c] = [ids[part.idx[i]], ids[part.idx[i + 1]], ids[part.idx[i + 2]]];
+      if (a !== b && b !== c && a !== c) I.push(a, b, c);
+    }
+  }
+  if (P.length / 3 > 65535) throw new Error("too many corners");
+  return { P, N, C, I };
+}
+/**
+ * The kit's wheels are perfectly round, hub and all, so nobody could see one turn. This paints five dark
+ * slots on the bright ring of the hub's outer face (the wheel's left, the least y), like a steel wheel's.
+ */
+function spokes(mesh) {
+  const { P, N, C, I } = mesh;
+  const face = Math.min(...P.filter((_, k) => k % 3 === 1));
+  let hub = 0, ring = Infinity;
+  for (let k = 0; k < P.length / 3; k++) {
+    if (P[k * 3 + 1] > face + 1 || C[k * 4] + C[k * 4 + 1] + C[k * 4 + 2] < 0x60 * 3) continue; // not on the face, or the tyre
+    const r = Math.hypot(P[k * 3], P[k * 3 + 2]);
+    hub = Math.max(hub, r);
+    ring = Math.min(ring, r);
+  }
+  if (!(hub > 0)) return;
+  const inner = Math.max(ring, hub * 0.6) + hub * 0.04, outer = hub * 0.95, half = hub * 0.1;
+  for (let s = 0; s < 5; s++) {
+    const a = (s / 5) * Math.PI * 2, along = [Math.cos(a), Math.sin(a)], across = [-Math.sin(a), Math.cos(a)];
+    const first = P.length / 3;
+    for (const [r, side] of [[inner, -1], [inner, 1], [outer, 1], [outer, -1]]) {
+      P.push(Math.round(along[0] * r + across[0] * half * side), face - 4, Math.round(along[1] * r + across[1] * half * side));
+      N.push(0, -127, 0);
+      C.push(0x36, 0x36, 0x3a, 0);
+    }
+    I.push(first, first + 1, first + 2, first, first + 2, first + 3, first, first + 2, first + 1, first, first + 3, first + 2); // seen from either side
+  }
+}
+const wheelKinds = new Map(); // what tells one kind of wheel from another -> { index, mesh }
+const wheelRows = [];
 for (const model of MODELS) {
   const parts = readGlb(join(folder, model.file));
   const scale = SCALE * (model.scale ?? 1);
+  // (The spare on the back of the SUV is called a wheel too, and does not roll.)
+  const isWheel = (p) => /^wheel-(front|back)-(left|right)/.test(p.name);
   // The car's main paint: the most-used strongly coloured swatch on its body.
   const area = new Map();
   for (const part of parts.filter((p) => p.name === "body")) {
@@ -164,47 +222,85 @@ for (const model of MODELS) {
   const all = parts.flatMap((p) => p.corners);
   const lo = [0, 1, 2].map((k) => Math.min(...all.map((c) => c.p[k]))), hi = [0, 1, 2].map((k) => Math.max(...all.map((c) => c.p[k])));
   const mid = [(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2];
-  const P = [], N = [], C = [], I = [], seen = new Map();
-  for (const part of parts) {
-    const ids = part.corners.map((c) => {
-      const p = [(c.p[2] - mid[2]) * scale * 1000, -(c.p[0] - mid[0]) * scale * 1000, (c.p[1] - mid[1]) * scale * 1000].map(Math.round);
-      const len = Math.hypot(...c.n) || 1;
-      const n = [c.n[2] / len, -c.n[0] / len, c.n[1] / len].map((v) => Math.round(v * 127));
-      const col = [...colourAt(c.uv), (part.name === "body" || part.name.startsWith("door")) && swatchOf(c.uv) === paint ? 255 : 0]; // (a delivery van has its doors as parts of their own)
-      const key = [...p, ...n, ...col].join(",");
-      if (!seen.has(key)) { seen.set(key, P.length / 3); P.push(...p); N.push(...n); C.push(...col); }
-      return seen.get(key);
-    });
-    for (let i = 0; i < part.idx.length; i += 3) {
-      const [a, b, c] = [ids[part.idx[i]], ids[part.idx[i + 1]], ids[part.idx[i + 2]]];
-      if (a !== b && b !== c && a !== c) I.push(a, b, c);
+  const engine = (p) => [(p[2] - mid[2]) * scale * 1000, -(p[0] - mid[0]) * scale * 1000, (p[1] - mid[1]) * scale * 1000];
+  const same = (v) => v;
+  const body = meshOf(parts.filter((p) => !isWheel(p)), engine, same, (part, c) => (part.name === "body" || part.name.startsWith("door")) && swatchOf(c.uv) === paint); // (a delivery van has its doors as parts of their own)
+
+  // Where a rider on the roof sits: the top of the body over its middle (a taxi's sign and a police car's lights are not sat on: `seat` says).
+  // (Looked for straight down through its triangles at five spots: a roof is often one big flat piece with no corner near the middle.)
+  let roof = 0;
+  for (const [sx, sy] of [[0, 0], [250, 0], [-250, 0], [0, 200], [0, -200]]) {
+    for (let i = 0; i < body.I.length; i += 3) {
+      const [a, b, c] = [0, 1, 2].map((k) => body.P.slice(body.I[i + k] * 3, body.I[i + k] * 3 + 3));
+      const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+      if (Math.abs(d) < 1e-6) continue;
+      const u = ((b[1] - c[1]) * (sx - c[0]) + (c[0] - b[0]) * (sy - c[1])) / d, v = ((c[1] - a[1]) * (sx - c[0]) + (a[0] - c[0]) * (sy - c[1])) / d;
+      if (u >= 0 && v >= 0 && u + v <= 1) roof = Math.max(roof, u * a[2] + v * b[2] + (1 - u - v) * c[2]);
     }
   }
-  if (P.length / 3 > 65535) throw new Error(`${model.file}: too many corners`);
+  // (A quarter of a metre under the roof is where the seated figure's feet go for it to sit on the roof and not above it: the saloon's 1.5 m, as it always was.)
+  const seat = Math.round(model.seat !== undefined ? model.seat * 1000 : roof - 250);
+
+  // The wheels, each a mesh of its own about its middle, hub to the left, so that it can turn.
+  const wheels = [];
+  for (const part of parts.filter(isWheel)) {
+    const at = part.corners.map((c) => engine(c.p));
+    const wlo = [0, 1, 2].map((k) => Math.min(...at.map((p) => p[k]))), whi = [0, 1, 2].map((k) => Math.max(...at.map((p) => p[k])));
+    const centre = wlo.map((v, k) => (v + whi[k]) / 2);
+    const radius = (whi[2] - wlo[2]) / 2, width = whi[1] - wlo[1];
+    const right = centre[1] > 0;
+    const sign = part.corners.length + ":" + part.idx.length + ":" + Math.round(radius / 5) + ":" + Math.round(width / 5);
+    if (!wheelKinds.has(sign)) {
+      // (One on the right is turned half round to be one on the left.)
+      const about = (p) => { const e = engine(p); return right ? [-(e[0] - centre[0]), -(e[1] - centre[1]), e[2] - centre[2]] : [e[0] - centre[0], e[1] - centre[1], e[2] - centre[2]]; };
+      const mesh = meshOf([part], about, (n) => (right ? [-n[0], -n[1], n[2]] : n), () => false);
+      spokes(mesh);
+      wheelKinds.set(sign, { index: wheelKinds.size, mesh, radius });
+    }
+    wheels.push({ kind: wheelKinds.get(sign).index, at: centre.map(Math.round), flip: right, radius: Math.round(radius) });
+  }
+
   const name = ident(model.rig);
+  const { P, N, C, I } = body;
   text += `static const int16 ${name}_P[] = {\n${rows(P, 30)}\n};\nstatic const int8 ${name}_N[] = {\n${rows(N, 45)}\n};\nstatic const uint8 ${name}_C[] = {\n${rows(C, 40)}\n};\nstatic const uint16 ${name}_I[] = {\n${rows(I, 36)}\n};\n`;
-  table.push(`\t{ TEXT("${model.rig}"), ${name}_P, ${name}_N, ${name}_C, ${P.length / 3}, ${name}_I, ${I.length} },`);
-  // The browser's axes are x east, y up, z south with the car facing north: the engine's (Y, Z, -X).
-  const turned = (v) => v.flatMap((_, k) => (k % 3 === 0 ? [v[k + 1], v[k + 2], -v[k]] : []));
-  forBrowser.push(`  ${model.rig}: {\n    p: "${base64(Int16Array.from(turned(P)))}",\n    n: "${base64(Int8Array.from(turned(N)))}",\n    c: "${base64(Uint8Array.from(C))}",\n    i: "${base64(Uint16Array.from(I))}",\n  },`);
+  table.push(`\t{ TEXT("${model.rig}"), ${name}_P, ${name}_N, ${name}_C, ${P.length / 3}, ${name}_I, ${I.length}, ${seat}, ${wheelRows.length}, ${wheels.length} },`);
+  for (const w of wheels) wheelRows.push(`\t{ ${w.kind}, ${w.at[0]}, ${w.at[1]}, ${w.at[2]}, ${w.flip}, ${w.radius} }, // ${model.rig}`);
+  // (For the browser a wheel's place is turned as its corners are: [kind, x, y, z, turned round, radius], millimetres.)
+  const webWheels = wheels.map((w) => `[${[w.kind, w.at[1], w.at[2], -w.at[0], w.flip ? 1 : 0, w.radius].join(", ")}]`).join(", ");
+  forBrowser.push(`  ${model.rig}: {\n    p: "${base64(Int16Array.from(turned(P)))}",\n    n: "${base64(Int8Array.from(turned(N)))}",\n    c: "${base64(Uint8Array.from(C))}",\n    i: "${base64(Uint16Array.from(I))}",\n    seat: ${(seat / 1000).toFixed(3)},\n    wheels: [${webWheels}],\n  },`);
   const size = [0, 1, 2].map((k) => ((hi[k] - lo[k]) * scale).toFixed(2));
-  console.log(`${model.rig} <- ${model.file}: ${P.length / 3} corners, ${I.length / 3} triangles, ${size[2]} m long, ${size[0]} wide, ${size[1]} high, own paint on swatch ${paint} (${paint >= 0 ? colourAt([((paint % 8) + 0.25) / 8, (Math.floor(paint / 8) + 0.5) / 4]) : "none"})`);
+  console.log(`${model.rig} <- ${model.file}: ${P.length / 3} corners, ${I.length / 3} triangles, ${size[2]} m long, ${size[0]} wide, ${size[1]} high, roof ${(roof / 1000).toFixed(2)} m, seat ${(seat / 1000).toFixed(2)} m, ${wheels.length} wheels of radius ${wheels.map((w) => (w.radius / 1000).toFixed(2)).join(" ")}, own paint on swatch ${paint} (${paint >= 0 ? colourAt([((paint % 8) + 0.25) / 8, (Math.floor(paint / 8) + 0.5) / 4]) : "none"})`);
 }
-text += `static const FModel Models[] = {\n${table.join("\n")}\n};\n`;
+const bodies = table.length;
+const forBrowserWheels = [];
+for (const { index, mesh } of [...wheelKinds.values()].sort((a, b) => a.index - b.index)) {
+  const name = `Wheel${index}`;
+  const { P, N, C, I } = mesh;
+  text += `static const int16 ${name}_P[] = {\n${rows(P, 30)}\n};\nstatic const int8 ${name}_N[] = {\n${rows(N, 45)}\n};\nstatic const uint8 ${name}_C[] = {\n${rows(C, 40)}\n};\nstatic const uint16 ${name}_I[] = {\n${rows(I, 36)}\n};\n`;
+  table.push(`\t{ TEXT("wheel:${index}"), ${name}_P, ${name}_N, ${name}_C, ${P.length / 3}, ${name}_I, ${I.length}, 0, 0, 0 },`);
+  forBrowserWheels.push(`  {\n    p: "${base64(Int16Array.from(turned(P)))}",\n    n: "${base64(Int8Array.from(turned(N)))}",\n    c: "${base64(Uint8Array.from(C))}",\n    i: "${base64(Uint16Array.from(I))}",\n  },`);
+}
+text += `static const FModel Models[] = {\n${table.join("\n")}\n};\nstatic const int32 NumBodies = ${bodies};\nstatic const FWheel Wheels[] = {\n${wheelRows.join("\n")}\n};\n`;
 writeFileSync(out, text.replace(/\n/g, "\r\n"));
-console.log("wrote", out, `${Math.round(text.length / 1024)} KB`);
+console.log("wrote", out, `${Math.round(text.length / 1024)} KB, ${bodies} bodies, ${wheelKinds.size} kinds of wheel`);
 
 // The same models for the browser game (life.js): packed numbers, as text.
 const web = join(here, "..", "..", "server", "public", "js", "models.gen.js");
 const webText = `// Made by game/Tools/gen-models.mjs from Kenney's Car Kit 3.1 (www.kenney.nl, CC0). Do not edit by hand.
 // Ready-made models that stand in for some of the vehicles of liferigs.js, by the vehicle's name. Each
-// is one mesh, facing north with its wheels on the ground at the origin, packed as base64:
+// is one mesh without its wheels, facing north with the ground at the origin, packed as base64:
 // p: every corner's place (x east, y up, z south) in millimetres, 16-bit. n: its normal times 127,
 // 8-bit. c: its colour (sRGB) and then 255 where the car's own paint goes, 0 elsewhere. i: three
-// corners to a triangle, 16-bit.
+// corners to a triangle, 16-bit. seat: how high a rider on its roof sits, metres. wheels: where each
+// of its wheels stands, [which of WHEELS, x, y, z in millimetres, 1 when turned half round (the
+// right-hand side), its radius in millimetres].
 export const MODELS = {
 ${forBrowser.join("\n")}
 };
+// The wheels, each kind once: a mesh about its own middle, its hub to the car's left (west, the car facing north).
+export const WHEELS = [
+${forBrowserWheels.join("\n")}
+];
 `;
 writeFileSync(web, webText);
 console.log("wrote", web, `${Math.round(webText.length / 1024)} KB`);

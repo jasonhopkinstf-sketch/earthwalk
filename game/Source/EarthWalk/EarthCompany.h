@@ -175,6 +175,8 @@ private:
 	 * rider is at), that is the floor there: a bridge's deck or a tunnel's floor where there is one, and
 	 * the terrain everywhere else.
 	 */
+	/** How high the rider of this thing sits, metres: the usual for its kind, or the roof of the body this very car has. */
+	double SeatFor(const FEarthMount& Mount, const FString& Sp, uint32 Thing) const;
 	bool GroundFor(const FString& Sp, double X, double Z, double& OutY, double FeetAt = TNumericLimits<double>::Lowest(), const AActor* Ignore = nullptr) const;
 	void TestAids(double Dt);
 

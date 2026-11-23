@@ -84,8 +84,11 @@ export class Riding {
       if (this.mine) this.land(); // the driver got off, so the passengers do too
       return;
     }
-    const mount = MOUNTS[ride.sp];
-    if (!mount) return;
+    const usual = MOUNTS[ride.sp];
+    if (!usual) return;
+    // A car's seat is on the roof of the body it really has: the same height in both games, since where I sit is what my friends are told.
+    const seat = this.traffic.seatOf(ride.thing, ride.sp);
+    const mount = seat ? { ...usual, seat } : usual;
     const from = this.wanted?.thing === ride.thing ? this.wanted : null;
     this.wanted = null;
     this.mine = { ...ride, mount, k: from?.k ?? 0, lost: 0 };
@@ -176,7 +179,7 @@ export class Riding {
       const r = peer.ride;
       if (!r || r.seat !== 0 || r.sp === "train" || !MOUNTS[r.sp]) continue;
       const shown = avatars.shown.get(id);
-      if (shown) ridden(id, r.thing, r.sp, shown.group.position.x, shown.group.position.z, shown.group.position.y - MOUNTS[r.sp].seat, shown.group.rotation.y);
+      if (shown) ridden(id, r.thing, r.sp, shown.group.position.x, shown.group.position.z, shown.group.position.y - (this.traffic.seatOf(r.thing, r.sp) ?? MOUNTS[r.sp].seat), shown.group.rotation.y);
       else this.hidden.add(r.thing); // ridden off somewhere out of sight
     }
     for (const [thing, left] of meetup.left) {

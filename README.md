@@ -699,7 +699,12 @@ table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_un
 models (eleven from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
 `EarthModels.gen.inl` and `server/public/js/models.gen.js` by `node game/Tools/gen-models.mjs`),
 each still in its own paint; `-EWModels=ours` (and `?models=ours` in the browser) draws the game's
-own shapes as before. Which body a car of the streets has (saloon, hatchback, SUV, van, pickup,
+own shapes as before. A model's wheels are meshes of their own, so they turn by as far as the car has
+driven (the generator paints five dark slots on each hub, since the kit's wheels are perfectly round
+and nobody could see them turn; `-EWRoll=<metres>` turns every wheel that much for a picture of
+standing cars), and its rider sits on the roof of the body it really has: the generator measures each
+roof, and both games take the seat from it (`EarthModels::SeatOf`, `traffic.seatOf`), because where a
+rider sits is what their friends are told. Which body a car of the streets has (saloon, hatchback, SUV, van, pickup,
 delivery van, and one in sixty a police car, an ambulance or a fire engine) comes from its identity by
 one table, `BODIES` in `server/public/js/liferigs.js`, which `node game/Tools/gen-life-rigs.mjs`
 copies into `EarthLifeBodies.gen.inl`: run both generators and build the Windows game after changing

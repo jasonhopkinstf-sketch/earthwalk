@@ -375,6 +375,23 @@ void UEarthCompany::MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutW
 	}
 }
 
+double UEarthCompany::SeatFor(const FEarthMount& Mount, const FString& Sp, uint32 Thing) const
+{
+	FString Own;
+	if (const UEarthWalkNet* Room = Net.Get())
+	{
+		for (const TPair<FString, FEarthOwnCar>& Pair : Room->GetCars())
+		{
+			if (Pair.Value.Thing == Thing)
+			{
+				Own = Pair.Value.Body.IsEmpty() ? FString(TEXT("car")) : Pair.Value.Body;
+			}
+		}
+	}
+	const double Seat = AEarthLife::CarSeat(Sp, Thing, Own);
+	return Seat > 0.0 ? Seat : Mount.Seat;
+}
+
 bool UEarthCompany::GroundFor(const FString& Sp, double X, double Z, double& OutY, double FeetAt, const AActor* Ignore) const
 {
 	if (!World.IsValid() || !World->TerrainHeightAt(X, Z, OutY))
@@ -480,6 +497,7 @@ void UEarthCompany::OnRide(const FEarthRide& Ride)
 	else
 	{
 		Me->SetMount(Mount);
+		Me->SetSeat(SeatFor(*Mount, Ride.Sp, Ride.Thing));
 		if (bFrom)
 		{
 			// Onto its back, where it stands, facing the way it faces.
@@ -663,7 +681,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 		{
 			const FVector At = Shown->GetActorLocation();
 			const double X = At.Y / 100.0, Z = -At.X / 100.0;
-			double Y = At.Z / 100.0 - Mount->Seat;
+			double Y = At.Z / 100.0 - SeatFor(*Mount, Ride.Sp, Ride.Thing);
 			GroundFor(Ride.Sp, X, Z, Y, Y, Shown); // a friend riding over a bridge has their mount on the deck with them
 			Ridden(Pair.Key, Ride.Thing, Ride.Sp, X, Z, Y, (-Shown->GetActorRotation().Yaw * UE_DOUBLE_PI) / 180.0, Dt);
 		}

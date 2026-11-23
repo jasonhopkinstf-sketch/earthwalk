@@ -156,14 +156,37 @@ AEarthLife::FLooks AEarthLife::LooksOf(uint32 Id)
 {
 	// A car's body, paint and size come from its identity, so they are the same for everyone. The bodies are
 	// the lots of liferigs.js (BODIES): mostly ordinary cars, and one in sixty a police car, an ambulance or a fire engine.
-	static const TCHAR* const Bodies[] = {
-#include "EarthLifeBodies.gen.inl"
-	};
 	FLooks Looks;
-	Looks.Rig = EarthRigs::Find(Bodies[EarthLife::Hash32(Id, SaltPaint) % UE_ARRAY_COUNT(Bodies)]);
+	Looks.Rig = EarthRigs::Find(BodyOf(Id));
 	Looks.Coat = Looks.Rig ? EarthLife::Hash32(Id, SaltPaint + 1) % Looks.Rig->Coats.Num() : 0;
 	Looks.Size = 0.94 + 0.12 * EarthLife::Unit(Id, SaltPaint + 2);
 	return Looks;
+}
+
+const TCHAR* AEarthLife::BodyOf(uint32 Id)
+{
+	static const TCHAR* const Bodies[] = {
+#include "EarthLifeBodies.gen.inl"
+	};
+	return Bodies[EarthLife::Hash32(Id, SaltPaint) % UE_ARRAY_COUNT(Bodies)];
+}
+
+double AEarthLife::CarSeat(const FString& Sp, uint32 Thing, const FString& OwnBody)
+{
+	if (Sp == TEXT("taxi"))
+	{
+		return EarthModels::SeatOf(TEXT("taxi"));
+	}
+	if (Sp != TEXT("car"))
+	{
+		return 0.0;
+	}
+	if (!OwnBody.IsEmpty())
+	{
+		const double Own = EarthModels::SeatOf(OwnBody);
+		return Own > 0.0 ? Own : EarthModels::SeatOf(TEXT("car"));
+	}
+	return EarthModels::SeatOf(BodyOf(Thing)) * LooksOf(Thing).Size;
 }
 
 void AEarthLife::AddChunk(FIntPoint Key, const TArray<TSharedPtr<FJsonValue>>& Items, double OriginX, double OriginY, double TileM)
@@ -365,6 +388,33 @@ void AEarthLife::MakeModels()
 		ModelShapes.Add(Shape);
 		ModelTransforms.AddDefaulted();
 		ModelColours.AddDefaulted();
+		EarthModels::WheelsOf(i, ModelWheels.AddDefaulted_GetRef());
+	}
+	// The wheels: each kind once, after the bodies, drawn through the same lists.
+	const int32 FirstWheelShape = ModelShapes.Num();
+	for (int32 Kind = 0; Kind < EarthModels::NumWheelKinds(); ++Kind)
+	{
+		UStaticMesh* Mesh = EarthModels::BuildWheel(this, Kind);
+		UInstancedStaticMeshComponent* Shape = NewObject<UInstancedStaticMeshComponent>(this);
+		Shape->SetStaticMesh(Mesh);
+		Shape->SetMaterial(0, Material ? Material : FigureMaterial.Get());
+		Shape->SetMobility(EComponentMobility::Movable);
+		Shape->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Shape->SetCanEverAffectNavigation(false);
+		Shape->SetNumCustomDataFloats(3);
+		Shape->SetupAttachment(RootComponent);
+		Shape->RegisterComponent();
+		ModelMeshes.Add(Mesh);
+		ModelShapes.Add(Shape);
+		ModelTransforms.AddDefaulted();
+		ModelColours.AddDefaulted();
+	}
+	for (TArray<EarthModels::FWheelAt>& Wheels : ModelWheels)
+	{
+		for (EarthModels::FWheelAt& Wheel : Wheels)
+		{
+			Wheel.Kind += FirstWheelShape;
+		}
 	}
 	UE_LOG(LogTemp, Display, TEXT("EarthWalk: %d ready-made models in use%s"), ModelShapes.Num(), Material ? TEXT("") : TEXT(", without M_EarthModel"));
 }
@@ -667,6 +717,7 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 		Base.Position = Engine(Sx, Ground - (Rig.bSwim ? Rig.Swim * Size : 0.0) + (Rig.bHover ? (Rig.Hover.X + Rig.Hover.Y) / 2.0 : 0.0), Sz);
 		Base.Rotation = EarthRigs::Turned(0.0, (-C.Yaw * Pi) / 180.0, Rig.Heel);
 		Base.Size = Size;
+		Base.Rolled = C.Gait;
 		Pose.bStandIn = true;
 		Pose.Swing = C.bMoving ? std::sin((C.Gait / Rig.Stride) * Pi * 2.0) * 0.55 : 0.0;
 		Pose.bTogether = Rig.Hop > 0.0;
@@ -827,6 +878,7 @@ AEarthLife::EDrawn AEarthLife::DrawAnimal(const AEarthWorld* World, const FHerd&
 	Base.Position = Engine(X, Ground + St->Up + Hover + (Lift + Bob) * Size, Z);
 	Base.Rotation = EarthRigs::Turned(0.0, St->Yaw, Roll);
 	Base.Size = Size;
+	Base.Rolled = C.Gait + St->Gait; // a tractor's wheels turn as it trundles about
 	Pose.State = St;
 	Pose.Flap = Flap;
 	Pose.Swing = Swing;
@@ -969,6 +1021,7 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 		Base.Position = Engine(Pose.X, Y + RoadLiftM + (Pose.bMoving ? FMath::Abs(std::sin(T * 9.0 + Id)) * 0.02 : 0.0), Pose.Y);
 		Base.Rotation = EarthRigs::Turned(0.0, St.Yaw, 0.0);
 		Base.Size = Entry.Car->Looks.Size;
+		Base.Rolled = Pose.Rolled;
 		Put(Rig, Rig.PaletteA[Entry.Car->Looks.Coat], Rig.PaletteB[Entry.Car->Looks.Coat], Base, AtRest, T);
 	}
 
@@ -1065,6 +1118,15 @@ void AEarthLife::PutMount(const FEarthThing& Mount, double T)
 			Base.Position = Engine(Mount.X, Mount.Y, Mount.Z); // whoever put it here has allowed for the road
 			Base.Rotation = EarthRigs::Turned(Mount.Pitch, Mount.Yaw, Mount.Roll);
 			Base.Size = Looks.Size;
+			// Its wheels turn by how far it has gone since it was last drawn, forwards or back (a jump across the world is not a drive).
+			FRolled& Gone = MountRolled.FindOrAdd(Mount.Thing);
+			const FVector Step = Base.Position - Gone.Last;
+			if (!Gone.Last.IsZero() && Step.SizeSquared() < FMath::Square(600.0))
+			{
+				Gone.Metres += FVector::DotProduct(Step, Base.Rotation.GetForwardVector()) / 100.0;
+			}
+			Gone.Last = Base.Position;
+			Base.Rolled = Gone.Metres;
 			const FLinearColor Painted = FLinearColor::FromSRGBColor(FColor((Mount.Paint >> 16) & 0xff, (Mount.Paint >> 8) & 0xff, Mount.Paint & 0xff));
 			Put(*Looks.Rig, Mount.bOwnLook ? Painted : Looks.Rig->PaletteA[Looks.Coat], Looks.Rig->PaletteB[Looks.Coat], Base, Pose, T);
 		}
@@ -1085,6 +1147,7 @@ void AEarthLife::PutMount(const FEarthThing& Mount, double T)
 	Base.Position = Engine(Mount.X, Mount.Y + (Lift + Bob) * Size, Mount.Z);
 	Base.Rotation = EarthRigs::Turned(Mount.Pitch, Mount.Yaw, Rig->Heel + Mount.Roll); // tipped back to sit, forward to bow, leaning to dance
 	Base.Size = Size;
+	Base.Rolled = Mount.Gait;
 	Pose.Beat = Beat;
 	Pose.Swing = std::sin(Stride) * 0.55 * Walk;
 	Pose.bTogether = Rig->Hop > 0.0;
@@ -1407,6 +1470,21 @@ void AEarthLife::Put(const FEarthRig& Rig, const FLinearColor& CoatA, const FLin
 		ModelColours[*Model].Add(CoatA.R);
 		ModelColours[*Model].Add(CoatA.G);
 		ModelColours[*Model].Add(CoatA.B);
+		// Its wheels, each turned by as far as it has rolled: forwards takes the top of a wheel towards the front.
+		if (ModelWheels.IsValidIndex(*Model))
+		{
+			for (const EarthModels::FWheelAt& Wheel : ModelWheels[*Model])
+			{
+				// -EWRoll=<metres> turns every wheel as if it had rolled that much further, for a picture of standing cars.
+				static const double TestRoll = []() { float Value = 0.0f; FParse::Value(FCommandLine::Get(), TEXT("-EWRoll="), Value); return double(Value); }();
+				const FQuat Spin(FVector::RightVector, (Base.Rolled + TestRoll) / FMath::Max(Wheel.Radius * Base.Size, 0.05));
+				const FQuat Turn = Wheel.bFlip ? FQuat(FVector::UpVector, UE_DOUBLE_PI) : FQuat::Identity;
+				ModelTransforms[Wheel.Kind].Emplace(Base.Rotation * Spin * Turn, Base.Position + Base.Rotation.RotateVector(Wheel.At * Base.Size), FVector(Base.Size));
+				ModelColours[Wheel.Kind].Add(CoatA.R);
+				ModelColours[Wheel.Kind].Add(CoatA.G);
+				ModelColours[Wheel.Kind].Add(CoatA.B);
+			}
+		}
 		return;
 	}
 	for (const FEarthRigPart& Part : Rig.Parts)

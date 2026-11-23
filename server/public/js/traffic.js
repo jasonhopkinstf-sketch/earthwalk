@@ -129,6 +129,7 @@ export class Traffic {
       if (y === null) continue;
       if (car.d < 40) this.rideable.push({ thing: car.id, sp: "car", x: car.x, z: car.z, yaw: car.yaw });
       life.base.compose(this.v.set(car.x, y, car.z), this.q.setFromEuler(this.euler.set(0, car.yaw, 0)), this.s.set(car.size, car.size, car.size));
+      life.roll = 0;
       life.put(car.rig, car.coat, counts, null, 0, 0, t, 0);
       shown++;
     }
@@ -175,6 +176,7 @@ export class Traffic {
       st.yaw = st.yaw === null ? want : st.yaw + turn(st.yaw, want) * ease(pose.moving ? 3.5 : 6, dt);
       if (d < 40) this.rideable.push({ thing: car.trip.id, sp: "car", x: pose.x, z: pose.y, yaw: st.yaw });
       life.base.compose(this.v.set(pose.x, y + (pose.moving ? Math.abs(Math.sin(t * 9 + car.trip.id)) * 0.02 : 0), pose.y), this.q.setFromEuler(this.euler.set(0, st.yaw, 0)), this.s.set(car.size, car.size, car.size));
+      life.roll = pose.rolled;
       life.put(car.rig, car.coat, counts, null, 0, 0, t, 0);
       shown++;
     }
@@ -217,7 +219,18 @@ export class Traffic {
     const { rig, coat, size } = this.owned?.(m.thing) ?? looks(m.thing, m.sp);
     // A driven car tilts to the ground and leans in a bend (riding.js): turned first, then nose up or down, then leaning.
     life.base.compose(this.v.set(m.x, m.y, m.z), this.q.setFromEuler(this.euler.set(m.pitch ?? 0, m.yaw, m.roll ?? 0, "YXZ")), this.s.set(size, size, size));
+    life.roll = m.gait ?? 0;
     life.put(rig, coat, counts, null, 0, 0, t, 0);
+  }
+
+  /**
+   * How high the rider of a car sits, metres: on the roof of the body this very car has (a van's is higher
+   * than a saloon's), at the size it is drawn. Null for anything that is not a car, or has no model: the usual seat then.
+   */
+  seatOf(thing, sp) {
+    if (sp !== "car" && sp !== "taxi") return null;
+    const { rig, size } = (sp === "car" && this.owned?.(thing)) || looks(thing, sp);
+    return rig.model?.seat ? rig.model.seat * size : null;
   }
 
   /**

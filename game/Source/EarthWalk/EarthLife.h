@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "EarthLifeMotion.h"
 #include "EarthLifeRigs.h"
+#include "EarthModels.h"
 #include "EarthMounts.h"
 #include "GameFramework/Actor.h"
 #include "EarthLife.generated.h"
@@ -79,6 +80,12 @@ public:
 	void SetOutOfPlace(const TSet<uint32>& InHidden, const TArray<FEarthThing>& InMounts) { Taken = InHidden; Mounts = InMounts; }
 	/** Where carriage K of a train is at shared time T, for a passenger on its roof (X, Y, Z and Yaw of Out); false if this game does not have the train. */
 	bool CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double T, FEarthThing& Out) const;
+
+	/**
+	 * How high the rider of a car sits, in metres: on the roof of the body it really has (a van's is higher than a saloon's), at the size it is drawn.
+	 * OwnBody is the body of somebody's own car, or empty for a car of the streets. 0 for anything that is not a car, or has no model: the usual seat then.
+	 */
+	static double CarSeat(const FString& Sp, uint32 Thing, const FString& OwnBody);
 	/** A thing that is being talked to speaks up in its own voice as well, if it has one. */
 	void Speak(const AEarthWorld* World, const FString& Sp, uint32 Thing, double X, double Z);
 	/** The trees and houses within eight metres of a spot (metres east and south of the origin): they can be talked to. */
@@ -199,6 +206,7 @@ private:
 		FVector Position = FVector::ZeroVector; // engine units
 		FQuat Rotation = FQuat::Identity;
 		double Size = 1.0;
+		double Rolled = 0.0; // metres it has driven, for a thing with wheels: they have turned through that much
 	};
 	struct FPose
 	{
@@ -212,6 +220,8 @@ private:
 	};
 
 	static FLooks LooksOf(uint32 Id);
+	/** The body a car of the streets has by its identity: "car", "hatch", "suv"... (BODIES in liferigs.js). */
+	static const TCHAR* BodyOf(uint32 Id);
 	/** Every train this game has, one of each, whichever chunk it came with. */
 	void EachTrain(TFunctionRef<void(const EarthLife::FTrip&)> Do) const;
 	void Sync(const FVector2D& Me);
@@ -269,6 +279,14 @@ private:
 
 	/** The same for the ready-made models: which one stands in for which vehicle, and this frame's. */
 	TMap<const FEarthRig*, int32> ModelOf;
+	// Where each model's wheels stand (Kind is the place of that kind's shape in ModelShapes), and how far each driven thing has rolled.
+	TArray<TArray<EarthModels::FWheelAt>> ModelWheels;
+	struct FRolled
+	{
+		FVector Last = FVector::ZeroVector;
+		double Metres = 0.0;
+	};
+	TMap<uint32, FRolled> MountRolled;
 	TArray<TArray<FTransform>> ModelTransforms;
 	TArray<TArray<float>> ModelColours;
 	bool bModelsMade = false;

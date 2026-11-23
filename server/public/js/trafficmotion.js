@@ -166,5 +166,6 @@ export function tripPose(trip, t) {
     yaw: ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360,
     moving, leg, pace: moving && span > 0 ? run / span : 0, inLane: moving && g0 === 1 && g1 === 1,
     lift: trip.lift ? trip.lift[lo] + (trip.lift[hi] - trip.lift[lo]) * f : 0,
+    rolled: driven, // metres since it last set off: what its wheels have turned through
   };
 }

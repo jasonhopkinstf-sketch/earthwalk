@@ -88,6 +88,8 @@ public:
 	double FacingYaw() const;
 	/** How far above the ground under the player the seat is, in engine units: what other players are told, so the figure they see sits on top. */
 	double SeatLiftCm() const;
+	/** How high this ride's seat is, when that is not the usual for its kind (the roof of a van is higher than a saloon's); below 0 for the usual. Forgotten at the next mount. */
+	void SetSeat(double Metres);
 	/** Being taken somewhere: the way to go (north and east, one unit long) and how much of the mount's pace to use. Cleared and set again each frame. */
 	void SetAutopilot(const FVector2D& NorthEast, double Pace);
 	void ClearAutopilot() { bAutopilot = false; }
@@ -185,6 +187,7 @@ private:
 	bool bRunningNow = false;
 
 	const FEarthMount* Mount = nullptr;
+	double SeatM = -1.0;
 	FEarthCar Car;
 	bool bHasWant = false; // the velocity asked for last frame, to tell when a wall took some of it
 	double WantVx = 0.0;

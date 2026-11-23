@@ -103,6 +103,7 @@ namespace EarthLife
 		double Pace = 0.0;
 		bool bInLane = false;
 		double Lift = 0.0; // metres above the terrain: on a bridge, or on the ramp up to one
+		double Rolled = 0.0; // metres driven since it last set off: what its wheels have turned through
 	};
 	FTripPose TripPose(const FTrip& Trip, double T);
 

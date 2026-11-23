@@ -12,7 +12,7 @@ import { paint } from "./look.js";
 import { xToLon, yToLat } from "./geo.js";
 import { CALL_SLOT, callTime, creatureAt, hash32, memberId, SPECIES } from "./lifemotion.js";
 import { RIGS, VEHICLES } from "./liferigs.js";
-import { MODELS } from "./models.gen.js";
+import { MODELS, WHEELS } from "./models.gen.js";
 
 const SHOW_M = 220; // homes further off than this are not drawn
 const HEAR_M = 70;
@@ -82,9 +82,11 @@ function modelGeometry(model) {
 if (new URLSearchParams(globalThis.location?.search ?? "").get("models") !== "ours") {
   for (const [name, model] of Object.entries(MODELS)) {
     const rig = VEHICLES[name] ?? RIGS[name]; // a car of the streets, or a machine of the farm (the tractor)
-    if (rig) rig.model = { key: `model:${name}`, geometry: modelGeometry(model) };
+    // Its wheels are meshes of their own (one of WHEELS each), so that they can roll: where each stands, in metres.
+    if (rig) rig.model = { key: `model:${name}`, geometry: modelGeometry(model), seat: model.seat, wheels: (model.wheels ?? []).map(([kind, x, y, z, flip, r]) => ({ key: `wheel:${kind}`, x: x / 1000, y: y / 1000, z: z / 1000, flip: !!flip, r: r / 1000 })) };
   }
 }
+const WHEEL_SHAPES = WHEELS.map(modelGeometry);
 
 const unit = (a, b) => hash32(a, b) / 4294967296;
 const ease = (rate, dt) => 1 - Math.exp(-rate * dt);
@@ -141,6 +143,16 @@ export class Life {
       scene.add(mesh);
       this.meshes[rig.model.key] = mesh;
     }
+    WHEEL_SHAPES.forEach((geometry, kind) => {
+      const mesh = new THREE.InstancedMesh(geometry, modelMaterial, MODEL_CAPACITY * 4);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.setColorAt(0, new THREE.Color(0xffffff));
+      scene.add(mesh);
+      this.meshes[`wheel:${kind}`] = mesh;
+    });
+    /** How far the thing about to be drawn has rolled, metres: its wheels have turned through that much. Whoever draws a vehicle sets it first. */
+    this.roll = 0;
     this.base = new THREE.Matrix4();
     this.tmp = new THREE.Matrix4();
     this.rot = new THREE.Matrix4();
@@ -344,6 +356,7 @@ export class Life {
     if (herd.d < 60) this.nearby.push({ thing: c.id, sp: herd.home.sp, x, z });
     if (herd.d < 60 && this.riding?.rides(herd.home.sp)) this.rideable.push({ thing: c.id, sp: herd.home.sp, x, z, yaw: st.yaw, reach: Math.max(3, rig.flee + 2.5) }); // near enough, even as it shies away
     this.base.compose(this.v.set(x, ground + st.up + hover + (lift + bob) * size, z), this.q.setFromEuler(this.euler.set(0, st.yaw, roll)), this.s.set(size, size, size));
+    this.roll = rig.model ? c.gait + st.gait : 0; // a tractor's wheels turn as it trundles about
     this.put(rig, coat, counts, st, flap, swing, t, beat, greeting ? 4 : 1, !!rig.hop);
     return true;
   }
@@ -358,6 +371,18 @@ export class Life {
         counts[rig.model.key] = i + 1;
         mesh.setMatrixAt(i, this.base);
         mesh.setColorAt(i, coat.a);
+      }
+      // Its wheels, each turned by as far as it has rolled: forwards takes the top of a wheel towards the front.
+      for (const wheel of rig.model.wheels) {
+        const round = this.meshes[wheel.key];
+        const k = counts[wheel.key];
+        if (!round || k >= MODEL_CAPACITY * 4) continue;
+        counts[wheel.key] = k + 1;
+        this.rot.makeRotationX(-this.roll / wheel.r);
+        if (wheel.flip) this.rot.multiply(this.tmp.makeRotationY(Math.PI));
+        this.tmp.makeTranslation(wheel.x, wheel.y, wheel.z).multiply(this.rot).premultiply(this.base);
+        round.setMatrixAt(k, this.tmp);
+        round.setColorAt(k, coat.a);
       }
       return;
     }

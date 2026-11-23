@@ -17,6 +17,17 @@ namespace
 		int32 NumCorners;
 		const uint16* I;
 		int32 NumIndices;
+		int32 SeatMm;     // how high a rider on its roof sits
+		int32 FirstWheel; // its wheels, in Wheels
+		int32 NumWheels;
+	};
+	/** One wheel of one model: which kind (a row of Models after the bodies), its middle in tenths of a centimetre, turned round or not, its radius. */
+	struct FWheel
+	{
+		int32 Kind;
+		int32 X, Y, Z;
+		bool bFlip;
+		int32 RadiusMm;
 	};
 
 #include "EarthModels.gen.inl"
@@ -34,7 +45,49 @@ bool EarthModels::On()
 
 int32 EarthModels::Num()
 {
-	return UE_ARRAY_COUNT(Models);
+	return NumBodies;
+}
+
+int32 EarthModels::NumWheelKinds()
+{
+	return UE_ARRAY_COUNT(Models) - NumBodies;
+}
+
+double EarthModels::SeatOf(const FString& Rig)
+{
+	if (On())
+	{
+		for (int32 i = 0; i < NumBodies; ++i)
+		{
+			if (Rig == Models[i].Rig)
+			{
+				return Models[i].SeatMm / 1000.0;
+			}
+		}
+	}
+	return 0.0;
+}
+
+void EarthModels::WheelsOf(int32 Index, TArray<FWheelAt>& Out)
+{
+	Out.Reset();
+	const FModel& Model = Models[Index];
+	for (int32 i = 0; i < Model.NumWheels; ++i)
+	{
+		const FWheel& Wheel = Wheels[Model.FirstWheel + i];
+		FWheelAt& At = Out.AddDefaulted_GetRef();
+		At.Kind = Wheel.Kind;
+		At.At = FVector(Wheel.X, Wheel.Y, Wheel.Z) * 0.1;
+		At.bFlip = Wheel.bFlip;
+		At.Radius = Wheel.RadiusMm / 1000.0;
+	}
+}
+
+static UStaticMesh* BuildRow(UObject* Outer, int32 Row);
+
+UStaticMesh* EarthModels::BuildWheel(UObject* Outer, int32 Kind)
+{
+	return BuildRow(Outer, NumBodies + Kind);
 }
 
 const TCHAR* EarthModels::RigOf(int32 Index)
@@ -44,7 +97,12 @@ const TCHAR* EarthModels::RigOf(int32 Index)
 
 UStaticMesh* EarthModels::Build(UObject* Outer, int32 Index)
 {
-	const FModel& Model = Models[Index];
+	return BuildRow(Outer, Index);
+}
+
+static UStaticMesh* BuildRow(UObject* Outer, int32 Row)
+{
+	const FModel& Model = Models[Row];
 	FMeshDescription Description;
 	FStaticMeshAttributes Attributes(Description);
 	Attributes.Register();

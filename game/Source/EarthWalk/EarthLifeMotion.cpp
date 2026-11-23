@@ -443,6 +443,7 @@ EarthLife::FTripPose EarthLife::TripPose(const FTrip& Trip, double T)
 	Out.Pace = Out.bMoving && Span > 0.0 ? Run / Span : 0.0;
 	Out.bInLane = Out.bMoving && G0 == 1.0 && G1 == 1.0;
 	Out.Lift = LiftAt(Trip, Along);
+	Out.Rolled = Driven;
 	return Out;
 }
 

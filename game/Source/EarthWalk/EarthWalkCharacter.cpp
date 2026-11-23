@@ -332,7 +332,13 @@ void AEarthWalkCharacter::SetDriveFriction(bool bDriving)
 
 double AEarthWalkCharacter::SeatLiftCm() const
 {
-	return Mount ? Mount->Seat * 100.0 : 0.0;
+	return Mount ? (SeatM >= 0.0 ? SeatM : Mount->Seat) * 100.0 : 0.0;
+}
+
+void AEarthWalkCharacter::SetSeat(double Metres)
+{
+	SeatM = Metres;
+	ApplySeat();
 }
 
 /** Raises the figure and the eyes to the seat, or puts them back. */
@@ -357,6 +363,7 @@ void AEarthWalkCharacter::SetMount(const FEarthMount* InMount)
 		PC->SetControlRotation(FRotator(0.0, FMath::RadiansToDegrees(Car.Heading), 0.0));
 	}
 	Mount = InMount;
+	SeatM = -1.0;
 	bHasGoodSpot = false;
 	bAutopilot = false;
 	bHasWant = false;
