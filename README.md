@@ -58,7 +58,7 @@ settings (environment variables):
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |
-| `ANTHROPIC_API_KEY`, `EARTHWALK_TALK_MONTHLY_USD`, `EARTHWALK_TALK_MODEL` | Optional and paid: let the things players talk to answer through Claude, under a monthly limit (see [docs/HOSTING.md](docs/HOSTING.md)) |
+| `ANTHROPIC_API_KEY`, `EARTHWALK_TALK_MONTHLY_USD`, `EARTHWALK_TALK_MODEL` | Optional and paid: let the things players talk to, and the guide, answer through Claude, under a monthly limit they share (see [docs/HOSTING.md](docs/HOSTING.md)) |
 
 For family in other homes to join, the server has to be reachable from the internet.
 See [docs/HOSTING.md](docs/HOSTING.md) for putting it on a cloud host and inviting people.
@@ -106,6 +106,7 @@ Controls (Unreal):
 | `Z` | The strip of buttons along the bottom, off and on (remembered) |
 | `M` | The little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, the gates of a race, and the road to where you are being taken |
 | `T` | Talk to the animal, car, train, tree or house beside you. The conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; `Esc` finishes. Nothing a thing says goes in the chat window, and the chat line always goes to people |
+| `Q` | Browser so far: ask the guide, in plain words: where am I, what is near here, is there a shop, where is the nearest station, how do I get to the beach, what can I do here. A box asks what you would like to know, with questions ready to click; the answer comes in the bubble at the foot of the screen with buttons that start the trip (Call a taxi, Take me there, Go there now, Show me) and a line for the next question |
 | `K` | Tricks: what your companion knows, a lesson in the next (Space on each paw print), and an agility course to set up |
 | `H` | The home key: inside a house nobody lives in, make it yours; inside your own (or by its door), furnish it; anywhere else, go home |
 | `B` | Your lunch box: your five hearts, the food you carry (a click eats it, or gives it to a friend standing by), and beside a shop or a café what it sells |
@@ -135,6 +136,7 @@ Chat commands:
 | `/sound on`, `/sound off` | The animals' voices, car horns and train whistles |
 | `/taxi <place>` | Call a taxi; it drives to you, and `E` beside it gets you a ride there |
 | `/passport` | Your passport (the `P` key) |
+| `/guide`, `/guide <question>` | Browser so far: ask the guide (the `Q` key), or straight to an answer: `/guide where is the nearest station` |
 | `/menu`, `/buttons`, `/map`, `/news` | The Tab menu, the strip of buttons (`Z`), the little map (`M`) and the "What's new" card |
 | `/do <name>` | One thing from the Tab menu by its name in the table: `/do goto` asks "Where to?" |
 | `/look flat`, `/look barnyard` | The look of the whole world (see "The look" below). Browser: `/look flat nolines` leaves the black line off, for a slow computer |
@@ -432,6 +434,22 @@ use their own stock of lines. `server/public/js/talk.js`; docs/PROTOCOL.md, "Tal
 
 Both games show where you are in a header at the top of the screen ("Islington, Greater
 London"), asked from the server (`GET /v1/place`) whenever you have moved about a kilometre.
+
+**The guide (Q).** Ask in plain English where you are or how to get somewhere: "where am I?", "what
+is near here?", "is there a shop near here?", "where is the nearest station?", "how do I get to the
+beach?", "how far is the Sky Tower?", "what can I do here?". The answer is a sentence or two, true
+to the map, and when it is about a place it comes with buttons that start the trip: "Take me
+there" when you are riding something, "Call a taxi", "Go there now" for far places, "Show me" for
+something in the Show me list. The server answers (`server/src/guide.ts`), because it knows where
+you stand and what you are riding. Its built-in answers always work and need no AI: they are made
+from the name of the place, the labels of the chunks round you (named shops and places to eat,
+where trains stop, doors that open, things to ride, animals, each with its distance and compass
+direction), the place search, the way by road, today's tasks and the Show me list; and it says so
+plainly when it does not know. With an API key on the server, while the day's allowance lasts, the
+same facts are handed to Claude, which answers in two or three short sentences a child can read
+and may only point at a place that is among those facts, so it cannot send anybody somewhere made
+up; any failure falls back to the built-in answer. So far in the browser game
+(`server/public/js/guide.js`); the Windows game is to follow from docs/PROTOCOL.md, "The guide".
 
 **Changing your animal.** The passport (P) has the six animals under "Your animal": click
 one and you are that animal from then on, for everyone, and the next time you come. (`/animal bear`

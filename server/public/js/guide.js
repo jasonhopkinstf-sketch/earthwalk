@@ -39,6 +39,7 @@ export class GuideChat {
       this.open = true;
     }
     this.answer = null;
+    this.asked = q;
     this.menu.setTalkMine(`You: ${q}`);
     this.menu.setTalkWords("...");
     this.menu.setTalkReplies([]);
@@ -48,7 +49,10 @@ export class GuideChat {
   }
 
   heard(msg) {
-    if (this.open && typeof msg.text === "string") this.show(msg);
+    if (!this.open || typeof msg.text !== "string") return;
+    // An answer to a question before the one that is up (two asked in a hurry) is not put under the wrong words.
+    if (typeof msg.q === "string" && this.asked && msg.q !== this.asked) return;
+    this.show(msg);
   }
 
   /** Puts an answer up: its words, the ways to go there first, then the questions to click. */

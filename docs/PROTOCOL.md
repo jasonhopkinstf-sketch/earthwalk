@@ -438,6 +438,7 @@ Client to server:
 | `{"t":"ride","thing":918398760,"sp":"horse"}` / `{"t":"ride"}` | Hop on something, or (with no `thing`) hop off. See "Riding". |
 | `{"t":"talk","thing":918398760,"sp":"cow"}` / `{"t":"talk","thing":..,"sp":"cow","text":"what do you eat?"}` | Say hello to a thing, or say something to it. See "Talking". |
 | `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
+| `{"t":"guide"}` / `{"t":"guide","q":"where is the nearest station?"}` / `{"t":"guide","take":{"name":"..","lat":..,"lon":..}}` | Say hello to the guide, ask it a question in plain English, or have my ride take me to the place of its answer. See "The guide". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
@@ -465,6 +466,7 @@ Server to client:
 | `{"t":"car","id":"..","thing":322932241,"body":"car","paint":15239605,"lat":..,"lon":..,"yaw":0}` / `{"t":"car","id":".."}` | A member's own car stands here, with this body and paint (a colour as a number); or has gone. Sent to the room; `welcome` lists them as `cars`. |
 | `{"t":"hat","id":"..","hat":"cap"}` / `{"t":"hat","id":".."}` | A member has put a hat on, or taken it off. Sent to the room; `welcome` gives each peer's as `hat: "cap"`. |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
+| `{"t":"guide","q":"..","text":"..","ai":false,"place":{..},"go":[..],"ask":[..]}` | The guide's answer, to the asker alone. See "The guide". |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
@@ -535,6 +537,11 @@ somewhere else.
 - `path` is the road it comes along, ending beside where the caller stood. It set off at `at`
   (server clock) and goes at 9 m/s, so every client draws it in the same place: along `path` by the
   shared clock, then waiting at the end until `until` (five minutes after the call).
+- `taxi` may carry `lat` and `lon` as well as `place`, when the game already knows where the
+  place is (from an answer of the guide's): the taxi is then sent there and the name is not looked up.
+- A place by name is looked for within about 25 km of the caller first, and of what is found there
+  the nearest is taken ("the beach" is the beach down the road, not the best known one in the
+  region); failing anything near, the best match anywhere.
 - When someone hops on (`ride` with `sp` `taxi`; refused with `taken` for a taxi that is not
   waiting), whoever takes seat 0 is the fare: after the `ride` message they are sent an `order` with
   `act` `goto` for the place asked for, and their client carries them there as for any "take me to"

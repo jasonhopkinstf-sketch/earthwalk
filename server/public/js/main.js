@@ -503,8 +503,9 @@ function talkKey() {
 }
 /** Q: the guide. The box that asks what I would like to know, with questions ready to click; or, with its answer up, back to its line. */
 function guideKey() {
-  if (guide.open) return menu.focusTalk();
-  menuAction("guide");
+  if (guide.open) menu.focusTalk();
+  else menuAction("guide");
+  return true; // the Q that opens the box is not also its first letter
 }
 /** R: join or start the game that is set up here; failing one, a race. */
 function raceKey() {

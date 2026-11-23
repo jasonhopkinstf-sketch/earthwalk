@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { createApp } from "../src/app.ts";
 import { CHUNK_Z, latToY, lonToX, xToLon, yToLat } from "../src/geo.ts";
+import { nearestOf } from "../src/geocode.ts";
 import { builtIn, compass, factSheet, far, Guide, GUIDE_PROMPT, HELLO_ASKS, metresBetween, nearFrom, sightsOf, understand, waysTo, type Asker, type GuideAsk, type GuideDeps, type GuidePlace } from "../src/guide.ts";
 import { LABELS_REV, type LabelsJson } from "../src/labels.ts";
 import { SHOWS } from "../src/showcase.ts";
@@ -99,6 +100,18 @@ test("distances and compass points are said the way people say them", () => {
   assert.equal(compass(0, 0, 0, -1), "west");
   assert.equal(compass(-36.8, 174.8, -36.9, 174.7), "south-west");
   assert.ok(Math.abs(metresBetween(-36.8, 174.8, -36.8, 174.81) - 891) < 5);
+});
+
+test("of the places a search finds, the nearest is taken: the beach down the road, not the best known", () => {
+  const found = [
+    { name: "Huruhi Bay, Surfdale, Waiheke", lat: -36.8043, lon: 175.0251 },
+    { name: "Cheltenham Beach, Devonport", lat: -36.8247, lon: 174.8105 },
+    { name: "Takapuna Beach", lat: -36.7876, lon: 174.7756 },
+    { name: "Nowhere", lat: NaN, lon: 0 },
+  ];
+  assert.equal(nearestOf(found, -36.8312, 174.7965)?.name, "Cheltenham Beach, Devonport");
+  assert.equal(nearestOf(found, -36.79, 174.77)?.name, "Takapuna Beach");
+  assert.equal(nearestOf([], 0, 0), null);
 });
 
 test("what is near comes out of the labels: named buildings, train stops, the nearest door and one of each kind of thing", () => {

@@ -38,7 +38,7 @@ export const ACTIONS = [
   row("taxi", "Ride and drive", "Call a taxi...", "It comes to you and drives you there. Press E beside it to get in.", "", "taxi", "Where should the taxi take you?", "the beach", "Taxi..."),
 
   row("talk", "Talk", "Talk to what is nearest", "Animals, cars, trains, trees and houses all answer. Tell one what to do: follow me, stay, take me to the beach.", "T", "", "", "", "Talk"),
-  row("guide", "Talk", "Ask the guide...", "Ask in plain words where you are, what is near, or how to get somewhere. The answer comes with buttons that take you there.", "Q", "guide", "What would you like to know?", "where is the nearest station?", "Guide"),
+  row("guide", "Talk", "Ask the guide...", "Ask in plain words where you are, what is near, or how to get somewhere. The answer comes with buttons that take you there.", "Q", "guide", "What would you like to know?", "where is the nearest station?"),
   row("chat", "Talk", "Chat with people", "Everybody in your room reads what you type.", "Enter"),
 
   row("passport", "Play", "My passport", "Today's tasks, treasure hunts, expeditions, coins, hats, riddles and everywhere you have been.", "P", "", "", "", "Passport"),

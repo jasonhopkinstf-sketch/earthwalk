@@ -99,12 +99,12 @@ test("the browser's menu says the same things as the Windows game's", { skip: !e
 });
 
 test("the strip of buttons has the few things done most", () => {
-  assert.deepEqual(ACTIONS.filter((a) => a.strip).map((a) => a.strip), ["Go to...", "Show me", "Ride", "My car", "Taxi...", "Talk", "Guide", "Passport"]);
+  assert.deepEqual(ACTIONS.filter((a) => a.strip).map((a) => a.strip), ["Go to...", "Show me", "Ride", "My car", "Taxi...", "Talk", "Passport"]);
 });
 
 test("the guide is one row of the menu, on a key of its own, with questions ready to click", () => {
   const guide = findAction("guide")!;
-  assert.deepEqual([guide.group, guide.title, guide.key, guide.command, guide.ask, guide.askHint, guide.strip], ["Talk", "Ask the guide...", "Q", "guide", "What would you like to know?", "where is the nearest station?", "Guide"]);
+  assert.deepEqual([guide.group, guide.title, guide.key, guide.command, guide.ask, guide.askHint, guide.strip], ["Talk", "Ask the guide...", "Q", "guide", "What would you like to know?", "where is the nearest station?", ""]);
   // The questions in the box are the ones the server's guide offers when it is said hello to.
   assert.deepEqual(GUIDE_QUESTIONS, HELLO_ASKS);
   // Q is free in the Windows game too: none of its rows has it, and none of the keys its code binds.
