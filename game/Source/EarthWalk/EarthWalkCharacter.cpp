@@ -8,6 +8,11 @@
 #include "EarthWorld.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Engine/SkyLight.h"
+#include "EngineUtils.h"
+#include "EarthCompany.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -36,6 +41,17 @@ namespace
 AEarthWalkCharacter::AEarthWalkCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	IndoorLamp = CreateDefaultSubobject<UPointLightComponent>(TEXT("IndoorLamp"));
+	IndoorLamp->SetupAttachment(GetCapsuleComponent());
+	IndoorLamp->SetRelativeLocation(FVector(0, 0, 120));
+	IndoorLamp->bUseInverseSquaredFalloff = false; // an even fill, not a bulb with a bright spot under it
+	IndoorLamp->LightFalloffExponent = 1.2f;
+	IndoorLamp->SetAttenuationRadius(3500.f);
+	IndoorLamp->SetLightColor(FLinearColor(1.f, 0.9f, 0.72f));
+	IndoorLamp->SetCastShadows(false);
+	IndoorLamp->SetIntensity(0.f);
+	IndoorLamp->SetVisibility(false);
 
 	// The camera hangs off a spring arm so it can sit at eye level (arm length 0) or behind the figure.
 	Boom = CreateDefaultSubobject<USpringArmComponent>(TEXT("Boom"));
@@ -598,6 +614,61 @@ bool AEarthWalkCharacter::TryLand()
 	return true;
 }
 
+void AEarthWalkCharacter::IndoorTick(float DeltaSeconds)
+{
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	if (!Earth || !IndoorLamp)
+	{
+		return;
+	}
+	// Inside a house, a shop or an office; or under the ground, in a tunnel.
+	bool bIndoors = false;
+	if (!bWaitingForGround && !bFlown)
+	{
+		FEarthDoor Door;
+		const UEarthCompany* Company = Earth->GetCompany();
+		const FVector Feet = FeetLocation();
+		double Ground = 0.0;
+		bIndoors = (Company && Company->InHouse(Door)) || (Earth->TerrainHeightAt(Feet.Y / 100.0, -Feet.X / 100.0, Ground) && Feet.Z / 100.0 < Ground - 2.0);
+	}
+	static float Lamp = 3.5f, SkyLeft = 0.4f;
+	static bool bRead = false;
+	if (!bRead)
+	{
+		bRead = true; // -EWIndoor=<lamp>,<sky left>: how bright the lamp is, and how much of the sky's light stays, for tuning
+		FString Tuning;
+		if (FParse::Value(FCommandLine::Get(), TEXT("-EWIndoor="), Tuning))
+		{
+			FString A, B;
+			if (Tuning.Split(TEXT("_"), &A, &B))
+			{
+				Lamp = FCString::Atof(*A);
+				SkyLeft = FCString::Atof(*B);
+			}
+		}
+	}
+	const float Before = IndoorK;
+	IndoorK = FMath::Clamp(IndoorK + (bIndoors ? 1.f : -1.f) * DeltaSeconds * 2.5f, 0.f, 1.f);
+	if (IndoorK == Before)
+	{
+		return;
+	}
+	IndoorLamp->SetVisibility(IndoorK > 0.f);
+	IndoorLamp->SetIntensity(Lamp * IndoorK);
+	if (!SkyLamp && GetWorld())
+	{
+		for (TActorIterator<ASkyLight> It(GetWorld()); It; ++It)
+		{
+			SkyLamp = It->GetLightComponent();
+			break;
+		}
+	}
+	if (SkyLamp)
+	{
+		SkyLamp->SetIntensity(1.f - (1.f - SkyLeft) * IndoorK);
+	}
+}
+
 void AEarthWalkCharacter::TeleportToGeo(double Lat, double Lon)
 {
 	if (AEarthWorld* Earth = AEarthWorld::Get(this))
@@ -624,6 +695,7 @@ void AEarthWalkCharacter::SetFlying(bool bFly)
 void AEarthWalkCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	IndoorTick(DeltaSeconds);
 
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (!PC)

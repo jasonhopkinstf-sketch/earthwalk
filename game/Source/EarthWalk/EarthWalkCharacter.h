@@ -137,6 +137,18 @@ private:
 	UPROPERTY()
 	TObjectPtr<UCameraComponent> Camera;
 
+	/**
+	 * Indoors and in tunnels the sun does not reach, and all that lit a room was the sky: everything in it
+	 * was blue. A warm lamp travels with the player, and comes up as they go inside (the sky's light goes
+	 * down by as much); out of doors it is off.
+	 */
+	UPROPERTY()
+	TObjectPtr<class UPointLightComponent> IndoorLamp;
+	UPROPERTY()
+	TObjectPtr<class USkyLightComponent> SkyLamp;
+	float IndoorK = 0.f;
+	void IndoorTick(float DeltaSeconds);
+
 	UPROPERTY()
 	TObjectPtr<UEarthAnimalFigure> Figure;
 
