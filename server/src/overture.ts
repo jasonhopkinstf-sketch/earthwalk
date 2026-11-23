@@ -37,11 +37,12 @@ const ON = process.env.EARTHWALK_OVERTURE !== "0";
 const CATALOG_URL = process.env.EARTHWALK_OVERTURE_CATALOG ?? "https://stac.overturemaps.org/catalog.json";
 const TILES_URL = (process.env.EARTHWALK_OVERTURE_TILES ?? "https://tiles.overturemaps.org").replace(/\/+$/, "");
 /**
- * Whose outlines are left out, by Overture's name for them. "Google Open Buildings" is an open set
- * (CC BY 4.0 and ODbL) and nothing to do with Google's maps or 3D tiles, but the game's owner has said
- * nothing of Google's goes in without his word: so it is out until the setting says otherwise.
+ * Whose outlines are left out, by Overture's name for them ("Microsoft ML Buildings", "Google Open
+ * Buildings", "Esri Community Maps"...). None are, unless the setting says so. (Google Open Buildings is
+ * an open set under CC BY 4.0 and ODbL, nothing to do with Google's maps or 3D tiles; the game's owner
+ * said yes to it on 2026-11-24. It is most of what there is of many cities in India and Africa.)
  */
-export const LEFT_OUT = (process.env.EARTHWALK_OVERTURE_LEAVE_OUT ?? "Google Open Buildings").split(",").map((s) => s.trim()).filter(Boolean);
+export const LEFT_OUT = (process.env.EARTHWALK_OVERTURE_LEAVE_OUT ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 /** Places Overture is less sure of than this are left out: below it they are mostly pages somebody once made. */
 export const MIN_CONFIDENCE = 0.6;
 /** No contact address is sent to Overture's servers: only what the program is. */

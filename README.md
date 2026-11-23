@@ -59,7 +59,7 @@ settings (environment variables):
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
 | `EARTHWALK_OVERTURE` | `0` leaves Overture Maps out: no buildings or named places beyond OpenStreetMap's own |
-| `EARTHWALK_OVERTURE_LEAVE_OUT` | Sets of building outlines within Overture to leave out, by Overture's name for them, comma-separated (default `Google Open Buildings`; set it to nothing to take them all) |
+| `EARTHWALK_OVERTURE_LEAVE_OUT` | Sets of building outlines within Overture to leave out, by Overture's name for them, comma-separated (for example `Google Open Buildings`; by default none is left out) |
 | `EARTHWALK_COVER` | `0` leaves the satellite maps out: ground cover and tree heights only where OpenStreetMap gives them |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |
@@ -712,11 +712,11 @@ SRTM, USGS 3DEP and others).
 Buildings where OpenStreetMap has none, and the names of shops and other public places,
 are from the Overture Maps Foundation (overturemaps.org): © OpenStreetMap contributors,
 Overture Maps Foundation. The buildings are under the Open Database License and include
-outlines from Esri Community Maps contributors (CC BY 4.0) and Microsoft's Global ML
-Building Footprints (ODbL); the places are from Meta, Microsoft, Foursquare and others
-under CDLA Permissive 2.0, Apache 2.0 and CC0. (Overture also carries Google's Open
-Buildings, an open set under CC BY 4.0 and ODbL; the server leaves those out unless
-`EARTHWALK_OVERTURE_LEAVE_OUT` is changed.)
+outlines from Esri Community Maps contributors (CC BY 4.0), Microsoft's Global ML
+Building Footprints (ODbL) and Google's Open Buildings (an open set under CC BY 4.0 and
+ODbL; nothing to do with Google's maps or 3D tiles); the places are from Meta, Microsoft,
+Foursquare and others under CDLA Permissive 2.0, Apache 2.0 and CC0. Any of the sets of
+outlines can be left out with `EARTHWALK_OVERTURE_LEAVE_OUT`.
 
 Ground cover is from ESA WorldCover 2021: © ESA WorldCover project 2021 / Contains
 modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, under
