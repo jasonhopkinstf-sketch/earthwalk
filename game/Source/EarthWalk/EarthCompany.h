@@ -215,6 +215,8 @@ private:
 		bool bHasBest = false; // the nearest the end has been, to tell when the way is blocked
 		double Best = 0.0;
 		double Held = 0.0;
+		int32 Hops = 0; // times it was lifted past something in the way
+		double Age = 0.0; // seconds since it set off
 	};
 	FTrip Trip;
 	bool bRemount = false;

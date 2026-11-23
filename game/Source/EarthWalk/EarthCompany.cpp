@@ -1085,8 +1085,11 @@ void UEarthCompany::Steer(double Dt)
 		Notice(TEXT("You have the reins again."));
 		return;
 	}
-	// Getting no nearer for five seconds (a wall in the way, a part of the world that will not load):
-	// do the rest in one jump. Getting nearer means passing a point of the way, or closing on the next.
+	// Getting no nearer (a wall in the way, a part of the world that will not load). On a road, after a
+	// second and a half the car is set down ten metres farther along it, past whatever it met: a parked
+	// van, the corner of a house the map has standing in the street. Only when that has not helped a
+	// dozen times, or there is no road to follow, is the rest done in one jump. Getting nearer means
+	// passing a point of the way, or closing on the next.
 	const FVector2D Ahead = Trip.Path[Trip.I];
 	const double Short = (Trip.Path.Num() - Trip.I) * 1000.0 + std::hypot(Ahead.X - Px, Ahead.Y - Pz);
 	if (!Trip.bHasBest || Short < Trip.Best - 1.5)
@@ -1098,6 +1101,45 @@ void UEarthCompany::Steer(double Dt)
 	else
 	{
 		Trip.Held += Dt;
+	}
+	// -EWTripLog: where the trip has got to, once a second, for tests.
+	static const bool bTripLog = FParse::Param(FCommandLine::Get(), TEXT("EWTripLog"));
+	static double TripLogAt = 0.0;
+	if (bTripLog && FPlatformTime::Seconds() - TripLogAt > 1.0)
+	{
+		TripLogAt = FPlatformTime::Seconds();
+		const FVector Going = Me->GetVelocity();
+		double Ground = 0.0;
+		const bool bGround = World.IsValid() && World->TerrainHeightAt(Px, Pz, Ground);
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: trip: at %.1f east %.1f south, %.1f m up (ground %s%.1f), point %d of %d is %.1f m off, %.1f m/s, held %.1f s, first point %.1f %.1f"),
+			Px, Pz, Me->GetActorLocation().Z / 100.0, bGround ? TEXT("") : TEXT("unknown "), Ground, Trip.I, Trip.Path.Num(), std::hypot(Ahead.X - Px, Ahead.Y - Pz), Going.Size2D() / 100.0, Trip.Held, Trip.Path[0].X, Trip.Path[0].Y);
+	}
+	// -EWTripHop: eight seconds into a trip the car is held up once, as if by a wall, for tests.
+	static const bool bHopTest = FParse::Param(FCommandLine::Get(), TEXT("EWTripHop"));
+	Trip.Age += Dt;
+	if (bHopTest && Trip.Age > 8.0 && Trip.Hops == 0)
+	{
+		Trip.Held = 2.0;
+	}
+	if (Trip.Held > 1.5 && Trip.Path.Num() > 1 && Trip.Hops < 12)
+	{
+		int32 J = Trip.I;
+		while (J < Trip.Path.Num() - 1 && std::hypot(Trip.Path[J].X - Px, Trip.Path[J].Y - Pz) < 10.0)
+		{
+			++J;
+		}
+		double GroundHere = 0.0, GroundThere = 0.0;
+		if (World.IsValid() && World->TerrainHeightAt(Px, Pz, GroundHere) && World->TerrainHeightAt(Trip.Path[J].X, Trip.Path[J].Y, GroundThere))
+		{
+			const FVector Here = Me->GetActorLocation();
+			Me->SetActorLocation(FVector(-Trip.Path[J].Y * 100.0, Trip.Path[J].X * 100.0, Here.Z + (GroundThere - GroundHere) * 100.0 + 30.0), false, nullptr, ETeleportType::TeleportPhysics);
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: trip: held up at %.1f east %.1f south; set down at point %d of %d, %.1f m on"), Px, Pz, J, Trip.Path.Num(), std::hypot(Trip.Path[J].X - Px, Trip.Path[J].Y - Pz));
+			++Trip.Hops;
+			Trip.I = J;
+			Trip.bHasBest = false;
+			Trip.Held = 0.0;
+			return;
+		}
 	}
 	if (Trip.Held > 5.0)
 	{

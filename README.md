@@ -320,6 +320,9 @@ who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the 
 Taxis: `/taxi the beach` calls one. A yellow cab comes along the road from a
 few streets away and waits; hop on with E and it drives you there, by road when the place is close
 and in one jump when it is not, saying odd and thoughtful things as it goes. Friends can share it.
+It waits on the nearest proper street, not up a driveway (the little map shows where), and a car
+being driven somewhere that meets something in its way is set down ten metres farther along its
+road (Windows; `-EWTripLog` writes the trip to the log each second, `-EWTripHop` holds it up once).
 `server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
 
 Fifty-four kinds of animal now live in the world (`server/src/life.ts` places them,

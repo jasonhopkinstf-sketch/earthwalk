@@ -129,6 +129,32 @@ test("the way by road: along the streets, round the corners, and only where ther
   assert.equal(await planRoute(aLat, aLon, bLat, bLon, async () => ({ ...features, roads: [] })), null, "no roads, no way");
 });
 
+test("the way by road: it starts and ends on a street, not up a driveway, and a driveway is no short cut", async () => {
+  const { features, at } = grid(52.01, 4.71);
+  const x0 = lonToX(4.71), y0 = latToY(52.01), S = metersPerTile(y0);
+  const pt = (e: number, n: number): [number, number] => [x0 + e / S, y0 - n / S];
+  const near = (got: number[], want: number[], what: string): void => assert.deepEqual(got.map((v) => +v.toFixed(4)), want.map((v) => +v.toFixed(4)), what);
+  // A driveway from a street corner up to a house, and a car park aisle cutting a block corner to corner.
+  const drive = { id: 900, cls: "road" as const, width: 3.5, hw: "service", pts: [pt(200, 100), pt(230, 130)] };
+  const aisle = { id: 901, cls: "road" as const, width: 3.5, hw: "service", pts: [pt(300, 300), pt(400, 400)] };
+  const withLanes: Features = { ...features, roads: [...features.roads, drive, aisle] };
+  const load = async (): Promise<Features> => withLanes;
+
+  // Called from the house at the top of the driveway: the car waits at the corner, on the street.
+  const fromHouse = (await planRoute(...at(232, 132), ...at(500, 100), load))!;
+  near(fromHouse.path[0], at(200, 100), "it starts at the street corner, not at the top of the driveway");
+  const toHouse = (await planRoute(...at(500, 100), ...at(232, 132), load))!;
+  near(toHouse.path.at(-1)!, at(200, 100), "and it ends there, too");
+
+  // Corner to corner of a block: 200 m round by the streets, not 141 m through the car park.
+  const round = (await planRoute(...at(300, 300), ...at(400, 400), load))!;
+  assert.ok(Math.abs(round.metres - 200) < 3, `round by the streets (${round.metres} m)`);
+
+  // Where there are only lanes, a lane is the way, and its length is its real length.
+  const only = (await planRoute(...at(302, 302), ...at(398, 398), async () => ({ ...features, roads: [aisle] })))!;
+  assert.ok(only && Math.abs(only.metres - 141) < 3, `through the car park when that is all there is (${only?.metres} m)`);
+});
+
 test("in a room: orders reach everyone, newcomers learn of them, and only a rider is taken anywhere", async () => {
   const wishes: Record<string, Wish> = {
     "follow me": { deed: "follow" }, "come here": { deed: "come" }, "stay": { deed: "stay" }, "go home": { deed: "home" },
