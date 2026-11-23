@@ -340,12 +340,12 @@ for everyone. Only the ground floor is built.
 
 ## Inside other buildings: `entry` items and `GET /v1/inside/16/{x}/{y}/{id}`
 
-Shops, cafés, offices, malls, blocks of flats and hotels open too, and can be walked through: each has
-its door on the street and, wherever one of its other walls is free, a second door on another side
+Shops, cafés, offices, malls, blocks of flats, hotels, churches, schools and hospitals open too, and
+can be walked through: each has its door on the street and, wherever one of its other walls is free, a second door on another side
 (`server/src/venues.ts` chooses the buildings and the doors, `server/src/venue.ts` lays out the inside).
 
-**Which buildings.** Not homes, not buildings mapped in 3D pieces, not sheds, garages, barns, churches,
-schools, hospitals, factories or warehouses, and nothing under 35 m2. Of the rest:
+**Which buildings.** Not homes, not buildings mapped in 3D pieces, not sheds, garages, barns, petrol
+stations, factories or warehouses, and nothing under 35 m2. Of the rest:
 
 | `use` | The building | Its room, at most | Inside |
 | --- | --- | --- | --- |
@@ -354,6 +354,16 @@ schools, hospitals, factories or warehouses, and nothing under 35 m2. Of the res
 | `mall` | a shop of 2500 m2 or more, one called a mall, an arcade or a market, one with three or more shops mapped inside it; and one in three of the big buildings the map says nothing about | 40 by 60 m | a walk from door to door with shops down both sides (the shops the map names inside it first, then made-up ones), benches, planters, a tree under a skylight |
 | `office` | `building=office`, `commercial`, `government`, `civic` or `public`; and two in three of the big buildings (400 m2 or more, or 13 m or taller) the map says nothing about | 30 by 24 m | a front desk, desks in pairs, meeting rooms and a kitchen in the corners |
 | `lobby` | `apartments`, `dormitory`, `residential`, `hotel`, or a building with a hotel mapped inside it | 12 by 10 m | an entrance hall: a lift, letterboxes and a caretaker (flats) or a desk, keys and luggage (a hotel), a sofa |
+| `church` | a place of worship the map calls Christian, or gives no faith | 22 by 34 m, up to 5.5 m high | an aisle from the door to the far end, pews either side of it, a table with flowers and candles under a window of coloured glass, a stand to read from, the organ, the choir; tall windows of coloured glass down both sides, beams under the roof |
+| `mosque` | a mosque | the same | a carpet with its rows marked, a tiled niche in the far wall with steps beside it, shelves for shoes by the door, books; nobody sits |
+| `temple` | a place of worship of any other faith | the same | low benches either side of the aisle, a low table with flowers and lanterns under a hanging, a gong |
+| `school` | a school or a kindergarten, and any `building=university` or `college` | 30 by 36 m | at 13 by 11 m or more a corridor straight back from the front door with rooms down both sides, each about 7.5 m long and up to 8 m deep, its name over its doorway: `CLASS 1`... (a blackboard, a teacher, desks for two), `LIBRARY`, `ART`, `MUSIC`; smaller, one classroom |
+| `hospital` | a hospital or a clinic, at 13 by 11 m or more | 30 by 36 m | a hall across the front with a desk (`RECEPTION`) and rows of seats to wait on, then a corridor with rooms down both sides, up to 6 m deep: `WARD 1`... (beds with a curtain between, a cupboard by each), `DOCTOR` (a couch, a desk, a chart of letters), `X-RAY` |
+| `clinic` | a hospital or a clinic smaller than that | one room | a desk, a row of seats, a couch with the doctor beside it, a cupboard under a chart of letters |
+
+No faith's own signs are drawn in any of the three halls: what they are is their furniture. The door of
+a church at the far end is to one side, not behind the table; the back door of a school or a hospital with
+a corridor is at the end of it, as a mall's is at the end of its walk.
 
 As for a house, the room is the largest rectangle that fits inside the real walls behind the front door,
 up to the size above; its floor is level with the highest ground under it, and it opens only if the
@@ -381,13 +391,15 @@ the ground. Nothing is drawn on the outside wall by the server for these doors, 
 (ours: glass double doors 1.7 m wide and 2.2 m high in a white frame), and a board over every one of
 them with `text`, or with what the place is.
 
-A small shop, café, office or hotel that already opened as a house keeps its `door` item, which now
+A small shop, café, office, hotel, chapel, school or clinic that already opened as a house keeps its `door` item, which now
 carries `use` (and `text`, its name) as well: it has that inside, not rooms, and nobody can make it
 their home (a `house` claim on it is refused with the error `nohome`). Its second door is an `entry`.
+A petrol station that is as small as a house has no `door` item any more: it does not open.
 
 **The inside** comes from the same route as a house's, `GET /v1/interior/16/{x}/{y}/{id}`, in the same
-format with the same six surfaces (40 to 45); a ceiling is 3 m up, or up to 4.2 m in a mall. It weighs
-40 KB for a café to about 400 KB for the biggest mall (a house is 36 KB).
+format with the same six surfaces (40 to 45); a ceiling is 3 m up, or up to 4.2 m in a mall and 5.5 m in a
+church. It weighs 40 KB for a café to about 450 KB for the biggest mall (a house is 36 KB; a church at most
+65 KB, a hospital 100 KB, a school 170 KB).
 
 **Who is inside**, what is written up in there and where food is sold come from
 `GET /v1/inside/16/{x}/{y}/{id}` (same access rules; 404 for a house or a building that is shut):
@@ -405,9 +417,10 @@ format with the same six surfaces (40 to 45); a ceiling is 3 m up, or up to 4.2 
 | Field | Meaning |
 | --- | --- |
 | `size` | The room from corner to corner, in metres: a player is "in" the building while within that of one of its doors and within 6 m of its floor. |
-| `people` | The animals inside: at most 20 in an office, 4 in a shop, 10 in a café, 25 in a mall, 4 in a hall. `sp` is one of the six animals a player can be (fox, bear, rabbit, cat, owl, frog), so a game draws them with the figure it already has. `id` is the same every visit: it is what a player talks to (below). `role`: `worker`, `meeting`, `reception`, `keeper`, `barista`, `shopper`, `guest`, `caretaker`, `resident`. |
+| `use` | What the place is: `cafe`, `shop`, `mall`, `office`, `lobby`, `church`, `mosque`, `temple`, `school`, `hospital` or `clinic`, as on its doors. A game that does not know one calls it a building. |
+| `people` | The animals inside: at most 20 in an office, 4 in a shop, 10 in a café, 25 in a mall, 4 in an entrance hall, 14 in a church, 30 in a school, 20 in a hospital. `sp` is one of the six animals a player can be (fox, bear, rabbit, cat, owl, frog), so a game draws them with the figure it already has. `id` is the same every visit: it is what a player talks to (below). `role`: `worker`, `meeting`, `reception`, `keeper`, `barista`, `shopper`, `guest`, `caretaker`, `resident`; `warden`, `musician`, `singer`, `visitor`; `teacher`, `pupil`; `doctor`, `nurse`, `patient`. |
 | `pose` | `sit`: seated at `u`, `v`, facing `yaw`, on a seat `seat` metres above the floor `h`. `stand`: standing there, facing `yaw`. `walk`: strolling the path `pts` (`u`, `v` pairs) there and back for ever. |
-| `signs` | Lettering to draw on a board: its middle (`h` in metres above the sea), the heading it faces, and how wide it may be. A shop's name over its front in a mall, `KITCHEN`, `ROOM 1`, `LIFT`, `MENU`. |
+| `signs` | Lettering to draw on a board: its middle (`h` in metres above the sea), the heading it faces, and how wide it may be. A shop's name over its front in a mall, `KITCHEN`, `ROOM 1`, `LIFT`, `MENU`, `CLASS 1`, `WARD 1`, `RECEPTION`. |
 | `tills` | Where food is sold inside: within 4 m of one, a player's lunch box shows what the place sells, as beside a shop's name board outside (`use` is `food` or `shop`, `text` the shop's name: "Food and hearts"). |
 
 A stroller's place is worked out from the shared clock, so everybody sees them in the same place: with

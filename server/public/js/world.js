@@ -155,7 +155,7 @@ const ENTRY_WHITE = paint({ color: 0xf4f1e6 }, { world: true });
 const ENTRY_BLUE = paint({ color: 0x7fb7d6 }, { world: true });
 const ENTRY_DARK = paint({ color: 0x4a4640 }, { world: true });
 /** What goes over the door of a place the map gives no name. */
-export const PLACE_WORDS = { office: "OFFICE", shop: "SHOP", cafe: "CAFÉ", mall: "SHOPS", lobby: "COME IN" };
+export const PLACE_WORDS = { office: "OFFICE", shop: "SHOP", cafe: "CAFÉ", mall: "SHOPS", lobby: "COME IN", church: "CHURCH", mosque: "MOSQUE", temple: "TEMPLE", school: "SCHOOL", hospital: "HOSPITAL", clinic: "CLINIC" };
 const BARK = paint({ color: 0x5a3d2a }, { world: true });
 const LEAF = paint({ color: 0x3f8a2f, flatShading: true }, { world: true });
 const NEEDLE = paint({ color: 0x2f6b2f, flatShading: true }, { world: true });
