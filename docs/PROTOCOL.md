@@ -539,9 +539,9 @@ somewhere else.
   shared clock, then waiting at the end until `until` (five minutes after the call).
 - `taxi` may carry `lat` and `lon` as well as `place`, when the game already knows where the
   place is (from an answer of the guide's): the taxi is then sent there and the name is not looked up.
-- A place by name is looked for within about 25 km of the caller first, and of what is found there
+- A place by name is looked for within about 4 km of the caller first, and of what is found there
   the nearest is taken ("the beach" is the beach down the road, not the best known one in the
-  region); failing anything near, the best match anywhere.
+  region); failing that, the same within about 25 km; failing that, the best match anywhere.
 - When someone hops on (`ride` with `sp` `taxi`; refused with `taken` for a taxi that is not
   waiting), whoever takes seat 0 is the fare: after the `ride` message they are sent an `order` with
   `act` `goto` for the place asked for, and their client carries them there as for any "take me to"
