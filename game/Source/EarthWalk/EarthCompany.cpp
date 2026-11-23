@@ -2251,7 +2251,7 @@ void UEarthCompany::DoorFrame(double Dt)
 	}
 	const double InLift = bVenue ? 0.0 : HouseLiftIn;
 	if (bInHouse && (!Me || Me->IsWaitingForGround() || !PlayerAt(Px, Pz) || std::hypot(HouseIn.Ix - Px, HouseIn.Iz - Pz) > (bVenue ? InsideSize + 10.0 : 45.0)
-		|| FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H - InLift) > (bVenue ? 6.0 : InLift > 0.0 ? 9.0 : 12.0)))
+		|| FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H - InLift) > (bVenue ? 7.5 : InLift > 0.0 ? 9.0 : 12.0))) // (a factory's hall is 6 m high)
 	{
 		bInHouse = false;
 		// Out of a house in the sky some other way than by its door (through a wall, off the edge of its floor):
@@ -2450,8 +2450,11 @@ void UEarthCompany::UseDoor()
 				Self->World->DoorsOf(Going, Same);
 			}
 			const FEarthDoor& Named = Same.Num() > 0 ? Same[0] : Going;
-			const FString What = Going.Use == TEXT("office") ? TEXT("an office") : Going.Use == TEXT("shop") ? TEXT("a shop") : Going.Use == TEXT("cafe") ? TEXT("a caf\u00e9")
-				: Going.Use == TEXT("mall") ? TEXT("a row of shops") : TEXT("an entrance hall");
+			FString What = FEarthDoor::UseWords(Going.Use, 2);
+			if (What.IsEmpty())
+			{
+				What = TEXT("an entrance hall");
+			}
 			Self->Notice(FString::Printf(TEXT("%s%s"), Named.Text.IsEmpty() ? *FString::Printf(TEXT("This is %s."), *What) : *FString::Printf(TEXT("%s: %s."), *Named.Text, *What),
 				Same.Num() > 1 ? TEXT(" There is another door on another side: you can walk right through.") : TEXT("")));
 		}

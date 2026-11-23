@@ -31,7 +31,7 @@ struct FEarthDoor
 	double Z = 0.0;   // metres south of it
 	double H = 0.0;   // the height of the floor inside, metres above sea level
 	double Yaw = 0.0; // the compass heading out of the door, in degrees
-	FString Use;      // "shop", "cafe", "office", "mall" or "lobby" when this is a shop or the like, which opens as a house does but is nobody's to live in; empty for a house
+	FString Use;      // "shop", "cafe", "office", "mall", "lobby", "church", "school", "hospital", "factory"... (UseWords) when this is a shop or the like, which opens as a house does but is nobody's to live in; empty for a house
 	FString Text;     // what the building is called, where the map says (on the first of its doors)
 	bool bEntry = false; // a labels item of kind "entry": a door of a shop, an office, a mall... (docs/PROTOCOL.md, "Inside other buildings")
 	double G = 0.0;   // the ground outside the door, metres above sea level
@@ -40,11 +40,44 @@ struct FEarthDoor
 	double Iz = 0.0;
 	double IYaw = 0.0;
 
+	/**
+	 * The words for a kind of building that is not a house (the `use` of its door, docs/PROTOCOL.md, "Inside other
+	 * buildings"): 0 what goes on the board over a door with no name ("CHURCH"), 1 what it is called in a hint
+	 * ("the church"), 2 what it is ("a church"). The browser's are PLACE_WORDS in world.js and PLACE_TITLES in
+	 * houses.js: keep them in step. Empty for a use this game does not know (board: "COME IN").
+	 */
+	static FString UseWords(const FString& InUse, int32 Which)
+	{
+		struct FRow { const TCHAR* Use; const TCHAR* Board; const TCHAR* The; const TCHAR* A; };
+		static const FRow Rows[] = {
+			{ TEXT("office"), TEXT("OFFICE"), TEXT("the office"), TEXT("an office") },
+			{ TEXT("shop"), TEXT("SHOP"), TEXT("the shop"), TEXT("a shop") },
+			{ TEXT("cafe"), TEXT("CAF\u00c9"), TEXT("the caf\u00e9"), TEXT("a caf\u00e9") },
+			{ TEXT("mall"), TEXT("SHOPS"), TEXT("the shops"), TEXT("a row of shops") },
+			{ TEXT("lobby"), TEXT("COME IN"), TEXT("the entrance hall"), TEXT("an entrance hall") },
+			{ TEXT("church"), TEXT("CHURCH"), TEXT("the church"), TEXT("a church") },
+			{ TEXT("mosque"), TEXT("MOSQUE"), TEXT("the mosque"), TEXT("a mosque") },
+			{ TEXT("temple"), TEXT("TEMPLE"), TEXT("the temple"), TEXT("a temple") },
+			{ TEXT("school"), TEXT("SCHOOL"), TEXT("the school"), TEXT("a school") },
+			{ TEXT("hospital"), TEXT("HOSPITAL"), TEXT("the hospital"), TEXT("a hospital") },
+			{ TEXT("clinic"), TEXT("CLINIC"), TEXT("the clinic"), TEXT("a clinic") },
+			{ TEXT("factory"), TEXT("FACTORY"), TEXT("the factory"), TEXT("a factory") },
+			{ TEXT("warehouse"), TEXT("WAREHOUSE"), TEXT("the warehouse"), TEXT("a warehouse") },
+			{ TEXT("fuel"), TEXT("PETROL"), TEXT("the petrol station"), TEXT("a petrol station") },
+		};
+		for (const FRow& Row : Rows)
+		{
+			if (InUse == Row.Use)
+			{
+				return Which == 0 ? Row.Board : Which == 1 ? Row.The : Row.A;
+			}
+		}
+		return FString();
+	}
 	/** What to call the building: its name, or what it is ("the office"). Empty for a house. */
 	FString Called() const
 	{
-		return !Text.IsEmpty() ? Text : Use == TEXT("office") ? FString(TEXT("the office")) : Use == TEXT("shop") ? FString(TEXT("the shop")) : Use == TEXT("cafe") ? FString(TEXT("the caf\u00e9"))
-			: Use == TEXT("mall") ? FString(TEXT("the shops")) : Use == TEXT("lobby") ? FString(TEXT("the entrance hall")) : FString();
+		return !Text.IsEmpty() ? Text : UseWords(Use, 1);
 	}
 };
 

@@ -343,7 +343,11 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			}
 			if (Words.IsEmpty())
 			{
-				Words = Use == TEXT("office") ? TEXT("OFFICE") : Use == TEXT("shop") ? TEXT("SHOP") : Use == TEXT("cafe") ? TEXT("CAF\u00c9") : Use == TEXT("mall") ? TEXT("SHOPS") : TEXT("COME IN");
+				Words = FEarthDoor::UseWords(Use, 0);
+				if (Words.IsEmpty())
+				{
+					Words = TEXT("COME IN");
+				}
 			}
 			// Glass doors carry their board just above the frame; a door the mesh drew has it where COME IN would be.
 			const FVector Board = bGlass ? Out(13.0, 0.0, 262.0) : Porch > 0.5 ? Out(103.0, 0.0, 276.0 + 30.0) : Out(11.0, 0.0, 281.0);
