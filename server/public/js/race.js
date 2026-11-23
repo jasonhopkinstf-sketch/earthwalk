@@ -4,12 +4,13 @@
 // up) starts it.
 
 import * as THREE from "three";
+import { paint as lookPaint } from "./look.js";
 
 const POST_H = 3.6;
 const HALF_W = 3.6; // a gate spans a road
 const box = new THREE.BoxGeometry(1, 1, 1);
 const beamShape = new THREE.CylinderGeometry(1.1, 1.1, 1, 16, 1, true);
-const paint = (hex, more = {}) => new THREE.MeshLambertMaterial({ color: hex, ...more });
+const paint = (hex, more = {}) => lookPaint({ color: hex, ...more });
 const POST = paint(0xf4f1ea);
 const KINDS = {
   start: [paint(0x3f9a45), paint(0xf4f1ea)],
@@ -47,7 +48,7 @@ function makeObstacle(kind) {
   } else if (kind === "weave") {
     for (let i = 0; i < 5; i++) add(pole(i % 2 ? BLUE : GOLD, 1.2, 0, (i - 2) * 0.7));
   } else if (kind === "tunnel") {
-    const tube = add(new THREE.Mesh(arch, new THREE.MeshLambertMaterial({ color: 0x3f6fb0, side: THREE.DoubleSide })));
+    const tube = add(new THREE.Mesh(arch, paint(0x3f6fb0, { side: THREE.DoubleSide })));
     tube.rotation.set(Math.PI / 2, 0, Math.PI / 2); // lying along the course, open underneath
     tube.position.set(0, 0, 0);
   } else {

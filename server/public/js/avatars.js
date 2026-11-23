@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { newFigureState, restPose, stepFigure } from "./figuremotion.js";
 import { makeHat } from "./hats.js";
+import { paint } from "./look.js";
 
 export const ANIMALS = [
   { id: "fox", label: "Fox", emoji: "🦊", body: 0xd9682b, belly: 0xf4ede2, ears: "pointed", tail: "bushy" },
@@ -19,7 +20,7 @@ const byId = new Map(ANIMALS.map((a) => [a.id, a]));
 
 const sphere = new THREE.SphereGeometry(1, 20, 14);
 const cone = new THREE.ConeGeometry(1, 1, 12);
-const lambert = (hex) => new THREE.MeshLambertMaterial({ color: hex });
+const lambert = (hex) => paint({ color: hex });
 const dark = lambert(0x1c1c1c);
 
 function part(geometry, material, scale, position) {
@@ -186,6 +187,7 @@ function nameLabel(text) {
   const h = 0.035;
   sprite.scale.set((h * canvas.width) / canvas.height, h, 1);
   sprite.renderOrder = 10;
+  sprite.layers.set(1); // not on the little map (minimap.js, NOT_ON_MAP)
   return sprite;
 }
 

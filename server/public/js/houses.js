@@ -110,6 +110,33 @@ export class Houses {
       : this.inside ? (this.mine() ? "H: furnish your house" : this.meetup.homes.has(this.inside.key) ? "" : "H: make this your house") : "");
   }
 
+  /** Every front door that opens within `reach` metres of a spot (east and south of it at most that far), in the scene. */
+  doorsNear(x, z, reach) {
+    const out = [];
+    for (const chunk of this.world.chunks.values()) {
+      for (const door of chunk.doors ?? []) {
+        const at = this.doorAt(chunk, door);
+        if (Math.abs(at.x - x) <= reach && Math.abs(at.z - z) <= reach) out.push(at);
+      }
+    }
+    return out;
+  }
+
+  /** Where the nearest front door that opens is, in words ("120 m to the north-east"), or "" when none is loaded. */
+  nearestDoor() {
+    const p = this.player.position;
+    let best = null;
+    let bestD = Infinity;
+    for (const at of this.doorsNear(p.x, p.z, 3000)) {
+      const d = Math.hypot(at.x - p.x, at.z - p.z);
+      if (d < bestD) { bestD = d; best = at; }
+    }
+    if (!best) return "";
+    const points = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+    const bearing = (Math.atan2(best.x - p.x, -(best.z - p.z)) * 180) / Math.PI;
+    return `${Math.round(bestD)} m to the ${points[((Math.round(bearing / 45) % 8) + 8) % 8]}`;
+  }
+
   doorAt(chunk, door) {
     const { world } = this;
     return { x: (chunk.x + door.u - world.originX) * world.tileM, z: (chunk.y + door.v - world.originY) * world.tileM };

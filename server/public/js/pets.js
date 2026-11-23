@@ -6,6 +6,7 @@
 // a step or two. It is drawn like anything else that has left its timetable (riding.js).
 
 import * as THREE from "three";
+import { paint } from "./look.js";
 import { MOUNTS } from "./riding.js";
 import { RIGS } from "./liferigs.js";
 
@@ -18,9 +19,9 @@ const TRICK_S = { sit: 2.6, spin: 1.7, jump: 1.5, bow: 2.2, fetch: 4.2, hoop: 2.
 const FETCH_M = 7;
 const HOOP_M = 4.4;
 const BALL = new THREE.SphereGeometry(0.14, 12, 8);
-const BALL_RED = new THREE.MeshLambertMaterial({ color: 0xd9382e });
+const BALL_RED = paint({ color: 0xd9382e });
 const HOOP = new THREE.TorusGeometry(0.8, 0.06, 8, 24);
-const HOOP_GOLD = new THREE.MeshLambertMaterial({ color: 0xe0b23c });
+const HOOP_GOLD = paint({ color: 0xe0b23c });
 /** Up to full and back again, holding in between. */
 const hold = (u) => Math.min(1, u * 5, (1 - u) * 5);
 

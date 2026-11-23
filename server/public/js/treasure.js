@@ -3,13 +3,14 @@
 // its coins turning, for the finder to look at.
 
 import * as THREE from "three";
+import { paint } from "./look.js";
 
 const SHOWN_S = 60;
 const box = new THREE.BoxGeometry(1, 1, 1);
 const coin = new THREE.CylinderGeometry(0.09, 0.09, 0.025, 12);
-const wood = new THREE.MeshLambertMaterial({ color: 0x8a5a3a });
-const band = new THREE.MeshLambertMaterial({ color: 0xd0a21e });
-const gold = new THREE.MeshLambertMaterial({ color: 0xf2cc4a, emissive: 0x5a4200 });
+const wood = paint({ color: 0x8a5a3a });
+const band = paint({ color: 0xd0a21e });
+const gold = paint({ color: 0xf2cc4a, emissive: 0x5a4200 });
 
 function part(geometry, material, scale, position) {
   const mesh = new THREE.Mesh(geometry, material);

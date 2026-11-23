@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { dayOf, hungerOf } from "./care.js";
 import { MOUNTS } from "./riding.js";
+import { unlinedSprite } from "./look.js";
 
 const ICON = {
   apple: "🍎", carrot: "🥕", bread: "🍞", corn: "🌽", lettuce: "🥬", fish: "🐟", potato: "🥔", pumpkin: "🎃", nuts: "🌰", cheese: "🧀", egg: "🥚",
@@ -43,7 +44,7 @@ function picture(food) {
   pen.fillText(ICON[food] ?? "🍽", 48, 43);
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
-  material = new THREE.SpriteMaterial({ map, depthWrite: false });
+  material = unlinedSprite(new THREE.SpriteMaterial({ map, depthWrite: false })); // it has its own drawn outline
   pictures.set(food, material);
   return material;
 }

@@ -102,14 +102,13 @@ Controls (Unreal):
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
-| `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
-| `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
-| `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `Tab` | The menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of a table: `game/Source/EarthWalk/EarthMenu.cpp` in the Windows game and `server/public/js/actions.js` in the browser, with the same names and words (`server/test/menu.test.ts` fails when they drift apart; the browser's has its own things as well: house, lunch box, tricks, agility, tag, hide and seek, round-up, invite) |
+| `Z` | The strip of buttons along the bottom, off and on (remembered) |
+| `M` | The little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, the gates of a race, and the road to where you are being taken |
+| `T` | Talk to the animal, car, train, tree or house beside you. The conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; `Esc` finishes. Nothing a thing says goes in the chat window, and the chat line always goes to people |
 | `K` | Tricks: what your companion knows, a lesson in the next (Space on each paw print), and an agility course to set up |
 | `H` | The home key: inside a house nobody lives in, make it yours; inside your own (or by its door), furnish it; anywhere else, go home |
 | `B` | Your lunch box: your five hearts, the food you carry (a click eats it, or gives it to a friend standing by), and beside a shop or a café what it sells |
-| `M` | Windows: the little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, and the road to where you are being taken |
-| `T` | Talk to what is nearest. In the Windows game the conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; Esc finishes. Nothing a thing says goes in the chat window |
 | `Esc`, `Esc` | Leave the game (Windows; it fills the screen, so there is no window to close). `/quit` does the same |
 | `P` | Your passport (`/passport` does the same) |
 | `G` | Show me: a list of things to show somebody; pick one and you are taken straight to it (`/show` does the same) |
@@ -136,6 +135,11 @@ Chat commands:
 | `/sound on`, `/sound off` | The animals' voices, car horns and train whistles |
 | `/taxi <place>` | Call a taxi; it drives to you, and `E` beside it gets you a ride there |
 | `/passport` | Your passport (the `P` key) |
+| `/menu`, `/buttons`, `/map`, `/news` | The Tab menu, the strip of buttons (`Z`), the little map (`M`) and the "What's new" card |
+| `/do <name>` | One thing from the Tab menu by its name in the table: `/do goto` asks "Where to?" |
+| `/look flat`, `/look barnyard` | The look of the whole world (see "The look" below). Browser: `/look flat nolines` leaves the black line off, for a slow computer |
+| `/car`, `/car away` | Bring your own car to where you are, or send it off |
+| `/house`, `/houses` | Windows: `/house` says where the nearest house you can go into is. Browser: that is `/houses`, because `/house` there is the house of your own (the `H` key) |
 | `/world auto`, `/world photo`, `/world generated` | Unreal only: our world on foot and Google's photographic 3D world from the air, the photographic world everywhere, or ours everywhere (see below) |
 | `/mapskey <key>` | Unreal only: save a Google Map Tiles API key on this PC for the photographic world |
 
@@ -350,7 +354,9 @@ What's new: the release notes, in plain words, are `NEWS` in `server/src/news.ts
 a release adds an entry at the top (a test fails when the version in `package.json` has none). The
 Windows game asks for the ones since the version its player last read (`NewsSeen` in its settings)
 a few seconds after arriving and shows them on a card; "What's new" in the Tab menu shows the newest
-three again. docs/PROTOCOL.md, "What is new". The browser game does not show them yet.
+three again. docs/PROTOCOL.md, "What is new". The browser game does the same (`newsSeen` in its
+saved settings; `?nonews` in the address leaves the card out, for automated runs), and says "In the
+Windows game so far; coming to this one." beside a thing marked `in: "windows"`.
 
 Taxis: `/taxi the beach` calls one. A yellow cab comes along the road from a
 few streets away and waits; hop on with E and it drives you there, by road when the place is close
@@ -578,7 +584,18 @@ levels, and ink outlines. All of it is generated by code, not made by hand:
   brushwork out, `Vivid` brightens the colours the server sent, `Marks` is how strongly tiles,
   bricks and grass strokes show), the ink's and the sky's settings, and a second ground palette
   beside the first in `StyleFor`. `-EWPaint=Name:value,Name:value` tries other values for the three
-  dials for one run. Windows only so far; the browser has one look.
+  dials for one run.
+- The browser has both looks too (`server/public/js/look.js`, numbers in `lookdata.js`, which
+  `server/test/look.test.ts` checks against `EarthLook.cpp` and `StyleFor`): `/look flat`,
+  `?look=flat` for one visit, or "Switch the look" in the Tab menu. One function makes every lit
+  material (`paint`), and the same material serves both looks: in the flat one it is drawn in its own
+  colour at one of three even levels by how squarely it faces the sun. The black line is a second
+  pass over the picture (edges from the depth and from steps of colour); `/look flat nolines`
+  leaves it off for a slow computer. Both looks have the painted sky (a great ball round the camera:
+  sun, drifting clouds, far country in haze under the horizon). What the browser's flat look does not
+  have: the Windows game's drawn marks (tiles, bricks, grass strokes), which the browser never had,
+  and lines where a wall turns a corner in one colour and one light (it has no picture of which way
+  surfaces face).
 
 For checking the look without playing, the game takes a screenshot and quits when started
 with `-EWShot=<file.png>` (together with `-EWLat`/`-EWLon`/`-EWCode` as needed).

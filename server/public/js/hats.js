@@ -4,6 +4,7 @@
 // (avatars.js: the head is a ball about 0.26 m across its middle at 1.1 m, facing -z).
 
 import * as THREE from "three";
+import { paint as lookPaint } from "./look.js";
 
 const sphere = new THREE.SphereGeometry(1, 18, 12);
 const dome = new THREE.SphereGeometry(1, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -12,7 +13,7 @@ const cone = new THREE.ConeGeometry(1, 1, 16);
 const paints = new Map();
 const paint = (hex) => {
   let m = paints.get(hex);
-  if (!m) paints.set(hex, (m = new THREE.MeshLambertMaterial({ color: hex })));
+  if (!m) paints.set(hex, (m = lookPaint({ color: hex })));
   return m;
 };
 
