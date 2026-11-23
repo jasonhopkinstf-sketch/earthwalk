@@ -375,6 +375,11 @@ void UEarthHome::KeyHome()
 		Toggle();
 		return;
 	}
+	if (bInside && bInShop)
+	{
+		Screen->AddLine(TEXT("Nobody can live here: it is not a house. Outside, H takes you home."), Notice);
+		return;
+	}
 	if (bInside)
 	{
 		if (const FEarthLived* Whose = Net->GetHomes().Find(InsideKey))
@@ -599,6 +604,7 @@ void UEarthHome::Frame(float DeltaSeconds)
 	}
 	const UEarthCompany* Company = Earth->GetCompany();
 	bInside = Company && Company->InHouse(Inside);
+	bInShop = bInside && !Inside.Use.IsEmpty(); // a shop, a café, an office: walked into as a house is, but nobody's to live in
 	InsideKey = bInside ? UEarthWalkNet::HouseKey(Inside.Chunk.X, Inside.Chunk.Y, Inside.Id) : FString();
 	const FString Mine = MyKey();
 	const bool bInMine = bInside && !Mine.IsEmpty() && InsideKey == Mine;
@@ -610,7 +616,7 @@ void UEarthHome::Frame(float DeltaSeconds)
 	}
 	bAtDoor = !bInside && FromDoor < HomeDoorM;
 	bAtHome = bInMine || FromDoor < HomeKitchenM;
-	Hint = bInMine ? FString(TEXT("H: furnish your house")) : bInside ? (Net->GetHomes().Contains(InsideKey) ? FString() : FString(TEXT("H: make this your house")))
+	Hint = bInMine ? FString(TEXT("H: furnish your house")) : bInside ? (bInShop || Net->GetHomes().Contains(InsideKey) ? FString() : FString(TEXT("H: make this your house")))
 		: bAtDoor ? FString(TEXT("H: your house")) : FString();
 	if (bOpen && !bInMine && !bAtDoor)
 	{

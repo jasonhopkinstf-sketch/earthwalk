@@ -30,6 +30,7 @@ struct FEarthDoor
 	double Z = 0.0;   // metres south of it
 	double H = 0.0;   // the height of the floor inside, metres above sea level
 	double Yaw = 0.0; // the compass heading out of the door, in degrees
+	FString Use;      // "shop", "cafe", "office" or "lobby" when this is a small shop or the like, which opens as a house does but is nobody's to live in; empty for a house
 };
 
 /** A shop or somewhere to eat with its name on a board (a labels item of kind "sign" with a `use`; docs/PROTOCOL.md, "Food and hearts"). */

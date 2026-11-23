@@ -915,6 +915,7 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 								Door.Id = static_cast<int64>(Id);
 								Door.X = (Key.X - OriginX + U) * TileCm / 100.0;
 								Door.Z = (Key.Y - OriginY + V) * TileCm / 100.0;
+								(*Item)->TryGetStringField(TEXT("use"), Door.Use);
 								ChunkDoors.Add(Door);
 							}
 						}

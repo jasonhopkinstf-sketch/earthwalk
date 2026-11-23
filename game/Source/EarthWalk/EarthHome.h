@@ -73,6 +73,7 @@ private:
 
 	bool bOpen = false;
 	bool bInside = false; // in a house I went into
+	bool bInShop = false; // and it is a shop, a cafe or an office: nobody's to live in
 	FEarthDoor Inside;
 	FString InsideKey;
 	bool bAtHome = false;

@@ -11,6 +11,18 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.47", date: "2026-11-23", title: "Bridges, tunnels, and doors that open",
+    items: [
+      { text: "Bridges are bridges and tunnels are tunnels: walk, drive and ride over and through them. Trains run under the city now." },
+      { text: "\"Go to\" finds the place nearest you: the beach down the road, not one across the world. In a car or on an animal, it drives you there." },
+      { text: "C calls your car, and X calls a taxi." },
+      { text: "\"Take me to...\" works again. A ride told where to go used to say hello and stay where it was." },
+      { text: "Shops, cafés, offices, malls, flats and hotels open: walk in and through, and talk to the animals who work there.", in: "browser" },
+      { text: "Ask the guide (Q) in plain words: where am I, what is near, how do I get to the beach? Its answer has buttons that take you there.", in: "browser" },
+      { text: "After \"Go to\" you can choose to be flown there, and watch the world go by on the way.", in: "browser" },
+    ],
+  },
+  {
     version: "0.2.46", date: "2026-11-23", title: "The two games catch each other up",
     items: [
       { text: "Windows game: five hearts and a lunch box (B), with food from animals and fruit trees, and from the real shops and cafés you stand beside." },
