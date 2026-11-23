@@ -26,6 +26,7 @@ import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 import { LookAhead } from "./ahead.ts";
 import { SHOWS } from "./showcase.ts";
 import { newsSince } from "./news.ts";
+import { claudeGuide, Guide, sightsOf, type ChunkSights, type GuideAsk } from "./guide.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -96,6 +97,8 @@ export interface AppOptions {
   /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
   findNear?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
+  /** The model behind the guide's fuller answers (guide.ts). Defaults to Claude when ANTHROPIC_API_KEY is set, and to nothing (built-in answers only) when it is not; null turns it off. */
+  guideAsk?: GuideAsk | null;
   /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
   taxiRemarkMs?: [number, number];
 }
@@ -177,8 +180,9 @@ export function createApp(options: AppOptions = {}): App {
   const findNear = options.findNear ?? geocodeNear;
   const routeBetween = options.planRoute ?? planRoute;
   /** Where a rider asked to go, and for a car or tractor the way there by road when it is close. Slow map downloads are not waited for. */
-  const wayTo = async (lat: number, lon: number, place: string, sp: string) => {
-    const found = await findNear(place, lat, lon);
+  const wayTo = async (lat: number, lon: number, place: string, sp: string, at?: { lat: number; lon: number }) => {
+    // (`at`: the game asking knows where the place is already, from an answer of the guide.)
+    const found = at ? { name: place, lat: at.lat, lon: at.lon } : await findNear(place, lat, lon);
     if (!found) return null;
     const driven = sp === "car" || sp === "tractor" || sp === "taxi"
       ? await Promise.race([routeBetween(lat, lon, found.lat, found.lon).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 12_000).unref())])
@@ -186,8 +190,8 @@ export function createApp(options: AppOptions = {}): App {
     return { name: found.name.split(",").slice(0, 2).join(","), lat: found.lat, lon: found.lon, ...(driven ? { path: driven.path } : {}) };
   };
   /** A taxi for someone at a position who wants to go to a place: the place, and a road for the taxi to come along from a few streets away. */
-  const cab = async (lat: number, lon: number, place: string) => {
-    const dest = await wayTo(lat, lon, place, "taxi");
+  const cab = async (lat: number, lon: number, place: string, at?: { lat: number; lon: number }) => {
+    const dest = await wayTo(lat, lon, place, "taxi", at);
     if (!dest) return null;
     let pickup: [number, number][] = [[lat, lon]]; // failing a road to come by, it simply turns up
     const gaveUp = Date.now() + 8000;
@@ -200,7 +204,31 @@ export function createApp(options: AppOptions = {}): App {
     return { dest, pickup };
   };
   const ahead = options.warm ? new LookAhead(options.warm) : null;
-  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs,
+  // The guide (guide.ts) reads what is near a player out of the labels already built for the chunks round them:
+  // it never has a chunk built for a question. What it made of a chunk's labels is kept a while.
+  const sightsKept = new Map<string, { at: number; sights: ChunkSights }>();
+  const sights = async (x: number, y: number): Promise<ChunkSights | null> => {
+    const key = `${x}/${y}`;
+    const kept = sightsKept.get(key);
+    if (kept && Date.now() - kept.at < 10 * 60_000) return kept.sights;
+    const data = await readCache(`labels/v1.${LABELS_REV}/${CHUNK_Z}/${x}/${y}.json`);
+    if (!data) return null;
+    const made = sightsOf(JSON.parse(data.toString("utf8")));
+    sightsKept.delete(key);
+    sightsKept.set(key, { at: Date.now(), sights: made });
+    if (sightsKept.size > 90) sightsKept.delete(sightsKept.keys().next().value!);
+    return made;
+  };
+  const guide = new Guide({
+    // (Rounded to about a kilometre before it goes anywhere, as for `/v1/place`.)
+    placeDetail: (lat, lon) => placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100),
+    sights, findNear, planRoute: (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon),
+    tasks: (key) => journals.view(key)?.today.tasks ?? [],
+    shows: SHOWS,
+    ask: options.guideAsk !== undefined ? options.guideAsk : process.env.ANTHROPIC_API_KEY ? claudeGuide() : null,
+    budget: talker, model: talker.modelName,
+  });
+  const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, guide, taxiRemarkMs: options.taxiRemarkMs,
     homes, findHome: measureHome, worldRev: GENERATOR_REV,
     ...(ahead ? { moved: (id: string, lat: number, lon: number) => ahead.moved(id, lat, lon) } : {}),
     course: (lat, lon, seed) => planCourse(lat, lon, seed, (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon)),
@@ -520,7 +548,7 @@ export function createApp(options: AppOptions = {}): App {
         // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
       }
-      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, ...rooms.stats() });
+      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, guide: guide.live, ...rooms.stats() });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
       if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);

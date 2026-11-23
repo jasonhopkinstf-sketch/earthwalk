@@ -24,7 +24,8 @@ import { Treasure } from "./treasure.js";
 import { Showcase } from "./showcase.js";
 import { Talk } from "./talk.js";
 import { findAction, Menu } from "./menu.js";
-import { quickReplies } from "./actions.js";
+import { GUIDE_QUESTIONS, quickReplies } from "./actions.js";
+import { GuideChat } from "./guide.js";
 import { MiniMap } from "./minimap.js";
 import { newsCard } from "./newsnotes.js";
 import { HAZE, Ink, LAYER, Sky, look, onLook, setLook } from "./look.js";
@@ -120,8 +121,10 @@ for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => soun
 // The menu of everything (Tab), and the box that asks "Where to?" (menu.js).
 const menu = new Menu({
   panel: $("menu"), askBox: $("ask"), strip: $("strip"), talkBox: $("talkbox"), newsBox: $("news"),
-  act: (id) => menuAction(id), answer: (id, text) => askDone(id, text), talkSay: (words) => talkSay(words), talkEnd: () => talk.stop(),
+  act: (id) => menuAction(id), answer: (id, text) => askDone(id, text), talkSay: (words) => talkSay(words), talkEnd: () => { talk.stop(); guide.close(); },
 });
+// The guide (Q): asked in plain words where I am or how to get somewhere, it answers in the same bubble (guide.js).
+const guide = new GuideChat({ meetup, menu, player, showcase, endTalk: () => talk.stop(), notice: (text) => notice(text), problem: (text) => problem(text) });
 /** "Daisy the cow"; "The cow" until she has said who she is. */
 const talkName = () => talk.title(talk.to).replace(/^./, (c) => c.toUpperCase());
 /** The conversation with a thing opens: its bubble at the foot of the screen, with a line to type on. */
@@ -133,6 +136,7 @@ function openTalk() {
 }
 /** Something said to the thing: typed on its line, or one of the things to say with one click. */
 function talkSay(words) {
+  if (guide.open) return guide.say(words); // the bubble is the guide's: a question, or one of its buttons
   if (!talk.to || !words) return;
   if (words === "...") return menuAction("taketo"); // "Take me to...": where to, first
   talk.say(words);
@@ -489,10 +493,20 @@ function rideKey() {
 /** T: in a round-up the animal beside me follows at once; otherwise it says hello in its bubble, with a line to answer on. True if there was something to talk to. */
 function talkKey() {
   if (play.lead()) return true;
-  if (menu.talking) { menu.focusTalk(); return true; } // back to the line, after a walk about
-  if (!talk.begin()) return false;
+  if (menu.talking && !guide.open) { menu.focusTalk(); return true; } // back to the line, after a walk about
+  if (!talk.begin()) {
+    if (guide.open) menu.focusTalk(); // nothing here to talk to: back to the guide's line
+    return guide.open;
+  }
+  guide.close(); // the bubble is the thing's now
   openTalk();
   return true;
+}
+/** Q: the guide. The box that asks what I would like to know, with questions ready to click; or, with its answer up, back to its line. */
+function guideKey() {
+  if (guide.open) menu.focusTalk();
+  else menuAction("guide");
+  return true; // the Q that opens the box is not also its first letter
 }
 /** R: join or start the game that is set up here; failing one, a race. */
 function raceKey() {
@@ -535,7 +549,7 @@ function menuAction(id) {
   if (action.ask) {
     passport.close();
     showcase.close();
-    return menu.ask(action);
+    return menu.ask(action, id === "guide" ? GUIDE_QUESTIONS : []);
   }
   if (id === "ride") rideKey();
   else if (id === "talk") { if (!talkKey()) notice("There is nothing near enough to talk to. Walk up to an animal, a car, a tree or a house."); }
@@ -591,6 +605,7 @@ addEventListener("keydown", (e) => {
     decor.close();
     lunch.close();
     train.close();
+    guide.close();
     talk.stop(); // and stop talking to whatever it was
   } else if (typing || e.ctrlKey || e.metaKey || e.altKey) {
     // Letters, in a box for typing in; or the browser's own shortcuts.
@@ -609,6 +624,7 @@ addEventListener("keydown", (e) => {
 /** The keys that each do one thing. (M and Z are kept for the little map and the strip of buttons.) */
 const KEYS = {
   KeyT: talkKey, // talk to what is nearest
+  KeyQ: guideKey, // ask the guide
   KeyG: () => void showcase.toggle(), // things to show somebody
   KeyP: () => passport.toggle(), // where I have been and what I have done
   KeyR: raceKey,
@@ -668,6 +684,10 @@ async function command(name, arg) {
       save({ look: look.name, lines: look.lines ? "on" : "off" });
       notice(lookSaid(look.name, look.lines));
     } else notice(`This is the ${look.name} look. /look flat   bright flat colours and bold black lines        /look barnyard   the painted look`);
+  } else if (name === "guide" || name === "ask") {
+    // "/guide where is the nearest station": straight to the answer. With no question, the box that asks for one.
+    if (arg) guide.ask(arg);
+    else guideKey();
   } else if (name === "do") {
     menuAction(arg.toLowerCase()); // one thing from the menu by its name there
   } else if (name === "houses") {
@@ -717,6 +737,8 @@ async function command(name, arg) {
     notice("    Tell it what to do, with the buttons in the bubble or in your own words: follow me, come here, stay, go home,");
     notice("    do a trick, make your noise. Riding it: take me to the beach");
     notice("    ask anything \"can I help?\" and it may ask you a favour: a ride, a walk, a hello to pass on");
+    notice("Q   ask the guide, in plain words: where am I, what is near here, is there a shop, how do I get to the beach.");
+    notice("    Its answer comes with buttons that take you there: a taxi, your ride, or straight there (or /guide <question>)");
     notice("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,");
     notice("    your coins and hats, countries, places, friends,");
     notice("/clue   hear again the clue of the treasure hunt you are on");
@@ -872,4 +894,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, guide, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

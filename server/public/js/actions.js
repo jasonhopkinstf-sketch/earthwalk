@@ -38,6 +38,7 @@ export const ACTIONS = [
   row("taxi", "Ride and drive", "Call a taxi...", "It comes to you and drives you there. Press E beside it to get in.", "X", "taxi", "Where should the taxi take you?", "the beach", "Taxi..."),
 
   row("talk", "Talk", "Talk to what is nearest", "Animals, cars, trains, trees and houses all answer. Tell one what to do: follow me, stay, take me to the beach.", "T", "", "", "", "Talk"),
+  row("guide", "Talk", "Ask the guide...", "Ask in plain words where you are, what is near, or how to get somewhere. The answer comes with buttons that take you there.", "Q", "guide", "What would you like to know?", "where is the nearest station?"),
   row("chat", "Talk", "Chat with people", "Everybody in your room reads what you type.", "Enter"),
 
   row("passport", "Play", "My passport", "Today's tasks, treasure hunts, expeditions, coins, hats, riddles and everywhere you have been.", "P", "", "", "", "Passport"),
@@ -67,6 +68,12 @@ export const ACTIONS = [
   row("news", "The game", "What's new", "What has been added to EarthWalk lately."),
   row("help", "The game", "Every typed command", "Lists the slash commands in the chat window, for those who like typing.", "", "help"),
 ];
+
+/**
+ * Questions for the guide, ready to click in the box that asks "What would you like to know?". The same six
+ * the server's guide offers when it is said hello to (server/src/guide.ts, `HELLO_ASKS`).
+ */
+export const GUIDE_QUESTIONS = ["Where am I?", "What is near here?", "What can I do here?", "Is there a shop near here?", "Where is the nearest station?", "How do I get to the beach?"];
 
 /** @returns {Action | null} */
 export const findAction = (id) => ACTIONS.find((a) => a.id === id) ?? null;

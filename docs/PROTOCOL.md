@@ -537,6 +537,7 @@ Client to server:
 | `{"t":"ride","thing":918398760,"sp":"horse"}` / `{"t":"ride"}` | Hop on something, or (with no `thing`) hop off. See "Riding". |
 | `{"t":"talk","thing":918398760,"sp":"cow"}` / `{"t":"talk","thing":..,"sp":"cow","text":"what do you eat?"}` | Say hello to a thing, or say something to it. See "Talking". |
 | `{"t":"taxi","place":"the beach"}` | Call a taxi to take me somewhere. See "Taxis". |
+| `{"t":"guide"}` / `{"t":"guide","q":"where is the nearest station?"}` / `{"t":"guide","take":{"name":"..","lat":..,"lon":..}}` | Say hello to the guide, ask it a question in plain English, or have my ride take me to the place of its answer. See "The guide". |
 | `{"t":"journal"}` | Ask for my own journal. See "Journal". |
 | `{"t":"pet","sp":"cow"}` / `{"t":"pet"}` | Choose the companion that follows me, from those I have won, or send it home. See "Riddles and companions". |
 | `{"t":"expedition","start":"hunt"}` / `{"t":"expedition","drop":"hunt"}` | Set out on the treasure hunt of where I stand (`hunt`) or on an expedition by its id (`farm`, `capitals`, `penguin`...), or give one up. The answer is my `journal`. See "Treasure hunts and expeditions". |
@@ -564,6 +565,7 @@ Server to client:
 | `{"t":"car","id":"..","thing":322932241,"body":"car","paint":15239605,"lat":..,"lon":..,"yaw":0}` / `{"t":"car","id":".."}` | A member's own car stands here, with this body and paint (a colour as a number); or has gone. Sent to the room; `welcome` lists them as `cars`. |
 | `{"t":"hat","id":"..","hat":"cap"}` / `{"t":"hat","id":".."}` | A member has put a hat on, or taken it off. Sent to the room; `welcome` gives each peer's as `hat: "cap"`. |
 | `{"t":"journal","journal":{..}}` | The answer to `journal`: the asker's own journal, or `null` on a server that keeps none. |
+| `{"t":"guide","q":"..","text":"..","ai":false,"place":{..},"go":[..],"ask":[..]}` | The guide's answer, to the asker alone. See "The guide". |
 | `{"t":"stamp","kind":"stamp","title":"Countries: 3","text":"You have visited 3 countries"}` | The player earned something, just now. `kind` is `stamp`, `country` (a country new to them; `title` is its name) or `level`. Sent to that player alone. |
 | `{"t":"say","thing":918398760,"sp":"cow","name":"Daisy","text":"Grass, mostly.","by":"..","q":"what do you eat?","lat":..,"lon":..}` | A thing spoke. Sent to whoever talked to it (`by`) and to everyone within 80 m of them. `q` is what it was asked (absent for a hello); `lat`/`lon` are where the asker stands, for clients that cannot see the thing itself. |
 | `{"t":"join","id":"..","name":"..","avatar":".."}` / `{"t":"leave","id":".."}` | Someone arrived or left. |
@@ -634,6 +636,11 @@ somewhere else.
 - `path` is the road it comes along, ending beside where the caller stood. It set off at `at`
   (server clock) and goes at 9 m/s, so every client draws it in the same place: along `path` by the
   shared clock, then waiting at the end until `until` (five minutes after the call).
+- `taxi` may carry `lat` and `lon` as well as `place`, when the game already knows where the
+  place is (from an answer of the guide's): the taxi is then sent there and the name is not looked up.
+- A place by name is looked for within about 4 km of the caller first, and of what is found there
+  the nearest is taken ("the beach" is the beach down the road, not the best known one in the
+  region); failing that, the same within about 25 km; failing that, the best match anywhere.
 - When someone hops on (`ride` with `sp` `taxi`; refused with `taken` for a taxi that is not
   waiting), whoever takes seat 0 is the fare: after the `ride` message they are sent an `order` with
   `act` `goto` for the place asked for, and their client carries them there as for any "take me to"
@@ -656,6 +663,83 @@ across before them, `reach` (3.2 m: how near a gate counts as passing it) and `o
 gate is: `start`, `jump`, `hoop`, `weave`, `tunnel`, `table`, `finish`. Everything else is as for a
 race (join, go, stop, the countdown, gates in order). A finished round is paid for and the quickest
 kept; the journal's `agility` has `runs` and `bestSeconds`. Clients are expected to draw each obstacle.
+
+### The guide
+
+A player asks, in plain English, where they are or how to get somewhere, and is told in a sentence or
+two, with buttons that start the trip (`server/src/guide.ts`). The key is Q in both games ("Ask the
+guide..." in the menu). Everything goes over the meetup connection, because the server already knows
+there where the asker stands and what they are riding. Answers go to the asker alone.
+
+Client to server:
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"guide"}` | Hello: the guide says what it can be asked, and offers questions to click. Free, and never the AI. |
+| `{"t":"guide","q":"where is the nearest station?"}` | A question, 200 characters at most. |
+| `{"t":"guide","take":{"name":"Four Square","lat":-36.8301,"lon":174.7969}}` | "Take me there": have what I am riding carry me to the place of an answer. Answered like a "take me to" said to the ride itself ("Doing as asked"): a `say` from the ride and an `order` with `act` `goto` for the asker, or `error` `nowhere` when they are not at the reins of something that can carry them. |
+| `{"t":"taxi","place":"Four Square","lat":-36.8301,"lon":174.7969}` | "Call a taxi": `taxi` may say where the place is, when the game knows (from an answer's `place`); the server then does not look the name up. |
+
+Server to client:
+
+```json
+{"t": "guide", "q": "is there a shop near here?", "ai": false,
+ "text": "The nearest shop is Four Square, 120 m to the north. There is also Devonport Chocolates, 310 m to the east.",
+ "place": {"name": "Four Square", "kind": "shop", "lat": -36.8301, "lon": 174.7969, "metres": 120, "dir": "north", "road": 180},
+ "go": [{"act": "taxi", "label": "Call a taxi"}],
+ "ask": ["What is near here?", "What can I do here?"]}
+```
+
+- `text` is the answer, for the conversation bubble; `q` is the question it answers (absent for the
+  hello). `ai` says whether the AI put it into words; a game need not care.
+- `place`, when the answer is about one place, is what a game needs to act on it: its `name`, where it
+  is, how far off as the crow flies (`metres`) and which way (`dir`, one of the eight compass points:
+  `north`, `north-east`...). `kind` is `shop`, `food`, `place` (any other named building), `station`
+  (a train stops there), `door` (a house that can be gone into), `ride` (an animal, a tractor, a boat
+  or a parked car to hop on), `animal`, `found` (a place looked up by name) or `show` (one of
+  "Things to show"). `road` is how far it is by road in metres, present only when the server found a
+  way (places within 2.5 km: `server/src/route.ts`).
+- `go` is the buttons to put under the answer, in order, each with the words to show. What each `act`
+  means for a game:
+
+| `act` | Shown as | What the game does |
+| --- | --- | --- |
+| `take` | Take me there | Sends `guide` with `take` and the answer's `place`. Offered only while the asker has the reins (seat 0) of something that can carry them: an animal that can be ridden, a car, a tractor, a taxi. |
+| `taxi` | Call a taxi | Sends `taxi` with the place's `name`, `lat` and `lon`. Offered on foot, for places from 150 m to 20 km off. |
+| `jump` | Go there now | Travels to `lat`, `lon` at once, as "Go to a place..." does. Offered for places more than a kilometre off. |
+| `show` | Show me | Goes to the "Show me" entry whose id is the button's `show` (`{"act":"show","label":"Show me","show":"camel"}`), as picking it from that list does. |
+
+  A game should skip a button whose `act` it does not know.
+- `ask` is up to six questions to offer as buttons; a click sends one as `q`.
+
+What it can be asked, and what it answers from. Nothing here needs the AI:
+
+| Question | Answered from |
+| --- | --- |
+| "Where am I?" | The name of the place and its country (as `GET /v1/place`), and the nearest street sign within 150 m. |
+| "What is near here?" | The labels of the nine chunks round the asker, as the server has them built: named buildings (shops and places to eat said to be so), where trains stop, the nearest door that opens, parked car, and animal, tractor or boat of each kind. Nearest first, each with its distance and direction. |
+| "Is there a shop near here?", "Where is the nearest station?", "Where can I find a horse?", "I'm hungry" | The nearest of that kind among the same things. Failing one, a "Show me" entry that has it, and for shops, food and stations what the place search finds within 30 km. |
+| "How do I get to the beach?", "How far is the Sky Tower?", "Where is Queen Street?" | The place by name: among the things near first, then the place search (round the asker first, as for a taxi). Its distance and direction, and for a place within 2.5 km whether there is a way by road and how long it is. |
+| "What can I do here?" | Today's tasks not yet done, what is near to ride, go into, buy food at or catch, and the "Show me" list. |
+| "How far is it?", "Take me there" | The place of the answer before. |
+
+When it does not know, it says so: "I could not find...", "I do not know of a shop near here".
+The labels are read from what is already built and never built for a question, so somewhere a
+player has only just arrived the guide may know less for a moment.
+
+With `ANTHROPIC_API_KEY` set on the server, and while the day's allowance lasts (the same allowance
+as "Talking"), the same facts are handed to Claude with the question, and it answers in two or
+three short sentences a child can read. It is told to use only those facts: it names its answer's
+place by the fact's id, and the server takes `place` and the buttons from that fact, never from the
+model's words. A place asked for by name that is not among the facts is handed back to be looked
+up, and then answered by the built-in rules. If the service fails, declines or says something the
+server cannot use, the built-in answer goes out instead.
+
+- What goes to the AI service: the question as typed, the asker's animal ("a fox", never their
+  name), what they are riding, the area's name, the facts listed above, today's tasks, and the last
+  three questions and answers of this visit (kept in memory only).
+- At most 12 `guide` and `talk` messages a minute per player together, and not two within 1.2 s
+  (`error` code `slow`).
 
 ### Tag, and hide and seek
 

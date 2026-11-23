@@ -130,9 +130,19 @@ export class Meetup extends EventTarget {
     this.send(place ? { t: "home", lat: place.lat, lon: place.lon, name: place.name } : { t: "home" });
   }
 
-  /** Calls a taxi to take me to a place. It arrives as a "taxi" event. */
-  sendTaxi(place) {
-    this.send({ t: "taxi", place });
+  /** Calls a taxi to take me to a place. It arrives as a "taxi" event. `at` is where the place is, when I know (from the guide). */
+  sendTaxi(place, at) {
+    this.send({ t: "taxi", place, ...(at ? { lat: at.lat, lon: at.lon } : {}) });
+  }
+
+  /** Asks the guide a question (nothing: says hello to it). Its answer comes as a "guide" event. */
+  sendGuide(q) {
+    this.send(q ? { t: "guide", q } : { t: "guide" });
+  }
+
+  /** Has what I am riding take me to the place of one of the guide's answers. */
+  sendGuideTake(place) {
+    this.send({ t: "guide", take: { name: place.name, lat: place.lat, lon: place.lon } });
   }
 
   /** Chooses the companion that follows me, from those I have won (nothing for none). */
@@ -366,6 +376,9 @@ export class Meetup extends EventTarget {
       case "journal":
         this.emit("journal", msg.journal ?? null);
         break;
+      case "guide":
+        this.emit("guide", msg); // the guide's answer, to me alone
+        break;
       case "stamp":
         this.emit("stamp", msg); // I earned something
         break;
@@ -400,6 +413,7 @@ export class Meetup extends EventTarget {
         this.emit("chat", { name: msg.name, text: msg.text });
         break;
       case "error":
+        this.emit("refused", msg);
         if (msg.code === "taken") this.emit("ridefail");
         if (msg.code === "denied" || msg.code === "full") {
           this.denied = true;

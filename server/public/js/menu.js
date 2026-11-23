@@ -109,20 +109,19 @@ export class Menu {
     return !this.talkBox.hidden;
   }
 
-  /** Opens the bubble on a thing: its name, and a few things to say with one click (each [label, words]). */
-  showTalk(name, replies) {
+  /**
+   * Opens the bubble on a thing: its name, and a few things to say with one click (each [label, words]).
+   * `line` is what the typing line says when it is not the usual "Say something to...": the guide's.
+   */
+  showTalk(name, replies, line = "") {
     this.close();
     document.exitPointerLock?.();
     this.setTalkName(name);
+    if (line) this.talkInput.placeholder = line;
     this.talkWords.textContent = "...";
     this.setTalkMine("");
     this.talkInput.value = "";
-    this.talkReplies.replaceChildren(...replies.map(([label, words]) => {
-      const button = el("button", "", label);
-      button.type = "button";
-      button.dataset.words = words;
-      return button;
-    }));
+    this.setTalkReplies(replies);
     this.talkBox.hidden = false;
     document.body.classList.add("talking");
     this.talkInput.focus();
@@ -142,6 +141,16 @@ export class Menu {
   setTalkName(name) {
     this.talkName.textContent = name;
     this.talkInput.placeholder = `Say something to ${name}, and press Enter`;
+  }
+
+  /** The buttons under what was said: each [label, words], and for a button that goes somewhere [label, words, "go"]. */
+  setTalkReplies(replies) {
+    this.talkReplies.replaceChildren(...replies.map(([label, words, cls]) => {
+      const button = el("button", cls ?? "", label);
+      button.type = "button";
+      button.dataset.words = words;
+      return button;
+    }));
   }
 
   /** What the thing has just said. */
@@ -235,7 +244,14 @@ export class Menu {
     this.askInput = el("input");
     this.askInput.maxLength = 120;
     this.askInput.autocomplete = "off";
-    this.askBox.replaceChildren(this.askTitle, this.askInput, el("div", "dim", "Enter to go. Esc to change your mind."));
+    this.askChoices = el("div", "choices");
+    this.askBox.replaceChildren(this.askTitle, this.askInput, this.askChoices, el("div", "dim", "Enter to go. Esc to change your mind."));
+    // Answers ready to click, when the question has some (the guide's): a click is the answer.
+    keepFocus(this.askBox);
+    this.askChoices.addEventListener("click", (e) => {
+      const answer = e.target.closest("button")?.dataset.answer;
+      if (answer) this.askDone(answer);
+    });
     this.askInput.addEventListener("keydown", (e) => {
       if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
       e.preventDefault();
@@ -246,14 +262,21 @@ export class Menu {
     this.askInput.addEventListener("blur", () => setTimeout(() => { if (this.asking && document.hasFocus()) this.askInput.focus(); }, 0));
   }
 
-  /** Puts the question of an action up: "Where to?" */
-  ask(action) {
+  /** Puts the question of an action up: "Where to?" `choices` are answers to offer as buttons under the line. */
+  ask(action, choices = []) {
     this.close();
     document.exitPointerLock?.();
     this.asking = action;
     this.askTitle.textContent = action.ask;
     this.askInput.value = "";
     this.askInput.placeholder = `for example: ${action.askHint}`;
+    this.askChoices.hidden = !choices.length;
+    this.askChoices.replaceChildren(...choices.map((choice) => {
+      const button = el("button", "", choice);
+      button.type = "button";
+      button.dataset.answer = choice;
+      return button;
+    }));
     this.askBox.hidden = false;
     this.askInput.focus();
   }
