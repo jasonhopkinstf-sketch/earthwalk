@@ -621,6 +621,7 @@ const KEYS = {
 };
 say.addEventListener("keydown", (e) => {
   if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
+  e.stopPropagation(); // the Enter that sends is not also "open the chat": the line is put away, and the keys are the game's again
   const text = say.value.trim();
   say.value = "";
   say.blur();
