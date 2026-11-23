@@ -170,6 +170,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "play", ...what });
   }
 
+  /** The garden of my house: `adopt` a young animal (a kind), `feed` one (its place), `gather` from a grown one, or `release` one. */
+  sendGarden(what) {
+    this.send({ t: "garden", ...what });
+  }
+
   /** My companion's tricks: `learn` one (a lesson is set), hand in my `presses` for the lesson, or have it `do` one it knows. */
   sendTrick(what) {
     this.send({ t: "trick", ...what });

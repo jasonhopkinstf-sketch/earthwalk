@@ -165,6 +165,7 @@ test("in a room: eating, the menu of where I am, and buying", async () => {
     assert.deepEqual(done, ["eat milk", "buy sushi", "eat milk"]);
     ws.close();
   } finally {
+    for (const client of rooms.wss.clients) client.terminate(); // whatever happened above, nothing is left holding the test open
     server.close();
     rooms.wss.close();
   }
@@ -288,6 +289,7 @@ test("in a room: cooking wants a kitchen of one's own, and food is given to a fr
     sam.ws.close();
     kim.ws.close();
   } finally {
+    for (const client of rooms.wss.clients) client.terminate(); // whatever happened above, nothing is left holding the test open
     server.close();
     rooms.wss.close();
   }

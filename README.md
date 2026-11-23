@@ -251,6 +251,14 @@ helpings at a time. Three are known from the start, and each one cooked for the 
 the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
 lunch box has a button to give it to them.
 
+The garden (in the browser so far): the house panel (H, indoors or by your own front door) has a
+garden too. A chick, a lamb, a piglet or a calf is bought with coins and lives before the front door,
+where everybody sees it. It is fed once a day from your lunch box (plain vegetables, bread or fruit)
+and after three to five meals is grown; a grown hen gives an egg a day, a cow milk, a sheep wool and
+a pig a truffle (coins). Nothing happens to one that is not fed: it waits. Four at most, and they
+move house with you (`BREEDS` and the garden methods of `Homes` in `server/src/home.ts`,
+`server/public/js/garden.js`).
+
 Hungry animals (in the browser so far): each day about one animal in five is hungry, and a thought
 bubble over it shows the food it would like (a duck bread, a horse an apple or a carrot, a squirrel
 nuts). Talk to it with that food in your lunch box and it is fed: twelve coins, a count in the

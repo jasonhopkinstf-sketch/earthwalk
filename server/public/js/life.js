@@ -394,9 +394,9 @@ export class Life {
     const rig = RIGS[m.sp];
     if (!rig) return;
     const beat = (m.thing % 628) / 100;
-    const size = 0.9 + 0.2 * unit(m.thing, SALT_COAT + 1);
+    const size = (0.9 + 0.2 * unit(m.thing, SALT_COAT + 1)) * (m.scale ?? 1); // (a young one in a garden is small: garden.js)
     const coat = rig.palette[hash32(m.thing, SALT_COAT) % rig.palette.length];
-    const stride = (m.gait / rig.stride) * Math.PI * 2;
+    const stride = (m.gait / (rig.stride * (m.scale ?? 1))) * Math.PI * 2;
     const walk = m.moving ? 1 : 0;
     const lift = rig.hop ? Math.abs(Math.sin(stride / 2)) * rig.hop * walk : Math.abs(Math.sin(stride)) * 0.03 * walk;
     const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;

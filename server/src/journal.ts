@@ -145,6 +145,8 @@ export interface JournalView {
   tricks: { pet: string | null; all: { id: string; name: string; known: boolean }[]; next: string | null; coins: number };
   /** Today's five hearts, whether all are full, and the lunch box: each food with the hearts it fills and how many are carried. */
   food: { hearts: { group: string; title: string; full: boolean }[]; full: boolean; healthyDays: number; coinsFull: number; larder: { id: string; name: string; groups: string[]; n: number }[]; room: number;
+    /** What a young animal in the garden would be fed from this lunch box, if there is anything it eats. */
+    fodder: string | null;
     /** The recipes there are: what each makes and needs (`have` says whether the lunch box has it), whether it is known yet, and whether it can be cooked now. */
     recipes: { id: string; name: string; groups: string[]; makes: number; needs: { name: string; have: boolean }[]; known: boolean; can: boolean; times: number }[] };
 }
@@ -408,6 +410,7 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       hearts: heartsOf(ate), full: ate.length >= GROUPS.length, healthyDays: d.healthyDays ?? 0, coinsFull: HEALTHY_COINS,
       larder: Object.entries(larder).filter(([id, n]) => n > 0 && foodById(id)).map(([id, n]) => ({ id, name: foodById(id)!.name, groups: foodById(id)!.groups, n })),
       room: Math.max(0, LARDER_MAX - Object.values(larder).reduce((a, b) => a + b, 0)),
+      fodder: ["veg", "grain", "fruit"].map((g) => Object.keys(larder).find((x) => larder[x] > 0 && foodById(x)?.groups.length === 1 && foodById(x)!.groups[0] === g)).filter(Boolean).map((x) => foodById(x!)!.name)[0] ?? null,
       recipes: RECIPES.map((r, i) => {
         const using = ingredients(r, larder);
         const known = i < recipesKnown(d.cooked ?? {});
@@ -797,6 +800,53 @@ export class Journals {
     this.tell(key, { kind: "food", title: `You gave ${toName} ${food.name}`, text: "That was kind" });
     this.tell(to, { kind: "food", title: `${fromName} gave you ${food.name}`, text: "It is in your lunch box (B)" });
     return "ok";
+  }
+
+  // ---- for the garden (home.ts): the rooms keep the animals, the journal the coins and the lunch box
+
+  /** The day it is for this player, as the daily tasks count days. */
+  dayFor(key: string): number {
+    return dayNumber(this.now(), this.walkers.get(key)?.open.doc.tz ?? 0);
+  }
+
+  /** Pays out of the player's coins. False when there are not enough. */
+  spend(key: string, coins: number, what: string): boolean {
+    const w = this.walkers.get(key);
+    if (!w || coins < 0 || w.open.doc.coins - w.open.doc.spent < coins) return false;
+    w.open.doc.spent += coins;
+    this.note(w.open, "spend", { coins, what });
+    w.open.doc.updated = this.now();
+    w.open.dirty = true;
+    return true;
+  }
+
+  /** Something earned outside the journal's own games: coins, or a thing for the lunch box (false when it is full). */
+  earn(key: string, gain: { coins?: number; food?: string }): boolean {
+    const w = this.walkers.get(key);
+    if (!w) return false;
+    if (gain.food && !this.stock(w.open.doc, gain.food)) return false;
+    this.change(key, w, (d) => { d.coins += Math.max(0, gain.coins ?? 0); });
+    return true;
+  }
+
+  /**
+   * Something from the lunch box for a young animal to eat: plain vegetables first, then grain, then fruit,
+   * never a meal or a treat. It is taken out; null when there is nothing of the kind.
+   */
+  fodder(key: string, take = true): { id: string; name: string } | null {
+    const w = this.walkers.get(key);
+    const larder = w?.open.doc.larder ?? {};
+    for (const group of ["veg", "grain", "fruit"]) {
+      const id = Object.keys(larder).find((x) => larder[x] > 0 && foodById(x)?.groups.length === 1 && foodById(x)!.groups[0] === group);
+      if (!id || !w) continue;
+      if (take) {
+        if (--larder[id] <= 0) delete larder[id];
+        w.open.doc.updated = this.now();
+        w.open.dirty = true;
+      }
+      return { id, name: foodById(id)!.name };
+    }
+    return null;
   }
 
   /** Are all five hearts full today? Then the player is a little quicker on their feet. */

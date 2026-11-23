@@ -33,6 +33,7 @@ export class Decor {
     this.moveOut = moveOut;
     this.journal = null;
     this.leaving = 0;
+    this.parting = -1;
     meetup.addEventListener("journal", (e) => { this.journal = e.detail; if (this.open) this.draw(); });
     meetup.addEventListener("house", () => { if (this.open) this.draw(); });
   }
@@ -78,6 +79,40 @@ export class Decor {
       if (!disabled) b.addEventListener("click", act);
       return b;
     };
+
+    // The garden: young animals before the front door, fed from the lunch box until they are grown.
+    const animals = house.animals ?? [];
+    const fodder = j.food?.fodder ?? null;
+    const garden = el("div", "pieces");
+    animals.forEach((a, i) => {
+      const row = el("div", a.ready || a.hungry ? "animal todo" : "animal");
+      const name = a.name[0].toUpperCase() + a.name.slice(1);
+      row.append(el("b", "", name), el("span", "small", a.grown ? `Grown: gives ${a.gives} a day` : `${a.fed} of ${a.meals} meals`));
+      const act = el("button", "do", a.ready ? `Collect ${a.gives}` : a.grown ? "Given today" : !a.hungry ? "Fed today" : fodder ? `Feed it ${fodder}` : "Nothing it eats in your lunch box");
+      act.type = "button";
+      act.disabled = a.grown ? !a.ready : !a.hungry || !fodder;
+      act.addEventListener("click", () => this.meetup.sendGarden(a.ready ? { gather: i } : { feed: i }));
+      const go = el("button", "go", this.parting === i && this.leaving > performance.now() ? "Sure?" : "×");
+      go.type = "button";
+      go.title = "Send it to live on a farm";
+      go.addEventListener("click", () => {
+        if (this.parting === i && this.leaving > performance.now()) { this.parting = -1; return this.meetup.sendGarden({ release: i }); }
+        this.parting = i;
+        this.leaving = performance.now() + 5000;
+        this.draw();
+      });
+      row.append(act, go);
+      garden.append(row);
+    });
+    box.append(el("h3", "", `Your garden (${animals.length} of ${house.gardenMax ?? 4})`), garden);
+    if (!animals.length) box.append(el("p", "small", "A young animal lives before your front door. Feed it once a day from your lunch box (plain vegetables, bread or fruit) and it grows up; then it gives you something every day. It never minds waiting if you are away."));
+    const young = el("div", "pieces");
+    for (const b of house.breeds ?? []) {
+      const full = animals.length >= (house.gardenMax ?? 4);
+      const buy = card({ name: `A ${b.young}`, hex: [{ chicken: 0xf2cc74, sheep: 0xf4f6fa, pig: 0xf2b8c6, cow: 0x6f4a30 }[b.sp] ?? 0xcccccc], owned: false }, false, full ? "The garden is full" : `${b.price} coins`, full || coins < b.price, () => this.meetup.sendGarden({ adopt: b.sp }));
+      young.append(buy);
+    }
+    box.append(young);
 
     for (const { slot, title, plain } of SLOTS) {
       const row = el("div", "pieces");

@@ -11,7 +11,7 @@ import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
 import type { TalkNews } from "./journal.ts";
-import { cleanDecor, type Homes, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
+import { breedOf, BREEDS, cleanDecor, gardenView, GARDEN_MAX, type Homes, isGrown, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
 import type { HomeDoor } from "./chunk.ts";
 import { judge, lesson, trickById } from "./tricks.ts";
 
@@ -135,6 +135,11 @@ export interface JournalKeeper {
   pepOf?(key: string): boolean;
   menuOf?(key: string, use: "shop" | "food"): { country: string | null; items: { id: string; name: string; groups: string[]; price: number }[] };
   buyFood?(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown";
+  /** For the garden: the player's day, paying out of their coins, something earned, and something from the lunch box for a young animal (taken out). */
+  dayFor?(key: string): number;
+  spend?(key: string, coins: number, what: string): boolean;
+  earn?(key: string, gain: { coins?: number; food?: string }): boolean;
+  fodder?(key: string, take?: boolean): { id: string; name: string } | null;
   /** Tricks (tricks.ts): whether my companion can be taught one now, that it has learnt it, and whether it knows one. */
   lessonFor?(key: string, id: string): "ok" | "nopet" | "known" | "order" | "unknown";
   learnTrick?(key: string, id: string): boolean;
@@ -477,6 +482,52 @@ export class Rooms {
         } else if (drop === "hunt") this.journal?.dropHunt?.(me.id);
         else if (drop) this.journal?.dropExpedition?.(me.id, drop);
         this.walkWith(me);
+        send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+      } else if (msg.t === "garden" && room) {
+        // The garden of my house (home.ts): a young animal comes to live there (`adopt`, a kind), one is fed from my
+        // lunch box (`feed`, its place in the garden), a grown one gives what it gives (`gather`), or one goes (`release`).
+        const homes = this.options.homes;
+        const owner = me.personId ?? me.id;
+        const mine = homes?.of(owner);
+        if (!homes || !mine) { send({ t: "error", code: "nohome", text: "A garden comes with a house of your own: go into a house nobody lives in and press H" }); return; }
+        const day = this.journal?.dayFor?.(me.id) ?? Math.floor(Date.now() / 86_400_000);
+        const at = (v: unknown): number => (Number.isInteger(v) ? (v as number) : -1);
+        const adopt = clean(msg.adopt, 12);
+        const told = (title: string, text: string): void => send({ t: "stamp", kind: "care", title, text });
+        if (adopt) {
+          const breed = breedOf(adopt);
+          if (!breed) { send({ t: "error", code: "locked", text: "There is no such animal to be had" }); return; }
+          if ((mine.garden?.length ?? 0) >= GARDEN_MAX) { send({ t: "error", code: "many", text: `A garden holds ${GARDEN_MAX}: one would have to go first` }); return; }
+          if (!(this.journal?.spend?.(me.id, breed.price, breed.young) ?? false)) { send({ t: "error", code: "poor", text: "Not enough coins yet" }); return; }
+          homes.adopt(owner, breed.sp);
+          told(`A ${breed.young} has come to live in your garden`, `Feed it once a day from your lunch box: after ${breed.meals} meals it is a grown ${breed.grown}, and gives ${breed.gives.what} every day`);
+        } else if (at(msg.feed) >= 0) {
+          const i = at(msg.feed);
+          const can = homes.hungry(owner, i, day);
+          const young = mine.garden?.[i];
+          const breed = young ? breedOf(young.sp) : undefined;
+          if (can !== "ok" || !young || !breed) { send({ t: "error", code: "locked", text: can === "today" ? "It has eaten today: it will be hungry again tomorrow" : can === "grown" ? "It is grown, and feeds itself now" : "There is no such animal in your garden" }); return; }
+          const food = this.journal?.fodder?.(me.id) ?? null;
+          if (!food) { send({ t: "error", code: "locked", text: "There is nothing it eats in your lunch box: it likes plain vegetables, bread and grains, and fruit" }); return; }
+          homes.fed(owner, i, day);
+          if (isGrown(young)) told(`Your ${breed.young} is a grown ${breed.grown}!`, `It ate ${food.name}. From tomorrow it gives ${breed.gives.what} every day`);
+          else told(`Your ${breed.young} ate ${food.name}`, `${young.fed} of ${breed.meals} meals: it is growing. It will be hungry again tomorrow`);
+        } else if (at(msg.gather) >= 0) {
+          const i = at(msg.gather);
+          const young = mine.garden?.[i];
+          const breed = young && isGrown(young) ? breedOf(young.sp) : undefined;
+          if (!breed) { send({ t: "error", code: "locked", text: "It is not grown yet" }); return; }
+          if (young!.gaveDay === day) { send({ t: "error", code: "locked", text: "It has given today: come back tomorrow" }); return; }
+          // (The lunch box is tried first, so that nothing is lost when it is full.)
+          if (breed.gives.food && !(this.journal?.earn?.(me.id, { food: breed.gives.food }) ?? false)) { send({ t: "error", code: "locked", text: "Your lunch box is full: eat something first" }); return; }
+          if (breed.gives.coins) this.journal?.earn?.(me.id, { coins: breed.gives.coins });
+          homes.gather(owner, i, day);
+          told(`Your ${breed.grown} gave you ${breed.gives.what}`, breed.gives.coins ? `Worth ${breed.gives.coins} coins` : "It is in your lunch box (B)");
+        } else if (at(msg.release) >= 0) {
+          if (!homes.release(owner, at(msg.release))) return;
+        } else return;
+        this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+        send({ t: "house", house: this.houseOf(me) });
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
       } else if (msg.t === "trick" && room) {
         // My companion's tricks (tricks.ts): begin a lesson (`learn`), hand in my presses for it (`presses`,
@@ -944,9 +995,10 @@ export class Rooms {
   }
 
   /** My own house, as I am told of it: where it is and how I have furnished it. */
-  private houseOf(m: Member): (ReturnType<typeof viewOfLived> & { decor: Lived["decor"] }) | null {
+  private houseOf(m: Member): (ReturnType<typeof viewOfLived> & { decor: Lived["decor"]; animals: ReturnType<typeof gardenView>; breeds: typeof BREEDS; gardenMax: number }) | null {
     const mine = this.options.homes?.of(m.personId ?? m.id);
-    return mine ? { ...viewOfLived(mine), decor: mine.decor } : null;
+    const day = this.journal?.dayFor?.(m.id) ?? Math.floor(Date.now() / 86_400_000);
+    return mine ? { ...viewOfLived(mine), decor: mine.decor, animals: gardenView(mine.garden ?? [], day), breeds: BREEDS, gardenMax: GARDEN_MAX } : null;
   }
 
   /** Tells everybody, in every room: houses are in the world, not in a room. */

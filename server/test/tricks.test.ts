@@ -125,6 +125,7 @@ test("in a room: a lesson is set, marked from the presses, and a trick that is k
     sam.ws.close();
     kim.ws.close();
   } finally {
+    for (const client of rooms.wss.clients) client.terminate(); // whatever happened above, nothing is left holding the test open
     server.close();
     rooms.wss.close();
   }
@@ -163,6 +164,7 @@ test("a real lesson cannot be handed in before its beats have had time to come",
     assert.deepEqual(known, []);
     ws.close();
   } finally {
+    for (const client of rooms.wss.clients) client.terminate(); // whatever happened above, nothing is left holding the test open
     server.close();
     rooms.wss.close();
   }

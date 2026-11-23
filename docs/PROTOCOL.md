@@ -680,6 +680,22 @@ that leads out of it, `name` its owner's, `rev` counting its changes), and
 as `lived`, and the player's own as `house`. Errors: `nowhere`, `nohome` (no such house, or none of
 their own), `far`, `taken`, `many`, `poor`, `locked` (no such piece, or a prize not won yet), `busy`.
 
+**The garden.** A house's owner may keep up to four young animals before its front door.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"garden","adopt":"chicken"}` | Buy a young one: `chicken`, `sheep`, `pig` or `cow`. |
+| `{"t":"garden","feed":0}` | Feed the one at this place in my garden, once a day, with something plain from my lunch box (vegetables first, then grain, then fruit). |
+| `{"t":"garden","gather":0}` | Take what a grown one gives, once a day: food into my lunch box, or coins. |
+| `{"t":"garden","release":0}` | Send one away, to make room. |
+
+Each is answered with a `stamp` of kind `care` saying what happened, then `house` and `journal`, and
+everybody is sent the house again as `lived`, now with `garden`: each animal's `sp` and `size` (0.45
+when it comes, 1 when grown). The owner's `house` also has `animals` (each `sp`, `name`, `fed`, `meals`,
+`grown`, `hungry` today, `ready` to give today, `gives`), `breeds` (what can be bought, with `price` and
+`meals`) and `gardenMax`. A garden does not change `rev`. Games are expected to draw the animals a few
+metres out from the door, each at its size.
+
 The pieces there are come in the journal as `house.pieces`: `id`, `slot`, `name`, `price` (null for a
 prize that is won, with `how` in words), `owned`, and `hex`, its colours.
 

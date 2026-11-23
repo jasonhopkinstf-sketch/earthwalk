@@ -201,7 +201,7 @@ export class Riding {
       };
       for (const c of this.life.rideable) consider(c);
       for (const c of this.traffic.rideable) consider(c);
-      for (const m of this.mounts) if (m.key !== "me") consider(m); // one left standing, or a friend's, to ride along on
+      for (const m of this.mounts) if (m.key !== "me" && !m.noRide) consider(m); // one left standing, or a friend's, to ride along on
     }
     this.hint(me ? `E: hop off the ${me.mount.name} · V: ${VIEWS[(p.view + 1) % VIEWS.length].name}` : this.near ? `E: ${this.near.key ? "ride along on" : "hop on"} the ${MOUNTS[this.near.sp].name}` : "");
   }

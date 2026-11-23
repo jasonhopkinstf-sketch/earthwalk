@@ -181,7 +181,7 @@ test("in a room: a house is made one's own, everybody is told, pieces are swappe
     await new Promise((r) => setTimeout(r, 2100));
     sam.send({ t: "house", claim: { x: 1, y: 2, id: 77 } });
     const mine = (await sam.next("house")).house;
-    assert.deepEqual(mine, { x: 1, y: 2, id: 77, lat: 52.0101, lon: 4.71, yaw: 90, name: "Sam", rev: 1, decor: { prizes: [] } });
+    assert.deepEqual([mine.x, mine.y, mine.id, mine.lat, mine.lon, mine.yaw, mine.name, mine.rev, mine.decor, mine.animals], [1, 2, 77, 52.0101, 4.71, 90, "Sam", 1, { prizes: [] }, []]);
     assert.deepEqual(await kim.next("lived"), { t: "lived", x: 1, y: 2, id: 77, lat: 52.0101, lon: 4.71, yaw: 90, name: "Sam", rev: 1 });
     await sam.next("lived");
     // Somebody else cannot have it, near or far; and a house is not moved into from two kilometres off.
@@ -221,6 +221,7 @@ test("in a room: a house is made one's own, everybody is told, pieces are swappe
     late.ws.close();
     kim.ws.close();
   } finally {
+    for (const client of rooms.wss.clients) client.terminate(); // whatever happened above, nothing is left holding the test open
     server.close();
     rooms.wss.close();
   }
@@ -254,5 +255,120 @@ test("GET /v1/interior gives a lived-in house furnished its owner's way, without
     assert.deepEqual(asked, ["1/2/78"]);
   } finally {
     app.close();
+  }
+});
+
+test("the garden: a young animal is fed once a day until it is grown, then gives something once a day, and waits when nobody comes", async () => {
+  const { BREEDS, GARDEN_MAX, gardenView, sizeOf, viewOfLived } = await import("../src/home.ts");
+  const homes = new Homes(null, () => 0);
+  assert.deepEqual([homes.adopt("sam", "chicken"), homes.adopt("sam", "dragon")], ["nohome", "unknown"]);
+  homes.claim("sam", "Sam", true, where(77));
+  const rev = homes.of("sam")!.rev;
+  assert.equal(homes.adopt("sam", "chicken"), "ok");
+  const chick = homes.of("sam")!.garden![0];
+  assert.deepEqual([gardenView(homes.of("sam")!.garden!, 10), sizeOf(chick)], [[{ sp: "chicken", name: "chick", fed: 0, meals: 3, grown: false, hungry: true, ready: false, gives: "an egg" }], 0.45]);
+  assert.deepEqual(viewOfLived(homes.of("sam")!).garden, [{ sp: "chicken", size: 0.45 }]);
+  // One meal a day, however often it is offered; ten days away change nothing.
+  assert.deepEqual([homes.hungry("sam", 0, 10), homes.fed("sam", 0, 10)?.fed, homes.hungry("sam", 0, 10), homes.fed("sam", 0, 10), homes.gather("sam", 0, 10)], ["ok", 1, "today", null, null]);
+  assert.deepEqual([homes.hungry("sam", 0, 20), homes.fed("sam", 0, 20)?.fed, homes.fed("sam", 0, 21)?.fed], ["ok", 2, 3]);
+  assert.deepEqual([homes.hungry("sam", 0, 22), sizeOf(chick), gardenView(homes.of("sam")!.garden!, 22)[0].name, gardenView(homes.of("sam")!.garden!, 22)[0].ready], ["grown", 1, "hen", true]);
+  // Grown: an egg a day.
+  assert.deepEqual([homes.gather("sam", 0, 22)?.gives.food, homes.gather("sam", 0, 22), homes.gather("sam", 0, 23)?.gives.what], ["egg", null, "an egg"]);
+  assert.equal(homes.of("sam")!.rev, rev, "the garden does not change the inside of the house");
+  // A garden holds so many; one can go; they move house with their owner.
+  for (let i = 1; i < GARDEN_MAX; i++) assert.equal(homes.adopt("sam", BREEDS[i % BREEDS.length].sp), "ok");
+  assert.deepEqual([homes.adopt("sam", "cow"), homes.release("sam", 1), homes.release("sam", 9), homes.of("sam")!.garden!.length], ["full", true, false, GARDEN_MAX - 1]);
+  homes.claim("sam", "Sam", true, where(79));
+  assert.deepEqual([homes.of("sam")!.id, homes.of("sam")!.garden!.length, homes.of("sam")!.garden![0].fed], [79, GARDEN_MAX - 1, 3]);
+  for (const b of BREEDS) assert.ok(b.price > 0 && b.meals >= 3 && (b.gives.food || b.gives.coins));
+});
+
+test("in a room: a young animal is bought, fed from the lunch box and, grown, gives what it gives", async () => {
+  const homes = new Homes(null, () => 0);
+  const purse = { coins: 60, day: 100, larder: ["a carrot", "a loaf of bread", "an apple"], got: [] as string[] };
+  const journal: JournalKeeper = {
+    listen: () => {}, joined: async () => {}, left: () => {}, moved: () => {}, rode: () => {}, talked: () => {}, view: () => ({ coins: purse.coins }),
+    dayFor: () => purse.day,
+    spend: (_key, coins) => (purse.coins >= coins ? ((purse.coins -= coins), true) : false),
+    earn: (_key, gain) => { if (gain.food === "full") return false; purse.got.push(gain.food ?? `${gain.coins} coins`); return true; },
+    fodder: () => { const name = purse.larder.shift(); return name ? { id: name, name } : null; },
+  };
+  const rooms = new Rooms(new GuestDirectory(""), { journal, homes, findHome: async (_x, _y, id) => ({ home: { ...home(id), id }, lat: 52.01, lon: 4.71, yaw: 0 }) });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const url = `ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`;
+  const join = async (name: string) => {
+    const ws = new WebSocket(url);
+    const inbox: Msg[] = [];
+    ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    ws.send(JSON.stringify({ t: "hello", name, room: "family", avatar: "fox" }));
+    const next = async (t: string, ok: (m: Msg) => boolean = () => true): Promise<Msg> => {
+      for (let i = 0; i < 300; i++) {
+        const at = inbox.findIndex((m) => m.t === t && ok(m));
+        if (at >= 0) return inbox.splice(at, 1)[0];
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`timed out waiting for "${t}"`);
+    };
+    await next("welcome");
+    return { ws, inbox, next, send: (m: Msg) => ws.send(JSON.stringify(m)) };
+  };
+  try {
+    const sam = await join("Sam");
+    const kim = await join("Kim");
+    sam.send({ t: "garden", adopt: "chicken" });
+    assert.equal((await sam.next("error")).code, "nohome");
+    sam.send({ t: "pos", lat: 52.01, lon: 4.71, alt: 0, yaw: 0 });
+    await new Promise((r) => setTimeout(r, 2100));
+    sam.send({ t: "house", claim: { x: 1, y: 2, id: 77 } });
+    await sam.next("house");
+    await kim.next("lived");
+    // A chick for twenty coins; a calf is beyond what is left; no dragons.
+    sam.send({ t: "garden", adopt: "chicken" });
+    assert.match((await sam.next("stamp")).title, /^A chick has come to live in your garden$/);
+    assert.deepEqual((await kim.next("lived")).garden, [{ sp: "chicken", size: 0.45 }]);
+    let mine = (await sam.next("house")).house;
+    assert.deepEqual([mine.animals, mine.gardenMax, mine.breeds.length, purse.coins], [[{ sp: "chicken", name: "chick", fed: 0, meals: 3, grown: false, hungry: true, ready: false, gives: "an egg" }], 4, 4, 40]);
+    sam.send({ t: "garden", adopt: "cow" });
+    assert.equal((await sam.next("error")).code, "poor");
+    sam.send({ t: "garden", adopt: "dragon" });
+    assert.equal((await sam.next("error")).code, "locked");
+    // Fed from the lunch box, once a day, three days running; then it is a hen.
+    sam.send({ t: "garden", gather: 0 });
+    assert.equal((await sam.next("error")).text, "It is not grown yet");
+    sam.send({ t: "garden", feed: 0 });
+    assert.equal((await sam.next("stamp")).title, "Your chick ate a carrot");
+    sam.send({ t: "garden", feed: 0 });
+    assert.match((await sam.next("error")).text, /It has eaten today/);
+    purse.day++;
+    sam.send({ t: "garden", feed: 0 });
+    assert.equal((await sam.next("stamp")).title, "Your chick ate a loaf of bread");
+    purse.day++;
+    sam.send({ t: "garden", feed: 0 });
+    assert.equal((await sam.next("stamp")).title, "Your chick is a grown hen!");
+    assert.deepEqual(purse.larder, []);
+    sam.inbox.length = 0;
+    sam.send({ t: "garden", feed: 0 });
+    assert.equal((await sam.next("error")).text, "It is grown, and feeds itself now");
+    sam.send({ t: "garden", gather: 0 });
+    assert.equal((await sam.next("stamp")).title, "Your hen gave you an egg");
+    sam.send({ t: "garden", gather: 0 });
+    assert.match((await sam.next("error")).text, /It has given today/);
+    assert.deepEqual(purse.got, ["egg"]);
+    mine = (await sam.next("house", (m) => m.house?.animals?.[0]?.grown)).house;
+    assert.deepEqual([mine.animals[0].name, mine.animals[0].ready, mine.garden], ["hen", false, [{ sp: "chicken", size: 1 }]]);
+    // With nothing it eats in the lunch box, a new one goes unfed, and nothing is lost by that.
+    sam.send({ t: "garden", adopt: "sheep" });
+    await sam.next("stamp");
+    sam.send({ t: "garden", feed: 1 });
+    assert.match((await sam.next("error")).text, /nothing it eats in your lunch box/);
+    sam.send({ t: "garden", release: 1 });
+    assert.equal((await sam.next("house", (m) => m.house?.animals?.length === 1)).house.animals.length, 1);
+  } finally {
+    for (const client of rooms.wss.clients) client.terminate();
+    server.close();
+    rooms.wss.close();
   }
 });

@@ -14,6 +14,7 @@ import { Decor } from "./decor.js";
 import { Lunch } from "./lunch.js";
 import { Train } from "./train.js";
 import { CareBubbles } from "./carebubbles.js";
+import { Garden } from "./garden.js";
 import { Taxis } from "./taxi.js";
 import { Pets } from "./pets.js";
 import { Garage } from "./garage.js";
@@ -95,6 +96,7 @@ const pets = new Pets({ scene, world, player, meetup, avatars, riding });
 const care = new CareBubbles({ scene, world, player, meetup, life, hint: (text) => { if (hints.care !== text) { hints.care = text; showHints(); } } });
 const train = new Train({ panel: $("train"), bar: $("lesson"), meetup, player, say: (text) => notice(text) });
 const garage = new Garage({ world, meetup, riding, traffic });
+const garden = new Garden({ world, player, meetup, riding });
 const play = new Play({ scene, world, meetup, player, avatars, talk, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
 const races = new Races({ scene, world, meetup, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
 // "Show me...": straight to a train, a horse, a car to drive, for showing the world to somebody (G).
@@ -487,6 +489,8 @@ async function command(name, arg) {
     notice("    and beside a real shop or café B shows what it sells: every country has its own dishes");
     notice("H   a house of your own: inside a house nobody lives in, H makes it yours and puts your name over the door;");
     notice("    inside your own, H opens the furniture, paint and prizes; anywhere else, H takes you home (/house moveout gives it up)");
+    notice("    the same panel has your garden: a chick, a lamb, a piglet or a calf of your own, fed once a day from your lunch box");
+    notice("    until it is grown, and then it gives you an egg, wool, a truffle or milk every day (H by your front door shows it too)");
     notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");
     notice("    and the mouse looks round the car");
     notice("T   talk to the animal, car, train, tree or house beside you; Esc stops");
@@ -631,4 +635,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

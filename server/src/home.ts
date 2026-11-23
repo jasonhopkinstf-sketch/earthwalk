@@ -119,6 +119,41 @@ export function cleanDecor(raw: unknown): Decor {
   return out;
 }
 
+/**
+ * The garden: young animals of one's own, kept before the front door. Each is bought small, is fed once a day
+ * from the lunch box, and after so many meals is grown; a grown one gives something once a day. Nothing
+ * happens to one that is not fed: it waits, the same size, however long its owner is away.
+ */
+export interface Young {
+  sp: string;
+  /** Meals it has had, the day it last had one, and the day it last gave something (days as the daily tasks count them). */
+  fed: number;
+  fedDay: number;
+  gaveDay: number;
+  born: number;
+}
+export interface Breed { sp: string; young: string; grown: string; price: number; meals: number; gives: { food?: string; coins?: number; what: string } }
+export const BREEDS: Breed[] = [
+  { sp: "chicken", young: "chick", grown: "hen", price: 20, meals: 3, gives: { food: "egg", what: "an egg" } },
+  { sp: "sheep", young: "lamb", grown: "sheep", price: 35, meals: 4, gives: { coins: 8, what: "a bag of wool" } },
+  { sp: "pig", young: "piglet", grown: "pig", price: 35, meals: 4, gives: { coins: 10, what: "a truffle it dug up" } },
+  { sp: "cow", young: "calf", grown: "cow", price: 50, meals: 5, gives: { food: "milk", what: "a glass of milk" } },
+];
+export const breedOf = (sp: string): Breed | undefined => BREEDS.find((b) => b.sp === sp);
+/** A garden holds this many. */
+export const GARDEN_MAX = 4;
+/** How big one is drawn, of its full size: small at first, full grown after its last meal. */
+export const sizeOf = (y: Young): number => { const b = breedOf(y.sp); return b ? Math.min(1, 0.45 + 0.55 * (y.fed / b.meals)) : 1; };
+export const isGrown = (y: Young): boolean => y.fed >= (breedOf(y.sp)?.meals ?? 0);
+/** What its owner is told of each: what it is called now, how far along, and what can be done with it today. */
+export function gardenView(garden: Young[], day: number): { sp: string; name: string; fed: number; meals: number; grown: boolean; hungry: boolean; ready: boolean; gives: string }[] {
+  return garden.map((y) => {
+    const b = breedOf(y.sp)!;
+    const grown = isGrown(y);
+    return { sp: y.sp, name: grown ? b.grown : b.young, fed: Math.min(y.fed, b.meals), meals: b.meals, grown, hungry: !grown && y.fedDay !== day, ready: grown && y.gaveDay !== day, gives: b.gives.what };
+  });
+}
+
 /** A house somebody lives in. `home` is all the server needs to build its inside again. */
 export interface Lived {
   /** The chunk it stands in and its number there. */
@@ -137,10 +172,15 @@ export interface Lived {
   home: HomeDoor;
   /** Which making of the world `home` was measured in (GENERATOR_REV): after another, it is measured again. */
   gen: number;
+  /** The young animals in its garden. Missing in houses from before there were any. */
+  garden?: Young[];
 }
-/** What everybody is told of a house that is lived in. */
-export interface LivedView { x: number; y: number; id: number; lat: number; lon: number; yaw: number; name: string; rev: number }
-export const viewOfLived = (l: Lived): LivedView => ({ x: l.x, y: l.y, id: l.id, lat: l.lat, lon: l.lon, yaw: l.yaw, name: l.name, rev: l.rev });
+/** What everybody is told of a house that is lived in: `garden` is the animals before its door, each with what it is and how big (0.45 to 1). */
+export interface LivedView { x: number; y: number; id: number; lat: number; lon: number; yaw: number; name: string; rev: number; garden?: { sp: string; size: number }[] }
+export const viewOfLived = (l: Lived): LivedView => ({
+  x: l.x, y: l.y, id: l.id, lat: l.lat, lon: l.lon, yaw: l.yaw, name: l.name, rev: l.rev,
+  ...(l.garden?.length ? { garden: l.garden.map((y) => ({ sp: y.sp, size: Math.round(sizeOf(y) * 100) / 100 })) } : {}),
+});
 
 export const houseKey = (x: number, y: number, id: number): string => `${x}/${y}/${id}`;
 /** No more houses than this are kept: a family and their friends need a few dozen. */
@@ -201,7 +241,7 @@ export class Homes {
     const before = this.byOwner.get(owner) ?? null;
     if (!before && this.byKey.size >= HOMES_MAX) return { got: "full", left: null };
     if (before) this.byKey.delete(houseKey(before.x, before.y, before.id));
-    const lived: Lived = { ...where, owner, name, lasting, decor: before?.decor ?? emptyDecor(), rev: this.tick(), since: this.now() };
+    const lived: Lived = { ...where, owner, name, lasting, decor: before?.decor ?? emptyDecor(), rev: this.tick(), since: this.now(), ...(before?.garden?.length ? { garden: before.garden } : {}) }; // the animals move house too
     this.byKey.set(key, lived);
     this.byOwner.set(owner, lived);
     this.keep();
@@ -227,6 +267,56 @@ export class Homes {
     lived.rev = this.tick();
     this.keep();
     return lived;
+  }
+
+  // ---- the garden. None of these changes the inside of the house, so `rev` stays as it is.
+
+  /** A young animal comes to live in the garden. "full" when it holds as many as it can, "nohome" without a house. */
+  adopt(owner: string, sp: string): "ok" | "full" | "nohome" | "unknown" {
+    const lived = this.byOwner.get(owner);
+    if (!breedOf(sp)) return "unknown";
+    if (!lived) return "nohome";
+    const garden = (lived.garden ??= []);
+    if (garden.length >= GARDEN_MAX) return "full";
+    garden.push({ sp, fed: 0, fedDay: -1, gaveDay: -1, born: this.now() });
+    if (lived.lasting) this.keep();
+    return "ok";
+  }
+
+  /** Can this one be fed today? "grown" when it needs no more feeding, "today" when it has eaten already. */
+  hungry(owner: string, i: number, day: number): "ok" | "grown" | "today" | "none" {
+    const y = this.byOwner.get(owner)?.garden?.[i];
+    return !y ? "none" : isGrown(y) ? "grown" : y.fedDay === day ? "today" : "ok";
+  }
+
+  /** It has been fed: one meal nearer to grown. Returns it. */
+  fed(owner: string, i: number, day: number): Young | null {
+    const lived = this.byOwner.get(owner);
+    const y = lived?.garden?.[i];
+    if (!lived || !y || this.hungry(owner, i, day) !== "ok") return null;
+    y.fed++;
+    y.fedDay = day;
+    if (lived.lasting) this.keep();
+    return y;
+  }
+
+  /** What a grown one gives today, once: its breed, or null when it is not grown or has given already. */
+  gather(owner: string, i: number, day: number): Breed | null {
+    const lived = this.byOwner.get(owner);
+    const y = lived?.garden?.[i];
+    if (!lived || !y || !isGrown(y) || y.gaveDay === day) return null;
+    y.gaveDay = day;
+    if (lived.lasting) this.keep();
+    return breedOf(y.sp) ?? null;
+  }
+
+  /** One goes to live on a farm, to make room. */
+  release(owner: string, i: number): boolean {
+    const lived = this.byOwner.get(owner);
+    if (!lived?.garden?.[i]) return false;
+    lived.garden.splice(i, 1);
+    if (lived.lasting) this.keep();
+    return true;
   }
 
   /** The house as the world now has it, after the world was made again: its walls and floor may have moved a little. */

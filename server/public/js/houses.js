@@ -48,8 +48,16 @@ export class Houses {
       }
       this.quiet = false;
       this.had = now;
-      if (!this.mine()) this.decor.close();
+      if (!this.mine() && !this.atDoor()) this.decor.close();
     });
+  }
+
+  /** Am I just outside my own front door, in the garden? */
+  atDoor() {
+    const mine = this.meetup.house;
+    if (!mine || this.player.waitingForGround) return false;
+    const door = this.world.geoToScene(mine.lat, mine.lon);
+    return Math.hypot(door.x - this.player.position.x, door.z - this.player.position.z) < 18;
   }
 
   /** Is the house I am in my own? */
@@ -192,6 +200,11 @@ export class Houses {
       }
       this.sure = { key: "", until: 0 };
       return void meetup.sendHouse({ claim: { x: wrap(at.chunk.x), y: at.chunk.y, id: at.door.id } });
+    }
+    // Just outside my own front door, where the garden is, H opens the same panel: the animals are in view.
+    if (mine && !at) {
+      const door = this.world.geoToScene(mine.lat, mine.lon);
+      if (!p.waitingForGround && Math.hypot(door.x - p.position.x, door.z - p.position.z) < 18) return void this.decor.toggle();
     }
     if (!mine) return this.say("You have no house yet. Go into a house nobody lives in (E at a door with a COME IN board) and press H there.");
     if (p.mount || p.carried) return this.say("Hop off first (E), then H takes you home.");
