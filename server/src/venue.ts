@@ -1,6 +1,6 @@
 // The inside of a building that is not a home: an office, a shop, a café, a mall (which, small, is
 // an arcade or a row of shops), the entrance hall of a block of flats or a hotel, a church (or a mosque
-// or a temple), a school, or a hospital. Like a house's rooms (interior.ts), everything follows from the
+// or a temple), a school, a hospital, or a factory (or a warehouse). Like a house's rooms (interior.ts), everything follows from the
 // building's own numbers, so it is the same inside for everyone and on every visit; unlike a house,
 // it has a way through, from the door on the street to a door on another side, and people in it.
 //
@@ -14,7 +14,7 @@ import { hash32 } from "./geo.ts";
 import type { MaterialDef } from "./chunk.ts";
 import { INSIDE } from "./interior.ts";
 
-export type VenueKind = "office" | "shop" | "cafe" | "mall" | "lobby" | "church" | "school" | "hospital";
+export type VenueKind = "office" | "shop" | "cafe" | "mall" | "lobby" | "church" | "school" | "hospital" | "factory";
 /** A door of the room: which wall (0 front, 1 back, 2 the wall a = 0, 3 the wall a = width) and how far along it. `lo` and `hi`, when given, are how far it may be moved along its wall. */
 export interface VenueDoor { side: 0 | 1 | 2 | 3; at: number; lo?: number; hi?: number }
 /** A shop the map names inside a mall. */
@@ -37,14 +37,19 @@ export interface VenueSpec {
   hotel?: boolean;
   /** A place of worship that is not a church: a mosque, or a temple of any other faith. */
   faith?: "mosque" | "temple";
+  /** A factory that only stores things: a warehouse, with racks and no machines. */
+  store?: boolean;
+  /** A shop that is a petrol station's. */
+  fuel?: boolean;
 }
 /** A school or a hospital this big has a corridor with rooms off it; smaller, it is one room. */
 export const hasWings = (spec: Pick<VenueSpec, "kind" | "width" | "depth">): boolean => (spec.kind === "school" || spec.kind === "hospital") && spec.width >= 13 && spec.depth >= 11;
 /** The word for what a place is, for the games and for whoever is talked to there: its kind, but a mosque or a temple by that name, and a small hospital a clinic. */
-export const useWord = (spec: Pick<VenueSpec, "kind" | "width" | "depth" | "faith">): string => spec.faith ?? (spec.kind === "hospital" && !hasWings(spec) ? "clinic" : spec.kind);
+export const useWord = (spec: Pick<VenueSpec, "kind" | "width" | "depth" | "faith" | "store" | "fuel">): string =>
+  spec.faith ?? (spec.kind === "hospital" && !hasWings(spec) ? "clinic" : spec.kind === "factory" && spec.store ? "warehouse" : spec.kind === "shop" && spec.fuel ? "fuel" : spec.kind);
 
 export type Role = "worker" | "meeting" | "reception" | "keeper" | "barista" | "shopper" | "guest" | "caretaker" | "resident"
-  | "warden" | "musician" | "singer" | "visitor" | "teacher" | "pupil" | "doctor" | "nurse" | "patient";
+  | "warden" | "musician" | "singer" | "visitor" | "teacher" | "pupil" | "doctor" | "nurse" | "patient" | "foreman" | "maker" | "packer";
 /**
  * Somebody inside. `fa`, `fb` is the way they face (a unit vector in the room's frame). Sitting, `seat` is
  * how high the seat is; strolling, `path` is where they walk, there and back, as a, b, a, b...
@@ -93,6 +98,8 @@ const TRADES: Record<string, { goods: number[]; shelf: number }> = {
   clothes: { goods: [0xe8b8c8, 0xa9c8e8, 0xf2e3b0, 0xb8d8b8, 0xd8c0e8, 0x8a9ab0], shelf: 0xd9d4c8 },
   flowers: { goods: [0xe86aa8, 0xf2cc4a, 0xd9483a, 0x9a6ad8, 0xf4f1ea, 0x3f9a45], shelf: 0x7a9a6a },
   chemist: { goods: [0xf4f1ea, 0x3f9a8a, 0xa9d4ee, 0xe8f0e8, 0x5fae8a], shelf: 0xf4f1ea },
+  // (A petrol station's: cans of oil, things for the car, and something to eat on the way.)
+  motor: { goods: [0xf2cc4a, 0xd9483a, 0x26323c, 0x3f7fd0, 0xf4f1ea, 0xe8935a], shelf: 0xb9c0c6 },
 };
 /** Shops of our own, for the fronts of a mall the map names no shops in: a name, what it sells, and whether that is food. */
 const MADE_UP: [string, string, boolean][] = [
@@ -196,7 +203,7 @@ export function layVenue(spec: VenueSpec): Laid {
   const F = INSIDE.furniture;
   let nobody = 0;
   /** No more than this many in one place: whoever is thought of first is in (the people who work there, before those passing through). */
-  const MOST = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4, church: 14, school: 30, hospital: 20 }[spec.kind];
+  const MOST = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4, church: 14, school: 30, hospital: 20, factory: 16 }[spec.kind];
   const person = (role: Role, pose: Person["pose"], at: [number, number], k: number, more: Partial<Person> = {}): void => {
     if (people.length >= MOST) return;
     people.push({ n: nobody++, role, pose, a: Math.round(at[0] * 100) / 100, b: Math.round(at[1] * 100) / 100, fa: FACING[k][0], fb: FACING[k][1], ...more });
@@ -1580,7 +1587,154 @@ export function layVenue(spec: VenueSpec): Laid {
     lane("doctor", 0.72, 1.6, D - 1.6);
   };
 
+  // =============================================================== a factory, a warehouse
+  const works = (): void => {
+    const store = !!spec.store;
+    lining(pick([0xdfe2e4, 0xe6e2d8, 0xd9dee2], 0x53544f4e));
+    floor(0xb9b6ae, [0, W, 0, D]);
+    doors.forEach(doorway);
+    // A strip of high windows down both sides where the roof is high enough; ordinary ones where it is not.
+    for (const side of [2, 3]) {
+      if (H < 3.4) { windows(side, 0.6, D - 0.6, false); continue; }
+      const a = side === 2 ? 0 : W, s = side === 2 ? 1 : -1;
+      const n = Math.min(8, Math.floor((D - 1.2) / 4));
+      for (let i = 0; i < n; i++) {
+        const c = 0.6 + ((D - 1.2) * (i + 0.5)) / n;
+        if (doors.some((d) => d.side === side && Math.abs(d.at - c) < 2.4)) continue;
+        sheetA(INSIDE.glass, WHITE, a + s * 0.01, c - 1.3, c + 1.3, H - 1.5, H - 0.4, s);
+        sheetA(INSIDE.glass, GLASS, a + s * 0.02, c - 1.2, c + 1.2, H - 1.4, H - 0.5, s);
+      }
+    }
+    lights([0, W, 0, D]);
+    if (H >= 3.6) {
+      const n = Math.min(7, Math.floor(D / 5));
+      for (let i = 1; i <= n; i++) block(INSIDE.soft, 0x8d949a, 0, W, (D * i) / (n + 1) - 0.1, (D * i) / (n + 1) + 0.1, H - 0.3, H - 0.04, true);
+    }
+    // The way through, between yellow lines.
+    const w = W >= 9 ? 2 : 1.5;
+    const walk = walkOf(w);
+    clear.push(...walk);
+    for (const r of walk) floor(0xe0b23c, r, 0.006, INSIDE.soft);
+    for (const r of walk) floor(0xa9a69e, [r[0] + 0.1, r[1] - 0.1, r[2] + 0.1, r[3] - 0.1], 0.008, INSIDE.soft);
+    const f = front.at;
+    // Whoever is in charge: on their way through with a list, or standing by the door.
+    if (second && W * D >= 60) stroller("foreman", walk, 0.5);
+    else whole.post("foreman", 1, [[f + w / 2 + 0.6, 2.0], [f - w / 2 - 0.6, 2.0]], true);
+    // Its name on a board by the door.
+    const board = stand(1.4, 0.05, 0x4e4f5445, [0, 2, 3], (box) => {
+      box(F, 0x3f6f9a, 0, 1.4, 0, 0.03, 1.1, 2.0, true);
+      box(F, WHITE, 0.06, 1.34, 0.03, 0.04, 1.16, 1.94, true);
+    });
+    if (board) letter(spec.name ?? (store ? "WAREHOUSE" : "FACTORY"), board, 1.4, 2.25);
+    const role: Role = store ? "packer" : "maker";
+
+    if (store) {
+      // Rows of racking, three shelves high, with crates on them; somebody fetching and carrying in the aisles.
+      // (No more than 20 stretches of it: a big warehouse has its rows further apart, not all in one corner.)
+      const tall = Math.min(H - 0.6, 3.4);
+      const levels = tall > 2.6 ? 3 : 2;
+      const long = D >= 12 ? 4.8 : 2.4;
+      const nb = Math.max(1, Math.floor((D - 4.2 - long) / (long + 0.15)) + 1);
+      const na = Math.max(1, Math.min(Math.floor((W - 2.9) / 3.3) + 1, Math.max(2, Math.floor(20 / nb))));
+      const stepA = na > 1 ? (W - 2.9) / (na - 1) : 0;
+      let racks = 0, packers = 0;
+      for (let i = 0; i < na; i++) {
+        const a = na > 1 ? 1.0 + i * stepA : (f < W / 2 ? W - 1.9 : 1.0);
+        for (let j = 0; j < nb && racks < 20; j++) {
+          const b = 2.2 + j * (long + 0.15);
+          const r: Rect = [a, a + 0.9, b, b + long];
+          if (!take(r, undefined, 0.02)) continue;
+          racks++;
+          block(F, 0x3f6f9a, r[0], r[1], b, b + 0.06, 0, tall);
+          block(F, 0x3f6f9a, r[0], r[1], b + long - 0.06, b + long, 0, tall);
+          for (let l = 0; l < levels; l++) {
+            const z = 0.12 + (l * (tall - 0.3)) / levels;
+            block(F, 0xe8935a, r[0], r[1], b + 0.06, b + long - 0.06, z, z + 0.06);
+            const high = Math.min(0.7, (tall - 0.3) / levels - 0.22);
+            for (let c = b + 0.2, k = 0; c + 0.9 <= b + long - 0.15; c += 1.15, k++) {
+              if (hash32(spec.seed, 0x43524154 + racks * 11 + l * 3 + k) % 5 < 2) continue;
+              block(F, [wood, 0xc9a36b, 0xd9d4c8, accent][hash32(spec.seed, 0x43524155 + racks * 13 + l * 5 + k) % 4], r[0] + 0.08, r[1] - 0.08, c, c + 0.9, z + 0.06, z + 0.06 + high * (0.7 + 0.3 * ((racks + k) % 2)));
+            }
+          }
+          if (packers < 5 && hash32(spec.seed, 0x5041434b + racks * 13) % 10 < 4 && whole.post("packer", a + 1.6 < W - 0.5 ? 3 : 2, [[a + 1.6 < W - 0.5 ? a + 1.6 : a - 0.7, b + long / 2]])) packers++;
+        }
+      }
+    } else {
+      // The line: a machine that makes things, a belt that carries them down the hall, somebody at every other stretch of it.
+      const rightFirst = second ? (second.side === 2 ? true : second.side === 3 ? false : second.at <= f) : W - f >= f;
+      const hues = [0x3f9a8a, 0x3f7fd0, 0xe8935a, 0x5fae4a];
+      const hue = pick(hues, 0x4d414348);
+      // (A wide hall has several lines, 4.5 m apart, on both sides of the way through; the first is a stride from it.)
+      const spots: { a0: number; right: boolean }[] = [];
+      for (let n = 0; n < 3; n++) for (const right of [rightFirst, !rightFirst]) {
+        const a0 = right ? f + w / 2 + 0.9 + n * 4.5 : f - w / 2 - 0.9 - 0.8 - n * 4.5;
+        const edge = n ? 2.2 : 0.5; // (the further ones leave the walls to the machines that stand against them)
+        if (a0 >= edge && a0 + 0.8 <= W - edge) spots.push({ a0, right });
+      }
+      let makers = 0, lines = 0, stretches = 0;
+      for (const { a0, right } of spots) {
+        if (lines >= (W < 16 ? 1 : 6) || stretches >= 24) break;
+        let laid = 0;
+        for (let b = 2.2; b + 2.4 <= D - 1.6 && laid < 10 && stretches < 24; b += 2.4) {
+          const r: Rect = [a0, a0 + 0.8, b, b + 2.4];
+          if (!take(r, undefined, 0.02)) continue;
+          laid++;
+          stretches++;
+          let start = b;
+          if (laid === 1) {
+            // (The machine at the head of the line, with its funnel and its chimney.)
+            const top = Math.min(H - 0.7, 2.0);
+            block(F, hues[(hues.indexOf(hue) + lines) % hues.length], r[0], r[1], b, b + 1.4, 0, top);
+            block(F, STEEL, r[0] + 0.15, r[1] - 0.15, b + 0.3, b + 0.9, top, top + 0.35);
+            block(INSIDE.soft, STEEL, r[0] + 0.3, r[1] - 0.3, b + 1.0, b + 1.2, top, H - 0.1, true);
+            start = b + 1.4;
+          }
+          block(F, STEEL, r[0] + 0.08, r[1] - 0.08, start, b + 2.4, 0, 0.7);
+          block(F, DARK, r[0], r[1], start, b + 2.4, 0.7, 0.78, true);
+          for (let c = start + 0.3; c + 0.4 <= b + 2.4; c += 1.0) block(F, [wood, accent, 0xd9d4c8][hash32(spec.seed, 0x424f5845 + stretches * 7 + Math.round(c * 3)) % 3], r[0] + 0.2, r[1] - 0.2, c, c + 0.4, 0.78, 1.12);
+          if (makers < 9 && laid % 2 === 0 && whole.post("maker", right ? 2 : 3, [[right ? a0 - 0.45 : a0 + 1.25, b + 1.2]])) makers++;
+        }
+        if (laid) lines++;
+      }
+      // Machines along the walls, each with its lights and its pipe, and somebody minding some of them.
+      const machines = Math.min(4, Math.round((W * D) / 60));
+      for (let i = 0; i < machines; i++) {
+        const m = stand(1.8, 1.15, 0x4d414348 + i * 53, [[3, 2, 1], [2, 1, 3], [1, 3, 2], [2, 3, 1]][i], (box) => {
+          box(F, [hue, 0x8d949a, 0xe0a82e, hue][i], 0, 1.8, 0, 1.1, 0, 1.5);
+          box(F, DARK, 0.2, 0.9, 1.1, 1.13, 0.8, 1.3, true);
+          box(F, 0x5fae4a, 0.3, 0.42, 1.13, 1.15, 1.05, 1.17, true);
+          box(F, 0xd9483a, 0.55, 0.67, 1.13, 1.15, 1.05, 1.17, true);
+          box(INSIDE.soft, STEEL, 1.2, 1.5, 0.3, 0.6, 1.5, Math.min(H - 0.1, 3.2), true);
+        });
+        if (m && i % 2 === 0) whole.post("maker", m.k ^ 1, [pointIn(m.rect, m.k, 0.9, 1.75)]);
+      }
+    }
+    // Crates stacked by the walls, and the fork-lift truck with somebody at the wheel.
+    for (let i = 0; i < (W * D >= 80 ? 2 : 1); i++) {
+      stand(1.2, 1.2, 0x43524154 + i * 71, [[1, 2, 3, 0], [3, 2, 1, 0]][i], (box) => {
+        box(F, wood, 0, 0.6, 0, 0.6, 0, 0.6);
+        box(F, 0xc9a36b, 0.6, 1.2, 0, 0.6, 0, 0.6);
+        box(F, 0xb98c5a, 0, 0.6, 0.6, 1.2, 0, 0.6);
+        box(F, 0xc9a36b, 0.3, 0.9, 0, 0.6, 0.6, 1.2);
+      });
+    }
+    if (W * D >= 50) {
+      const truck = stand(1.1, 2.0, 0x464f524b, [1, 3, 2, 0], (box) => {
+        box(F, 0xe0a82e, 0.1, 1.0, 0.2, 1.3, 0.25, 0.5, true);
+        box(F, 0xe0a82e, 0.1, 1.0, 0.2, 0.55, 0.5, 0.95);
+        box(F, DARK, 0.05, 1.05, 0.25, 0.6, 0, 0.3);
+        box(F, DARK, 0.05, 1.05, 0.95, 1.3, 0, 0.3);
+        box(F, DARK, 0.2, 0.28, 1.3, 1.38, 0, 2.0);
+        box(F, DARK, 0.82, 0.9, 1.3, 1.38, 0, 2.0);
+        box(F, STEEL, 0.25, 0.85, 1.38, 1.95, 0.12, 0.17, true);
+        box(F, wood, 0.28, 0.82, 1.42, 1.92, 0.17, 0.7);
+      });
+      if (truck) person(role, "sit", pointIn(truck.rect, truck.k, 0.55, 0.8), truck.k, { seat: 0.5 });
+    }
+  };
+
   if (spec.kind === "office") office();
+  else if (spec.kind === "factory") works();
   else if (spec.kind === "church") hall();
   else if (spec.kind === "school") school();
   else if (spec.kind === "hospital") hospital();

@@ -1,6 +1,6 @@
 // Which buildings that are not homes can be walked into, what each is inside, and where its doors
 // are. A house has rooms (interior.ts); a shop, a café, an office, a mall, a block of flats, a hotel, a
-// church, a school or a hospital has the inside venue.ts lays out for it, with a way through: the door on the street, and a second
+// church, a school, a hospital, a factory or a petrol station has the inside venue.ts lays out for it, with a way through: the door on the street, and a second
 // door on another side wherever one of its walls is free.
 //
 // Like a house's rooms, the inside is the largest rectangle that fits within the real walls behind
@@ -35,6 +35,7 @@ const SIZE: Record<VenueKind, { wide: number; deep: number; least: number; ceili
   church: { wide: 22, deep: 34, least: 6, ceiling: 5.5 },
   school: { wide: 30, deep: 36, least: 6, ceiling: 3.0 },
   hospital: { wide: 30, deep: 36, least: 6, ceiling: 3.0 },
+  factory: { wide: 30, deep: 40, least: 6, ceiling: 6.0 },
 };
 const SLOPE_M = 6;
 const CEILING_LEAST_M = 2.3;
@@ -74,6 +75,8 @@ const MALL_NAME = /\b(mall|arcade|shopping|galler|plaza|market|passage|centre co
 const STAYS = /^tourism=(hotel|hostel|motel|guest_house)$/;
 /** Buildings of a university or a college are schools inside, though no flag flies outside them. */
 const COLLEGES = /^(university|college)$/;
+/** Where things are made, and where they are kept. */
+const WORKS = /^(industrial|factory|manufacture|warehouse)$/;
 
 /** The buildings of a chunk that are not homes and can be walked into. */
 function findVenues(cx: number, cy: number, features: Features, elev: Elevation): Venue[] {
@@ -163,17 +166,20 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
     let kind: VenueKind | null = null;
     let hotel = false;
     let faith: "mosque" | "temple" | undefined;
+    let fuel = false;
     const wantsMall = (shops.length >= 3 && area >= 250) || area >= 2500 || MALL_NAME.test(b.name ?? "");
     if (b.use === "food") kind = shops.length >= 3 && area >= 400 ? "mall" : "cafe";
     else if (b.use === "shop") kind = wantsMall ? "mall" : "shop";
     else if (b.use === "church" || b.use === "mosque" || b.use === "temple") { kind = "church"; if (b.use !== "church") faith = b.use; }
     else if (b.use === "school") kind = "school";
     else if (b.use === "hospital") kind = "hospital";
-    else if (b.use) kind = null; // petrol stations: not yet
+    else if (b.use === "fuel") { kind = "shop"; fuel = true; } // a petrol station's shop
+    else if (b.use) kind = null;
     else if (home && !home.use) kind = null;
     else if (k === "hotel" || (stays && !HOUSES.test(k))) { kind = "lobby"; hotel = true; }
     else if (FLATS.test(k)) kind = "lobby";
     else if (COLLEGES.test(k)) kind = "school";
+    else if (WORKS.test(k)) kind = "factory";
     else if (HOUSES.test(k)) kind = null;
     else if (OFFICES.test(k)) kind = "office";
     else if (k === "" || k === "yes") {
@@ -308,7 +314,9 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
       kind, width: Math.round(width * 100) / 100, depth: Math.round(depth * 100) / 100, ceiling: Math.round(ceiling * 100) / 100, seed,
       doors: [{ side: 0, at: Math.round(frontAt * 100) / 100 }, ...(second ? [{ side: second.side, at: (second.lo + second.hi) / 2, lo: second.lo, hi: second.hi } as VenueDoor] : [])],
       ...(name ? { name } : {}),
-      ...(kind === "shop" ? { trade: tradeOf(trade ?? (b.kind === "supermarket" ? "supermarket" : undefined), b.name, seed) } : {}),
+      ...(kind === "shop" ? { trade: fuel ? "motor" : tradeOf(trade ?? (b.kind === "supermarket" ? "supermarket" : undefined), b.name, seed) } : {}),
+      ...(kind === "shop" && fuel ? { fuel } : {}),
+      ...(kind === "factory" && k === "warehouse" ? { store: true } : {}),
       ...(kind === "mall" && shops.length ? { shops } : {}),
       ...(hotel ? { hotel } : {}),
       ...(kind === "church" && faith ? { faith } : {}),

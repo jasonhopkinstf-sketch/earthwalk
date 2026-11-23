@@ -340,12 +340,12 @@ for everyone. Only the ground floor is built.
 
 ## Inside other buildings: `entry` items and `GET /v1/inside/16/{x}/{y}/{id}`
 
-Shops, cafés, offices, malls, blocks of flats, hotels, churches, schools and hospitals open too, and
-can be walked through: each has its door on the street and, wherever one of its other walls is free, a second door on another side
+Shops, cafés, offices, malls, blocks of flats, hotels, churches, schools, hospitals, factories,
+warehouses and petrol stations open too, and can be walked through: each has its door on the street and, wherever one of its other walls is free, a second door on another side
 (`server/src/venues.ts` chooses the buildings and the doors, `server/src/venue.ts` lays out the inside).
 
-**Which buildings.** Not homes, not buildings mapped in 3D pieces, not sheds, garages, barns, petrol
-stations, factories or warehouses, and nothing under 35 m2. Of the rest:
+**Which buildings.** Not homes, not buildings mapped in 3D pieces, not sheds, garages or barns, and
+nothing under 35 m2. Of the rest:
 
 | `use` | The building | Its room, at most | Inside |
 | --- | --- | --- | --- |
@@ -360,6 +360,9 @@ stations, factories or warehouses, and nothing under 35 m2. Of the rest:
 | `school` | a school or a kindergarten, and any `building=university` or `college` | 30 by 36 m | at 13 by 11 m or more a corridor straight back from the front door with rooms down both sides, each about 7.5 m long and up to 8 m deep, its name over its doorway: `CLASS 1`... (a blackboard, a teacher, desks for two), `LIBRARY`, `ART`, `MUSIC`; smaller, one classroom |
 | `hospital` | a hospital or a clinic, at 13 by 11 m or more | 30 by 36 m | a hall across the front with a desk (`RECEPTION`) and rows of seats to wait on, then a corridor with rooms down both sides, up to 6 m deep: `WARD 1`... (beds with a curtain between, a cupboard by each), `DOCTOR` (a couch, a desk, a chart of letters), `X-RAY` |
 | `clinic` | a hospital or a clinic smaller than that | one room | a desk, a row of seats, a couch with the doctor beside it, a cupboard under a chart of letters |
+| `factory` | `building=industrial`, `factory` or `manufacture` | 30 by 40 m, up to 6 m high | a way through between yellow lines; a line down the hall (a machine with a funnel and a chimney at its head, then a belt with boxes on it) with makers along it, machines by the walls, crates, a fork-lift truck with somebody at the wheel; high windows and steel beams |
+| `warehouse` | `building=warehouse` | the same | the same hall with rows of racking three shelves high in place of the line and the machines, and packers in the aisles |
+| `fuel` | a petrol station's building (not its canopy, which is a roof and stays what it was) | 16 by 16 m | a shop like any other, with a counter and a shopkeeper; its shelves have cans of oil and things to eat |
 
 No faith's own signs are drawn in any of the three halls: what they are is their furniture. The door of
 a church at the far end is to one side, not behind the table; the back door of a school or a hospital with
@@ -394,12 +397,12 @@ them with `text`, or with what the place is.
 A small shop, café, office, hotel, chapel, school or clinic that already opened as a house keeps its `door` item, which now
 carries `use` (and `text`, its name) as well: it has that inside, not rooms, and nobody can make it
 their home (a `house` claim on it is refused with the error `nohome`). Its second door is an `entry`.
-A petrol station that is as small as a house has no `door` item any more: it does not open.
+(A petrol station's shop and a small workshop are among them: `use` `fuel` and `factory`.)
 
 **The inside** comes from the same route as a house's, `GET /v1/interior/16/{x}/{y}/{id}`, in the same
-format with the same six surfaces (40 to 45); a ceiling is 3 m up, or up to 4.2 m in a mall and 5.5 m in a
-church. It weighs 40 KB for a café to about 450 KB for the biggest mall (a house is 36 KB; a church at most
-65 KB, a hospital 100 KB, a school 170 KB).
+format with the same six surfaces (40 to 45); a ceiling is 3 m up, or up to 4.2 m in a mall, 5.5 m in a
+church and 6 m in a factory. It weighs 40 KB for a café to about 450 KB for the biggest mall (a house is 36 KB; a church at most
+65 KB, a hospital 100 KB, a factory 145 KB, a school 170 KB).
 
 **Who is inside**, what is written up in there and where food is sold come from
 `GET /v1/inside/16/{x}/{y}/{id}` (same access rules; 404 for a house or a building that is shut):
@@ -417,8 +420,8 @@ church. It weighs 40 KB for a café to about 450 KB for the biggest mall (a hous
 | Field | Meaning |
 | --- | --- |
 | `size` | The room from corner to corner, in metres: a player is "in" the building while within that of one of its doors and within 6 m of its floor. |
-| `use` | What the place is: `cafe`, `shop`, `mall`, `office`, `lobby`, `church`, `mosque`, `temple`, `school`, `hospital` or `clinic`, as on its doors. A game that does not know one calls it a building. |
-| `people` | The animals inside: at most 20 in an office, 4 in a shop, 10 in a café, 25 in a mall, 4 in an entrance hall, 14 in a church, 30 in a school, 20 in a hospital. `sp` is one of the six animals a player can be (fox, bear, rabbit, cat, owl, frog), so a game draws them with the figure it already has. `id` is the same every visit: it is what a player talks to (below). `role`: `worker`, `meeting`, `reception`, `keeper`, `barista`, `shopper`, `guest`, `caretaker`, `resident`; `warden`, `musician`, `singer`, `visitor`; `teacher`, `pupil`; `doctor`, `nurse`, `patient`. |
+| `use` | What the place is: `cafe`, `shop`, `mall`, `office`, `lobby`, `church`, `mosque`, `temple`, `school`, `hospital`, `clinic`, `factory`, `warehouse` or `fuel`, as on its doors. A game that does not know one calls it a building. |
+| `people` | The animals inside: at most 20 in an office, 4 in a shop, 10 in a café, 25 in a mall, 4 in an entrance hall, 14 in a church, 30 in a school, 20 in a hospital, 16 in a factory. `sp` is one of the six animals a player can be (fox, bear, rabbit, cat, owl, frog), so a game draws them with the figure it already has. `id` is the same every visit: it is what a player talks to (below). `role`: `worker`, `meeting`, `reception`, `keeper`, `barista`, `shopper`, `guest`, `caretaker`, `resident`; `warden`, `musician`, `singer`, `visitor`; `teacher`, `pupil`; `doctor`, `nurse`, `patient`; `foreman`, `maker`, `packer`. |
 | `pose` | `sit`: seated at `u`, `v`, facing `yaw`, on a seat `seat` metres above the floor `h`. `stand`: standing there, facing `yaw`. `walk`: strolling the path `pts` (`u`, `v` pairs) there and back for ever. |
 | `signs` | Lettering to draw on a board: its middle (`h` in metres above the sea), the heading it faces, and how wide it may be. A shop's name over its front in a mall, `KITCHEN`, `ROOM 1`, `LIFT`, `MENU`, `CLASS 1`, `WARD 1`, `RECEPTION`. |
 | `tills` | Where food is sold inside: within 4 m of one, a player's lunch box shows what the place sells, as beside a shop's name board outside (`use` is `food` or `shop`, `text` the shop's name: "Food and hearts"). |
