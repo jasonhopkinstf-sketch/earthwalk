@@ -2663,11 +2663,19 @@ void AEarthWalkHUD::OpenTalk()
 	TArray<TPair<FString, FString>> Replies;
 	const bool bDriven = Kind == TEXT("car") || Kind == TEXT("taxi") || Kind == TEXT("tractor");
 	const bool bStands = Kind == TEXT("tree") || Kind == TEXT("house") || Kind == TEXT("train") || Kind == TEXT("railcar");
-	if (Friends->IsRidingIt() || bDriven)
+	const bool bIndoors = Friends->TalkingIndoors();
+	if (bIndoors)
+	{
+		Replies.Emplace(TEXT("What do you do here?"), TEXT("what do you do here?"));
+	}
+	else if (Friends->IsRidingIt() || bDriven)
 	{
 		Replies.Emplace(TEXT("Take me to..."), TEXT("..."));
 	}
-	if (bDriven)
+	if (bIndoors)
+	{
+	}
+	else if (bDriven)
 	{
 		Replies.Emplace(TEXT("Stay here"), TEXT("stay"));
 		Replies.Emplace(TEXT("Go home"), TEXT("go home"));
@@ -2681,7 +2689,10 @@ void AEarthWalkHUD::OpenTalk()
 		Replies.Emplace(TEXT("Go home"), TEXT("go home"));
 		Replies.Emplace(TEXT("Do a trick"), TEXT("do a trick"));
 	}
-	Replies.Emplace(TEXT("Can I help?"), TEXT("can I help?"));
+	if (!bIndoors)
+	{
+		Replies.Emplace(TEXT("Can I help?"), TEXT("can I help?"));
+	}
 	Replies.Emplace(TEXT("Tell me about here"), TEXT("tell me about this place"));
 	Menu->ShowTalk(true, TalkNameShown, Replies);
 	FInputModeGameAndUI Mode;

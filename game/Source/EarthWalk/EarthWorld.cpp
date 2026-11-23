@@ -4,6 +4,7 @@
 #include "EarthCompany.h"
 #include "EarthGeo.h"
 #include "EarthGroundCover.h"
+#include "EarthInside.h"
 #include "EarthLife.h"
 #include "EarthLifeMotion.h"
 #include "EarthLook.h"
@@ -374,6 +375,69 @@ void AEarthWorld::ShopsNear(double EastM, double SouthM, double ReachM, TArray<F
 			}
 		}
 	}
+	// And the counters of the shop or café the player is in.
+	if (Inside)
+	{
+		for (const FEarthShop& Till : Inside->GetTills())
+		{
+			if (FMath::Abs(Till.X - EastM) <= ReachM && FMath::Abs(Till.Z - SouthM) <= ReachM)
+			{
+				Out.Add(Till);
+			}
+		}
+	}
+}
+
+void AEarthWorld::CloseInside()
+{
+	InsideWanted.Reset();
+	if (Inside)
+	{
+		Inside->Destroy();
+		Inside = nullptr;
+	}
+}
+
+void AEarthWorld::OpenInside(const FEarthDoor& Door)
+{
+	const FString Name = FString::Printf(TEXT("%d/%d/%lld"), Door.Chunk.X, Door.Chunk.Y, Door.Id);
+	if (InsideWanted == Name)
+	{
+		return; // asked for, or here already
+	}
+	CloseInside();
+	InsideWanted = Name;
+	const int32 WrappedX = ((Door.Chunk.X % 65536) + 65536) % 65536;
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(FString::Printf(TEXT("%s/v1/inside/%d/%d/%d/%lld"), *FEarthWalkConfig::ServerUrl(), EarthGeo::ChunkZoom, WrappedX, Door.Chunk.Y, Door.Id));
+	Request->SetVerb(TEXT("GET"));
+	Request->SetTimeout(30.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
+	const FIntPoint Key = Door.Chunk;
+	const int64 Id = Door.Id;
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, Id, Name](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		if (InsideWanted != Name || Inside || !Chunks.Contains(Key) || !bConnected || !Response.IsValid() || Response->GetResponseCode() != 200)
+		{
+			return; // gone out again meanwhile, or nobody is told of (a house): the rooms are simply empty
+		}
+		TSharedPtr<FJsonObject> Json;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+		if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid() || !GetWorld())
+		{
+			return;
+		}
+		Inside = GetWorld()->SpawnActor<AEarthInside>(FVector::ZeroVector, FRotator::ZeroRotator);
+		if (Inside)
+		{
+			Inside->Build(*Json, Key, Id, OriginX, OriginY, TileCm / 100.0, this);
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: world: inside %s there are %d animals and %d counters"), *Name, Inside->GetPeople().Num(), Inside->GetTills().Num());
+		}
+	});
+	Request->ProcessRequest();
 }
 
 void AEarthWorld::DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const
@@ -426,6 +490,10 @@ namespace
 
 void AEarthWorld::ForgetInteriors(FIntPoint Key)
 {
+	if (Inside && Inside->GetChunk() == Key)
+	{
+		CloseInside(); // its building has gone with the chunk
+	}
 	const FString Prefix = FString::Printf(TEXT("%d/%d/"), Key.X, Key.Y);
 	for (auto It = Interiors.CreateIterator(); It; ++It)
 	{

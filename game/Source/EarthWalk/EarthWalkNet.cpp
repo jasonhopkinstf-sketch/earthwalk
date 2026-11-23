@@ -277,6 +277,29 @@ void UEarthWalkNet::SendTalk(uint32 Thing, const FString& Sp, const FString& Tex
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendTalkInside(uint32 Thing, const FString& Sp, const FString& Text, const FString& Role, FIntPoint Chunk, int64 Building)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("talk"));
+	Message->SetNumberField(TEXT("thing"), static_cast<double>(Thing));
+	Message->SetStringField(TEXT("sp"), Sp);
+	if (!Text.IsEmpty())
+	{
+		Message->SetStringField(TEXT("text"), Text.Left(200));
+	}
+	Message->SetStringField(TEXT("role"), Role);
+	const TSharedRef<FJsonObject> At = MakeShared<FJsonObject>();
+	At->SetNumberField(TEXT("x"), ((Chunk.X % 65536) + 65536) % 65536);
+	At->SetNumberField(TEXT("y"), Chunk.Y);
+	At->SetNumberField(TEXT("id"), static_cast<double>(Building));
+	Message->SetObjectField(TEXT("at"), At);
+	SendJson(Message);
+}
+
 void UEarthWalkNet::RequestJournal()
 {
 	if (!bJoined)

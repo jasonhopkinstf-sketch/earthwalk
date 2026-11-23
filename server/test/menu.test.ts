@@ -120,5 +120,6 @@ test("things to say in one click fit what is spoken to", () => {
   assert.deepEqual(labels("house"), ["Can I help?", "Tell me about here"]);
   // "..." is not said: it means the place is asked for first.
   assert.equal(quickReplies("car").find(([label]) => label === "Take me to...")?.[1], "...");
+  assert.deepEqual(quickReplies("bear", false, true).map(([label]) => label), ["What do you do here?", "Tell me about here"], "somebody inside a shop or an office is asked about their work, not told to follow");
   for (const sp of ["cow", "car", "train", "boat"]) for (const [label, words] of quickReplies(sp)) assert.ok(label && words);
 });

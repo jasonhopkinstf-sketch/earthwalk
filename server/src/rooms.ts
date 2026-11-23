@@ -462,7 +462,8 @@ export class Rooms {
         if (!room.members.has(me.id)) return;
         // Favours: this talk may bring one home, and the thing may ask one of its own (favours.ts).
         const asked = !!text && offersHelp(text);
-        const favours = this.journal?.beforeTalk?.(me.id, thing, sp, persona(thing, sp).name, asked) ?? null;
+        // (Not somebody at work inside a shop or an office: a guest at a café table was asking to be ridden 300 metres.)
+        const favours = job ? null : this.journal?.beforeTalk?.(me.id, thing, sp, persona(thing, sp).name, asked) ?? null;
         let said: Said;
         if (text) {
           const place = me.hasPos && this.options.placeName ? await this.options.placeName(me.lat, me.lon).catch(() => null) : null;

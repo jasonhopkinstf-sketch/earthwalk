@@ -1,4 +1,5 @@
 #include "EarthCompany.h"
+#include "EarthInside.h"
 
 #include "EarthMiniMap.h"
 
@@ -76,6 +77,8 @@ namespace
 		{ TEXT("mouse"), TEXT("mouse"), 1.5, TalkReachM },
 		{ TEXT("hedgehog"), TEXT("hedgehog"), 1.5, TalkReachM },
 		{ TEXT("fox"), TEXT("fox"), 1.5, TalkReachM },
+		{ TEXT("bear"), TEXT("bear"), 1.8, TalkReachM }, // (these two are met inside shops and offices)
+		{ TEXT("owl"), TEXT("owl"), 1.8, TalkReachM },
 		{ TEXT("frog"), TEXT("frog"), 1.5, TalkReachM },
 		{ TEXT("snail"), TEXT("snail"), 1.5, TalkReachM },
 		{ TEXT("tortoise"), TEXT("tortoise"), 1.5, TalkReachM },
@@ -755,8 +758,24 @@ bool UEarthCompany::KeyTalk()
 	}
 	To = TalkNear;
 	bTalking = true;
-	Room->SendTalk(To.Thing, To.Sp);
+	// Somebody inside a shop or an office is told what they do there and where, so that they know it.
+	const AEarthInside* Indoors = World.IsValid() ? World->GetInside() : nullptr;
+	if (const FEarthIndoorPerson* Person = Indoors ? Indoors->FindPerson(To.Thing) : nullptr; Person && Person->Sp == To.Sp)
+	{
+		Room->SendTalkInside(To.Thing, To.Sp, FString(), Person->Role, Indoors->GetChunk(), Indoors->GetBuilding());
+	}
+	else
+	{
+		Room->SendTalk(To.Thing, To.Sp);
+	}
 	return true;
+}
+
+bool UEarthCompany::TalkingIndoors() const
+{
+	const AEarthInside* Indoors = World.IsValid() ? World->GetInside() : nullptr;
+	const FEarthIndoorPerson* Person = bTalking && Indoors ? Indoors->FindPerson(To.Thing) : nullptr;
+	return Person && Person->Sp == To.Sp;
 }
 
 void UEarthCompany::Say(const FString& Text)
@@ -764,6 +783,12 @@ void UEarthCompany::Say(const FString& Text)
 	UEarthWalkNet* Room = Net.Get();
 	if (!bTalking || !Room || !World.IsValid())
 	{
+		return;
+	}
+	const AEarthInside* Indoors = World->GetInside();
+	if (const FEarthIndoorPerson* Person = Indoors ? Indoors->FindPerson(To.Thing) : nullptr; Person && Person->Sp == To.Sp)
+	{
+		Room->SendTalkInside(To.Thing, To.Sp, Text, Person->Role, Indoors->GetChunk(), Indoors->GetBuilding());
 		return;
 	}
 	// Where I see the thing, in case it is asked to do something from there.
@@ -819,6 +844,24 @@ void UEarthCompany::Scan()
 	for (const FEarthThing& Mount : Mounts)
 	{
 		Consider(Mount, 0.0);
+	}
+	// Whoever is inside the shop or office I am in, on my own floor.
+	const AEarthWalkCharacter* Walker = Player.Get();
+	if (const AEarthInside* Indoors = World->GetInside(); Indoors && Walker)
+	{
+		for (const FEarthIndoorPerson& Person : Indoors->GetPeople())
+		{
+			if (FMath::Abs(Walker->FeetLocation().Z / 100.0 - Person.H) < 2.5)
+			{
+				FEarthThing Candidate;
+				Candidate.Thing = Person.Id;
+				Candidate.Sp = Person.Sp;
+				Candidate.X = Person.X;
+				Candidate.Z = Person.Z;
+				Candidate.Y = Person.H;
+				Consider(Candidate, -0.5); // they come before a tree or a car through the wall
+			}
+		}
 	}
 	// Trees and houses stand still, so they yield to anything livelier that is just as close.
 	TArray<FEarthThing> Fixed;
@@ -931,7 +974,20 @@ void UEarthCompany::OnSay(const FEarthSay& Said)
 		bAt = true;
 	}
 	double Ground = 0.0;
-	if (!bAt || !Earth->TerrainHeightAt(X, Z, Ground))
+	// Somebody inside a building speaks from where they are on its floor, not from the ground outside.
+	const AEarthInside* Indoors = Earth->GetInside();
+	const FEarthIndoorPerson* Person = Indoors ? Indoors->FindPerson(Said.Thing) : nullptr;
+	if (Person && Person->Sp == Said.Sp)
+	{
+		X = Person->X;
+		Z = Person->Z;
+		bAt = true;
+	}
+	else
+	{
+		Person = nullptr;
+	}
+	if (!bAt || (!Person && !Earth->TerrainHeightAt(X, Z, Ground)))
 	{
 		return;
 	}
@@ -940,7 +996,7 @@ void UEarthCompany::OnSay(const FEarthSay& Said)
 	Bubble.Thing = Said.Thing;
 	Bubble.Name = Said.Name;
 	Bubble.Text = Said.Text;
-	Bubble.Where = SceneToEngine(X, Ground + Row->BubbleAt, Z);
+	Bubble.Where = Person ? SceneToEngine(X, Person->H + (Person->Pose == 1 ? 1.55 : 1.8), Z) : SceneToEngine(X, Ground + Row->BubbleAt, Z);
 	Bubble.Until = FPlatformTime::Seconds() + BubbleSeconds + Said.Text.Len() * 0.04;
 	Bubbles.Add(Bubble);
 	Life->Speak(Earth, Said.Sp, Said.Thing, X, Z); // and its own voice with it, if it has one
@@ -1993,6 +2049,21 @@ void UEarthCompany::DoorFrame(double Dt)
 	{
 		bInHouse = false;
 	}
+	// The people of a building are there while I am in it; its room is as big as the server says.
+	if (World.IsValid())
+	{
+		if (AEarthInside* Indoors = World->GetInside())
+		{
+			if (!bInHouse || Indoors->GetBuilding() != HouseIn.Id || Indoors->GetChunk() != HouseIn.Chunk)
+			{
+				World->CloseInside();
+			}
+			else
+			{
+				InsideSize = Indoors->GetSize();
+			}
+		}
+	}
 	if (Me && World.IsValid() && !Me->IsWaitingForGround() && !Me->GetMount() && !Me->IsCarried() && PlayerAt(Px, Pz))
 	{
 		const double FeetM = Me->FeetLocation().Z / 100.0;
@@ -2150,6 +2221,10 @@ void UEarthCompany::UseDoor()
 		Self->bInHouse = true;
 		Self->HouseIn = Going;
 		Self->InsideSize = 50.0;
+		if ((Going.bEntry || !Going.Use.IsEmpty()) && Self->World.IsValid())
+		{
+			Self->World->OpenInside(Going); // who is in there, the signs on its walls and its counters
+		}
 		if (APlayerController* PC = Cast<APlayerController>(Walker->GetController()))
 		{
 			FRotator Look = PC->GetControlRotation();

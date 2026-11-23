@@ -300,6 +300,8 @@ public:
 	void SendDismount();
 	/** Says hello to a thing (no text), or says something to it; its answer comes through OnSay. Lat/Lon are where I see it. */
 	void SendTalk(uint32 Thing, const FString& Sp, const FString& Text = FString(), bool bHasAt = false, double Lat = 0.0, double Lon = 0.0);
+	/** The same to somebody inside a shop or an office: with what they do there, and which building it is (its chunk and number). */
+	void SendTalkInside(uint32 Thing, const FString& Sp, const FString& Text, const FString& Role, FIntPoint Chunk, int64 Building);
 	/** Asks for my own journal; it comes through OnJournal. */
 	void RequestJournal();
 	/** Buys a hat with my coins and puts it on; puts on one I own; or (empty) takes my hat off. The room hears through OnHat. */

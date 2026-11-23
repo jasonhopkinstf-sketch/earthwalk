@@ -8,6 +8,7 @@
 class AEarthChunkLabels;
 class AEarthGroundCover;
 class AEarthLife;
+class AEarthInside;
 class AEarthWalkAvatar;
 class UEarthCompany;
 class UEarthShowcase;
@@ -170,6 +171,13 @@ public:
 	 * somebody goes in, and kept with its chunk after that. Done is told whether it is, and why not.
 	 */
 	void OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done);
+	/**
+	 * Who is inside the shop, office or mall behind a door, what is lettered on its walls and where food is
+	 * sold in it: asked of the server and shown (EarthInside.h). For the one building the player is in.
+	 */
+	void OpenInside(const FEarthDoor& Door);
+	void CloseInside();
+	AEarthInside* GetInside() const { return Inside; }
 	/** How many times the house behind a door has been changed by whoever lives in it (0 for one nobody lives in). */
 	int64 HouseRev(const FEarthDoor& Door) const;
 	/** Riding, talking and telling things what to do (EarthCompany.h). */
@@ -242,6 +250,11 @@ private:
 	/** Animals, cars and trains (EarthLife.h). */
 	UPROPERTY()
 	TObjectPtr<AEarthLife> Life;
+
+	UPROPERTY()
+	TObjectPtr<AEarthInside> Inside;
+	/** The building whose people were last asked for ("x/y/id"): an answer for any other is not shown. */
+	FString InsideWanted;
 
 	UPROPERTY()
 	TObjectPtr<UEarthCompany> Company;

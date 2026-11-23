@@ -94,7 +94,9 @@ export function actionGroups() {
  * told where to go, an animal what to do. `riding` is true for the thing the player is on. Each is
  * [label, words]; the words "..." mean "ask where to first".
  */
-export function quickReplies(sp, riding = false) {
+export function quickReplies(sp, riding = false, indoors = false) {
+  // Somebody at work or at a table inside a shop or an office is not told to follow or to do a trick.
+  if (indoors) return [["What do you do here?", "what do you do here?"], ["Tell me about here", "tell me about this place"]];
   const driven = sp === "car" || sp === "taxi" || sp === "tractor";
   const afloat = sp === "boat" || sp === "sailboat";
   const stands = sp === "tree" || sp === "house" || sp === "train";

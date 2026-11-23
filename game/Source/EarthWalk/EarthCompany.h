@@ -71,6 +71,8 @@ public:
 	FString TalkingKind() const { return To.Sp; }
 	uint32 TalkingThing() const { return To.Thing; }
 	bool IsRidingIt() const { return bTalking && Mine.bOn && Mine.Thing == To.Thing; }
+	/** Talking to somebody inside a shop or an office (EarthInside.h), who is asked about their work and not told to follow. */
+	bool TalkingIndoors() const;
 	/** The thing that spoke last, as OnLine is being told of it. */
 	uint32 LastSpoke() const { return Spoke; }
 

@@ -141,7 +141,7 @@ function openTalk() {
   if (!talk.to || menu.talking) return;
   passport.close();
   showcase.close();
-  menu.showTalk(talkName(), quickReplies(talk.to.sp, riding.mine?.thing === talk.to.thing));
+  menu.showTalk(talkName(), quickReplies(talk.to.sp, riding.mine?.thing === talk.to.thing, !!talk.to.job));
 }
 /** Something said to the thing: typed on its line, or one of the things to say with one click. */
 function talkSay(words) {
