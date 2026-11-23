@@ -372,3 +372,129 @@ test("in a room: a young animal is bought, fed from the lunch box and, grown, gi
     rooms.wss.close();
   }
 });
+
+/** Where on Earth a point of the test home's chunk is (the home is in chunk 1, 2). */
+async function onEarth(x: number, y: number): Promise<{ lat: number; lon: number }> {
+  const { metersPerTile, xToLon, yToLat, CHUNK_Z } = await import("../src/geo.ts");
+  const tile = metersPerTile(2.5, CHUNK_Z);
+  return { lat: yToLat(2 - y / tile), lon: xToLon(1 + x / tile) };
+}
+
+test("free placing: a thing is put down a step in front of its owner, facing them, and the rooms are built round it", async () => {
+  const { spotIn, turnedIn, PRIZE_SIZE } = await import("../src/interior.ts");
+  for (const p of PIECES.filter((x) => x.slot === "prize")) assert.ok(PRIZE_SIZE[p.id], `${p.id} has a size`);
+  assert.deepEqual(Object.keys(PRIZE_SIZE).sort(), PIECES.filter((x) => x.slot === "prize").map((x) => x.id).sort());
+  // A decor keeps a place only for what is on show, and only a sensible one.
+  assert.deepEqual(cleanDecor({ prizes: ["piano", "globe"], placed: { piano: { a: 3, b: 2, k: 1 }, globe: { a: "x", b: 2, k: 1 }, chest: { a: 1, b: 1, k: 0 }, plant: { a: 1, b: 1, k: 9 } } }),
+    { prizes: ["piano", "globe"], placed: { piano: { a: 3, b: 2, k: 1 } } });
+
+  let placedSomewhere = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const h = home(seed * 104729);
+    const decor: Decor = { prizes: ["globe", "piano", "plant"] };
+    // Standing just inside the front door (it is 4 m along the front wall), looking into the house (south).
+    const here = await onEarth(104, -51.2);
+    assert.equal(spotIn(h, 1, 2, decor, "globe", (await onEarth(104, -40)).lat, (await onEarth(104, -40)).lon, 180), null, "not from outside the house");
+    assert.equal(spotIn(h, 1, 2, decor, "nonsense", here.lat, here.lon, 180), null);
+    // Somewhere in the house with clear floor ahead (where that is depends on how it is cut into rooms).
+    let spot: ReturnType<typeof spotIn> = null;
+    let stood: [number, number] = [0, 0];
+    for (const [x, y] of [[104, -51.2], [107, -51.5], [102, -52], [108, -53], [103, -53.5], [105.5, -52.5], [101.5, -54], [108.5, -54.5]] as [number, number][]) {
+      const at = await onEarth(x, y);
+      spot = spotIn(h, 1, 2, decor, "globe", at.lat, at.lon, 180);
+      stood = [x, y];
+      if (spot) { here.lat = at.lat; here.lon = at.lon; break; }
+    }
+    if (!spot) continue;
+    placedSomewhere++;
+    assert.equal(spot.k, 1, "it faces whoever put it down: towards the front of the house");
+    const ahead = spot.b - (-50 - stood[1]);
+    assert.ok(Math.abs(spot.a - (110 - stood[0])) < 0.05 && ahead > 0.7 && ahead < 1.7, `a step ahead of them (${spot.a}, ${spot.b})`);
+    decor.placed = { globe: spot };
+    // A second thing cannot be put on top of it; turning it keeps it where it is.
+    const again = spotIn(h, 1, 2, decor, "plant", here.lat, here.lon, 180);
+    if (again) assert.ok(Math.abs(again.b - spot.b) > 0.5, "the next thing stands clear of the first");
+    const turned = turnedIn(h, decor, "globe");
+    assert.ok(turned && turned.a === spot.a && turned.b === spot.b && turned.k !== spot.k);
+    assert.equal(turnedIn(h, decor, "piano"), null, "nothing to turn that has not been put anywhere");
+    // The house is built with it there, all inside its walls, the same every time, with as much furniture as before or more of the owner's.
+    const built = buildInterior(h, S, decor);
+    assert.deepEqual(shape(buildInterior(h, S, decor)), shape(built));
+    for (const s of built.sections) {
+      for (let i = 0; i < s.pos.length; i += 3) {
+        assert.ok(s.pos[i] > 100.02 && s.pos[i] < 109.98 && s.pos[i + 1] < -50.02 && s.pos[i + 1] > -56.98, "inside the walls");
+      }
+    }
+    const where = (m: typeof built): number[] => m.sections.flatMap((s) => Array.from(s.pos, (v) => Math.round(v * 100)));
+    assert.notDeepEqual(where(built), where(buildInterior(h, S, { prizes: ["globe", "piano", "plant"] })), "it stands somewhere else than against its wall");
+    // In another house the place may not do: then it stands against a wall again, and nothing breaks.
+    assert.ok(buildInterior(home(seed * 7 + 3), S, decor).sections.length > 0);
+    assert.ok(buildInterior(home(seed, 2.2), S, { prizes: ["globe"], placed: { globe: { a: 99, b: 99, k: 0 } } }).sections.length > 0);
+  }
+  assert.ok(placedSomewhere >= 8, `nearly every layout has clear floor somewhere (${placedSomewhere} of 10)`);
+});
+
+test("in a room: something on show is put where its owner stands, turned, and sent back to the wall", async () => {
+  const homes = new Homes(null, () => 0);
+  const journal: JournalKeeper = {
+    listen: () => {}, joined: async () => {}, left: () => {}, moved: () => {}, rode: () => {}, talked: () => {}, view: () => null,
+    takePiece: () => "ok",
+  };
+  const door = await onEarth(106, -50);
+  // A house of one big room, so that there is clear floor wherever its owner stands.
+  let seed = 1;
+  const { planHome } = await import("../src/interior.ts");
+  while (planHome(9.9, 6.9, 5.95, seed)?.rooms.length !== 1 && seed < 500) seed++;
+  const rooms = new Rooms(new GuestDirectory(""), { journal, homes, findHome: async (_x, _y, id) => ({ home: { ...home(seed), id }, lat: door.lat, lon: door.lon, yaw: 0 }) });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const ws = new WebSocket(`ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`);
+  const inbox: Msg[] = [];
+  ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
+  await new Promise<void>((r) => ws.on("open", () => r()));
+  const send = (m: Msg): void => ws.send(JSON.stringify(m));
+  const next = async (t: string, ok: (m: Msg) => boolean = () => true): Promise<Msg> => {
+    for (let i = 0; i < 300; i++) {
+      const at = inbox.findIndex((m) => m.t === t && ok(m));
+      if (at >= 0) return inbox.splice(at, 1)[0];
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`timed out waiting for "${t}"`);
+  };
+  try {
+    send({ t: "hello", name: "Sam", room: "family", avatar: "fox" });
+    await next("welcome");
+    const inside = await onEarth(104, -51.5);
+    send({ t: "pos", lat: inside.lat, lon: inside.lon, alt: 0, yaw: 180 });
+    await new Promise((r) => setTimeout(r, 2100));
+    send({ t: "house", claim: { x: 1, y: 2, id: 77 } });
+    await next("house");
+    send({ t: "house", place: { id: "globe" } });
+    assert.equal((await next("error")).text, "Put it on show first");
+    send({ t: "house", put: { slot: "prize", id: "globe" } });
+    await next("house");
+    send({ t: "house", place: { id: "globe", turn: true } });
+    assert.equal((await next("error")).text, "Put it somewhere first");
+    send({ t: "house", place: { id: "globe" } });
+    const put = (await next("house")).house;
+    assert.deepEqual([Object.keys(put.decor.placed), put.decor.placed.globe.k], [["globe"], 1]);
+    await next("lived", (m) => m.rev === put.rev);
+    send({ t: "house", place: { id: "globe", turn: true } });
+    const turned = (await next("house")).house;
+    assert.ok(turned.decor.placed.globe.k !== 1 && turned.decor.placed.globe.a === put.decor.placed.globe.a && turned.rev > put.rev);
+    send({ t: "house", place: { id: "globe", wall: true } });
+    assert.deepEqual((await next("house")).house.decor, { prizes: ["globe"] });
+    // From outside there is nowhere to put it; and what is put away loses its place.
+    const outside = await onEarth(104, -40);
+    send({ t: "pos", lat: outside.lat, lon: outside.lon, alt: 0, yaw: 180 });
+    await new Promise((r) => setTimeout(r, 50));
+    send({ t: "house", place: { id: "globe" } });
+    assert.match((await next("error")).text, /no room for it there/);
+    ws.close();
+  } finally {
+    for (const client of rooms.wss.clients) client.terminate();
+    server.close();
+    rooms.wss.close();
+  }
+});

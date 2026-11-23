@@ -691,10 +691,13 @@ is theirs until they leave. Houses are in the world, not in a room: everybody co
 | `{"t":"house","claim":{"x":33638,"y":21638,"id":269982566}}` | Make this house mine: the chunk it is in and its number there (the `id` of its `door` label). The sender must be within 80 m of its door. A house they had before is given up, and its furnishing comes along. |
 | `{"t":"house","leave":true}` | Give my house up. |
 | `{"t":"house","put":{"slot":"sofa","id":"royal"}}` | Swap a piece: `slot` is `walls`, `floor`, `sofa`, `bed` or `rug`, and `id` a piece of that slot (bought now with coins if it is not theirs yet); without `id`, what the house came with goes back. |
-| `{"t":"house","put":{"slot":"prize","id":"piano","on":true}}` | Put a prize on show, or (`on` false) away. Six at most stand in a house. |
+| `{"t":"house","put":{"slot":"prize","id":"piano","on":true}}` | Put a prize on show, or (`on` false) away. Ten at most stand in a house. |
+| `{"t":"house","place":{"id":"piano"}}` | Put something that is on show down a step in front of where I stand in my house, facing me. With `"turn":true` it is turned a quarter round where it is; with `"wall":true` it goes back to standing against a wall. |
 
 The server answers the sender with `{"t":"house","house":…}`: null, or their house as below with
-`decor` (`{walls?, floor?, sofa?, bed?, rug?, prizes: []}`), and after a `put` with their `journal`
+`decor` (`{walls?, floor?, sofa?, bed?, rug?, prizes: [], placed?}`, where `placed` gives, for things put
+somewhere by their owner, the middle of each in metres along the front wall (`a`) and back from it (`b`)
+and which way it faces (`k`, 0 to 3); the server works these out from where the owner stands), and after a `put` with their `journal`
 again (the coins have changed). Everybody, in every room, is sent
 
 ```json
@@ -706,6 +709,26 @@ that leads out of it, `name` its owner's, `rev` counting its changes), and
 `{"t":"lived","x":…,"y":…,"id":…,"gone":true}` when it is empty again. `welcome` carries the same list
 as `lived`, and the player's own as `house`. Errors: `nowhere`, `nohome` (no such house, or none of
 their own), `far`, `taken`, `many`, `poor`, `locked` (no such piece, or a prize not won yet), `busy`.
+
+**Reading a plan off a picture: `POST /v1/plan`.** The body is the picture itself (`Content-Type`
+`image/png`, `image/jpeg`, `image/webp`, `image/gif` or `application/pdf`, four megabytes at most), sent
+by somebody signed in (their token as for `/v1/journal`) who has a house. The answer is
+`{"plan":{…},"notes":["…"],"lines":["Ground floor: …"],"left":2}`: the plan to send back in a `house`
+message if they want it built, what had to be changed, the plan in words, and how many tries they have
+left today (three a day). Errors carry `error` in words: 401 not signed in, 409 no house, 413 too
+big, 415 not a picture, 422 not a floor plan or nothing to build, 429 no tries left, 502 the reading
+failed (the try is given back), 503 no AI on this server or its allowance spent for today.
+
+**A plan of one's own.** `{"t":"house","plan":{…}}` gives my house a floor plan (the object the server
+made when it read my picture: `floors`, each with `rooms` (`name`, `kind`, and `a0`, `a1`, `b0`, `b1` in
+metres from the front door: `a` along the front wall, `b` back into the house) and `doors` (pairs of
+rooms); `entrance`, the room behind the front door; `stairs`, or null). It is checked again and refused
+if it cannot be built. `"plan":null` goes back to the rooms the house was built with. A house with a
+plan is told to everybody with `lift` (3000) and `floors`: its inside stands `lift` metres above the
+real house, is fetched with `GET /v1/interior/16/x/y/id?r=<rev>&plan=1`, and a player going in at its
+front door is to be put on its floor up there (and set down in the street on coming out). Without
+`plan=1` the same address gives the house's ordinary rooms. The owner's `house` also has `planned`,
+the plan in words, a line a floor.
 
 **The garden.** A house's owner may keep up to four young animals before its front door.
 

@@ -86,7 +86,8 @@ export class Houses {
             const ox = Math.sin(yaw), oz = -Math.cos(yaw);
             const side = (p.position.x - x) * ox + (p.position.z - z) * oz;
             const inside = side < 0;
-            if (inside && (d > REACH_IN_M || Math.abs(p.position.y - door.h) > 1.5)) continue;
+            if (inside && (d > REACH_IN_M || Math.abs(p.position.y - door.h - this.liftOf(chunk, door)) > 1.5)) continue;
+            if (!inside && Math.abs(p.position.y - (door.g ?? door.h)) > 6) continue; // (upstairs in a house of one's own plan, above somebody's door)
             bestD = d;
             best = { chunk, door, x, z, ox, oz, inside };
           }
@@ -98,8 +99,10 @@ export class Houses {
     const at = this.inside;
     if (at) {
       const door = this.doorAt(at.chunk, at.door);
+      const lift = this.liftOf(at.chunk, at.door);
       const gone = p.waitingForGround || world.chunks.get(`${at.chunk.x}/${at.chunk.y}`) !== at.chunk
-        || Math.hypot(door.x - p.position.x, door.z - p.position.z) > HOUSE_M || Math.abs(p.position.y - at.door.h) > 4;
+        || Math.hypot(door.x - p.position.x, door.z - p.position.z) > HOUSE_M || Math.abs(p.position.y - at.door.h - lift) > (lift ? 9 : 4);
+      if (gone && lift && !p.waitingForGround && p.position.y > at.door.h + 20) this.setDown(at); // out of a house in the sky: not a three-kilometre fall
       if (gone) this.left();
     }
     const whose = best && !best.inside ? this.meetup.homes.get(houseKey(best.chunk, best.door.id)) : null;
@@ -117,17 +120,51 @@ export class Houses {
     this.decor.close();
   }
 
+  /** Stands the player in the street before a door. */
+  setDown(at) {
+    const { world, player: p } = this;
+    const door = this.doorAt(at.chunk, at.door);
+    const yaw = (at.door.yaw * Math.PI) / 180;
+    p.position.x = door.x + Math.sin(yaw) * 1.4;
+    p.position.z = door.z - Math.cos(yaw) * 1.4;
+    p.position.y = world.groundHeight(p.position.x, p.position.z) ?? at.door.g ?? at.door.h;
+    p.velocityY = 0;
+    p.flying = false;
+  }
+
+  /** Stands the player just inside a door, facing in: on the floor of the house, wherever that is. */
+  setInside(at) {
+    const { player: p } = this;
+    const door = this.doorAt(at.chunk, at.door);
+    const yaw = (at.door.yaw * Math.PI) / 180;
+    p.flying = false;
+    p.position.x = door.x - Math.sin(yaw) * 0.9;
+    p.position.z = door.z + Math.cos(yaw) * 0.9;
+    p.position.y = at.door.h + this.liftOf(at.chunk, at.door) + 0.02;
+    p.velocityY = 0;
+    p.grounded = true;
+    p.yaw = yaw + Math.PI;
+  }
+
   /** Fetches the inside of a house and puts it in its chunk, in place of what was there. */
   async fetchInside(chunk, door) {
     const { world } = this;
     const key = houseKey(chunk, door.id);
-    const rev = this.meetup.homes.get(key)?.rev ?? 0;
-    const res = await fetch(`/v1/interior/${CHUNK_Z}/${wrap(chunk.x)}/${chunk.y}/${door.id}${rev ? `?r=${rev}` : ""}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
+    const lived = this.meetup.homes.get(key);
+    const rev = lived?.rev ?? 0;
+    // A house built from its owner's plan is asked for as such: its inside stands far above the real house.
+    const res = await fetch(`/v1/interior/${CHUNK_Z}/${wrap(chunk.x)}/${chunk.y}/${door.id}${rev ? `?r=${rev}${lived?.lift ? "&plan=1" : ""}` : ""}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
     if (!res.ok) throw new Error(res.status === 404 ? "This door is stuck." : "The door would not open just now. Try again in a moment.");
     const data = decodeChunk(await res.arrayBuffer());
     if (world.chunks.get(`${chunk.x}/${chunk.y}`) !== chunk) return false; // the chunk went away meanwhile
     world.addInterior(chunk, door.id, data, rev);
+    chunk.interiors.get(door.id).lift = lived?.lift ?? 0;
     return true;
+  }
+
+  /** How far above its real door the inside of a house stands: nothing, but for one built from its owner's plan. */
+  liftOf(chunk, door) {
+    return this.meetup.homes.get(houseKey(chunk, door.id))?.lift ?? 0;
   }
 
   /** A house has been moved into, furnished differently, or left: what is built of its inside is out of date. */
@@ -142,7 +179,10 @@ export class Houses {
       const door = chunk.doors?.find((d) => d.id === home.id);
       // Standing in it, I see it change round me; otherwise it is fetched afresh the next time I go in.
       if (door && this.inside?.key === key) {
+        const was = chunk.interiors.get(home.id).lift ?? 0;
         try { await this.fetchInside(chunk, door); } catch { /* it stays as it was until the next change */ }
+        // Built from a plan now, or no longer: the rooms are somewhere else, so I am stood just inside the door of them.
+        if ((chunk.interiors.get(home.id)?.lift ?? 0) !== was && this.inside?.key === key) this.setInside(this.inside);
       } else world.removeInterior(chunk, home.id);
     }
   }
@@ -165,13 +205,7 @@ export class Houses {
       const key = houseKey(at.chunk, at.door.id);
       const whose = this.meetup.homes.get(key);
       if (at.chunk.interiors?.get(at.door.id)?.rev !== (whose?.rev ?? 0) && !(await this.fetchInside(at.chunk, at.door))) return;
-      p.flying = false;
-      p.position.x = at.x - at.ox * 0.9;
-      p.position.z = at.z - at.oz * 0.9;
-      p.position.y = at.door.h + 0.02;
-      p.velocityY = 0;
-      p.grounded = true;
-      p.yaw = Math.atan2(-at.ox, at.oz); // facing in
+      this.setInside(at);
       this.inside = { chunk: at.chunk, door: at.door, key };
       const mine = this.meetup.house;
       if (this.mine()) this.say("Welcome home. Press H to change the furniture.");
@@ -199,6 +233,7 @@ export class Houses {
         return this.say("Move here from your other house? Press H again to move in. Your furniture and prizes come with you.");
       }
       this.sure = { key: "", until: 0 };
+      this.say("Asking for the keys..."); // (the first time in a neighbourhood the server may take a few seconds to measure the house)
       return void meetup.sendHouse({ claim: { x: wrap(at.chunk.x), y: at.chunk.y, id: at.door.id } });
     }
     // Just outside my own front door, where the garden is, H opens the same panel: the animals are in view.

@@ -19,6 +19,8 @@ import { Journals, type JournalStore } from "./journal.ts";
 import { type HuntStop, planHunt } from "./hunt.ts";
 import { findHome, furnishedInterior, generateInterior, INTERIOR_REV } from "./interior.ts";
 import { Homes } from "./home.ts";
+import { describePlan, normalisePlan } from "./plan.ts";
+import { claudePlanReader, PLAN_MAX_BYTES, PLAN_MEDIA, type ReadPlan } from "./planreader.ts";
 import { Presence } from "./presence.ts";
 import { cookieValue, Rooms, TOKEN_COOKIE } from "./rooms.ts";
 import { LookAhead } from "./ahead.ts";
@@ -66,6 +68,10 @@ export interface AppOptions {
   journalStore?: JournalStore | null;
   /** A test aid: coins every new journal starts with. */
   startCoins?: number;
+  /** Reads a floor plan off a picture (planreader.ts). Defaults to Claude when ANTHROPIC_API_KEY is set, and to nothing when it is not; null turns it off. */
+  readPlan?: ReadPlan | null;
+  /** How many pictures a person may have read in a day. */
+  plansPerDay?: number;
   /** Makes treasure hunts (hunt.ts); replaceable for tests. */
   planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
   /**
@@ -152,6 +158,10 @@ export function createApp(options: AppOptions = {}): App {
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
   const buildInterior = options.buildInterior ?? ((x, y, id) => generateInterior(x, y, id, elevation));
   const homes = options.homes ?? new Homes();
+  const readPlan: ReadPlan | null = options.readPlan !== undefined ? options.readPlan : process.env.ANTHROPIC_API_KEY ? claudePlanReader() : null;
+  const plansPerDay = options.plansPerDay ?? 3;
+  /** How many pictures each person has had read today. */
+  const planTries = new Map<string, { day: string; n: number }>();
   const measureHome = options.findHome ?? ((x: number, y: number, id: number) => findHome(x, y, id, elevation));
   /** The insides of lived-in houses, as last built: a few, by house and by how often it has changed. */
   const furnished = new Map<string, Buffer>();
@@ -389,6 +399,46 @@ export function createApp(options: AppOptions = {}): App {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       const p = url.pathname;
+      if (req.method === "POST" && p === "/v1/plan") {
+        // A picture of a floor plan, from somebody signed in who has a house: read into a plan for it, which they are
+        // shown and may then have built (the `plan` of a `house` message). Three tries a day each; the reading is
+        // paid for out of the same daily allowance as the talking things.
+        const me = accounts.byToken(tokenOf(req));
+        if (!me) return json(res, 401, { error: "Sign in first: plans are for people with their own account" });
+        if (!homes.of(me.id)) return json(res, 409, { error: "You need a house of your own first: go into a house nobody lives in and press H" });
+        const mediaType = (req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+        if (!PLAN_MEDIA.includes(mediaType)) return json(res, 415, { error: "A plan is a picture (PNG, JPEG, WebP or GIF) or a PDF" });
+        if (!readPlan) return json(res, 503, { error: "Plans cannot be read here just now" });
+        const day = new Date().toISOString().slice(0, 10);
+        const tries = planTries.get(me.id)?.day === day ? planTries.get(me.id)! : { day, n: 0 };
+        if (tries.n >= plansPerDay) return json(res, 429, { error: `${plansPerDay === 1 ? "One plan" : `${plansPerDay} plans`} a day: try again tomorrow`, left: 0 });
+        if (!(await talker.mayAsk())) return json(res, 503, { error: "The game has asked the AI all it may today: try again tomorrow" });
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += (chunk as Buffer).length;
+          if (size > PLAN_MAX_BYTES) return json(res, 413, { error: "That picture is too big: four megabytes at most" });
+          chunks.push(chunk as Buffer);
+        }
+        if (size < 100) return json(res, 400, { error: "No picture came" });
+        tries.n++;
+        planTries.set(me.id, tries);
+        if (planTries.size > 5000) planTries.clear();
+        const left = plansPerDay - tries.n;
+        let read: Awaited<ReturnType<ReadPlan>>;
+        try {
+          read = await readPlan(Buffer.concat(chunks), mediaType);
+        } catch (err) {
+          console.error("plan: the picture could not be read", err instanceof Error ? err.message : err);
+          tries.n--; // not their fault: the try is given back
+          return json(res, 502, { error: "The picture could not be read just now. Try again in a moment.", left: left + 1 });
+        }
+        await talker.charge(read.inputTokens, read.outputTokens, read.model).catch(() => undefined);
+        const made = read.raw ? normalisePlan(read.raw) : null;
+        if (!made) return json(res, 422, { error: read.raw ? "No rooms could be made out on that picture" : "That does not look like the floor plan of a house", left });
+        res.setHeader("Cache-Control", "no-store");
+        return json(res, 200, { plan: made.plan, notes: made.notes, lines: describePlan(made.plan), left });
+      }
       if (req.method !== "GET" && !(req.method === "POST" && p === "/auth/logout")) return json(res, 405, { error: "method not allowed" });
       if (await serveAccounts(req, res, url)) return;
 
@@ -412,10 +462,13 @@ export function createApp(options: AppOptions = {}): App {
         const lived = homes.at(x, y, id);
         if (lived) {
           if (lived.gen !== GENERATOR_REV) homes.measured(lived, await measureHome(x, y, id).catch(() => null), GENERATOR_REV); // the world was made again since
-          const key = `${x}/${y}/${id}/${lived.rev}`;
+          // A game that knows about houses built from their owner's plan asks for that (`?plan=1`), and is given it far
+          // above the real house; any other is given the house's ordinary rooms, where it expects them.
+          const planned = url.searchParams.get("plan") === "1" && lived.plan ? lived.plan : null;
+          const key = `${x}/${y}/${id}/${lived.rev}${planned ? "/plan" : ""}`;
           let inside = furnished.get(key);
           if (!inside) {
-            inside = furnishedInterior(x, y, lived.home, lived.decor);
+            inside = furnishedInterior(x, y, lived.home, lived.decor, planned);
             if (furnished.size >= 40) furnished.delete(furnished.keys().next().value!);
             furnished.set(key, inside);
           }

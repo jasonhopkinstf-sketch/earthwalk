@@ -300,6 +300,32 @@ lasts for the visit. The catalogue and who lives where are `server/src/home.ts` 
 not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
 things on a developer's own machine; it is not set on the live server.
 
+A house from a plan of your own (in the browser so far): at the bottom of the house panel (H) somebody
+signed in can choose a picture of a floor plan (a photo, a screenshot or a PDF, four megabytes at
+most). `POST /v1/plan` has it read by Claude (`server/src/planreader.ts`: one request with the picture
+and a form to fill in, `output_config.format`), three tries a person a day and within the daily AI
+allowance of the talking things; the picture is not kept. The panel shows what was read (a small
+drawing, the rooms in words, notes on what had to be changed) and "Build my house from this".
+`EARTHWALK_PLAN_MODEL` chooses the model (default `claude-opus-5-5`). Without `ANTHROPIC_API_KEY` on
+the server the upload says that plans cannot be read. The plan itself, and the house built from it: a house that is
+lived in can be given a floor plan (`server/src/plan.ts`): up to two floors of rectangular rooms in
+metres, doors between them, a staircase and a front door. `normalisePlan` tidies a rough plan (as read
+off a picture) into one that can be built: rooms kept from overlapping, the plan turned so the front
+door is at the origin, every room given a way in, the staircase made to fit both floors with standing
+room at each end. The house is then built from it at its true size (`buildInterior` with a plan),
+`PLAN_LIFT_M` (three kilometres) straight above the real house, where the fog hides it from the
+ground: going in at the front door lifts the player there, coming out sets them down in the street,
+and the stairs are walked up. A game that does not ask for the planned house (`?plan=1`) is given the
+ordinary rooms. Things on show stand against walls there; free placing does not work in it yet.
+
+Free placing (in the browser so far): anything on show in your house can be put where you like. Stand
+in the house where you want it and press Here under it in the house panel: it is put down a step in
+front of you, facing you, square to the walls, and the room's own furniture arranges itself round
+it. Turn turns it a quarter; Wall sends it back to stand against a wall. It will not stand across a
+wall or within a step of a doorway, so nobody can be shut in. Ten things can be on show now, and
+there are five more to buy: a potted palm, a standing lamp, a beanbag, a toy box and a bookcase
+(`spotIn`, `turnedIn` and `standing` in `server/src/interior.ts`; `placed` in a house's `decor`).
+
 The view from above (both games; `HoverTick` in `EarthWalkCharacter.cpp` is the Windows one, and `-EWRideView=1` or `2` goes to it by itself once the player is on something): riding anything, or being carried by a train, a taxi or a
 friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
 rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken

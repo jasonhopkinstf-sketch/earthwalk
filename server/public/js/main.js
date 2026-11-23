@@ -80,7 +80,7 @@ const talk = new Talk({
 });
 life.riding = riding;
 traffic.riding = riding;
-const decor = new Decor({ panel: $("decor"), meetup, moveOut: () => houses.moveOut() });
+const decor = new Decor({ panel: $("decor"), meetup, moveOut: () => houses.moveOut(), token: () => world.code });
 const houses = new Houses({
   world, player, meetup, decor,
   say: (text) => notice(text),
@@ -491,6 +491,7 @@ async function command(name, arg) {
     notice("    and beside a real shop or café B shows what it sells: every country has its own dishes");
     notice("H   a house of your own: inside a house nobody lives in, H makes it yours and puts your name over the door;");
     notice("    inside your own, H opens the furniture, paint and prizes; anywhere else, H takes you home (/house moveout gives it up)");
+    notice("    and at the bottom of it, a plan of your own: upload a picture of a real floor plan and your house is built from it");
     notice("    the same panel has your garden: a chick, a lamb, a piglet or a calf of your own, fed once a day from your lunch box");
     notice("    until it is grown, and then it gives you an egg, wool, a truffle or milk every day (H by your front door shows it too)");
     notice("    in a car, taxi or tractor you drive: W and S are the pedals, A and D steer, Space is the handbrake,");

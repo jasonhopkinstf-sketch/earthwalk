@@ -13,7 +13,9 @@ import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay
 import type { TalkNews } from "./journal.ts";
 import { breedOf, BREEDS, cleanDecor, gardenView, GARDEN_MAX, type Homes, isGrown, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
 import type { HomeDoor } from "./chunk.ts";
+import { spotIn, turnedIn } from "./interior.ts";
 import { judge, lesson, trickById } from "./tricks.ts";
+import { checkedPlan, describePlan } from "./plan.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -630,6 +632,37 @@ export class Rooms {
           const left = homes.leave(owner);
           if (left) this.broadcastAll({ t: "lived", x: left.x, y: left.y, id: left.id, gone: true });
           send({ t: "house", house: null });
+        } else if (msg.plan !== undefined) {
+          // A floor plan of my own for my house (plan.ts), as the server gave it to me when it read my picture; or
+          // null, to go back to the rooms the house was built with. It is checked again here: nothing is built unseen.
+          const mine = homes.of(owner);
+          if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }
+          const plan = msg.plan === null ? null : checkedPlan(msg.plan);
+          if (msg.plan !== null && !plan) { send({ t: "error", code: "locked", text: "That plan cannot be built: every room needs a way in, and the front door a room behind it" }); return; }
+          homes.setPlan(owner, plan);
+          this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+          send({ t: "house", house: this.houseOf(me) });
+        } else if (msg.place && typeof msg.place === "object") {
+          // Something on show is put down a step in front of me, facing me; turned a quarter round (`turn`); or sent
+          // back to stand against a wall (`wall`). The house's own furniture makes way for it.
+          const mine = homes.of(owner);
+          if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }
+          const place = msg.place as { id?: unknown; turn?: unknown; wall?: unknown };
+          const id = clean(place.id, 16);
+          const decor = cleanDecor(mine.decor);
+          if (!decor.prizes.includes(id)) { send({ t: "error", code: "locked", text: "Put it on show first" }); return; }
+          if (mine.plan) { send({ t: "error", code: "locked", text: "In a house built from your own plan, things on show stand against the walls for now" }); return; }
+          if (place.wall === true) {
+            if (decor.placed) delete decor.placed[id];
+          } else {
+            const spot = place.turn === true ? turnedIn(mine.home, decor, id)
+              : me.hasPos ? spotIn(mine.home, mine.x, mine.y, decor, id, me.lat, me.lon, me.yaw) : null;
+            if (!spot) { send({ t: "error", code: "locked", text: place.turn === true ? (decor.placed?.[id] ? "There is no room to turn it there" : "Put it somewhere first") : "There is no room for it there: stand in your house with a clear stretch of floor in front of you, away from the doorways" }); return; }
+            (decor.placed ??= {})[id] = spot;
+          }
+          homes.change(owner, { decor });
+          this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+          send({ t: "house", house: this.houseOf(me) });
         } else if (msg.put && typeof msg.put === "object") {
           const mine = homes.of(owner);
           if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }
@@ -1007,10 +1040,10 @@ export class Rooms {
   }
 
   /** My own house, as I am told of it: where it is and how I have furnished it. */
-  private houseOf(m: Member): (ReturnType<typeof viewOfLived> & { decor: Lived["decor"]; animals: ReturnType<typeof gardenView>; breeds: typeof BREEDS; gardenMax: number }) | null {
+  private houseOf(m: Member): (ReturnType<typeof viewOfLived> & { decor: Lived["decor"]; animals: ReturnType<typeof gardenView>; breeds: typeof BREEDS; gardenMax: number; planned?: string[] }) | null {
     const mine = this.options.homes?.of(m.personId ?? m.id);
     const day = this.journal?.dayFor?.(m.id) ?? Math.floor(Date.now() / 86_400_000);
-    return mine ? { ...viewOfLived(mine), decor: mine.decor, animals: gardenView(mine.garden ?? [], day), breeds: BREEDS, gardenMax: GARDEN_MAX } : null;
+    return mine ? { ...viewOfLived(mine), decor: mine.decor, animals: gardenView(mine.garden ?? [], day), breeds: BREEDS, gardenMax: GARDEN_MAX, ...(mine.plan ? { planned: describePlan(mine.plan) } : {}) } : null;
   }
 
   /** Tells everybody, in every room: houses are in the world, not in a room. */
