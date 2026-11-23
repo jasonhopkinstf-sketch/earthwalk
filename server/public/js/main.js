@@ -65,6 +65,7 @@ addEventListener("resize", resize);
 resize();
 
 const world = new World(scene);
+world.fresh = new URLSearchParams(location.search).has("fresh");
 const player = new Player(camera, world, canvas);
 const avatars = new Avatars(scene);
 const meetup = new Meetup();

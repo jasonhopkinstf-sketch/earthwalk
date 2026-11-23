@@ -99,7 +99,8 @@ async function load() {
   const jobs = [];
   for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
     const x = Math.floor(ox) + dx, y = Math.floor(oy) + dy;
-    jobs.push(fetch(`/v1/chunk/${Z}/${x}/${y}${auth}`).then(async (r) => {
+    // (Always asked of the server afresh: this is for looking at what it builds now, not at what the browser kept.)
+    jobs.push(fetch(`/v1/chunk/${Z}/${x}/${y}${auth}`, { cache: "reload" }).then(async (r) => {
       if (!r.ok) throw new Error(r.status);
       const group = decode(await r.arrayBuffer(), ox, oy, S0);
       world.add(group);
@@ -108,7 +109,8 @@ async function load() {
     }).catch(() => { failed++; }).finally(() => { status.textContent = `${done}/${jobs.length} chunks${failed ? `, ${failed} failed` : ""} · ${lat.toFixed(5)}, ${lon.toFixed(5)}`; }));
   }
   await Promise.all(jobs);
-  const y = groundY ?? 0;
+  // `up` looks at a point so many metres above the lowest ground of the middle chunk (a bridge, a rooftop).
+  const y = (groundY ?? 0) + parseFloat(params.get("up") ?? "0");
   controls.target.set(0, y, 0);
   const tilt = parseFloat(params.get("tilt") ?? "0.75"), dist = parseFloat(params.get("dist") ?? "520");
   const az = parseFloat(params.get("az") ?? "0.5");

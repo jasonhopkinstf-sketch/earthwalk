@@ -70,6 +70,12 @@ export interface Road {
   id: number; cls: RoadClass; width: number; pts: Pt[]; name?: string;
   /** Roads only: the map's kind of road (residential, primary...), and whether traffic may only go the way it is drawn. */
   hw?: string; oneway?: boolean;
+  /**
+   * A stretch that leaves the ground (spans.ts): on a bridge, or in a tunnel. `layer` is the map's own
+   * number for what is above what (1, 2... up, -1, -2... down); it is not a height. `form` is the map's
+   * word for the kind of bridge when it says more than "yes": boardwalk, viaduct...
+   */
+  bridge?: boolean; tunnel?: boolean; layer?: number; form?: string;
 }
 /** A house number mapped as a standalone point rather than on a building. */
 export interface AddressPoint { id: number; at: Pt; housenumber: string; street?: string }
@@ -89,6 +95,12 @@ export interface Features {
   addresses: AddressPoint[];
   /** Coastline pieces. By OpenStreetMap convention, land is on the left of the direction of travel. */
   coast: Pt[][];
+  /**
+   * Roads, paths and railways in tunnels. They are kept apart from `roads`, which is everything drawn on
+   * the ground: a tunnel is under it, and most of what reads the roads (street names, parked cars, where a
+   * house's front door faces) must not find one there.
+   */
+  tunnels?: Road[];
   /** Fields that may hold animals (labels route only; the meshes do not use them). */
   fields?: Field[];
   /** Named places mapped as points (extras). */
@@ -737,9 +749,34 @@ const PATH_WIDTH: Record<string, number> = {
 
 const named = (road: Road, name: string | undefined): Road => (name?.trim() ? { ...road, name: name.trim() } : road);
 
-function roadOf(id: number, tags: Record<string, string>, pts: Pt[]): Road | null {
-  if (tags.tunnel && tags.tunnel !== "no") return null;
-  if ((num(tags.layer) ?? 0) < 0) return null;
+/** Paths that are the insides of buildings and stations, not ways through the ground. */
+const INDOORS = /^(corridor|steps|elevator|platform)$/;
+
+/**
+ * What a way is, as the world draws it. A way in a tunnel comes back with `tunnel` set, when it is one
+ * that can be gone through: a road, a railway, or a path that is not the corridor of a station. Streams
+ * in pipes, ways through buildings and everything else below the ground with no tunnel of its own
+ * (`layer` under 0) are left out, as they always were.
+ */
+export function roadOf(id: number, tags: Record<string, string>, pts: Pt[]): Road | null {
+  const layer = num(tags.layer) ?? 0;
+  if (tags.tunnel && tags.tunnel !== "no") {
+    const through = /^(yes|covered|avalanche_protector)$/.test(tags.tunnel) && !tags.waterway && tags.indoor === undefined && tags.area !== "yes"
+      && (tags.railway === "rail" || (!!tags.highway && !INDOORS.test(tags.highway)));
+    const road = through ? groundRoadOf(id, tags, pts) : null;
+    return road ? { ...road, tunnel: true, layer: Math.min(-1, Math.round(layer) || -1) } : null;
+  }
+  if (layer < 0) return null;
+  const road = groundRoadOf(id, tags, pts);
+  if (road && road.cls !== "stream" && tags.bridge && tags.bridge !== "no") {
+    road.bridge = true;
+    road.layer = Math.max(1, Math.round(layer) || 1);
+    if (tags.bridge !== "yes") road.form = tags.bridge;
+  }
+  return road;
+}
+
+function groundRoadOf(id: number, tags: Record<string, string>, pts: Pt[]): Road | null {
   const hw = tags.highway;
   if (hw) {
     if (tags.area === "yes") return null;
@@ -1080,7 +1117,8 @@ export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
       const pts = coords(w.nodes);
       if (pts.length >= 2) {
         const road = roadOf(w.id, tags, pts);
-        if (road) out.roads.push(road);
+        if (road?.tunnel) (out.tunnels ??= []).push(road);
+        else if (road) out.roads.push(road);
       }
       continue;
     }

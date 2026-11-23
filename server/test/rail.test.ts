@@ -19,19 +19,20 @@ const empty = (): Features => ({ buildings: [], roads: [], areas: [], trees: [],
 
 /**
  * A main line running east right across the square (and beyond it at both ends) in three pieces, a
- * branch that turns off it, a siding, a tunnel, and a station beside the main line.
+ * branch that turns off it, a siding, a tunnel, a track under the ground that the map gives no tunnel, and a
+ * station beside the main line.
  */
 function railway(): OsmJson {
   let id = 0;
   const node = (x: number, y: number, tags?: Record<string, string>) => ({ type: "node" as const, id: ++id, lon: xToLon(X0 + x), lat: yToLat(Y0 + y), tags });
   const n = [node(-0.5, 2), node(1.5, 2), node(3, 2.1), node(4.5, 2.1), node(1.8, 3.2), node(0.5, 0.5), node(1, 0.5), node(2.5, 3), node(3, 3.5), node(2.25, 2.05, { railway: "station", name: "Middle" })];
   const way = (wid: number, nodes: number[], tags: Record<string, string> = {}) => ({ type: "way" as const, id: wid, nodes: nodes.map((i) => n[i].id), tags: { railway: "rail", ...tags } });
-  return { elements: [...n, way(11, [0, 1]), way(12, [1, 2]), way(13, [2, 3]), way(14, [1, 4]), way(15, [5, 6], { service: "siding" }), way(16, [7, 8], { tunnel: "yes" })] };
+  return { elements: [...n, way(11, [0, 1]), way(12, [1, 2]), way(13, [2, 3]), way(14, [1, 4]), way(15, [5, 6], { service: "siding" }), way(16, [7, 8], { tunnel: "yes" }), way(17, [7, 8], { layer: "-1" })] };
 }
 
-test("main-line tracks and stations are read; sidings and tunnels are left out", () => {
+test("main-line tracks and stations are read, tunnels too; sidings are left out, and track under the ground with no tunnel", () => {
   const data = parseRail(railway());
-  assert.deepEqual(data.lines.map((l) => l.id), [11, 12, 13, 14]);
+  assert.deepEqual(data.lines.map((l) => l.id), [11, 12, 13, 14, 16]);
   assert.equal(data.stations.length, 1);
 });
 

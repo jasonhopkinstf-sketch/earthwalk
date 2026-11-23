@@ -22,6 +22,12 @@ const WATER = 7; // the ground that boats sail on and nothing else may cross
 const ROAD_MARKINGS = 15; // white lines, too thin for the flat look's black line (look.js)
 const isBuilding = (id) => id >= 20 && id <= 25;
 const isWall = (id) => id >= 20 && id <= 23;
+/** Bridges and tunnels (docs/PROTOCOL.md): 16 the way itself, 17 what holds a bridge up, 18 railings, 19 a tunnel's walls, 9 the ground round its mouth. */
+const isSpan = (id) => id === 9 || (id >= 16 && id <= 19);
+/** What is stood and driven on besides the terrain. */
+const isFloor = (id) => id === 9 || id === 16;
+/** How far above its feet a floor may be and still be stepped up on to. */
+const STEP_UP = 1.2;
 
 /**
  * Where each corner of a wall is on that wall, so the wall material can draw windows that fit it:
@@ -176,8 +182,13 @@ export class World {
     this.pending = new Set();
     this.retryAfter = new Map();
     this.materials = new Map();
-    this.solids = []; // building meshes the player collides with
+    this.solids = []; // building meshes the player collides with, and bridges and tunnels
+    this.floors = []; // of those, the ones stood and driven on: bridge decks, tunnel floors
+    this.down = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+    this.down.firstHitOnly = true;
     this.generation = 0;
+    /** For whoever is changing the world's generator: ask the server for every piece afresh, whatever the browser kept (?fresh in the address). */
+    this.fresh = false;
     this.lastError = "";
     this.setOrigin(0, 0);
     onLook(() => this.applyLook());
@@ -221,6 +232,37 @@ export class World {
     return chunk ? terrainHeight(chunk.heights, u, v) : null;
   }
 
+  /**
+   * The floor under something whose feet are at height `y`: the highest of the ground and the decks of bridges
+   * and floors of tunnels that is not more than a step above its feet. So on a bridge it is the deck and under
+   * the bridge the road, and in a tunnel it is the tunnel's floor, not the hill overhead. Null while that
+   * chunk has not arrived. With nothing in reach (a thing that has fallen under the ground), the ground.
+   */
+  floorAt(x, z, y) {
+    const { cx, cy, u, v } = this.chunkAt(x, z);
+    const chunk = this.chunks.get(`${cx}/${cy}`);
+    if (!chunk) return null;
+    const terrain = terrainHeight(chunk.heights, u, v);
+    if (this.floors.length === 0 || !Number.isFinite(y)) return terrain;
+    // The ground counts unless it was cut away there (the mouth of a tunnel).
+    const cut = chunk.cut !== null && chunk.cut[Math.min(GRID - 1, Math.floor(v * GRID)) * GRID + Math.min(GRID - 1, Math.floor(u * GRID))] === 1;
+    const reach = y + STEP_UP;
+    this.down.ray.origin.set(x, reach, z);
+    this.down.far = 400;
+    const deck = this.down.intersectObjects(this.floors, false)[0];
+    let floor = -Infinity;
+    if (deck) floor = deck.point.y;
+    if (!cut && terrain <= reach && terrain > floor) floor = terrain;
+    if (floor > -Infinity) return floor;
+    return cut ? y : terrain;
+  }
+
+  /** Is the ground overhead there, for something whose feet are at height `y`? (Inside a tunnel.) */
+  underGround(x, z, y) {
+    const ground = this.groundHeight(x, z);
+    return ground !== null && ground > y + 2 && this.floors.length > 0 && this.floorAt(x, z, y) < ground - 2;
+  }
+
   /** Is this spot open water? Null while that chunk has not arrived. (Streams drawn as a line do not count.) */
   waterAt(x, z) {
     const { cx, cy, u, v } = this.chunkAt(x, z);
@@ -242,6 +284,7 @@ export class World {
       mesh.geometry.dispose();
     }
     this.solids = this.solids.filter((m) => m.parent !== chunk.group);
+    this.floors = this.floors.filter((m) => m.parent !== chunk.group);
     this.chunks.delete(key);
   }
 
@@ -409,7 +452,7 @@ export class World {
     const generation = this.generation;
     try {
       const wrapped = ((x % TILES) + TILES) % TILES;
-      const res = await fetch(`/v1/chunk/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {} });
+      const res = await fetch(`/v1/chunk/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {}, ...(this.fresh ? { cache: "reload" } : {}) });
       if (!res.ok) throw new Error(res.status === 429 ? "You are exploring faster than the world can be built. It will catch up in a moment..." : res.status === 401 ? "The access code was not accepted"
         : res.status === 502 ? "The map servers the world is built from are slow just now. Still trying..." : `The world server could not build part of this area just now (${res.status}). Still trying...`);
       const data = decodeChunk(await res.arrayBuffer());
@@ -431,8 +474,18 @@ export class World {
     const group = new THREE.Group();
     group.position.set((x - this.originX) * S, 0, (y - this.originY) * S);
     const water = new Uint8Array(GRID * GRID); // which cells of the terrain are water, from where its triangles lie
+    // Where a tunnel comes out, the terrain is cut away and other ground (9) put round the mouth: which cells have no terrain.
+    const cut = data.sections.some((s) => s.materialId === 9) ? new Uint8Array(GRID * GRID).fill(1) : null;
     for (const section of data.sections) {
       if (section.materialId === TREE_SECTION) continue;
+      if (cut && section.materialId <= 8) {
+        const { uvh, indices } = section;
+        for (let t = 0; t + 2 < indices.length; t += 3) {
+          const u = (uvh[indices[t] * 3] + uvh[indices[t + 1] * 3] + uvh[indices[t + 2] * 3]) / 3;
+          const v = (uvh[indices[t] * 3 + 1] + uvh[indices[t + 1] * 3 + 1] + uvh[indices[t + 2] * 3 + 1]) / 3;
+          cut[Math.min(GRID - 1, Math.max(0, Math.floor(v * GRID))) * GRID + Math.min(GRID - 1, Math.max(0, Math.floor(u * GRID)))] = 0;
+        }
+      }
       if (section.materialId === WATER) {
         const { uvh, indices } = section;
         for (let t = 0; t + 2 < indices.length; t += 3) {
@@ -461,14 +514,15 @@ export class World {
       const mesh = new THREE.Mesh(geometry, walls ? this.wallMaterial(section.color) : this.material(section.color, section.materialId));
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
-      if (isBuilding(section.materialId)) {
+      if (isBuilding(section.materialId) || isSpan(section.materialId)) {
         geometry.computeBoundsTree();
         this.solids.push(mesh);
+        if (isFloor(section.materialId)) this.floors.push(mesh);
       }
     }
     group.updateMatrixWorld(true);
     this.root.add(group);
-    this.chunks.set(key, { group, heights: data.heights, water, x, y });
+    this.chunks.set(key, { group, heights: data.heights, water, cut, x, y });
   }
 
   /** Fetches a chunk's trees from the labels route. It is optional, so failures are retried slowly and quietly. */
@@ -477,7 +531,7 @@ export class World {
     if (!chunk || chunk.trees) return;
     try {
       const wrapped = ((x % TILES) + TILES) % TILES;
-      const res = await fetch(`/v1/labels/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {} });
+      const res = await fetch(`/v1/labels/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {}, ...(this.fresh ? { cache: "reload" } : {}) });
       if (!res.ok) throw new Error(`labels ${res.status}`);
       const { items } = await res.json();
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile

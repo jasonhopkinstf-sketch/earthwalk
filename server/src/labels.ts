@@ -11,10 +11,11 @@ import { clipPolyline, featuresForChunk, groundClasses, homesOf, placeTrees, sig
 import { placeHomes, placeMachines, placeWild } from "./life.ts";
 import { placeTraffic } from "./traffic.ts";
 import { trainsFor, type Train } from "./rail.ts";
-import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
+import { DATA_Z, loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
+import { heightOn, liftAt, prepareSpans, type Profile, rampsOf, spansOf, SURFACE_M } from "./spans.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 14;
+export const LABELS_REV = 15;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
@@ -37,6 +38,8 @@ export interface LabelItem {
   da?: number;
   db?: number;
   pts?: number[];
+  /** Routes and trains: for each point of `pts`, how many metres above the ground it is (on a bridge, a ramp), or below it (in a tunnel). Left out when the whole way is on the ground. */
+  lift?: number[];
   /** Trees: height and canopy radius in metres, and 1 for a conifer. */
   s?: number;
   r?: number;
@@ -281,13 +284,18 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     const v = r7(car.wy - cy);
     return { kind: "car", id: car.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: r1(car.yaw) };
   });
+  // Where a trip crosses a bridge (or climbs a ramp to one), each point says how high above the ground it is.
+  const spans = spansOf(features, elev);
+  const ramps = rampsOf(features, spans);
   const routes: LabelItem[] = traffic.trips.map((trip) => {
     const u = r5(trip.path[0][0] - cx);
     const v = r5(trip.path[0][1] - cy);
+    const lift = spans.profiles.size === 0 ? [] : trip.path.map(([x, y], i) => Math.round(liftAt(spans, ramps, elev, trip.roads[i], [x, y]) * 100) / 100);
     return {
       kind: "route", id: trip.id, u, v, h: elev.surfaceHeight(cx + u, cy + v), yaw: 0,
       w: r1(trip.w), left: trip.left ? 1 : 0, da: trip.dwellA, db: trip.dwellB,
       pts: trip.path.flatMap(([x, y, t]) => [r5(x - cx), r5(y - cy), t]),
+      ...(lift.some((l) => l !== 0) ? { lift } : {}),
     };
   });
 
@@ -298,6 +306,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     return {
       kind: "train", id: train.id, u, v, h: elev.surfaceHeight(Math.min(cx + 1, Math.max(cx, cx + u)), Math.min(cy + 1, Math.max(cy, cy + v))), yaw: 0,
       da: train.wa, db: train.wb, pts: train.path.flatMap(([x, y, t]) => [r5(x - cx), r5(y - cy), t]),
+      ...(train.lift ? { lift: train.lift } : {}),
     };
   });
 
@@ -314,19 +323,62 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
   ];
 }
 
+/**
+ * Works out, once for each train, how high each point of its run is above the ground (on a bridge) or
+ * below it (in a tunnel), from the same heights the chunks along it are built with. A run crosses up to
+ * four pieces of the map; each is looked at in turn, and only its railway bridges and tunnels are kept.
+ */
+async function liftTrain(train: Train, elev: Elevation, load: typeof loadFeatures): Promise<void> {
+  if (train.lift !== undefined) return;
+  train.lift = null;
+  const shift = CHUNK_Z - DATA_Z;
+  const tiles = new Map<string, [number, number]>();
+  for (const [x, y] of train.path) tiles.set(`${Math.floor(x) >> shift}/${Math.floor(y) >> shift}`, [Math.floor(x) >> shift, Math.floor(y) >> shift]);
+  const rails = new Map<number, Profile>();
+  for (const [dx, dy] of tiles.values()) {
+    const spans = await prepareSpans(dx, dy, await load(dx, dy), elev, load);
+    for (const p of spans.profiles.values()) if (p.way.cls === "rail") rails.set(p.way.id, p);
+  }
+  if (rails.size === 0) return;
+  const S = metersPerTile(train.path[0][1]);
+  const boxes = [...rails.values()].map((p) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of p.pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    return { p, x0: x0 - 6 / S, y0: y0 - 6 / S, x1: x1 + 6 / S, y1: y1 + 6 / S };
+  });
+  let any = false;
+  const lift: number[] = [];
+  for (const [x, y] of train.path) {
+    let best = 0, near = 4 / S; // a track is its own way: a point of the run is on it, or metres off beside another
+    for (const b of boxes) {
+      if (x < b.x0 || x > b.x1 || y < b.y0 || y > b.y1) continue;
+      const on = heightOn(b.p, [x, y]);
+      if (on.off >= near) continue;
+      await elev.ensure(x - 0.01, y - 0.01, x + 0.01, y + 0.01);
+      near = on.off;
+      best = Math.round((on.h + SURFACE_M - elev.surfaceHeight(x, y)) * 100) / 100;
+    }
+    if (best !== 0) any = true;
+    lift.push(best);
+  }
+  if (any) train.lift = lift;
+}
+
 /** The labels JSON for one chunk, ready to serve. */
 export async function generateLabels(
   cx: number, cy: number, elev: Elevation, load = loadFeatures,
   // With the map swapped out (tests), the railways are not fetched either.
   trains: (cx: number, cy: number) => Promise<Train[]> = load === loadFeatures ? trainsFor : async () => [],
 ): Promise<Buffer> {
-  const features = await featuresForChunk(cx, cy, load);
-  await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
+  const features = await featuresForChunk(cx, cy, load, elev);
+  // (A car's trip can run 420 m out of its chunk, and how high it is above the ground is wanted all the way.)
+  await elev.ensure(cx - 1.5, cy - 1.5, cx + 2.5, cy + 2.5);
   // The railways come from a download of their own. If it fails, everything else is still worth sending.
   let railway: Train[] = [];
   let partial = false;
   try {
     railway = await trains(cx, cy);
+    for (const train of railway) await liftTrain(train, elev, load);
   } catch (err) {
     partial = true;
     console.warn(`labels ${cx}/${cy}: no trains this time: ${err instanceof Error ? err.message : String(err)}`);

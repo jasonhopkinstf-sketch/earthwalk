@@ -14,7 +14,7 @@
 import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile } from "./geo.ts";
 import { clipPolyline } from "./chunk.ts";
 import { Gate } from "./net.ts";
-import { BLOCK_Z, DATA_Z, fetchOsmTile, type OsmJson, type Pt } from "./osm.ts";
+import { BLOCK_Z, DATA_Z, fetchOsmTile, type OsmJson, type Pt, roadOf } from "./osm.ts";
 
 export const RAIL_Z = BLOCK_Z;
 /** Chunks along one side of a rail square. */
@@ -22,8 +22,11 @@ export const RAIL_SPAN = 2 ** (CHUNK_Z - RAIL_Z);
 export const TRAINS_PER_SQUARE = 6;
 
 export interface RailData { lines: { id: number; pts: Pt[] }[]; stations: Pt[] }
-/** A train and its trip: `path` is [x, y, seconds since setting off], a point every 12 m; it waits `wa` and `wb` seconds at the ends. */
-export interface Train { id: number; wa: number; wb: number; path: [number, number, number][] }
+/**
+ * A train and its trip: `path` is [x, y, seconds since setting off], a point every 12 m; it waits `wa` and `wb` seconds at the ends.
+ * `lift`, once worked out (labels.ts), is how far above the ground each point is, or below it: on bridges and in tunnels.
+ */
+export interface Train { id: number; wa: number; wb: number; path: [number, number, number][]; lift?: number[] | null }
 
 const MIN_RUN_M = 400;
 const STEP_M = 12;
@@ -71,7 +74,7 @@ export async function fetchRail(rx: number, ry: number): Promise<OsmJson> {
   });
 }
 
-/** Main-line tracks that are drawn (not in tunnels, not sidings) and the stations, in world coordinates. */
+/** Main-line tracks that are drawn (on the ground, on bridges and in tunnels; not sidings) and the stations, in world coordinates. */
 export function parseRail(json: OsmJson): RailData {
   const nodes = new Map<number, Pt>();
   const stations: Pt[] = [];
@@ -85,9 +88,9 @@ export function parseRail(json: OsmJson): RailData {
   for (const el of json.elements) {
     const tags = el.tags;
     if (el.type !== "way" || !el.nodes || tags?.railway !== "rail" || tags.service) continue;
-    if ((tags.tunnel && tags.tunnel !== "no") || parseFloat(tags.layer ?? "0") < 0) continue;
     const pts = el.nodes.map((id) => nodes.get(id)).filter((p): p is Pt => !!p);
-    if (pts.length >= 2) lines.push({ id: el.id, pts });
+    // Whatever the world draws of the railway, trains run on: tunnels too, now that they are tubes one can go through.
+    if (pts.length >= 2 && roadOf(el.id, tags, pts)) lines.push({ id: el.id, pts });
   }
   lines.sort((a, b) => a.id - b.id);
   return { lines, stations };
