@@ -493,6 +493,11 @@ export class Talker {
     return this.ask !== null;
   }
 
+  /** What the AI has cost so far today and what it may cost in a day, in dollars (as far as this run of the server has counted). */
+  get allowance(): { day: string; usd: number; ofUsd: number } {
+    return { day: this.spend.day, usd: Math.round(this.spend.usd * 100) / 100, ofUsd: Math.round(this.dailyUsd * 100) / 100 };
+  }
+
   /** What a thing says to someone who has just walked up. Free. */
   greet(thing: number, sp: string, job: Job | null = null): Said {
     const p = persona(thing, sp);

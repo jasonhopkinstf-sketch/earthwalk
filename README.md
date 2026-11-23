@@ -62,6 +62,9 @@ settings (environment variables):
 | `EARTHWALK_OVERTURE_LEAVE_OUT` | Sets of building outlines within Overture to leave out, by Overture's name for them, comma-separated (for example `Google Open Buildings`; by default none is left out) |
 | `EARTHWALK_COVER` | `0` leaves the satellite maps out: ground cover and tree heights only where OpenStreetMap gives them |
 | `EARTHWALK_CROWDED` | Off by default (Jason chose on 2026-11-24 to keep every house drawn in full). A number, such as `600`, is how many buildings of its own a chunk may have before it is drawn more plainly: every house of such a chunk keeps its walls, roof and front door and goes without a house's chimney, porch, front garden, door step and, when small, the parapet of a flat roof. At 400 one arrival in the old middle of Jaipur is 34 MB in place of 66 MB, but the fullest streets of Devonport (460 to 530 buildings a chunk) lose their gardens too |
+| `EARTHWALK_ADMINS` | Emails (of Google sign-ins) that may open the admin screen at `/admin.html`, comma-separated. On your own computer the word `local` lets in whoever asks from that computer |
+| `EARTHWALK_RESEND_KEY`, `EARTHWALK_MAIL_TO`, `EARTHWALK_MAIL_FROM` | Send an email about each new suggestion (see [docs/HOSTING.md](docs/HOSTING.md)); none is sent without the first two |
+| `EARTHWALK_MEMORY_MB` | How much memory the machine has (default 512): what the admin screen draws the load against |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
 | `EARTHWALK_WEATHER` | `0` turns the live weather off: every game then has its fine day (see "The weather" in [docs/PROTOCOL.md](docs/PROTOCOL.md)) |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |
@@ -148,6 +151,7 @@ Chat commands:
 | `/passport` | Your passport (the `P` key) |
 | `/guide`, `/guide <question>` | Browser so far: ask the guide (the `Q` key), or straight to an answer: `/guide where is the nearest station` |
 | `/menu`, `/buttons`, `/map`, `/news` | The Tab menu, the strip of buttons (`Z`), the little map (`M`) and the "What's new" card |
+| `/suggest <what you would like>` | Browser only so far: puts a suggestion in the box for whoever runs the server ("Suggest something..." in the Tab menu asks for it) |
 | `/do <name>` | One thing from the Tab menu by its name in the table: `/do goto` asks "Where to?" |
 | `/look flat`, `/look barnyard` | The look of the whole world (see "The look" below). Browser: `/look flat nolines` leaves the black line off, for a slow computer |
 | `/car`, `/car away` | Bring your own car to where you are, or send it off |

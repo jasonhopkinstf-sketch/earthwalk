@@ -327,6 +327,8 @@ export function fetchOverture(dx: number, dy: number): Promise<OvertureBlock | n
 export function onOverture(listener: (bx: number, by: number) => void): void {
   late.onArrive(listener);
 }
+/** How many blocks are waiting for their Overture data (for the admin screen). */
+export const overtureOwed = (): number => late.owedCount;
 export function keepOvertureComing(everyMs?: number): void {
   late.keepComing(everyMs);
 }

@@ -566,6 +566,21 @@ keeps it as what its player has seen.
 `in`, when present, says that only one of the two games (`browser` or `windows`) has the thing
 so far: the other game says so beside it.
 
+## A suggestion: `POST /v1/suggest`
+
+The suggestions box: what a player would like in the game, for whoever runs the server
+(`server/src/suggestions.ts`). Needs the access code or a player token, and a body of JSON
+(`Content-Type: application/json`, 4 KB at most):
+
+```json
+{ "text": "Boats to row across the harbour", "name": "Maple", "client": "windows", "lat": -36.841, "lon": 174.7683 }
+```
+
+Only `text` is needed (3 to 1000 characters). `name` is used for a guest; somebody signed in is known by
+their account. `client` says which game it is from, `lat` and `lon` where the player stands. The answer is
+`{ "ok": true, "id": 12 }`, or an `error` to show the player as it is: 400 for nothing said, 429 for more
+than five in a day from one person.
+
 ## Place search: `GET /v1/geocode?q=...`
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.

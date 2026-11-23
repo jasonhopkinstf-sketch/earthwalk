@@ -187,6 +187,36 @@ Anyone with the link can join, so share it the way you would share a house key.
 To lock everyone out, change `EARTHWALK_ACCESS_CODE` on the host and redeploy. People who
 signed in with Google keep their sign-in; remove them from `people.json` as described above.
 
+## The admin screen, and the suggestions box
+
+`/admin.html` on your server is a screen for whoever runs it. It shows how loaded the server is (memory
+against the machine's limit now and over the last day, people online, how much is being built, disk room),
+the people with accounts and who is online, the guest list, the suggestions players have made, and the
+last lines of the server's log. From it you can invite an email or take it off the list, sign somebody out
+everywhere, shut somebody out and let them back in, and sort the suggestions.
+
+1. On the host, set `EARTHWALK_ADMINS` to the email you sign in with (several, separated by commas).
+2. Open `https://<your server>/admin.html` and sign in with Google.
+
+Nobody else sees any of it: the page is plain, and its data is given only to a signed-in admin. The
+access code does not open it. An invitation made here lets that email make an account without the
+access code; emails in `EARTHWALK_INVITED` are on the list as well, and can only be taken off in the
+host's settings. Somebody shut out cannot sign in and is signed out everywhere; a guest with the
+access code is not an account and cannot be shut out this way (change the code for that).
+
+Players make a suggestion from the Tab menu ("Suggest something...") or with `/suggest`. Each is kept in
+`people/suggestions.json` on the server's disk, five a day from one person at most. To have an email sent to
+you about each new one, with who said it, when and where they stood (and the same again as JSON, for a
+program to read):
+
+1. Make an account at https://resend.com (free for this much mail), with the email address the letters
+   should come to, and make an API key there.
+2. On the host, set `EARTHWALK_RESEND_KEY` to that key and `EARTHWALK_MAIL_TO` to that address.
+
+With no domain of your own, Resend sends only to the address its account was made with, from its own
+test sender; that is all this needs. `EARTHWALK_MAIL_FROM` sets another sender once you have a domain there.
+A letter that fails is marked on the admin screen, with a button to send it again.
+
 ## Things to know
 
 - **First visit to a new place is slow** (several seconds) while the server downloads
