@@ -164,6 +164,8 @@ export class World {
     this.down = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
     this.down.firstHitOnly = true;
     this.generation = 0;
+    /** For whoever is changing the world's generator: ask the server for every piece afresh, whatever the browser kept (?fresh in the address). */
+    this.fresh = false;
     this.lastError = "";
     this.setOrigin(0, 0);
   }
@@ -427,7 +429,7 @@ export class World {
     const generation = this.generation;
     try {
       const wrapped = ((x % TILES) + TILES) % TILES;
-      const res = await fetch(`/v1/chunk/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {} });
+      const res = await fetch(`/v1/chunk/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {}, ...(this.fresh ? { cache: "reload" } : {}) });
       if (!res.ok) throw new Error(res.status === 429 ? "You are exploring faster than the world can be built. It will catch up in a moment..." : res.status === 401 ? "The access code was not accepted"
         : res.status === 502 ? "The map servers the world is built from are slow just now. Still trying..." : `The world server could not build part of this area just now (${res.status}). Still trying...`);
       const data = decodeChunk(await res.arrayBuffer());
@@ -506,7 +508,7 @@ export class World {
     if (!chunk || chunk.trees) return;
     try {
       const wrapped = ((x % TILES) + TILES) % TILES;
-      const res = await fetch(`/v1/labels/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {} });
+      const res = await fetch(`/v1/labels/${CHUNK_Z}/${wrapped}/${y}`, { headers: this.code ? { Authorization: `Bearer ${this.code}` } : {}, ...(this.fresh ? { cache: "reload" } : {}) });
       if (!res.ok) throw new Error(`labels ${res.status}`);
       const { items } = await res.json();
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile

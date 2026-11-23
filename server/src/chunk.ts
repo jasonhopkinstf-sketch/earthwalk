@@ -12,7 +12,7 @@ import { Elevation, GRID } from "./elevation.ts";
 import { type Building, DATA_MARGIN, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
 import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
 import { prepareSpans, rampsOf, spansOf } from "./spans.ts";
-import { drawSpans } from "./spanmesh.ts";
+import { drawSpans, planTunnels, type SpanCtx } from "./spanmesh.ts";
 
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
@@ -981,6 +981,11 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     }
     return v;
   };
+  // Where a tunnel comes up through the ground, the ground is cut away round it (spans.ts, spanmesh.ts).
+  const spans = spansOf(features, elev);
+  const spanCtx: SpanCtx = { cx, cy, S, sec, ground, mats: MATERIALS, painted };
+  const tunnels = planTunnels(spanCtx, spans, GRID);
+  const CUT = 6; // a cut cell is drawn as this many smaller squares a side, less those in the tunnel
   for (let j = 0; j < GRID; j++) {
     for (let i = 0; i < GRID; i++) {
       const c = cls[j * GRID + i];
@@ -989,6 +994,25 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       const b = terrainVert(s, i + 1, j);
       const d = terrainVert(s, i, j + 1);
       const e = terrainVert(s, i + 1, j + 1);
+      if (tunnels.cells?.[j * GRID + i]) {
+        // The corners stay in the section, so that the terrain's grid of heights is whole for whoever reads it;
+        // the cell itself is drawn as other ground (9), in the same colour, with the tunnel's way through left open.
+        const patch = sec(painted(MATERIALS.cut, s.mat.color >>> 8));
+        const at = (u: number, v: number): [number, number] => [cx + (i + u / CUT) / GRID, cy + (j + v / CUT) / GRID];
+        for (let v = 0; v < CUT; v++) {
+          for (let u = 0; u < CUT; u++) {
+            const corners = [at(u, v), at(u + 1, v), at(u, v + 1), at(u + 1, v + 1)];
+            if (tunnels.inHole(...at(u + 0.5, v + 0.5)) || corners.some(([wx, wy]) => tunnels.inHole(wx, wy))) continue;
+            const [pa, pb, pd, pe] = corners.map(([wx, wy]) => {
+              const [ne, nn, nh] = groundNormal(wx, wy);
+              return patch.vert(E(wx), N(wy), ground(wx, wy), ne, nn, nh);
+            });
+            patch.triUp(pa, pe, pb);
+            patch.triUp(pa, pd, pe);
+          }
+        }
+        continue;
+      }
       // Diagonal a-e; must match Elevation.surfaceHeight.
       s.triUp(a, e, b);
       s.triUp(a, d, e);
@@ -1112,9 +1136,8 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     }
   };
   // A stretch on a bridge is not on the ground: it is drawn as a bridge, at the height worked out for it (spans.ts).
-  const spans = spansOf(features, elev);
   for (const road of features.roads) if (!spans.profiles.has(road.id)) ribbon(road);
-  drawSpans({ cx, cy, S, sec, ground, mats: MATERIALS, painted }, features, spans, rampsOf(features, spans));
+  drawSpans(spanCtx, features, spans, rampsOf(features, spans), tunnels);
 
   // ---- buildings: extruded footprints, owned by the chunk containing their centroid
   // Road points near this chunk (chunk-local metres), for finding the wall that faces the street.

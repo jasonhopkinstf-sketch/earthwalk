@@ -9,7 +9,7 @@
 import type { MaterialDef, Section } from "./chunk.ts";
 import { xToLon, yToLat } from "./geo.ts";
 import type { Features, Pt, Road } from "./osm.ts";
-import { deckDepth, type Profile, type Ramp, type Spans } from "./spans.ts";
+import { deckDepth, type Profile, type Ramp, type Spans, tubeHeight } from "./spans.ts";
 
 export interface SpanCtx {
   cx: number; cy: number;
@@ -18,8 +18,8 @@ export interface SpanCtx {
   sec: (m: MaterialDef) => Section;
   /** The height of the ground at world coordinates. */
   ground: (wx: number, wy: number) => number;
-  /** The surfaces: `deck` is walked and driven on, `structure` holds it up, `railing` is thin, `marking` is paint. */
-  mats: { deck: MaterialDef; structure: MaterialDef; railing: MaterialDef; marking: MaterialDef };
+  /** The surfaces: `deck` is walked and driven on, `structure` holds it up, `railing` is thin, `marking` is paint, `lining` the inside of a tunnel, `cut` ground that is not on the terrain's grid. */
+  mats: { deck: MaterialDef; structure: MaterialDef; railing: MaterialDef; marking: MaterialDef; lining: MaterialDef; cut: MaterialDef };
   /** A surface in a colour of its own. */
   painted: (m: MaterialDef, hex: number) => MaterialDef;
 }
@@ -78,14 +78,20 @@ const lerp = (values: number[], t: number): number => {
   return values[i] + (values[i + 1] - values[i]) * (t - i);
 };
 
-/** A strip along a line of samples, between two points of its cross-section: `o` metres to the right of the middle, at height `z`. */
-function strip(sec: Section, line: Sample[], o0: number, z0: (s: Sample) => number, o1: number, z1: (s: Sample) => number, across: number, up: number): void {
+/**
+ * A strip along a line of samples, between two points of its cross-section: `o` metres to the right of the
+ * middle, at height `z`. It faces the way (`across`, `up`) points. `lit` gives it another direction to be lit
+ * from: a lamp on a ceiling faces down, and is as bright as if it faced the sky.
+ */
+function strip(sec: Section, line: Sample[], o0: number | ((s: Sample) => number), z0: (s: Sample) => number, o1: number | ((s: Sample) => number), z1: (s: Sample) => number, across: number, up: number, lit?: [number, number, number]): void {
   let before = -1;
   for (const s of line) {
     // To the right of the way it runs is (tn, -te).
     const ne = s.tn * across, nn = -s.te * across;
-    const a = sec.vert(s.e + s.tn * o0, s.n - s.te * o0, z0(s), ne, nn, up);
-    sec.vert(s.e + s.tn * o1, s.n - s.te * o1, z1(s), ne, nn, up);
+    const p0 = typeof o0 === "number" ? o0 : o0(s), p1 = typeof o1 === "number" ? o1 : o1(s);
+    const [le, ln, lh] = lit ?? [ne, nn, up];
+    const a = sec.vert(s.e + s.tn * p0, s.n - s.te * p0, z0(s), le, ln, lh);
+    sec.vert(s.e + s.tn * p1, s.n - s.te * p1, z1(s), le, ln, lh);
     if (before >= 0) quad(sec, before, before + 1, a + 1, a, [ne, nn, up]);
     before = a;
   }
@@ -418,10 +424,174 @@ function ramp(ctx: SpanCtx, road: Road, r: Ramp): void {
   }
 }
 
-/** Draws every bridge and ramp that passes through a chunk. */
-export function drawSpans(ctx: SpanCtx, features: Features, spans: Spans, ramps: Map<number, Ramp>): void {
+// ---------------------------------------------------------------- tunnels
+
+/** From the middle of a tunnel to its wall: the way itself, and room beside it. */
+export const tubeHalf = (way: Profile["way"]): number => way.width / 2 + (way.cls === "rail" ? 1.3 : way.cls === "path" ? 0.4 : 0.6);
+/**
+ * Where a tunnel is not deep enough for the ground to cover it (just inside a mouth on level ground), earth is
+ * banked over it: `TUBE_WALL_M` out from the wall and `TUBE_ROOF_M` above the ceiling, then sloping down to the
+ * ground, so many metres out for each metre down.
+ */
+const TUBE_WALL_M = 0.9, TUBE_ROOF_M = 1.1, BANK_RUN = 1.6;
+const LINING = 0x9a9ea6, LAMP = 0xfff0b0, MOUTH = 0xb5ae9c, TURF = 0x6faa4a;
+
+/** One short length of a tunnel, in the chunk's metres: where it runs, how wide inside, and its floor. */
+interface Tube { id: number; e0: number; n0: number; e1: number; n1: number; half: number; floor: number; top: number; cut: boolean }
+
+/**
+ * What the tunnels do to a chunk's ground: `cells` marks the cells of the terrain grid (GRID a side)
+ * that a tunnel comes up through, which are not drawn as terrain, and `inHole` says whether a point of
+ * such a cell is inside the tunnel itself (the rest of the cell is drawn as ground round it).
+ */
+export interface TunnelPlan { tubes: Tube[]; cells: Uint8Array | null; inHole: (wx: number, wy: number) => boolean }
+
+const distanceTo = (t: Tube, e: number, n: number): number => {
+  const de = t.e1 - t.e0, dn = t.n1 - t.n0;
+  const f = Math.min(1, Math.max(0, ((e - t.e0) * de + (n - t.n0) * dn) / (de * de + dn * dn || 1)));
+  return Math.hypot(e - t.e0 - de * f, n - t.n0 - dn * f);
+};
+
+/** Works out, before a chunk's ground is drawn, where its tunnels come up through it. */
+export function planTunnels(ctx: SpanCtx, spans: Spans, grid: number): TunnelPlan {
+  const { cx, cy, S } = ctx;
+  const tubes: Tube[] = [];
+  for (const profile of spans.profiles.values()) {
+    if (profile.way.kind !== "tunnel") continue;
+    const half = tubeHalf(profile.way), high = tubeHeight(profile.way);
+    for (const line of samplesOf(ctx, profile.pts, profile.d, profile.h, (half + 40) / S)) {
+      for (let i = 1; i < line.length; i++) {
+        const a = line[i - 1], b = line[i];
+        // The ground is in the way of the tunnel here (or the tunnel pokes out of it) when it lies between just under the floor and just over the roof.
+        const through = (q: Sample): boolean => [0, -half, half].some((o) => {
+          const g = ctx.ground(q.wx + (q.tn * o) / S, q.wy + (q.te * o) / S);
+          return g > q.top - 0.7 && g < q.top + SURFACE_M + high + TUBE_ROOF_M + 0.4;
+        });
+        tubes.push({ id: profile.way.id, e0: a.e, n0: a.n, e1: b.e, n1: b.n, half, floor: (a.top + b.top) / 2, top: (a.top + b.top) / 2 + SURFACE_M + high, cut: through(a) || through(b) });
+      }
+    }
+  }
+  const cutting = tubes.filter((t) => t.cut);
+  if (cutting.length === 0) return { tubes, cells: null, inHole: () => false };
+  const cells = new Uint8Array(grid * grid);
+  const cell = S / grid;
+  for (const t of cutting) {
+    const len = Math.hypot(t.e1 - t.e0, t.n1 - t.n0) || 1;
+    const te = (t.e1 - t.e0) / len, tn = (t.n1 - t.n0) / len;
+    const reach = t.half + TUBE_WALL_M + 1.5;
+    for (let a = 0; a <= len + 0.01; a += 1.2) {
+      for (let o = -reach; o <= reach + 0.01; o += 1.2) {
+        const i = Math.floor((t.e0 + te * a + tn * o) / cell), j = Math.floor(-(t.n0 + tn * a - te * o) / cell);
+        if (i >= 0 && i < grid && j >= 0 && j < grid) cells[j * grid + i] = 1;
+      }
+    }
+  }
+  const inHole = (wx: number, wy: number): boolean => {
+    const e = (wx - cx) * S, n = -(wy - cy) * S;
+    // In the tunnel's way, and not above its roof: ground that is over the roof stays, as the hillside the tunnel goes into.
+    return cutting.some((t) => distanceTo(t, e, n) < t.half + 0.15) && cutting.some((t) => distanceTo(t, e, n) < t.half + 0.15 && ctx.ground(wx, wy) < t.top + TUBE_ROOF_M + 0.3);
+  };
+  return { tubes, cells, inHole };
+}
+
+function tunnel(ctx: SpanCtx, profile: Profile, plan: TunnelPlan): void {
+  const { way } = profile;
+  const S = ctx.S;
+  const half = tubeHalf(way), high = tubeHeight(way);
+  const floor = ctx.sec(ctx.painted(ctx.mats.deck, surface(way)));
+  const lining = ctx.sec(ctx.painted(ctx.mats.lining, LINING));
+  const mouth = ctx.sec(ctx.painted(ctx.mats.lining, MOUTH));
+  const lamps = ctx.sec(ctx.painted(ctx.mats.marking, LAMP));
+  const earth = ctx.sec(ctx.painted(ctx.mats.cut, TURF));
+  /** The ground beside the tunnel, so far to the right of its middle. */
+  const beside = (q: Pick<Sample, "wx" | "wy" | "te" | "tn">, o: number): number => ctx.ground(q.wx + (q.tn * o) / S, q.wy + (q.te * o) / S);
+  const shoulder = half + TUBE_WALL_M;
+  const length = profile.d[profile.d.length - 1];
+  const others = plan.tubes.filter((t) => t.id !== way.id);
+  const top = profile.h.map((h) => h + SURFACE_M);
+  for (const line of samplesOf(ctx, profile.pts, profile.d, top, (half + TUBE_WALL_M + 2) / S)) {
+    const t = (q: Sample): number => q.top, c = (q: Sample): number => q.top + high;
+    strip(floor, line, -half, t, half, t, 0, 1);
+    strip(lining, line, -half, c, half, c, 0, -1);
+    if (way.cls === "road" && way.width >= 6.5) dashes(ctx, line, 0.03);
+    // Where the ground is not over the roof, earth is banked over the tunnel. Always for a little way in from a mouth.
+    const crest = (q: Sample): number => c(q) + TUBE_ROOF_M;
+    const shows = (q: Sample): boolean => (profile.ends[0] === "ground" && q.d < 10) || (profile.ends[1] === "ground" && q.d > length - 10)
+      || [0, -shoulder, shoulder].some((o) => beside(q, o) < crest(q) + 0.3);
+    /** Where the bank comes down to the ground on one side: how far out, and how high. */
+    const footOf = (q: Sample, side: number): [number, number] => {
+      const out = shoulder + BANK_RUN * Math.max(0.4, crest(q) - beside(q, side * shoulder));
+      return [side * out, Math.min(crest(q), beside(q, side * out)) - 0.35];
+    };
+    for (const side of [1, -1]) {
+      // Another tunnel close alongside (the other track of a railway): no wall between them.
+      const open = (q: Sample): boolean => {
+        const e = q.e + q.tn * side * (half + 0.4), n = q.n - q.te * side * (half + 0.4);
+        return others.some((o) => Math.abs(o.floor - q.top) < 2.5 && distanceTo(o, e, n) < o.half - 0.2);
+      };
+      let run: Sample[] = [];
+      const wall = (): void => {
+        if (run.length >= 2) {
+          strip(lining, run, side * half, t, side * half, c, -side, 0);
+          const out = run.filter(shows);
+          // (Runs of samples that show are drawn as they come; a gap in them is short and hidden in the hill.)
+          if (out.length >= 2) strip(earth, out, side * shoulder, crest, (q) => footOf(q, side)[0], (q) => footOf(q, side)[1], side * 0.53, 0.85);
+        }
+        run = [];
+      };
+      for (const q of line) { if (open(q)) wall(); else run.push(q); }
+      wall();
+    }
+    const roof = line.filter(shows);
+    if (roof.length >= 2) strip(earth, roof, -shoulder, crest, shoulder, crest, 0, 1);
+    // Lamps along the roof, placed by how far along the tunnel they are.
+    for (let d = Math.ceil((line[0].d - 8) / 16) * 16 + 8; d + 1.6 < line[line.length - 1].d; d += 16) {
+      const a = sampleAt(line, Math.max(d, line[0].d)), b = sampleAt(line, d + 1.6);
+      if (a && b) strip(lamps, [a, b], -0.3, (q) => q.top + high - 0.04, 0.3, (q) => q.top + high - 0.04, 0, -1, [0, 0, 1]);
+    }
+  }
+  // ---- the ends: a mouth where it comes out on the ground, a wall where it stops under it
+  for (const end of [0, 1] as const) {
+    const kind = profile.ends[end];
+    if (kind === "joined") continue;
+    const i = end ? profile.pts.length - 1 : 0, j = end ? i - 1 : 1;
+    const wx = profile.pts[i][0], wy = profile.pts[i][1];
+    if (!inChunk(ctx, { wx, wy })) continue;
+    const e = (wx - ctx.cx) * S, n = -(wy - ctx.cy) * S;
+    // The way out of the tunnel at this end.
+    let oe = (wx - profile.pts[j][0]) * S, on = -(wy - profile.pts[j][1]) * S;
+    const ol = Math.hypot(oe, on) || 1;
+    oe /= ol;
+    on /= ol;
+    const f: Frame = { e, n, te: oe, tn: on };
+    const z = top[i];
+    const corner = (a: number, o: number, h: number): [number, number, number] => [e + oe * a + on * o, n + on * a - oe * o, h];
+    if (kind === "blind") {
+      panel(lining, [corner(0, -half, z), corner(0, half, z), corner(0, half, z + high), corner(0, -half, z + high)], [-oe, -on, 0]);
+      continue;
+    }
+    // A stone frame round the opening, standing a little proud of it and above the bank, with a wing each side holding the bank back.
+    const up = z + high + TUBE_ROOF_M + 0.8, out = shoulder + 0.5;
+    const here = { wx, wy, te: -oe, tn: -on };
+    for (const side of [1, -1]) {
+      const g = beside(here, side * shoulder);
+      const reach = shoulder + BANK_RUN * Math.max(0.4, z + high + TUBE_ROOF_M - g);
+      const low = Math.min(z + high + TUBE_ROOF_M, beside(here, side * reach)) - 0.6;
+      // (Offsets here are to the right of the way OUT of the tunnel, the other hand from the way in.)
+      panel(mouth, [corner(0.1, -side * out, z - 0.8), corner(0.1, -side * out, up - 0.8), corner(0.1, -side * (reach + 0.6), low + 0.6), corner(0.1, -side * (reach + 0.6), low - 0.4)], [oe, on, 0]);
+    }
+    for (const side of [1, -1]) block(mouth, f, side * (half + (out - half) / 2), 0.7, (out - half) / 2, z - 0.8, up, true);
+    for (const [a, face] of [[0.7, 1], [-0.7, -1]] as const) panel(mouth, [corner(a, -half, z + high), corner(a, half, z + high), corner(a, half, up), corner(a, -half, up)], [oe * face, on * face, 0]);
+    panel(mouth, [corner(-0.7, -half, up), corner(0.7, -half, up), corner(0.7, half, up), corner(-0.7, half, up)], [0, 0, 1]);
+    panel(mouth, [corner(-0.7, -half, z + high), corner(0.7, -half, z + high), corner(0.7, half, z + high), corner(-0.7, half, z + high)], [0, 0, -1]);
+  }
+}
+
+/** Draws every bridge, ramp and tunnel that passes through a chunk. */
+export function drawSpans(ctx: SpanCtx, features: Features, spans: Spans, ramps: Map<number, Ramp>, plan: TunnelPlan): void {
   for (const profile of spans.profiles.values()) {
     if (profile.way.kind === "bridge") bridge(ctx, profile, spans);
+    else tunnel(ctx, profile, plan);
   }
   arches(ctx, spans);
   if (ramps.size) for (const road of features.roads) {

@@ -68,6 +68,12 @@ const CLEAR: Record<RoadClass, number> = { road: 5.2, rail: 6, path: 3, stream: 
 export const deckDepth = (way: Pick<SpanWay, "cls" | "width">): number => (way.cls === "path" ? 0.45 : way.cls === "rail" ? 1.1 : 0.7 + Math.min(0.5, way.width * 0.03));
 /** The steepest a stretch climbs: metres up for each metre along. */
 const slopeOf = (way: Pick<SpanWay, "cls">): number => (way.cls === "rail" ? 0.035 : way.cls === "path" ? 0.1 : 0.07);
+/**
+ * The steepest a tunnel dives from its mouth. Steeper than a road or a railway really is: the ground of
+ * this world is smoother than the real ground, with none of the cuttings that real tunnels start in, and
+ * a tunnel that took 200 m to get under it would lie on top of it for most of its length.
+ */
+const diveOf = (way: Pick<SpanWay, "cls">): number => (way.cls === "rail" ? 0.07 : way.cls === "path" ? 0.12 : 0.1);
 /** The room inside a tunnel, floor to ceiling. */
 export const tubeHeight = (way: Pick<SpanWay, "cls">): number => (way.cls === "rail" ? 5.6 : way.cls === "path" ? 3.1 : 5);
 /** How far under the ground a tunnel's floor goes, when the ground is not already far above it. */
@@ -169,13 +175,13 @@ function distances(nodes: Node[], from: number[]): Float64Array {
  * The gentlest shape that is nowhere under `least` and climbs no steeper than each stretch may
  * (`sign` 1), or nowhere over `most` and drops no steeper (`sign` -1).
  */
-function eased(nodes: Node[], values: Float64Array, sign: 1 | -1): Float64Array {
+function eased(nodes: Node[], values: Float64Array, sign: 1 | -1, slope: (way: SpanWay) => number = slopeOf): Float64Array {
   const out = Float64Array.from(values);
   for (let pass = 0; pass < 60; pass++) {
     let changed = false;
     for (let n = 0; n < nodes.length; n++) {
       for (const [m, len] of nodes[n].next) {
-        const reach = out[n] - sign * Math.max(slopeOf(nodes[n].way), slopeOf(nodes[m].way)) * len;
+        const reach = out[n] - sign * Math.max(slope(nodes[n].way), slope(nodes[m].way)) * len;
         if (sign > 0 ? reach > out[m] + 1e-6 : reach < out[m] - 1e-6) { out[m] = reach; changed = true; }
       }
     }
@@ -364,13 +370,13 @@ export function solveSpans(kit: SpanKit, elev: Elevation): Spans {
         } else {
           const portal = anchors.length ? distances(sub, anchors.map((n) => local.get(n)!)) : null;
           const most = new Float64Array(sub.length);
-          sub.forEach((n, i) => { most[i] = n.g - Math.min(tubeDepth(n.way), portal ? slopeOf(n.way) * portal[i] : Infinity); });
-          const roof = eased(sub, most, -1);
+          sub.forEach((n, i) => { most[i] = n.g - Math.min(tubeDepth(n.way), portal ? diveOf(n.way) * portal[i] : Infinity); });
+          const roof = eased(sub, most, -1, diveOf);
           sub.forEach((n, i) => {
             const base = straight(i);
             let h = Number.isNaN(base) ? roof[i] : Math.min(base, roof[i]);
             // Never dropping away from a mouth faster than the way may slope.
-            for (let a = 0; a < anchors.length; a++) h = Math.max(h, nodes[anchors[a]].g - slopeOf(n.way) * from[a][i]);
+            for (let a = 0; a < anchors.length; a++) h = Math.max(h, nodes[anchors[a]].g - diveOf(n.way) * from[a][i]);
             height[members[i]] = h;
           });
         }

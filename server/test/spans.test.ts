@@ -164,11 +164,51 @@ test("a tunnel starts at the ground at each mouth and goes under it between them
   assert.ok(Math.abs(p.h[0] - GROUND) < 0.01 && Math.abs(p.h[p.h.length - 1] - GROUND) < 0.01);
   const deepest = Math.min(...p.h);
   assert.ok(deepest <= GROUND - tubeHeight(tube) - 2 && deepest > GROUND - 12, `deep enough for its roof to be under the ground (${deepest})`);
-  for (let i = 1; i < p.h.length; i++) assert.ok(Math.abs(p.h[i] - p.h[i - 1]) <= 0.071 * (p.d[i] - p.d[i - 1]) + 1e-6, "never steeper than a road may be");
+  for (let i = 1; i < p.h.length; i++) assert.ok(Math.abs(p.h[i] - p.h[i - 1]) <= 0.101 * (p.d[i] - p.d[i - 1]) + 1e-6, "it dives no steeper than one in ten");
   // Under a hill it need not dive: it runs level from mouth to mouth.
   const hill = await land((e) => GROUND + 40 * Math.max(0, 1 - (e / 140) ** 2));
   const level = profileOf(f, hill, 2);
   assert.ok(level.h.every((h) => Math.abs(h - GROUND) < 0.6), "level under a hill");
+});
+
+test("a tunnel is a tube under the ground: a floor to stand on, walls and a ceiling, and a mouth where it comes out", async () => {
+  // A hill 40 m high over the tunnel, whose mouths are in its sides.
+  const elev = await land((e) => GROUND + 40 * Math.max(0, 1 - (e / 160) ** 2));
+  const tube = road(2, [at(-150, 0), at(150, 0)], { tunnel: true, layer: -1 });
+  const f = world([road(1, [at(-200, 0), at(-150, 0)]), road(3, [at(150, 0), at(200, 0)])], [tube]);
+  const sections = buildChunkMesh(CX, CY, f, elev, TEMPERATE).sections;
+  const floor = section(sections, MATERIALS.deck.id), lining = section(sections, MATERIALS.lining.id);
+  assert.ok(floor.length > 0 && lining.length > 0);
+  assert.ok(floor.every((s) => s.mat.collision) && lining.every((s) => s.mat.collision), "the floor is stood on and the walls are solid");
+  const base = profileOf(f, elev, 2).h[0]; // the ground at a mouth
+  assert.ok(base > GROUND + 3 && base < GROUND + 6);
+  assert.ok(tops(floor).every((h) => Math.abs(h - base - 0.2) < 0.7), "the floor runs level under the hill");
+  const high = tubeHeight(tube);
+  // Walls from the floor to the ceiling; the frame of the mouth stands above the ceiling.
+  const walls = tops(lining);
+  assert.ok(Math.min(...walls) < base + 0.3 && walls.some((h) => Math.abs(h - (base + 0.2 + high)) < 0.05));
+  assert.ok(Math.max(...walls) > base + high + 1, "a frame round the mouth");
+  // The ground: whole over the middle of the hill, cut away round the mouths, with other ground (9) round the cut.
+  const cut = section(sections, MATERIALS.cut.id);
+  assert.ok(cut.length > 0 && cut.every((s) => s.mat.collision), "ground round the mouth, and the bank over the tunnel there");
+  const terrain = sections.filter((s) => s.mat.id <= 8);
+  // Every point of the terrain's grid is still in the terrain sections, cut cells or not: 65 by 65.
+  const grid = new Set<string>();
+  for (const s of terrain) for (let i = 0; i < s.pos.length; i += 3) grid.add(`${Math.round((s.pos[i] / S) * 64)},${Math.round((-s.pos[i + 1] / S) * 64)}`);
+  assert.equal(grid.size, 65 * 65);
+  // No terrain triangle lies in the tunnel's way at a mouth (150 m west of the middle, on the line of the road).
+  const over = (e: number, n: number): number => terrain.reduce((count, s) => {
+    for (let t = 0; t < s.idx.length; t += 3) {
+      const [a, b, c] = [s.idx[t], s.idx[t + 1], s.idx[t + 2]].map((v) => [s.pos[v * 3] - S / 2 - e, s.pos[v * 3 + 1] + S / 2 - n]);
+      const side = (p: number[], q: number[]): number => p[0] * q[1] - p[1] * q[0];
+      const [d1, d2, d3] = [side(a, b), side(b, c), side(c, a)];
+      if ((d1 >= 0 && d2 >= 0 && d3 >= 0) || (d1 <= 0 && d2 <= 0 && d3 <= 0)) count++;
+    }
+    return count;
+  }, 0);
+  assert.equal(over(-140.3, 0.4), 0, "the terrain is cut away just inside the mouth");
+  assert.equal(over(1.3, 0.7), 1, "and whole over the middle of the hill");
+  assert.equal(over(-140.3, 60.7), 1, "and beside the tunnel");
 });
 
 test("underground paths with no way in from the street are left out; a tunnel that ends underground ends in a wall", async () => {
