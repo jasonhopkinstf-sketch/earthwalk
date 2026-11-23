@@ -1,5 +1,7 @@
 #include "EarthCompany.h"
 #include "EarthInside.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 
 #include "EarthMiniMap.h"
 
@@ -1620,6 +1622,8 @@ void UEarthCompany::PetFrame(double Dt)
 		}
 		Stand(Pet.Thing, Pet.Sp, Pose->X, Pose->Z, Pose->Yaw, Pose->D, bMoving, 0.0, 0.0);
 	};
+	bBallOut = false;
+	bHoopUp = false;
 	// A companion in the middle of a trick stays where it began and is drawn doing it (perform in pets.js):
 	// how long each takes, and where and how it is drawn so much of the way through.
 	const auto Perform = [&](const FEarthPet& Pet) -> bool
@@ -1674,8 +1678,14 @@ void UEarthCompany::PetFrame(double Dt)
 		}
 		else if (Act->Trick == TEXT("fetch"))
 		{
-			// Out to where the ball would be and back (this game draws no ball).
+			// Out to the ball and back with it.
 			const double S = FetchM * (U < 0.5 ? U * 2.0 : (1.0 - U) * 2.0);
+			double BallGround = 0.0;
+			if (U < 0.5 && GroundFor(FString(), Pose->X + Fx * (FetchM + 0.5), Pose->Z + Fz * (FetchM + 0.5), BallGround))
+			{
+				bBallOut = true;
+				BallWhere = SceneToEngine(Pose->X + Fx * (FetchM + 0.5), BallGround + 0.14, Pose->Z + Fz * (FetchM + 0.5));
+			}
 			X += Fx * S;
 			Z += Fz * S;
 			Yaw += U >= 0.5 ? UE_DOUBLE_PI : 0.0;
@@ -1684,7 +1694,14 @@ void UEarthCompany::PetFrame(double Dt)
 		}
 		else if (Act->Trick == TEXT("hoop"))
 		{
-			// A run and a leap, as through a hoop (this game draws no hoop).
+			// A run and a leap through a hoop that stands in its way.
+			double HoopGround = 0.0;
+			if (GroundFor(FString(), Pose->X + Fx * HoopM * 0.5, Pose->Z + Fz * HoopM * 0.5, HoopGround))
+			{
+				bHoopUp = true;
+				HoopWhere = SceneToEngine(Pose->X + Fx * HoopM * 0.5, HoopGround + 1.05, Pose->Z + Fz * HoopM * 0.5);
+				HoopYaw = FMath::RadiansToDegrees(std::atan2(Fx, -Fz)); // the compass heading it runs on: the hoop stands across it
+			}
 			X += Fx * HoopM * U;
 			Z += Fz * HoopM * U;
 			Lift = std::sin(U * UE_DOUBLE_PI) * 0.95;
@@ -1713,6 +1730,88 @@ void UEarthCompany::PetFrame(double Dt)
 		if (!Live.Contains(It.Key()))
 		{
 			It.RemoveCurrent();
+		}
+	}
+	// -EWProps: the ball and the hoop stood before the player, for a picture of them without a companion that knows the tricks.
+	static const bool bPropTest = FParse::Param(FCommandLine::Get(), TEXT("EWProps"));
+	double Tx = 0.0, Tz = 0.0, Ty = 0.0;
+	if (bPropTest && PlayerAt(Tx, Tz) && Me && !Me->IsWaitingForGround())
+	{
+		const double Facing = FMath::DegreesToRadians(Me->FacingYaw());
+		const double Ax = std::sin(Facing), Az = -std::cos(Facing);
+		if (GroundFor(FString(), Tx + Ax * 4.0, Tz + Az * 4.0, Ty))
+		{
+			bBallOut = true;
+			BallWhere = SceneToEngine(Tx + Ax * 4.0 + Az * 1.5, Ty + 0.14, Tz + Az * 4.0 - Ax * 1.5);
+			bHoopUp = true;
+			HoopWhere = SceneToEngine(Tx + Ax * 6.0, Ty + 1.05, Tz + Az * 6.0);
+			HoopYaw = Me->FacingYaw();
+		}
+	}
+	ShowTrickProps();
+}
+
+/** The ball and the hoop: made the first time one is wanted, shown where this frame's tricks want them, and hidden otherwise. */
+void UEarthCompany::ShowTrickProps()
+{
+	if (!bBallOut && !bHoopUp && !TrickProps)
+	{
+		return;
+	}
+	AEarthWorld* Earth = World.Get();
+	if (!TrickProps && Earth && Earth->GetWorld())
+	{
+		TrickProps = Earth->GetWorld()->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator);
+		if (TrickProps)
+		{
+			USceneComponent* Root = NewObject<USceneComponent>(TrickProps);
+			TrickProps->SetRootComponent(Root);
+			Root->RegisterComponent();
+			const auto Part = [&](const TCHAR* Shape, uint32 Color)
+			{
+				UStaticMeshComponent* Made = NewObject<UStaticMeshComponent>(TrickProps);
+				Made->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, Shape));
+				if (UMaterialInterface* Paint = Earth->MaterialFor(Color))
+				{
+					Made->SetMaterial(0, Paint);
+				}
+				Made->SetMobility(EComponentMobility::Movable);
+				Made->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				Made->SetupAttachment(Root);
+				Made->RegisterComponent();
+				Made->SetVisibility(false);
+				return Made;
+			};
+			TrickBall = Part(TEXT("/Engine/BasicShapes/Sphere.Sphere"), 0xd9382eff);
+			for (int32 i = 0; i < 20; ++i)
+			{
+				TrickHoop.Add(Part(TEXT("/Engine/BasicShapes/Cube.Cube"), 0xe0b23cff)); // a gold ring, 0.8 m across the middle, made of twenty short pieces
+			}
+		}
+	}
+	if (TrickBall)
+	{
+		TrickBall->SetVisibility(bBallOut);
+		if (bBallOut)
+		{
+			TrickBall->SetWorldLocation(BallWhere);
+			TrickBall->SetWorldScale3D(FVector(0.28));
+		}
+	}
+	for (int32 i = 0; i < TrickHoop.Num(); ++i)
+	{
+		UStaticMeshComponent* Piece = TrickHoop[i];
+		Piece->SetVisibility(bHoopUp);
+		if (bHoopUp)
+		{
+			// The ring stands upright across the way the animal runs: round the heading's own axis.
+			const double A = (static_cast<double>(i) / TrickHoop.Num()) * 2.0 * UE_DOUBLE_PI;
+			const FRotator Heading(0.0, HoopYaw, 0.0);
+			const FVector Across = Heading.RotateVector(FVector(0.0, 1.0, 0.0));
+			const FVector Out = Across * std::cos(A) * 80.0 + FVector(0.0, 0.0, std::sin(A) * 80.0);
+			Piece->SetWorldLocation(HoopWhere + Out);
+			Piece->SetWorldRotation(FRotationMatrix::MakeFromXZ(Heading.Vector(), Out.GetSafeNormal()).Rotator());
+			Piece->SetWorldScale3D(FVector(0.12, 0.27, 0.12));
 		}
 	}
 }

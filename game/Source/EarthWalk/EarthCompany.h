@@ -268,6 +268,20 @@ private:
 
 	// Where each companion has got to, by its identity.
 	TMap<uint32, FOrderPose> PetPoses;
+	// The ball a companion fetches and the hoop it leaps through (BALL and HOOP in pets.js): one of each,
+	// shown where the trick being done wants it and put away when it is over.
+	UPROPERTY()
+	TObjectPtr<class AActor> TrickProps;
+	UPROPERTY()
+	TObjectPtr<class UStaticMeshComponent> TrickBall;
+	UPROPERTY()
+	TArray<TObjectPtr<class UStaticMeshComponent>> TrickHoop;
+	bool bBallOut = false;
+	bool bHoopUp = false;
+	FVector BallWhere = FVector::ZeroVector;
+	FVector HoopWhere = FVector::ZeroVector;
+	double HoopYaw = 0.0;
+	void ShowTrickProps();
 
 	// Taxis somebody has boarded (riding draws those), and the ones whose arrival I have been told of.
 	TSet<uint32> TaxisUsed;
