@@ -1018,6 +1018,15 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       s.triUp(a, d, e);
     }
   }
+  if (tunnels.cells) {
+    // A kind of ground all of whose cells here were cut away has no triangle left, and a section with none is
+    // not sent: its corners of the grid go into one that is, so that the grid of heights stays whole.
+    const sent = [...sections.values()].find((s) => s.mat.id <= 8 && s.idx.length > 0);
+    if (sent) for (const s of sections.values()) {
+      if (s.mat.id > 8 || s.idx.length > 0) continue;
+      for (let i = 0; i < s.pos.length; i += 3) sent.vert(s.pos[i], s.pos[i + 1], s.pos[i + 2], s.nrm[i], s.nrm[i + 1], s.nrm[i + 2]);
+    }
+  }
 
   // ---- roads, paths, rails and streams: ribbons draped on the terrain
   const ribbon = (road: Road): void => {

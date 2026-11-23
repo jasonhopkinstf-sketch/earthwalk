@@ -2,6 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildChunkMesh, MATERIALS, type Section } from "../src/chunk.ts";
+import { buildLabels } from "../src/labels.ts";
+import { liftAt, prepare, tripPose } from "../public/js/trafficmotion.js";
+import { planRoute } from "../src/route.ts";
 import { Elevation } from "../src/elevation.ts";
 import { metersPerTile, xToLon, yToLat } from "../src/geo.ts";
 import { parseOsm, type Features, type OsmJson, type Pt, type Road } from "../src/osm.ts";
@@ -221,4 +224,49 @@ test("underground paths with no way in from the street are left out; a tunnel th
   assert.equal(spans.profiles.has(5), false);
   assert.deepEqual(spans.profiles.get(6)!.ends, ["ground", "blind"]);
   assert.deepEqual(spans.profiles.get(7)!.ends, ["ground", "blind"]);
+});
+
+test("a car's trip over a bridge is sent with how high above the ground each point is, and a game puts the car there", async () => {
+  // A street of houses that crosses a 12 m deep valley on a bridge.
+  const elev = await land((e) => GROUND - 12 * Math.max(0, 1 - ((e - 60) / 50) ** 2), 3);
+  const houses = [...Array(24).keys()].map((i) => {
+    const e = -190 + i * 8, n = 12;
+    return { id: 500 + i, ring: [at(e, n), at(e + 6, n), at(e + 6, n + 6), at(e, n + 6)], height: 6 };
+  });
+  const f: Features = {
+    ...world([
+      road(1, [at(-200, 0), at(10, 0)], { hw: "residential", width: 6 }),
+      road(2, [at(10, 0), at(110, 0)], { hw: "residential", width: 6, bridge: true, layer: 1 }),
+      road(3, [at(110, 0), at(320, 0)], { hw: "residential", width: 6 }),
+    ]), buildings: houses,
+  };
+  const items = buildLabels(CX, CY, f, elev);
+  const routes = items.filter((it) => it.kind === "route");
+  assert.ok(routes.length > 0, "some cars make trips along the street");
+  const over = routes.filter((it) => it.lift);
+  assert.ok(over.length > 0, "and some of those cross the bridge");
+  for (const it of over) {
+    assert.equal(it.lift!.length, it.pts!.length / 3, "a height for every point");
+    assert.ok(Math.max(...it.lift!) > 11 && Math.max(...it.lift!) < 14, `over the valley the road is 12 m and more above the ground (${Math.max(...it.lift!)})`);
+    assert.ok(it.lift!.includes(0), "and on the ground at the ends");
+    // A game replays it: where the car is over the valley, it is that far above the ground.
+    const trip = prepare({ id: it.id!, w: it.w!, left: false, da: it.da!, db: it.db!, path: it.pts!.map((v, i) => (i % 3 === 2 ? v : v * S)), lift: it.lift });
+    let highest = 0;
+    for (let t = 0; t < trip.period; t += 1) highest = Math.max(highest, tripPose(trip, t).lift);
+    assert.ok(highest > 11, "the car is up on the bridge as it crosses");
+    assert.ok(Math.abs(liftAt(trip, 0) - it.lift![0]) < 1e-9);
+  }
+  for (const it of items.filter((x) => x.kind === "car")) assert.ok(it.u! * S < S / 2 + 10 - 3 || it.u! * S > S / 2 + 110 + 3, "nobody parks on the bridge");
+});
+
+test("the way by road to somewhere goes through a tunnel", async () => {
+  // Two streets with a hill between them, joined only by a tunnel.
+  const west = road(1, [at(-300, 0), at(-100, 0)], { hw: "residential" }), east = road(3, [at(100, 0), at(300, 0)], { hw: "residential" });
+  const tube = road(2, [at(-100, 0), at(100, 0)], { tunnel: true, layer: -1 });
+  const lat = (p: Pt): [number, number] => [yToLat(p[1]), xToLon(p[0])];
+  const [fromLat, fromLon] = lat(at(-290, 5)), [toLat, toLon] = lat(at(290, 5)); // (a way starts and ends at a point of a road)
+  const without = await planRoute(fromLat, fromLon, toLat, toLon, async () => world([west, east]));
+  assert.equal(without, null, "with no tunnel there is no way");
+  const through = await planRoute(fromLat, fromLon, toLat, toLon, async () => world([west, east], [tube]));
+  assert.ok(through && Math.abs(through.metres - 600) < 5, `with it, straight through (${through?.metres})`);
 });

@@ -88,7 +88,8 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
   };
   const seen = new Set<number>();
   for (const f of await Promise.all(tiles)) {
-    for (const road of f.roads) {
+    // (Tunnels are kept apart from the other roads, and are roads like any other to a car.)
+    for (const road of [...f.roads, ...(f.tunnels ?? [])]) {
       // Every street counts, pedestrian ones too: an old town centre is otherwise cut off from the rest.
       if (road.cls !== "road" || seen.has(road.id)) continue;
       seen.add(road.id);

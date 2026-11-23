@@ -9,7 +9,7 @@
 import type { MaterialDef, Section } from "./chunk.ts";
 import { xToLon, yToLat } from "./geo.ts";
 import type { Features, Pt, Road } from "./osm.ts";
-import { deckDepth, type Profile, type Ramp, type Spans, tubeHeight } from "./spans.ts";
+import { deckDepth, type Profile, type Ramp, type Spans, SURFACE_M, tubeHeight } from "./spans.ts";
 
 export interface SpanCtx {
   cx: number; cy: number;
@@ -28,8 +28,6 @@ export interface SpanCtx {
 const ROAD_GREY = 0x4a4a4e, BALLAST = 0x5b4a3f, GRAVEL = 0xc9b28a, BOARDS = 0xa98558;
 export const CONCRETE = 0xb9bec4;
 const TIMBER = 0x8a6a45, STONE = 0xcbbf9f, STEEL = 0x7d8790, RAIL_PAINT = 0xf4f1e6;
-/** How far the top of a deck is above the height worked out for it: the same as a road is above the ground. */
-const SURFACE_M = 0.2;
 /** A bridge is one of the giants when its run from ground to ground is this long, with this much of it over the sea. */
 const GIANT_RUN_M = 400, GIANT_SEA_M = 250;
 

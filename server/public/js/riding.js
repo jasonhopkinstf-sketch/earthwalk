@@ -165,7 +165,8 @@ export class Riding {
       g.x = x;
       g.z = z;
       this.hidden.add(thing);
-      this.mounts.push({ key, thing, sp, x, z, y: world.groundHeight(x, z) ?? fallbackY, yaw, gait: g.d, moving: dt > 0 && step / dt > 0.2 });
+      // (The floor under it, which on a bridge is the deck and in a tunnel the tunnel's: not the ground far below, or overhead.)
+      this.mounts.push({ key, thing, sp, x, z, y: world.floorAt(x, z, fallbackY) ?? fallbackY, yaw, gait: g.d, moving: dt > 0 && step / dt > 0.2 });
     };
     if (me && me.seat === 0 && me.sp !== "train") {
       ridden("me", me.thing, me.sp, p.position.x, p.position.z, p.position.y - me.mount.seat, -p.yaw);
@@ -210,7 +211,7 @@ export class Riding {
   tilt(m, car) {
     const { world } = this;
     const sin = Math.sin(car.heading), cos = Math.cos(car.heading);
-    const h = (along, across) => world.groundHeight(m.x + sin * along + cos * across, m.z - cos * along + sin * across) ?? m.y;
+    const h = (along, across) => world.floorAt(m.x + sin * along + cos * across, m.z - cos * along + sin * across, m.y) ?? m.y;
     const slope = Math.atan2(h(1.3, 0) - h(-1.3, 0), 2.6);
     const bank = Math.atan2(h(0, 0.8) - h(0, -0.8), 1.6);
     const lean = Math.max(-0.09, Math.min(0.09, car.turn * car.speed * 0.006));

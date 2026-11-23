@@ -55,7 +55,9 @@ export class Taxis {
       const span = (way.upTo[i] ?? 0) - (way.upTo[i - 1] ?? 0);
       const f = span > 0 ? (gone - way.upTo[i - 1]) / span : 1;
       const x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f;
-      const y = world.groundHeight(x, z);
+      // The road under it: over a bridge that is the deck, which it reaches by driving up on to it.
+      const y = world.floorAt(x, z, way.y ?? NaN);
+      if (y !== null) way.y = y;
       const arrived = gone >= total;
       if (arrived && taxi.by === meetup.me?.id && !this.told.has(thing)) {
         this.told.add(thing);

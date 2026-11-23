@@ -86,7 +86,7 @@ them; 15 road markings; 32 hedges and 33 fences round front gardens, whose paths
 path sections (11). Where gardens have low walls, those are woodwork (27) in the colour of the
 house. None of these collide.
 
-### Bridges
+### Bridges and tunnels
 
 A road, path or railway on a bridge is not drawn on the ground. It is drawn at a height the server
 works out (`server/src/spans.ts`; the map hardly ever says how high a bridge is): straight from the
@@ -98,7 +98,7 @@ the air, the roads that meet it there climb to it on a ramp, at most 70 m long.
 | --- | --- | --- |
 | 16 | A way that is not on the ground: the top of a bridge's deck, the top of a ramp up to one. Its colour is that of what it carries (road grey, a railway's brown, a path's gravel, boards). Players, cars and trains stand on it **at its own height**, whatever the ground is under it. | yes |
 | 17 | What holds a bridge up and in: the sides and underside of the deck, solid side walls about 1 m high, piers, the walls of a ramp. | yes |
-| 18 | Railings: thin things with the sky between them. | yes |
+| 18 | Railings and cables: thin things with the sky between them. A footbridge's rails (a deep handrail and a lower rail, on posts), the hangers of a great arch. | yes |
 
 Nothing about the ground changes for a bridge: the terrain sections (0–8) under it are whole, and a
 road that passes under it is an ordinary road section. So a client has to keep two levels apart at
@@ -116,6 +116,51 @@ such a place. What is asked of it:
 
 A bridge is drawn into every chunk it passes through, and overlaps the chunk's edges a little, as
 roads do. Piers belong to the chunk they stand in.
+
+Three kinds of bridge are built, and all three are only sections 16 to 18 in other shapes and
+colours, so a client that draws those draws them all: a footbridge or boardwalk, with rails (18) in
+place of solid walls; in Europe and round the Mediterranean, a road bridge over water, in stone, on
+arches from pier to pier; and everything else, a deck on concrete piers. A bridge whose run from
+ground to ground is 400 m or more, with 250 m of it over the sea, also gets a great steel arch over
+its middle (two ribs in 17, hangers in 18, a stone tower at each foot). Carriageways that the map
+draws side by side share one arch.
+
+**Tunnels.** A road, a railway, or a path that is not the corridor of a station, when the map puts it
+in a tunnel, is a tube under the ground. Its floor starts at the ground at each mouth and runs
+straight between them, diving under the ground (no steeper than one in ten for a road, 7 in 100 for a
+railway, 12 in 100 for a path) wherever the ground is not already far enough above it: 7.2 m for a road, more for each
+level further down the map puts it. Streams in pipes, ways through buildings and underground paths
+with no way in from the street are still left out.
+
+| Id | What it is | Collides |
+| --- | --- | --- |
+| 16 | The floor of the tunnel, as on a bridge: stood and driven on at its own height, which here is under the ground. | yes |
+| 19 | The inside of the tunnel: walls and ceiling (5 m above the floor for a road, 5.6 for a railway, 3.1 for a path), the stone frame round each mouth and its wing walls, the wall across the end where the map stops a tunnel underground. | yes |
+| 15 | The lamps: pale boxes under the ceiling every 16 m, in a colour of their own. (15 is otherwise road markings.) | no |
+| 9 | Ground that is not on the terrain's grid: see below. Drawn and stood on like any ground, in the colour it is sent in. | yes |
+
+Where a tunnel comes up through the ground (at a mouth, and wherever it is not deep enough to be
+covered), **the terrain has holes**. The cells of the terrain's grid that the tunnel passes through
+there are not drawn as terrain. Each is drawn again in section 9, in the same colour, as 6 by 6
+smaller squares, less those in the tunnel's way. Where the ground does not cover the tunnel, earth is
+banked over it, also in section 9. Three things follow for a client:
+
+- **The grid of heights is still whole.** Every vertex of the 65 by 65 grid is still sent in a
+  terrain section (0 to 8), even where no triangle uses it, so a client that rebuilds the grid from
+  those sections' vertices (as the browser does) gets a height everywhere. Section 9's vertices are
+  not on the grid and must not be read into it: read only ids 0 to 8.
+- **A cell with no terrain triangles has no terrain.** There the floor is whatever colliding surface
+  (9 or 16) is under the player, and the grid's height does not count. The browser marks those cells
+  when a chunk arrives (a cell none of whose terrain triangles is sent).
+- **Under the ground, the ground overhead is not the floor.** The rule for standing is the same as on
+  a bridge: the highest floor that is not more than a step above the feet. In a tunnel the terrain is
+  metres overhead, so it is not that floor, and the tunnel's floor (16) is. A camera that keeps itself
+  above the terrain must not do so while its player is under it.
+
+A client that takes collision from the meshes (as an engine's physics does) gets all of this by
+building collision for sections 9 and 16 to 19 as it does for buildings, and for the terrain as it
+is sent, holes and all. What needs care is anything that asks "how high is the ground here?" by
+looking straight down from the sky: over a bridge that finds the deck, and over a tunnel the hill.
 
 ## Labels: `GET /v1/labels/16/{x}/{y}`
 
@@ -138,7 +183,7 @@ cars and trains to life from it (see "Life" below).
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
 | `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives), `car` (a parked car), `route` (a trip a car makes) or `train`. A client skips kinds it does not know. |
-| `w`, `left`, `da`, `db`, `pts` | Routes; see "Traffic". Trains have `da`, `db` and `pts` too; see "Trains". Cars, routes and trains also carry an `id`. At most 60 cars and 14 routes per chunk. |
+| `w`, `left`, `da`, `db`, `pts`, `lift` | Routes; see "Traffic". Trains have `da`, `db`, `pts` and `lift` too; see "Trains". Cars, routes and trains also carry an `id`. At most 60 cars and 14 routes per chunk. |
 | `sp`, `n`, `r`, `id` | Homes only: the animal (one of those listed under "Life"), how many, the radius in metres of the circle they roam in (for `bird`, of the ring the flock flies), and the home's identity (a whole number from 1 to 4294967295, the same on every visit). Per chunk, at most 40 farm homes with 150 animals, 40 other homes with 120 animals, and one flock. A client skips animals it does not know. |
 | `text`, `text2` | The plate text (absent on trees and homes). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
 | `s`, `r`, `c` | Trees only: height and canopy radius in metres, and `c` = 1 for a conifer. Trees are the same ones the chunk mesh draws as cones (surface id 30), so a client with its own tree models skips that section and plants these instead. At most 1500 per chunk, thinned evenly. |
@@ -272,6 +317,7 @@ Cars are in the labels too. A `car` item is a parked car: its position is alread
 | `w` | The width in metres of the narrowest road on the way. |
 | `left` | 1 where people drive on the left (`drivesLeft` in `server/src/traffic.ts`: rough boxes round the countries that do). |
 | `da`, `db` | Seconds the car waits at the start and at the far end. |
+| `lift` | Only when the trip crosses a bridge or climbs a ramp to one: one number for each point of `pts`, the metres the road's surface is above the terrain there (0 on the ground). The car is drawn at the terrain's height plus this, moving evenly between points as it does along the road. Without it the whole trip is on the ground. |
 
 The server builds the trips (`server/src/traffic.ts`): a car parked on a street where people live sets
 off away from the way it faces, follows two-way streets (never a one-way street or a roundabout, since
@@ -306,8 +352,8 @@ for a wider square (a zoom-14 tile, 4 by 4 chunks: `server/src/rail.ts`). That s
 the map download, so the tracks come with the map the chunk is built from, and there are trains
 whenever there is a world. Inside a square it
 joins main-line tracks end to end, keeping straight on at points and cutting them at the square's
-edge, and puts one train on each run of 400 m or more (the six longest at most). Tunnels and sidings
-are left out. Every chunk of the square builds its trains from the same tracks, and a `train` item is
+edge, and puts one train on each run of 400 m or more (the six longest at most). Sidings are left
+out; tracks on bridges and in tunnels are part of the run like any other. Every chunk of the square builds its trains from the same tracks, and a `train` item is
 sent with **every chunk its run passes through**, identical but for where its path is measured from.
 A client keeps one of each `id`.
 
@@ -315,6 +361,11 @@ A client keeps one of each `id`.
 {"kind": "train", "id": 1671733423, "u": -4.99986, "v": 0.5, "h": 61.2, "yaw": 0, "da": 23, "db": 31,
  "pts": [-4.99986, 0.5, 0, -4.97, 0.5, 6.67, -4.94, 0.5, 9.43]}
 ```
+
+A train whose run crosses a bridge or goes through a tunnel also has `lift`: one number for each
+point of `pts`, the metres the track is above the terrain there, or (in a tunnel, negative) below
+it. Each carriage is drawn at the terrain's height where it is, plus the `lift` of that place on the
+track. They are the same heights the chunks along the run are built with.
 
 `pts` is the track as `u`, `v`, seconds since setting off, a point every 12 m: `u` and `v` are measured
 from the chunk the item came with and run far outside 0 to 1. Where the train stands at a station

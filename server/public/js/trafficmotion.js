@@ -35,10 +35,29 @@ export function pointAt(trip, d) {
 }
 
 /**
+ * How far above the ground (or below it, in a tunnel) the way is `d` metres along it: from the trip's
+ * `lift`, a number for each point of its path, where the server sent one. 0 on the ground.
+ */
+export function liftAt(trip, d) {
+  const lift = trip.lift;
+  if (!lift) return 0;
+  let lo = 0;
+  let hi = trip.n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (trip.dist[mid] <= d) lo = mid; else hi = mid;
+  }
+  const run = trip.dist[hi] - trip.dist[lo];
+  const f = run > 0 ? Math.min(1, Math.max(0, (d - trip.dist[lo]) / run)) : 0;
+  return lift[lo] + (lift[hi] - lift[lo]) * f;
+}
+
+/**
  * Makes a trip ready to replay.
- * @param {{ id: number, w: number, left: boolean, da: number, db: number, path: number[] }} trip
+ * @param {{ id: number, w: number, left: boolean, da: number, db: number, path: number[], lift?: number[] | null }} trip
  *   `path` is x, y, seconds, x, y, seconds...: metres east and south of any fixed point, and the
- *   seconds since setting off. `w` is the road's width, `da` and `db` the waits at each end.
+ *   seconds since setting off. `w` is the road's width, `da` and `db` the waits at each end. `lift`,
+ *   when there is one, is how far above the ground each point of the path is.
  */
 export function prepare(trip) {
   const n = Math.floor(trip.path.length / 3);
@@ -84,8 +103,9 @@ export function trainPose(train, t) {
 
 /**
  * Where a car is at shared time `t` (seconds since 1970 on the server's clock).
- * @returns {{ x: number, y: number, yaw: number, moving: boolean, leg: number, pace: number, inLane: boolean }}
- *   `x`, `y` in the path's own metres, on the car's side of the road. `yaw` is the compass heading
+ * @returns {{ x: number, y: number, yaw: number, moving: boolean, leg: number, pace: number, inLane: boolean, lift: number }}
+ *   `x`, `y` in the path's own metres, on the car's side of the road. `lift` is how far above the
+ *   ground the road is there (on a bridge). `yaw` is the compass heading
  *   of the way it is going. `leg`: 0 waiting at the start, 1 driving out, 2 waiting at the far end,
  *   3 driving back. `inLane` is false while it is pulling out from a kerb or in to one.
  */
@@ -132,5 +152,6 @@ export function tripPose(trip, t) {
     y: p[lo * 3 + 1] + (p[hi * 3 + 1] - p[lo * 3 + 1]) * f + dx * over,
     yaw: ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360,
     moving, leg, pace: moving && span > 0 ? run / span : 0, inLane: moving && g0 === 1 && g1 === 1,
+    lift: trip.lift ? trip.lift[lo] + (trip.lift[hi] - trip.lift[lo]) * f : 0,
   };
 }

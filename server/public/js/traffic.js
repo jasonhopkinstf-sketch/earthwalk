@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import { hash32 } from "./lifemotion.js";
 import { VEHICLES } from "./liferigs.js";
-import { headingAt, pointAt, prepare, trainPose, tripPose } from "./trafficmotion.js";
+import { headingAt, liftAt, pointAt, prepare, trainPose, tripPose } from "./trafficmotion.js";
 
 const SHOW_M = 220;
 const MAX_PARKED = 40;
@@ -34,6 +34,9 @@ function looks(id, sp = "car") {
   const rig = VEHICLES[hash32(id, SALT_PAINT) % 6 === 0 ? "van" : "car"];
   return { rig, coat: rig.palette[hash32(id, SALT_PAINT + 1) % rig.palette.length], size: 0.94 + 0.12 * unit(id, SALT_PAINT + 2) };
 }
+
+/** How far above the ground each point of a route or a train's run is (bridges, tunnels), where the server says: a number a point. */
+const liftsOf = (it) => (Array.isArray(it.lift) && it.lift.length === it.pts.length / 3 && it.lift.every(Number.isFinite) ? it.lift : null);
 
 export class Traffic {
   /** @param {import("./world.js").World} world  @param {import("./sounds.js").Sounds} sounds */
@@ -75,7 +78,7 @@ export class Traffic {
         if (![it.id, it.w, it.da, it.db].every(Number.isFinite) || !Array.isArray(it.pts) || it.pts.length < 6 || !it.pts.every(Number.isFinite)) continue;
         // The path in scene metres: x east, z south, and the seconds since setting off.
         const path = it.pts.map((n, i) => (i % 3 === 0 ? ox + n * S : i % 3 === 1 ? oz + n * S : n));
-        const trip = prepare({ id: it.id >>> 0, w: Math.min(40, Math.max(2.5, it.w)), left: !!it.left, da: Math.max(1, it.da), db: Math.max(1, it.db), path });
+        const trip = prepare({ id: it.id >>> 0, w: Math.min(40, Math.max(2.5, it.w)), left: !!it.left, da: Math.max(1, it.da), db: Math.max(1, it.db), path, lift: liftsOf(it) });
         if (trip.time > 0) trips.push({ trip, wx: chunk.x, wy: chunk.y, ...looks(trip.id), d: 0 });
       }
       // A train comes with every chunk on its run. Its path is measured from the chunk that sent it.
@@ -83,7 +86,7 @@ export class Traffic {
       for (const it of chunk.trains ?? []) {
         if (![it.id, it.da, it.db].every(Number.isFinite) || !Array.isArray(it.pts) || it.pts.length < 6 || !it.pts.every(Number.isFinite)) continue;
         const path = it.pts.map((n, i) => (i % 3 === 0 ? ox + n * S : i % 3 === 1 ? oz + n * S : n));
-        const train = prepare({ id: it.id >>> 0, w: 0, left: false, da: Math.max(1, it.da), db: Math.max(1, it.db), path });
+        const train = prepare({ id: it.id >>> 0, w: 0, left: false, da: Math.max(1, it.da), db: Math.max(1, it.db), path, lift: liftsOf(it) });
         const rig = VEHICLES.railcar;
         if (train.time > 0 && train.length > TRAIN_M + 30) trains.push({ train, rig, coat: rig.palette[hash32(train.id, SALT_PAINT) % rig.palette.length] });
       }
@@ -165,8 +168,9 @@ export class Traffic {
         }
       } else if (st.lag > 0) st.lag = Math.max(0, st.lag - dt * 0.3);
 
-      const y = this.world.groundHeight(pose.x, pose.y);
-      if (y === null) continue;
+      const ground = this.world.groundHeight(pose.x, pose.y);
+      if (ground === null) continue;
+      const y = ground + pose.lift; // on a bridge, the road is that far above the ground
       // The body swings round to the way it is going, which is what turns it about at each end of a trip.
       st.yaw = st.yaw === null ? want : st.yaw + turn(st.yaw, want) * ease(pose.moving ? 3.5 : 6, dt);
       if (d < 40) this.rideable.push({ thing: car.trip.id, sp: "car", x: pose.x, z: pose.y, yaw: st.yaw });
@@ -185,8 +189,9 @@ export class Traffic {
         const away = Math.hypot(x - me.x, z - me.z);
         nearest = Math.min(nearest, away);
         if (away > TRAIN_SHOW_M) continue;
-        const y = this.world.groundHeight(x, z);
-        if (y === null) continue;
+        const ground = this.world.groundHeight(x, z);
+        if (ground === null) continue;
+        const y = ground + liftAt(train, d); // over a bridge, or under the ground in a tunnel
         const yaw = (-headingAt(train, d, 6) * Math.PI) / 180;
         if (away < 40) this.rideable.push({ thing: train.id, sp: "train", k, x, z, yaw });
         life.base.compose(this.v.set(x, y, z), this.q.setFromEuler(this.euler.set(0, yaw, 0)), this.s.set(1, 1, 1));
@@ -298,7 +303,7 @@ export class Traffic {
     const d = (pose.along * (train.length - TRAIN_M)) / train.length + CARRIAGE_M / 2 + k * (CARRIAGE_M + COUPLING_M);
     const [x, z] = pointAt(train, d);
     const y = this.world.groundHeight(x, z);
-    return y === null ? null : { x, y, z, yaw: (-headingAt(train, d, 6) * Math.PI) / 180 };
+    return y === null ? null : { x, y: y + liftAt(train, d), z, yaw: (-headingAt(train, d, 6) * Math.PI) / 180 };
   }
 
   /** Every train near the player at shared time `t`: where the middle of it is, in scene metres (for the tests). */

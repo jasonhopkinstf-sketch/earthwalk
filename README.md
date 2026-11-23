@@ -211,6 +211,16 @@ and `traffic.js` draws the cars and has them stop and toot for a player in the w
 ploughed fields and boats sail water near a shore; they circle a home like the animals do.
 docs/PROTOCOL.md, "Traffic".
 
+Bridges and tunnels: `server/src/spans.ts` works out how high every bridge
+is (the map hardly ever says) and how deep every tunnel, for whole runs of them at a time, however
+many pieces of the map a run crosses. `server/src/spanmesh.ts` draws them into the chunks: decks on
+piers with ramps up to them, a great steel arch over the giants, stone arches under old city
+bridges, rails on footbridges; and tunnels as tubes under the ground with a mouth at each end, the
+terrain cut open where a tube comes up through it. Cars and trains are sent how high they are at
+every point of a trip. In the browser, `world.floorAt` is the one rule for what is under anyone's
+feet: on a bridge the deck, under it the road, in a tunnel the tunnel's floor. docs/PROTOCOL.md,
+"Bridges and tunnels".
+
 Trains: `server/src/rail.ts` fetches the railway tracks for a wide square of
 the world, joins them into runs and timetables a train along each, stopping at stations. Every chunk
 on a run sends the same train, and the browser replays it and whistles as it passes.

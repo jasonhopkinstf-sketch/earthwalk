@@ -16,7 +16,11 @@ export interface ParkedCar { wx: number; wy: number; yaw: number; id: number }
  * `w` is the width in metres of the narrowest road on the way, `left` whether the country drives on the
  * left, and `dwellA`/`dwellB` how long the car waits at each end.
  */
-export interface Trip { id: number; w: number; left: boolean; dwellA: number; dwellB: number; path: [number, number, number][] }
+export interface Trip {
+  id: number; w: number; left: boolean; dwellA: number; dwellB: number; path: [number, number, number][];
+  /** Which road each point of `path` is on (its id): for finding how high a point is where the road is a bridge. Not sent. */
+  roads: number[];
+}
 
 export const PARKED_CAP = 60;
 export const TRIP_CAP = 14;
@@ -94,7 +98,7 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
   interface Space { road: number; seg: number; f: number; side: number; seed: number; at: Pt; kerb: Pt; face: [number, number] }
   const spaces: Space[] = [];
   roads.forEach((road, r) => {
-    if (!PARK_ON.test(road.hw!) || road.width < 4.5) return;
+    if (!PARK_ON.test(road.hw!) || road.width < 4.5 || road.bridge) return; // (nobody parks on a bridge)
     const along: number[] = [0];
     for (let i = 1; i < road.pts.length; i++) along.push(along[i - 1] + metres(road.pts[i - 1], road.pts[i]));
     const junctions = road.pts.map((p, i) => (meets(p) ? along[i] : -1)).filter((d) => d >= 0);
@@ -147,7 +151,7 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
     const seg: [number, number] = [first.pts[sp.seg + 1][0] - first.pts[sp.seg][0], first.pts[sp.seg + 1][1] - first.pts[sp.seg][1]];
     let dir = seg[0] * out[0] + seg[1] * out[1] > 0 ? 1 : -1;
     let i = dir > 0 ? sp.seg + 1 : sp.seg; // the next point of the road ahead
-    const line: { p: Pt; vmax: number; meet: boolean }[] = [{ p: sp.at, vmax: SPEED[first.hw!], meet: false }];
+    const line: { p: Pt; vmax: number; meet: boolean; road: number }[] = [{ p: sp.at, vmax: SPEED[first.hw!], meet: false, road: first.id }];
     const seen = new Set<string>();
     let width = first.width;
     let length = 0;
@@ -158,7 +162,7 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
       seen.add(k);
       length += metres(line[line.length - 1].p, p);
       const here = nodes.get(k)!;
-      line.push({ p, vmax: SPEED[roads[r].hw!], meet: meets(p) });
+      line.push({ p, vmax: SPEED[roads[r].hw!], meet: meets(p), road: roads[r].id });
       // The ways on from here, except back the way we came.
       const from = line[line.length - 2].p;
       const inDir: [number, number] = [p[0] - from[0], p[1] - from[1]];
@@ -199,12 +203,14 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
     const count = Math.max(2, Math.round(total / STEP_M));
     const ds = total / count;
     const pts: Pt[] = [];
+    const via: number[] = [];
     const cap: number[] = [];
     for (let n = 0, s = 0; n <= count; n++) {
       const want = n * ds;
       while (s + 2 < line.length && dist[s + 1] < want) s++;
       const f = dist[s + 1] === dist[s] ? 0 : Math.min(1, (want - dist[s]) / (dist[s + 1] - dist[s]));
       pts.push([line[s].p[0] + (line[s + 1].p[0] - line[s].p[0]) * f, line[s].p[1] + (line[s + 1].p[1] - line[s].p[1]) * f]);
+      via.push(line[s + 1].road);
       const slow = meetsAt.some((d) => Math.abs(d - want) < 7) ? 0.55 : 1; // ease off for junctions
       cap.push(line[s + 1].vmax * slow);
     }
@@ -224,7 +230,7 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
       t += ds / ((cap[n - 1] + cap[n]) / 2);
       path.push([pts[n][0], pts[n][1], Math.round(t * 100) / 100]);
     }
-    return { id: sp.seed || 1, w: width, left, dwellA: 60 + ((sp.seed >>> 3) % 180), dwellB: 30 + ((sp.seed >>> 17) % 90), path };
+    return { id: sp.seed || 1, w: width, left, dwellA: 60 + ((sp.seed >>> 3) % 180), dwellB: 30 + ((sp.seed >>> 17) % 90), path, roads: via };
   }
 }
 

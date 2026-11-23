@@ -413,14 +413,37 @@ export function solveSpans(kit: SpanKit, elev: Elevation): Spans {
   return { profiles, crossings: kit.crossings, lifts };
 }
 
-/** The height of a stretch's surface at a point on it (the nearest of its points). */
-export function heightOn(profile: Profile, p: Pt): number {
-  let best = profile.h[0], near = Infinity;
-  for (let i = 0; i < profile.pts.length; i++) {
-    const d = Math.hypot(profile.pts[i][0] - p[0], profile.pts[i][1] - p[1]);
-    if (d < near) { near = d; best = profile.h[i]; }
+/** The height of a stretch's surface at the point of it nearest to `p`, and how far from `p` that is (in world units). */
+export function heightOn(profile: Profile, p: Pt): { h: number; off: number } {
+  let h = profile.h[0], off = Infinity;
+  for (let i = 0; i + 1 < profile.pts.length; i++) {
+    const a = profile.pts[i], b = profile.pts[i + 1];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const f = Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+    const d = Math.hypot(p[0] - a[0] - dx * f, p[1] - a[1] - dy * f);
+    if (d < off) { off = d; h = profile.h[i] + (profile.h[i + 1] - profile.h[i]) * f; }
   }
-  return best;
+  return { h, off };
+}
+
+/** How far the top of a deck, a ramp or a tunnel's floor is above the height worked out for it: as a road is above the ground. */
+export const SURFACE_M = 0.2;
+
+/** How far above the ground (or below it, in a tunnel) a way's surface is at a point of it: 0 for a way on the ground. */
+export function liftAt(spans: Spans, ramps: Map<number, Ramp>, elev: Elevation, way: number, p: Pt): number {
+  const profile = spans.profiles.get(way);
+  if (profile) return heightOn(profile, p).h + SURFACE_M - elev.surfaceHeight(p[0], p[1]);
+  const ramp = ramps.get(way);
+  if (!ramp) return 0;
+  let lift = 0, near = Infinity;
+  for (let i = 0; i + 1 < ramp.pts.length; i++) {
+    const a = ramp.pts[i], b = ramp.pts[i + 1];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const f = Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+    const d = Math.hypot(p[0] - a[0] - dx * f, p[1] - a[1] - dy * f);
+    if (d < near) { near = d; lift = ramp.lift[i] + (ramp.lift[i + 1] - ramp.lift[i]) * f; }
+  }
+  return lift > 0.03 ? lift + SURFACE_M : 0;
 }
 
 // ---------------------------------------------------------------- ramps
