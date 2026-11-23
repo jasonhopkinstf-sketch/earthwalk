@@ -26,6 +26,7 @@ const flat = { value: 0 };
 const vividness = { value: 0 };
 const none = { value: 0 };
 const marking = { value: 0 }; // 1 while the world is being drawn into the picture the line is worked out from
+const floating = new Set(); // flat pictures that float in the world and get no line (see unlinedSprite)
 const listeners = [];
 
 /** Told whenever the look changes: (look) => void. */
@@ -72,9 +73,11 @@ const VIVID = `
 /**
  * A material for anything the light falls on. `parameters` are MeshLambertMaterial's. `world` is true
  * for the ground, buildings and trees, which the flat look also makes more vivid. `patch` is the
- * material's own change to its shader, if it has one (windows in a wall, a car's paint).
+ * material's own change to its shader, if it has one (windows in a wall, a car's paint). `line` is false
+ * for a thing too thin to be outlined: the white lines on a road, which a black line down each side
+ * would cover altogether.
  */
-export function paint(parameters = {}, { world = false, patch = null } = {}) {
+export function paint(parameters = {}, { world = false, patch = null, line = true } = {}) {
   const material = new THREE.MeshLambertMaterial(parameters);
   material.onBeforeCompile = (shader) => {
     patch?.(shader);
@@ -84,9 +87,16 @@ export function paint(parameters = {}, { world = false, patch = null } = {}) {
       .replace("#include <common>", "#include <common>\nuniform float uFlat;\nuniform float uVivid;")
       .replace("#include <color_fragment>", `#include <color_fragment>\n${VIVID}`)
       .replace("#include <opaque_fragment>", `${FLAT_LIGHT}\n#include <opaque_fragment>`);
+    if (!line) {
+      // It says so to the ink pass with a half in the picture's fourth number (see the ink's own notes).
+      shader.uniforms.uMarking = marking;
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform float uMarking;")
+        .replace("#include <dithering_fragment>", "#include <dithering_fragment>\n\tgl_FragColor.a = mix(gl_FragColor.a, 0.5, uMarking);");
+    }
   };
   // (three.js tells shaders apart by the text of this function, which is the same for every material here.)
-  material.customProgramCacheKey = () => `paint:${world ? 1 : 0}:${patch ? patch.toString() : ""}`;
+  material.customProgramCacheKey = () => `paint:${world ? 1 : 0}:${line ? 1 : 0}:${patch ? patch.toString() : ""}`;
   return material;
 }
 
@@ -104,6 +114,22 @@ export function unlined(material) {
       .replace("#include <dithering_fragment>", "#include <dithering_fragment>\n\tgl_FragColor.a *= 1.0 - uMarking;");
   };
   material.customProgramCacheKey = () => "unlined";
+  return material;
+}
+
+/**
+ * A flat picture with see-through parts that floats in the world (the thought bubble over a hungry animal)
+ * and has its own drawn outline: the black line goes neither over it nor round it. Its material cannot
+ * say so in its shader, since what it writes is mixed with what is behind it; so while the world is drawn
+ * into the picture the line is worked out from, its mixing is set to leave a half in the fourth number.
+ */
+export function unlinedSprite(material) {
+  material.blendSrc = THREE.SrcAlphaFactor;
+  material.blendDst = THREE.OneMinusSrcAlphaFactor;
+  material.blendSrcAlpha = THREE.ConstantAlphaFactor;
+  material.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+  material.blendAlpha = 0.5;
+  floating.add(material);
   return material;
 }
 
@@ -256,6 +282,10 @@ const float FADE_END = ${FLAT.fadeEnd.toFixed(1)};
 // however steeply it is seen, this changes evenly from pixel to pixel: so where it bends, one thing ends
 // and another begins, and the ground does not grow lines near the horizon.
 float oneOver(float d) { return (uFar - d * (uFar - uNear)) / (uNear * uFar); }
+// The picture's fourth number says what a change of colour may be lined for: 1, anything; 0, not on it but
+// round it (the letters of a sign); a half, neither on it nor round it (white lines on a road, a thought bubble).
+// (Anything between counts as a half: that is the rim of a marked thing, where the picture's smoothing has mixed the two.)
+float lined(float mark) { return 1.0 - step(0.25, mark) * step(mark, 0.97); }
 void main() {
   vec4 here = texture2D(tColor, vUv);
   vec3 c = here.rgb;
@@ -265,8 +295,8 @@ void main() {
   float haze = clamp((depth - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0);
   // The line thins with distance: a far hillside of trees would otherwise be solid black.
   float w = max(1.0, INK_WIDTH * uHeight / 720.0 * mix(1.0, FAR_WIDTH, haze));
-  // No line for a change of colour in the sky, which has its own drawn lines, or on a sign's letters (see unlined).
-  float solid = step(d, 0.9999995) * step(0.5, here.a);
+  // No line for a change of colour in the sky, which has its own drawn lines, or on anything marked.
+  float solid = step(d, 0.9999995) * step(0.97, here.a);
   float nearest = depth;
   float edge = 0.0;
   for (int axis = 0; axis < 2; axis++) {
@@ -275,10 +305,11 @@ void main() {
     float i2 = oneOver(texture2D(tDepth, vUv - o).x);
     nearest = min(nearest, min(1.0 / i1, 1.0 / i2));
     float bend = abs((i1 + i2) * 0.5 / inv - 1.0);
-    edge = max(edge, smoothstep(DEPTH_EDGE, DEPTH_EDGE * 2.5, bend));
-    vec3 c1 = texture2D(tColor, vUv + o).rgb;
-    vec3 c2 = texture2D(tColor, vUv - o).rgb;
-    float paintStep = max(length(c1 - c), length(c2 - c));
+    vec4 s1 = texture2D(tColor, vUv + o);
+    vec4 s2 = texture2D(tColor, vUv - o);
+    // (A white line lies a hand's breadth above its road, which is an edge of a kind: not one to draw.)
+    edge = max(edge, smoothstep(DEPTH_EDGE, DEPTH_EDGE * 2.5, bend) * lined(here.a) * lined(s1.a) * lined(s2.a));
+    float paintStep = max(length(s1.rgb - c) * lined(s1.a), length(s2.rgb - c) * lined(s2.a));
     edge = max(edge, PAINT_INK * smoothstep(PAINT_EDGE, PAINT_EDGE * 1.6, paintStep) * solid);
   }
   float nearFar = clamp((nearest - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0);
@@ -333,7 +364,9 @@ export class Ink {
     camera.layers.enable(LAYER.sky);
     renderer.setRenderTarget(this.target);
     marking.value = 1;
+    for (const material of floating) material.blending = THREE.CustomBlending;
     renderer.render(scene, camera);
+    for (const material of floating) material.blending = THREE.NormalBlending;
     marking.value = 0;
     renderer.setRenderTarget(null);
     renderer.render(this.flat, this.facing);

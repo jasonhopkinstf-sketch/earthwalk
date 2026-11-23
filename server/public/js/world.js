@@ -19,6 +19,7 @@ const TREE_SECTION = 30; // the server's cone trees; we plant our own from the l
 const LABEL_RETRY_MS = 15000;
 const LABEL_TRIES = 4;
 const WATER = 7; // the ground that boats sail on and nothing else may cross
+const ROAD_MARKINGS = 15; // white lines, too thin for the flat look's black line (look.js)
 const isBuilding = (id) => id >= 20 && id <= 25;
 const isWall = (id) => id >= 20 && id <= 23;
 
@@ -249,7 +250,7 @@ export class World {
     const key = `${id},${color.join(",")}`;
     let m = this.materials.get(key);
     if (!m) {
-      m = paint({ color: surfaceColor(id, color) }, { world: true });
+      m = paint({ color: surfaceColor(id, color) }, { world: true, line: id !== ROAD_MARKINGS });
       m.userData = { id, sent: color };
       this.materials.set(key, m);
     }
