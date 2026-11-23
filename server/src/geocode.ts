@@ -46,11 +46,16 @@ export function nearestOf(places: Place[], lat: number, lon: number): Place | nu
   return best;
 }
 
+/** How far round a position a place is looked for by name, in degrees each way: about 4 km first, then about 25 km. */
+export const NEAR_BOXES = [0.04, 0.25];
+
 /**
  * A place by name, looked for round a position first ("the beach" should be the nearest beach, not
- * the most famous), then anywhere. The search lists what it finds best known first, so several are
- * asked for and the nearest taken: from Devonport "the beach" is the one down the road, not a bay
- * on an island twenty kilometres off.
+ * the most famous), then anywhere. The search lists what it finds best known first, and of many
+ * that are all as little known as each other (the beaches of a city) it hands back some ten or
+ * other, a different ten each time. So it is asked for what is close by first, and of what it
+ * finds there the nearest is taken: from Devonport "the beach" is the one down the road, not a bay
+ * on an island twenty kilometres off. Only when nothing is close is it asked for the wider region.
  */
 export async function geocodeNear(query: string, lat: number, lon: number): Promise<Place | null> {
   const q = query.trim().slice(0, 200);
@@ -58,13 +63,16 @@ export async function geocodeNear(query: string, lat: number, lon: number): Prom
   // (Kept by about a kilometre: the nearest beach is not the same one from the far side of town.)
   const key = `${q.toLowerCase()}@${lat.toFixed(2)},${lon.toFixed(2)}`;
   if (cache.has(key)) return cache.get(key)!;
-  const box = 0.25; // degrees: about 25 km each way
-  const near = await throttle.run(async () => {
-    const res = await httpGet(`${NOMINATIM_URL}/search?format=jsonv2&limit=10&bounded=1&viewbox=${(lon - box).toFixed(3)},${(lat + box).toFixed(3)},${(lon + box).toFixed(3)},${(lat - box).toFixed(3)}&q=${encodeURIComponent(q)}`, 15000);
-    if (!res.ok) throw new Error(`geocoder HTTP ${res.status}`);
-    const rows = (await res.json()) as { display_name: string; lat: string; lon: string }[];
-    return nearestOf(rows.map((row) => ({ name: row.display_name, lat: parseFloat(row.lat), lon: parseFloat(row.lon) })), lat, lon);
-  });
+  let near: Place | null = null;
+  for (const box of NEAR_BOXES) {
+    near = await throttle.run(async () => {
+      const res = await httpGet(`${NOMINATIM_URL}/search?format=jsonv2&limit=10&bounded=1&viewbox=${(lon - box).toFixed(3)},${(lat + box).toFixed(3)},${(lon + box).toFixed(3)},${(lat - box).toFixed(3)}&q=${encodeURIComponent(q)}`, 15000);
+      if (!res.ok) throw new Error(`geocoder HTTP ${res.status}`);
+      const rows = (await res.json()) as { display_name: string; lat: string; lon: string }[];
+      return nearestOf(rows.map((row) => ({ name: row.display_name, lat: parseFloat(row.lat), lon: parseFloat(row.lon) })), lat, lon);
+    });
+    if (near) break;
+  }
   const place = near ?? (await geocode(q));
   if (cache.size >= 500) cache.delete(cache.keys().next().value!);
   cache.set(key, place);
