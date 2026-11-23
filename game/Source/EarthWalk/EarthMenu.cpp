@@ -65,7 +65,10 @@ namespace
 		{ TEXT("invite"), TEXT("Me"), TEXT("Invite somebody"), TEXT("Copies a link to send to them: it brings them into your room."), TEXT(""), TEXT("invite"), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("look"), TEXT("The game"), TEXT("Switch the look"), TEXT("Between the painted look and the flat cartoon look."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("lines"), TEXT("The game"), TEXT("The drawn lines: on, or off"), TEXT("The ink line round everything. Off is easier on a slow computer."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("sound"), TEXT("The game"), TEXT("Sounds on, or off"), TEXT("The animals' voices, car horns and train whistles."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("daytime"), TEXT("The game"), TEXT("The real time of day, or always daytime"), TEXT("The real sun and moon over wherever you are, with a bright night. Or a fine day whatever the hour."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("weather"), TEXT("The game"), TEXT("The real weather, or a fine day"), TEXT("The real cloud, rain, snow, fog and wind of wherever you are. Or a fine day whatever the weather."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("map"), TEXT("The game"), TEXT("The little map: bigger, or hidden"), TEXT("The map in the corner: friends, doors, trains, cars and where you are going."), TEXT("M"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("strip"), TEXT("The game"), TEXT("Buttons on, or off"), TEXT("The row of buttons along the bottom of the screen."), TEXT("Z"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("news"), TEXT("The game"), TEXT("What's new"), TEXT("What has been added to EarthWalk lately."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },

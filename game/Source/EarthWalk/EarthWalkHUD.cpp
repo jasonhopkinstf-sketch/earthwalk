@@ -4,6 +4,8 @@
 #include "EarthMiniMap.h"
 #include "EarthLunch.h"
 #include "EarthProgress.h"
+#include "EarthWeather.h"
+#include "EarthWalkGameMode.h"
 #include "EarthFlight.h"
 #include "EarthHome.h"
 #include "EarthCare.h"
@@ -1218,18 +1220,20 @@ public:
 	}
 
 	/** The credit line names whoever's data is on screen. In the photographic world the Cesium plugin adds Google's logo and per-tile credits itself. */
-	static FString CreditText(bool bPhotoWorld)
+	static FString CreditText(bool bPhotoWorld, bool bWeather = false)
 	{
 		// Printf checks its format at compile time, so each one has to be a literal of its own.
-		return bPhotoWorld
+		// (Open-Meteo asks to be named wherever its weather is shown.)
+		return (bPhotoWorld
 			? FString::Printf(TEXT("EarthWalk %s  ·  3D imagery © Google  ·  Place search © OpenStreetMap contributors"), *GameVersion())
-			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion());
+			: FString::Printf(TEXT("EarthWalk %s  ·  Map data © OpenStreetMap contributors"), *GameVersion()))
+			+ (bWeather ? TEXT("  ·  Weather data by Open-Meteo.com") : TEXT(""));
 	}
-	/** bGoogleLine: the plugin is drawing Google's own credit line, which can start before the tiles are shown. */
-	void SetCredit(bool bPhotoWorld, bool bGoogleLine)
+	/** bGoogleLine: the plugin is drawing Google's own credit line, which can start before the tiles are shown. bWeather: the real weather is being drawn. */
+	void SetCredit(bool bPhotoWorld, bool bGoogleLine, bool bWeather = false)
 	{
 		bPhotoCredit = bGoogleLine;
-		Credit->SetText(FText::FromString(CreditText(bPhotoWorld)));
+		Credit->SetText(FText::FromString(CreditText(bPhotoWorld, bWeather)));
 	}
 	TSharedPtr<SEditableTextBox> GetInput() const { return Input; }
 
@@ -1352,6 +1356,8 @@ void AEarthWalkHUD::BeginPlay()
 		Lunch->Setup(this);
 		Progress = NewObject<UEarthProgress>(this);
 		Progress->Setup(this);
+		Weather = NewObject<UEarthWeather>(this);
+		Weather->Setup(this);
 		Flight = NewObject<UEarthFlight>(this);
 		Flight->Setup(this);
 		if (FParse::Param(FCommandLine::Get(), TEXT("EWFlightCheck")))
@@ -1570,6 +1576,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	if (Progress)
 	{
 		Progress->Frame(DeltaSeconds);
+	}
+	if (Weather)
+	{
+		Weather->Frame(DeltaSeconds);
 	}
 	if (House)
 	{
@@ -1793,7 +1803,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		StatusTimer = 0.5f;
 		Overlay->SetStatus(StatusText());
 		const AEarthWorld* CreditWorld = AEarthWorld::Get(this);
-		Overlay->SetCredit(CreditWorld && CreditWorld->IsShowingPhoto(), CreditWorld && CreditWorld->IsPhotoCreditOnScreen());
+		Overlay->SetCredit(CreditWorld && CreditWorld->IsShowingPhoto(), CreditWorld && CreditWorld->IsPhotoCreditOnScreen(), Weather && Weather->ShowsRealWeather());
 		UpdateWhere();
 	}
 	if (WhereAskAt > 0.0 && FPlatformTime::Seconds() >= WhereAskAt)
@@ -2638,6 +2648,24 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	{
 		RunCommand(TEXT("look"), EarthLook::Current() == EEarthLook::Flat ? TEXT("barnyard") : TEXT("flat"));
 	}
+	else if (Id == TEXT("daytime"))
+	{
+		if (Weather)
+		{
+			AddLine(Weather->ToggleTime(), NoticeColor);
+		}
+	}
+	else if (Id == TEXT("weather"))
+	{
+		if (Weather)
+		{
+			AddLine(Weather->ToggleWeather(), NoticeColor);
+		}
+	}
+	else if (Id == TEXT("lines"))
+	{
+		RunCommand(TEXT("lines"), FString());
+	}
 	else if (Id == TEXT("sound"))
 	{
 		const AEarthWorld* Earth = AEarthWorld::Get(this);
@@ -3443,6 +3471,9 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/invite   copy a link to send to someone: it brings them into your room, in their browser"), NoticeColor);
 		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
 		AddLine(TEXT("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look"), NoticeColor);
+		AddLine(TEXT("/lines on, /lines off   the drawn line round everything; off is easier on a slow computer"), NoticeColor);
+		AddLine(TEXT("/time real   the real sun and moon over wherever you are        /time day   always daytime        /time morning, noon, sunset or night   try one out"), NoticeColor);
+		AddLine(TEXT("/weather real   the real weather of wherever you are        /weather fine   always a fine day        /weather rain, snow, fog, cloudy, storm, drizzle or windy   try one out"), NoticeColor);
 		AddLine(TEXT("/world auto   ours on foot, Google's photographic 3D world from the air (needs /mapskey <key>)"), NoticeColor);
 		AddLine(TEXT("/world photo   the photographic world everywhere        /world generated   ours everywhere"), NoticeColor);
 		AddLine(TEXT("Keys: drag or arrows to look, 2 run / 1 walk (or hold Shift), V camera view, wheel zoom"), NoticeColor);
@@ -3602,6 +3633,36 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("quit") || Command == TEXT("exit"))
 	{
 		UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);
+	}
+	else if (Command == TEXT("time"))
+	{
+		// The hour: the real sun and moon over wherever I am, always a fine day, or a time of the real day to try out.
+		if (Weather)
+		{
+			AddLine(Weather->TimeCommand(Argument), NoticeColor);
+		}
+	}
+	else if (Command == TEXT("weather"))
+	{
+		if (Weather)
+		{
+			AddLine(Weather->WeatherCommand(Argument), NoticeColor);
+		}
+	}
+	else if (Command == TEXT("lines"))
+	{
+		// The drawn line round everything, in either look: "/lines off" for a slow computer, "/lines on", or "/lines" for the other.
+		AEarthWalkGameMode* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<AEarthWalkGameMode>() : nullptr;
+		const FString Asked = Argument.TrimStartAndEnd().ToLower();
+		if (Mode && (Asked.IsEmpty() || Asked == TEXT("on") || Asked == TEXT("off")))
+		{
+			Mode->SetLines(Asked.IsEmpty() ? !Mode->LinesOn() : Asked == TEXT("on"));
+			AddLine(Mode->LinesOn() ? TEXT("The drawn lines are on. /lines off takes them away, which is easier on a slow computer.") : TEXT("The drawn lines are off. /lines on brings them back."), NoticeColor);
+		}
+		else
+		{
+			AddLine(TEXT("/lines on   the drawn line round everything        /lines off   without it, which is easier on a slow computer"), NoticeColor);
+		}
 	}
 	else if (Command == TEXT("look"))
 	{

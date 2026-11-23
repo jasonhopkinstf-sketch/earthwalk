@@ -315,34 +315,88 @@ return float3(0.8, 0.6, 0.0) * gust * Sway * lift * lift;
 	const TCHAR* const SkyCode = TEXT(R"HLSL(
 float3 d = normalize(-ToCamera);
 float3 sunDir = normalize(Sun);
+float3 moonDir = normalize(Moon);
 float el = asin(clamp(d.z, -1.0, 1.0));
 float az = atan2(d.y, d.x);
 float up = saturate(d.z);
 
 // The air: pale by the horizon, deep overhead, a little warm round the sun. (Colours here are
 // amounts of light, not screen colours, so they look darker written down than they come out.)
-float3 c = lerp(float3(0.42, 0.70, 0.95), float3(0.10, 0.36, 0.86), smoothstep(0.0, 0.34, up));
-c = lerp(c, float3(0.025, 0.15, 0.70), smoothstep(0.25, 0.95, up));
+// What they are at this hour and in this weather comes from EarthSkyMath (skyLight in skymath.js).
+float3 c = lerp(Horizon, Mid, smoothstep(0.0, 0.34, up));
+c = lerp(c, Zenith, smoothstep(0.25, 0.95, up));
 float toSun = dot(d, sunDir);
-c += float3(0.10, 0.08, 0.02) * pow(saturate(toSun), 8.0) * (1.0 - Flat);
+c += Glow * pow(saturate(toSun), 8.0) * (1.0 - Flat);
+// Morning and evening: warm light low along the horizon, strongest under the sun.
+float2 dLevel = normalize(d.xy + float2(0.00001, 0.00001));
+float2 sunLevel = normalize(sunDir.xy + float2(0.00001, 0.00001));
+float sunSide = 0.5 + 0.5 * dot(dLevel, sunLevel);
+c += Dusk * (1.0 - smoothstep(0.0, 0.32, up)) * (0.2 + 0.8 * sunSide * sunSide) * (1.0 - Flat);
 // Below the horizon, where the land has run out: far country in haze.
-c = lerp(c, float3(0.40, 0.66, 0.66), smoothstep(-0.01, -0.09, d.z));
-c = lerp(c, float3(0.26, 0.52, 0.34), smoothstep(-0.09, -0.5, d.z));
-// The flat look: one blue from the horizon up.
-c = lerp(c, float3(0.09, 0.40, 1.0), Flat * smoothstep(-0.02, 0.0, d.z));
+c = lerp(c, float3(0.40, 0.66, 0.66) * Land, 1.0 - smoothstep(-0.09, -0.01, d.z));
+c = lerp(c, float3(0.26, 0.52, 0.34) * Land, 1.0 - smoothstep(-0.5, -0.09, d.z));
+// The flat look: one colour from the horizon up.
+c = lerp(c, FlatSky, Flat * smoothstep(-0.02, 0.0, d.z));
 c *= Bright;
+// Nothing in the sky shows through the land.
+float above = smoothstep(-0.02, -0.005, d.z);
+float aa = 0.0014;
+
+// Stars: the sky is cut into small boxes, and one box in ten holds a star, each with its own size and twinkle.
+if (Stars > 0.0 && d.z > 0.0)
+{
+	float3 q = d * 34.0;
+	float3 cell = floor(q);
+	float h = frac(sin(dot(cell, float3(127.1, 311.7, 74.7))) * 43758.5453);
+	if (h > 0.90)
+	{
+		float3 jitter = float3(frac(sin(h * 91.7) * 43758.5453), frac(sin(h * 47.3) * 43758.5453), frac(sin(h * 13.9) * 43758.5453));
+		float3 middle = cell + 0.5 + (jitter - 0.5) * 0.5;
+		float size = 0.07 + 0.19 * frac(sin(h * 7.7) * 43758.5453) * frac(sin(h * 5.3) * 43758.5453);
+		float twinkle = 0.78 + 0.22 * sin(Time * (1.0 + 2.5 * frac(sin(h * 3.1) * 43758.5453)) + h * 500.0);
+		float star = (1.0 - smoothstep(size * 0.55, size, length(q - middle))) * twinkle;
+		c = lerp(c, float3(1.0, 0.96, 0.82) * CloudBright, star * Stars * smoothstep(0.0, 0.10, d.z));
+	}
+}
 
 // The sun: a warm disc with a drawn edge and a pale ring of glow.
 float sunAngle = acos(clamp(toSun, -1.0, 1.0));
-float aa = 0.0014;
 float glow = exp(-sunAngle * 9.0);
-c = lerp(c, float3(1.0, 0.92, 0.60) * CloudBright, glow * 0.35 * (1.0 - Flat));
+float sunSeen = SunShow * above;
+c = lerp(c, float3(1.0, 0.92, 0.60) * SunDisc * CloudBright, glow * 0.35 * (1.0 - Flat) * sunSeen);
 float rim = 1.0 - smoothstep(SunSize + 0.006 - aa, SunSize + 0.006 + aa, sunAngle);
 float disc = 1.0 - smoothstep(SunSize - aa, SunSize + aa, sunAngle);
-c = lerp(c, float3(1.0, 0.42, 0.04) * CloudBright, rim);
-c = lerp(c, float3(1.0, 0.80, 0.22) * CloudBright * 1.3, disc);
+c = lerp(c, float3(1.0, 0.42, 0.04) * SunDisc * CloudBright, rim * sunSeen);
+c = lerp(c, float3(1.0, 0.80, 0.22) * SunDisc * CloudBright * 1.3, disc * sunSeen);
 
-// Clouds.
+// The moon: a ball lit from where the sun really is, so its phase and the way its horns point are the real ones.
+if (MoonShow > 0.0)
+{
+	float moonAngle = acos(clamp(dot(d, moonDir), -1.0, 1.0));
+	float moonSeen = MoonShow * above;
+	c = lerp(c, float3(0.70, 0.82, 1.0) * CloudBright, exp(-moonAngle * 10.0) * 0.32 * MoonGlow * (1.0 - Flat) * above);
+	if (moonAngle < MoonSize + 0.02)
+	{
+		float3 mx = normalize(cross(float3(0.0, 0.0, 1.0), moonDir) + float3(0.0001, 0.0, 0.0));
+		float3 my = cross(moonDir, mx);
+		float2 mq = float2(dot(d, mx), dot(d, my)) / sin(MoonSize);
+		float mr = length(mq);
+		float3 facing = mq.x * mx + mq.y * my - sqrt(max(0.0, 1.0 - mr * mr)) * moonDir;
+		float sunlit = smoothstep(-0.04, 0.04, dot(facing, sunDir));
+		// Three grey seas, drawn as plain rounds.
+		float seas = max(max(1.0 - smoothstep(0.24, 0.27, length(mq - float2(-0.30, 0.28))), 1.0 - smoothstep(0.16, 0.19, length(mq - float2(0.28, -0.12)))), 1.0 - smoothstep(0.11, 0.14, length(mq - float2(0.02, -0.52))));
+		float3 pale = float3(0.98, 0.95, 0.80) * (1.0 - 0.17 * seas) * CloudBright;
+		float3 moonFace = lerp(lerp(c, pale, 0.08), pale, sunlit);
+		float moonSoft = aa / MoonSize;
+		float moonRim = 1.0 - smoothstep(1.0 + 0.10 - moonSoft, 1.0 + 0.10 + moonSoft, mr);
+		float moonDisc = 1.0 - smoothstep(1.0 - moonSoft, 1.0 + moonSoft, mr);
+		c = lerp(c, lerp(float3(0.30, 0.38, 0.62), float3(0.01, 0.012, 0.02), Flat) * CloudBright, moonRim * moonSeen * 0.55);
+		c = lerp(c, moonFace, moonDisc * moonSeen);
+	}
+}
+
+// Clouds. (DriftAt is how much further round the wind has carried them than a fine day's breeze would.)
+float inkLight = clamp(dot(CloudLit, float3(0.299, 0.587, 0.114)), 0.3, 1.0);
 for (int row = 0; row < 3; ++row)
 {
 	float rowEl = row == 0 ? 0.11 : row == 1 ? 0.27 : 0.50;
@@ -350,7 +404,7 @@ for (int row = 0; row < 3; ++row)
 	float places = row == 0 ? 15.0 : row == 1 ? 10.0 : 7.0;
 	float around = cos(rowEl);
 	float placeWidth = 6.2831853 / places;
-	float a = az + Time * Drift * (0.6 + 0.5 * row) + row * 1.7;
+	float a = az + (Time * Drift + DriftAt) * (0.6 + 0.5 * row) + row * 1.7;
 	float place = floor(a / placeWidth);
 	for (int k = -1; k <= 1; ++k)
 	{
@@ -387,13 +441,15 @@ for (int row = 0; row < 3; ++row)
 		float lineWidth = CloudInk * 0.0032 / s;
 		float inked = smoothstep(-lineWidth - soft, -lineWidth + soft, edge);
 		float shaded = (1.0 - smoothstep(underside - 0.03, underside + 0.03, p.y)) * (1.0 - 0.75 * Flat);
-		float3 cloud = lerp(float3(1.0, 1.0, 0.985), float3(0.56, 0.69, 0.93), shaded) * CloudBright;
-		cloud = lerp(cloud, lerp(float3(0.05, 0.13, 0.38), float3(0.01, 0.012, 0.02), Flat), inked * step(0.001, CloudInk));
+		float3 cloud = lerp(CloudLit, CloudShade, shaded) * CloudBright;
+		cloud = lerp(cloud, lerp(float3(0.05, 0.13, 0.38) * inkLight, float3(0.01, 0.012, 0.02), Flat), inked * step(0.001, CloudInk));
 		// Far clouds sink into the air by the horizon.
 		cloud = lerp(cloud, c, (row == 0 ? 0.30 : row == 1 ? 0.10 : 0.0) * (1.0 - Flat));
 		c = lerp(c, cloud, inside);
 	}
 }
+// Fog and falling rain: the sky is lost in it.
+c = lerp(c, MistColour * Bright, Mist);
 return c;
 )HLSL");
 
@@ -819,6 +875,30 @@ namespace
 		FinishMaterial(Material, Custom);
 	}
 
+	/**
+	 * What falls (UEarthWeather): rain, snow and blown leaves, each a small plain shape in one colour. Unlit and
+	 * see-through, so it is drawn after the ink line has been found and gets none, as in the browser game.
+	 */
+	void BuildFallMaterial(IAssetTools& Tools)
+	{
+		UMaterial* Material = FreshMaterial(Tools, TEXT("M_EarthFall"));
+		if (!Material)
+		{
+			return;
+		}
+		Material->SetShadingModel(MSM_Unlit);
+		Material->BlendMode = BLEND_Translucent;
+		Material->TwoSided = true;
+		Material->bUsedWithInstancedStaticMeshes = true;
+		UMaterialExpressionVectorParameter* Colour = Node<UMaterialExpressionVectorParameter>(Material, -500, 0);
+		Colour->ParameterName = TEXT("Color");
+		Colour->DefaultValue = FLinearColor(0.62f, 0.74f, 0.92f);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_EmissiveColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Scalar(Material, TEXT("Opacity"), 0.9f, 200), TEXT(""), MP_Opacity);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		SaveAsset(Material);
+	}
+
 	/** The painted sky (SkyCode): unlit, seen from inside, and marked as sky so the engine lights the world from it. */
 	void BuildSkyMaterial(IAssetTools& Tools)
 	{
@@ -842,11 +922,29 @@ namespace
 		// Flat: the flat look's sky, one blue with plain white clouds.
 		const FSetting Settings[] = {
 			{ TEXT("Bright"), 0.9f }, { TEXT("CloudBright"), 1.5f }, { TEXT("Clouds"), 0.66f }, { TEXT("CloudInk"), 1.f }, { TEXT("Drift"), 0.0025f }, { TEXT("SunSize"), 0.05f }, { TEXT("Flat"), 0.f },
+			// The hour and the weather (UEarthWeather sets them; as built, a fine day): how strongly the sun, the stars and the moon are drawn,
+			// the moon's glow and size (radians), how lost in mist the sky is, and how much further round the wind has carried the clouds.
+			{ TEXT("SunShow"), 1.f }, { TEXT("Stars"), 0.f }, { TEXT("MoonShow"), 0.f }, { TEXT("MoonGlow"), 0.f }, { TEXT("MoonSize"), 0.045f }, { TEXT("Mist"), 0.f }, { TEXT("DriftAt"), 0.f },
+		};
+		// The colours of the hour (EarthSkyMath::Light): as built, a fine day's.
+		struct FColour { const TCHAR* Key; FLinearColor Value; };
+		const FColour Colours[] = {
+			{ TEXT("Moon"), FLinearColor(0.f, 0.f, 1.f) },
+			{ TEXT("Zenith"), FLinearColor(0.025f, 0.15f, 0.70f) }, { TEXT("Mid"), FLinearColor(0.10f, 0.36f, 0.86f) }, { TEXT("Horizon"), FLinearColor(0.42f, 0.70f, 0.95f) },
+			{ TEXT("FlatSky"), FLinearColor(0.09f, 0.40f, 1.0f) }, { TEXT("Glow"), FLinearColor(0.10f, 0.08f, 0.02f) }, { TEXT("Dusk"), FLinearColor(0.f, 0.f, 0.f) },
+			{ TEXT("Land"), FLinearColor(1.f, 1.f, 1.f) }, { TEXT("SunDisc"), FLinearColor(1.f, 1.f, 1.f) },
+			{ TEXT("CloudLit"), FLinearColor(1.0f, 1.0f, 0.985f) }, { TEXT("CloudShade"), FLinearColor(0.56f, 0.69f, 0.93f) }, { TEXT("MistColour"), FLinearColor(0.74f, 0.78f, 0.80f) },
 		};
 		for (const TCHAR* Name : { TEXT("ToCamera"), TEXT("Sun"), TEXT("Time") })
 		{
 			FCustomInput Input;
 			Input.InputName = Name;
+			Custom->Inputs.Add(Input);
+		}
+		for (const FColour& Colour : Colours)
+		{
+			FCustomInput Input;
+			Input.InputName = Colour.Key;
 			Custom->Inputs.Add(Input);
 		}
 		for (const FSetting& Setting : Settings)
@@ -868,6 +966,14 @@ namespace
 		for (const FSetting& Setting : Settings)
 		{
 			Connect(Scalar(Material, Setting.Key, Setting.Value, Y += 90), Custom, Setting.Key);
+		}
+		int32 ColourY = -450;
+		for (const FColour& Colour : Colours)
+		{
+			UMaterialExpressionVectorParameter* Param = Node<UMaterialExpressionVectorParameter>(Material, -1300, ColourY += 160);
+			Param->ParameterName = Colour.Key;
+			Param->DefaultValue = Colour.Value;
+			Connect(Param, Custom, Colour.Key);
 		}
 		UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT(""), MP_EmissiveColor);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
@@ -909,7 +1015,8 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 	if (Only.Equals(TEXT("sky"), ESearchCase::IgnoreCase))
 	{
 		BuildSkyMaterial(Tools);
-		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthSky only"));
+		BuildFallMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthSky and M_EarthFall only"));
 		return 0;
 	}
 	BuildFigureMaterial(Tools);
@@ -921,7 +1028,8 @@ int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 	BuildFoliageMaterial(Tools);
 	BuildSkyMaterial(Tools);
 	BuildFenceMaterial(Tools);
+	BuildFallMaterial(Tools);
 
-	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 8 materials under /Game/EarthWalk"));
+	UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: 9 materials under /Game/EarthWalk"));
 	return 0;
 }

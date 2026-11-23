@@ -9,6 +9,7 @@ class SEarthMenu;
 class UEarthMiniMap;
 class UEarthLunch;
 class UEarthProgress;
+class UEarthWeather;
 class UEarthFlight;
 class UEarthHome;
 class UEarthCare;
@@ -141,6 +142,9 @@ private:
 	/** The progress bar under the hearts (EarthProgress.h). */
 	UPROPERTY()
 	TObjectPtr<UEarthProgress> Progress;
+	/** The hour and the weather: the real sun, moon, cloud, rain, snow and fog (EarthWeather.h). */
+	UPROPERTY()
+	TObjectPtr<UEarthWeather> Weather;
 	/** Tag, hide and seek, and the round-up (EarthPlay.h). */
 	UPROPERTY()
 	TObjectPtr<UEarthPlay> Play;
