@@ -178,6 +178,7 @@ export class World {
     this.materials = new Map();
     this.solids = []; // building meshes the player collides with
     this.generation = 0;
+    this.asked = 0; // chunks asked of the server so far: a flight measures what it costs by this (flight.js)
     this.lastError = "";
     this.setOrigin(0, 0);
     onLook(() => this.applyLook());
@@ -406,6 +407,7 @@ export class World {
 
   async request({ x, y, key }) {
     this.pending.add(key);
+    this.asked++;
     const generation = this.generation;
     try {
       const wrapped = ((x % TILES) + TILES) % TILES;

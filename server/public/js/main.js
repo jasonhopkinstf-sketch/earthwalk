@@ -6,6 +6,8 @@ import { Life } from "./life.js";
 import { Meetup } from "./net.js";
 import { Player } from "./player.js";
 import { Riding } from "./riding.js";
+import { Flight } from "./flight.js";
+import { choiceWords } from "./flightplan.js";
 import { Sounds } from "./sounds.js";
 import { Passport } from "./passport.js";
 import { Orders } from "./orders.js";
@@ -73,9 +75,10 @@ sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
 const life = new Life(scene, world, sounds, traffic);
 // What the E and T keys would do just now, shown together at the bottom of the screen.
-const hints = { ride: "", talk: "", door: "", food: "", care: "" };
+const hints = { ride: "", talk: "", door: "", food: "", care: "", flight: "" };
 function showHints() {
-  const text = [hints.ride || hints.door, hints.care || hints.talk, hints.food].filter(Boolean).join("   ·   ");
+  // Being flown somewhere, the line is the flight's: what is passing below is not within reach.
+  const text = hints.flight || [hints.ride || hints.door, hints.care || hints.talk, hints.food].filter(Boolean).join("   ·   ");
   $("ride").hidden = !text;
   $("ride").textContent = text;
 }
@@ -104,6 +107,8 @@ const lunch = new Lunch({
   hint: (text) => { if (hints.food !== text) { hints.food = text; showHints(); } },
 });
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
+// "Fly there and watch": carried through the air to a place, in place of landing there at once.
+const flight = new Flight({ world, player, say: (text) => notice(text), hint: (text) => { if (hints.flight !== text) { hints.flight = text; showHints(); } } });
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 const pets = new Pets({ scene, world, player, meetup, avatars, riding });
 const care = new CareBubbles({ scene, world, player, meetup, life, hint: (text) => { if (hints.care !== text) { hints.care = text; showHints(); } } });
@@ -118,7 +123,7 @@ const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, 
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 // The menu of everything (Tab), and the box that asks "Where to?" (menu.js).
 const menu = new Menu({
-  panel: $("menu"), askBox: $("ask"), strip: $("strip"), talkBox: $("talkbox"), newsBox: $("news"),
+  panel: $("menu"), askBox: $("ask"), choiceBox: $("choice"), strip: $("strip"), talkBox: $("talkbox"), newsBox: $("news"),
   act: (id) => menuAction(id), answer: (id, text) => askDone(id, text), talkSay: (words) => talkSay(words), talkEnd: () => talk.stop(),
 });
 /** "Daisy the cow"; "The cow" until she has said who she is. */
@@ -139,7 +144,7 @@ function talkSay(words) {
   menu.setTalkWords("...");
 }
 // The little map in the corner (M): small unless it was made large or hidden, and that is remembered.
-const minimap = new MiniMap({ canvas: $("minimap"), renderer, scene, camera, world, player, meetup, riding, traffic, houses, orders, saved: saved.map, save: (name) => save({ map: name }) });
+const minimap = new MiniMap({ canvas: $("minimap"), renderer, scene, camera, world, player, meetup, riding, traffic, houses, orders, flight, saved: saved.map, save: (name) => save({ map: name }) });
 const cycleMap = () => notice(minimap.cycle());
 // The strip of buttons along the bottom: there unless it was hidden (Z), and that is remembered.
 let stripOn = saved.strip !== "off";
@@ -172,7 +177,7 @@ async function openNews(onlyNew) {
     return;
   }
   // Busy with something else by now: it is in the menu when wanted.
-  if (onlyNew && (typingNow() || menu.open || menu.asking || menu.talking || passport.open || showcase.open)) return;
+  if (onlyNew && (typingNow() || menu.open || menu.asking || menu.choosing || menu.talking || passport.open || showcase.open || flight.active)) return;
   passport.close();
   showcase.close();
   menu.showNews(entries);
@@ -332,17 +337,21 @@ const speedo = $("speedo");
 /** Scene positions of all players, this one first: the animals watch them. */
 const everyone = [player.position];
 let last = performance.now();
+/** What the frames have cost: how many, and the milliseconds of work in them (not the waiting between). `earthwalk.frames` reads it. */
+const frames = { n: 0, ms: 0, worst: 0 };
 function frame(now) {
+  const began = performance.now();
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
   orders.steer(dt);
+  flight.step(dt);
   player.update(dt);
   // At the wheel: the speed in the corner, the engine's note, and my own figure on the car, now that I can see it.
   const car = player.mount ? player.car : null;
   speedo.hidden = !car;
   if (car) speedo.textContent = `${Math.round(Math.abs(car.speed) * 3.6)} km/h`;
   sounds.engine(car ? Math.min(1, Math.abs(car.speed) / player.mount.drive.top) : null, !!car && !player.typing && player.keys.has("KeyW"));
-  avatars.showSelf(dt, car || player.view ? meetup.me : null, player.position, -player.yaw);
+  avatars.showSelf(dt, car || player.view ? meetup.me : null, player.position, flight.active ? -flight.now.yaw : -player.yaw, flight.active ? Math.min(60, flight.now.left / 3) : -1);
   avatars.update(dt, meetup.peers, world);
   riding.frame(dt, meetup.now());
   showcase.frame();
@@ -361,6 +370,10 @@ function frame(now) {
   if (look.name === "flat" && look.lines) ink.render(scene, camera);
   else renderer.render(scene, camera);
   minimap.frame();
+  const took = performance.now() - began;
+  frames.n++;
+  frames.ms += took;
+  if (took > frames.worst) frames.worst = took;
 }
 
 // ---------------------------------------------------------------- where am I?
@@ -370,6 +383,12 @@ const where = { key: "", name: "", timer: 0 };
 function showWhere(here, travelling = false) {
   const coords = `${here.lat.toFixed(4)}, ${here.lon.toFixed(4)}`;
   $("where").hidden = false;
+  if (flight.active) {
+    // Being flown somewhere: where to, and how far there is to go.
+    $("where-name").textContent = flight.now.words.head;
+    $("where-sub").textContent = flight.now.words.sub;
+    return;
+  }
   $("where-name").textContent = travelling ? "Travelling..." : where.name || coords;
   $("where-sub").textContent = travelling ? "" : [where.country, where.name ? coords : ""].filter(Boolean).join("  ·  ");
 }
@@ -399,19 +418,21 @@ function lookUpWhere(here) {
 let slowTicks = 0;
 function tickSlow() {
   slowTicks++;
-  world.update(player.position);
-  const here = world.sceneToGeo(player.position);
-  if (!player.waitingForGround) meetup.sendPosition(here.lat, here.lon, here.alt, player.heading);
+  // A flight says where the world is wanted (flight.js): ahead of a low one, and only at the two ends of a high one.
+  world.update(flight.loadAt() ?? player.position);
+  const here = flight.where() ?? world.sceneToGeo(player.position);
+  if (!player.waitingForGround) meetup.sendPosition(here.lat, here.lon, here.alt, player.heading, flight.active);
   if (slowTicks % 5 === 0) {
     life.sync(player.position);
     if (player.waitingForGround) {
       where.name = "";
       where.country = "";
       where.key = "";
-    } else lookUpWhere(here);
+    } else if (!flight.active) lookUpWhere(here); // (being flown, the top of the screen says where to: the places passed are not asked for)
     showWhere(here, player.waitingForGround);
     const parts = [];
     if (player.flying) parts.push("flying");
+    if (flight.active) parts.push(world.lastError || "being flown");
     if (player.waitingForGround) parts.push(world.lastError || "building the world here...");
     parts.push(meetup.joined ? `room "${meetup.me.room}": ${meetup.peers.size + 1} here` : "meetup server: not connected");
     $("status").textContent = parts.join("  |  ");
@@ -472,7 +493,7 @@ const typingNow = () => {
   return !!at && (at.tagName === "TEXTAREA" || (at.tagName === "INPUT" && !/^(radio|checkbox|button|submit)$/.test(at.type)));
 };
 function syncTyping() {
-  const typing = typingNow();
+  const typing = typingNow() || !!menu.choosing; // (a choice that is up has the keyboard too)
   if (typing && !player.typing) player.keys.clear();
   player.typing = typing;
 }
@@ -500,7 +521,7 @@ function raceKey() {
 /** V: riding or being carried: the seat, the view from above, the view from high up. */
 function viewKey() {
   const view = player.nextView();
-  notice(view === null ? "V looks down from above while you are riding something, or being carried: hop on first (E)."
+  notice(view === null ? "V looks down from above while you are riding something, being carried, or being flown to a place: hop on first (E)."
     : view === "your seat" ? "Back in your seat."
     : `Looking ${view}. The mouse swings the camera round, the wheel brings it nearer or further, and V moves on.`);
 }
@@ -559,10 +580,45 @@ function menuAction(id) {
   }
 }
 
+/** Lands the player at a place at once. */
+function goNow(place) {
+  notice(`Travelling to ${place.name}`);
+  player.travelTo(place.lat, place.lon);
+}
+
+/** Flies the player to a place, to watch the world go by on the way (flight.js). */
+function flyTo(place) {
+  if (flight.active) flight.takeOver(true); // on from where the flight they are on has got to
+  if (riding.mine) riding.off(); // step down first
+  if (flight.start(place)) return;
+  notice(player.waitingForGround ? "The world here is not built yet, so there is nowhere to take off from: going there at once." : "That is only a few steps away: going there at once.");
+  goNow(place);
+}
+
+/**
+ * "Go to a place..." from the menu: once the place is found, the choice is offered: there at once, or
+ * flown there to watch. Nothing of the choice is remembered: it is asked every time.
+ */
+async function goChoose(text) {
+  notice(`Looking for "${text}"...`);
+  let place;
+  try { place = await findPlace(text); } catch { return problem("Could not reach the world server to look that up."); }
+  if (!place) return problem(`Could not find "${text}". Try a fuller name, or coordinates like 48.8583, 2.2945.`);
+  const words = choiceWords(place.name, flight.plan(place));
+  if (!words) return goNow(place); // too near to fly to, or nowhere to take off from yet
+  menu.choose(words.title, words.sub, [{ id: "now", code: "Enter", key: "Enter", ...words.now }, { id: "fly", code: "KeyF", key: "F", ...words.fly }], (id) => {
+    syncTyping();
+    if (id === "fly") flyTo(place);
+    else if (id === "now") goNow(place);
+  });
+  syncTyping();
+}
+
 /** What was typed into the box that asks: the place, the name. */
 function askDone(id, text) {
   const action = findAction(id);
-  if (id === "taketo") {
+  if (id === "goto") void goChoose(text);
+  else if (id === "taketo") {
     // Said to whatever I am on (or in): "take me to the beach".
     if (riding.mine && talk.beginRide()) {
       openTalk();
@@ -572,8 +628,24 @@ function askDone(id, text) {
   } else if (action) void command(action.command, text);
 }
 
+// Esc with the mouse captured only lets the mouse go, and the page never hears the key: so, during a
+// flight with nothing else open, the mouse being let go is Esc. (Not when it is the window that was left.)
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement || !flight.active || !document.hasFocus()) return;
+  if (menu.open || menu.asking || menu.choosing || menu.talking || menu.newsOpen || passport.open || showcase.open || decor.open || lunch.open || train.open) return;
+  flight.takeOver();
+});
+
 addEventListener("keydown", (e) => {
   if (!started) return;
+  if (menu.choosing) {
+    // A choice is up, and has the keyboard: its own keys, and Esc for a change of mind.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (e.code === "Escape") menu.escape();
+    else if (!e.repeat) menu.chooseKey(e.code);
+    return;
+  }
   const typing = typingNow();
   if (e.code === "Tab") {
     e.preventDefault(); // the keyboard stays with the game
@@ -583,7 +655,10 @@ addEventListener("keydown", (e) => {
     menu.close();
     say.focus();
   } else if (e.code === "Escape") {
+    // Being flown somewhere, with nothing open to put away: Esc takes over.
+    const busy = menu.open || menu.asking || menu.talking || menu.newsOpen || passport.open || showcase.open || decor.open || lunch.open || train.open || document.activeElement === say;
     if (menu.escape()) return; // only the box that asked went: a change of mind
+    if (!busy && flight.takeOver()) return;
     if (document.activeElement === say) say.blur();
     passport.close();
     showcase.close();
@@ -643,7 +718,17 @@ async function findPlace(query) {
 const far = (m) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
 
 async function command(name, arg) {
-  if (name === "menu") {
+  if (name === "flyto" && arg) {
+    // "Go to a place..." with the choice already made: flown there, to watch.
+    notice(`Looking for "${arg}"...`);
+    try {
+      const place = await findPlace(arg);
+      if (!place) return problem(`Could not find "${arg}". Try a fuller name, or coordinates like 48.8583, 2.2945.`);
+      flyTo(place);
+    } catch {
+      problem("Could not reach the world server to look that up.");
+    }
+  } else if (name === "menu") {
     toggleMenu();
   } else if (name === "buttons") {
     toggleStrip();
@@ -673,6 +758,9 @@ async function command(name, arg) {
     notice("G   show me: a list of things to see and do, and you are taken straight to the one you pick");
     notice("    (or /show, and /show train goes at once)");
     notice("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square");
+    notice("/flyto <place or lat, lon>   be flown there and watch the world go by: over the rooftops across a town, and for");
+    notice("    anywhere further up through the haze and down over the place. W, A, S, D or Esc takes over, flying where you are.");
+    notice("    (\"Go to a place...\" in the menu, Tab, finds the place and then asks which: there at once, or flown there)");
     notice("/join <name>   go to someone        /who   who is online and where");
     notice("/home   make where you stand your home (or /home <place>); you start there next time");
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
@@ -856,4 +944,5 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+// (`step` draws one frame and `tick` does the ten-times-a-second work: for a page in the background, where the browser does neither on time.)
+window.earthwalk = { flight, frames, step: frame, tick: tickSlow, goChoose, menu, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

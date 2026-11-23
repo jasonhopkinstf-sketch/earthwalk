@@ -1,0 +1,53 @@
+// Types for flightplan.js, so the server's tests can check the sums of "fly me there".
+export interface FlightPlan {
+  kind: "low" | "high";
+  metres: number;
+  seconds: number;
+  up: number;
+  over: number;
+  down: number;
+  height: number;
+  ends: number;
+  steps: number;
+  chunks: number;
+  fx: number;
+  fy: number;
+  dx: number;
+  dy: number;
+  to: { lat: number; lon: number };
+}
+export const SEEN_CHUNKS: number;
+export const LOW_STEPS: number;
+export const BUILD_CAP: number;
+export const BUILDS_PER_CHUNK: number;
+export const HAZE_M: number;
+export const HIGH_M: number;
+export const UP_S: number;
+export const DOWN_S: number;
+export const ENDS_M: number;
+export const TOO_NEAR_M: number;
+export const SMOOTHER_PEAK: number;
+export function chunkMetres(lat: number): number;
+export function smooth(u: number): number;
+export function smoother(u: number): number;
+export function metresBetween(aLat: number, aLon: number, bLat: number, bLon: number): number;
+export function lowSeconds(metres: number): number;
+export function overSeconds(metres: number): number;
+export function lowHeight(metres: number): number;
+export function planFlight(from: { lat: number; lon: number }, to: { lat: number; lon: number }): FlightPlan | null;
+export function flightHeading(plan: FlightPlan): { east: number; south: number; yaw: number };
+export function lowAt(plan: FlightPlan, t: number): { s: number; lift: number };
+export function lowSpeed(plan: FlightPlan, t: number): number;
+export function lowTopSpeed(plan: FlightPlan): number;
+export function climbAt(plan: FlightPlan, t: number): { along: number; lift: number };
+export function descentAt(plan: FlightPlan, t: number): { left: number; lift: number };
+export function overAt(plan: FlightPlan, t: number, tileM0?: number, tileM1?: number): { lat: number; lon: number; w: number };
+export function overTopSpeed(plan: FlightPlan): number;
+export function reachAhead(tileM: number, speed: number): { near: number; far: number; seconds: number };
+export function farWords(metres: number): string;
+export function timeWords(seconds: number): string;
+export function shortName(name: string): string;
+export function choiceWords(name: string, plan: FlightPlan | null): null | {
+  title: string; sub: string; now: { label: string; about: string }; fly: { label: string; about: string };
+};
+export function flyingWords(name: string, part: "low" | "up" | "over" | "wait" | "down" | "settle", metresLeft: number): { head: string; sub: string; hint: string };
