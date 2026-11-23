@@ -379,8 +379,12 @@ export class Rooms {
         me.yaw = finite(msg.yaw) ? msg.yaw % 360 : 0;
         me.hasPos = true;
         me.dirty = true;
-        this.journal?.moved(me.id, me.lat, me.lon);
-        this.options.moved?.(me.id, me.lat, me.lon);
+        // Being flown to a place (`flown`): friends are told where they are as ever, but it is not a walk for the journal, the
+        // places passed are not places been to, and no map is downloaded ahead of them (their game asks for what it can show).
+        if (msg.flown !== true) {
+          this.journal?.moved(me.id, me.lat, me.lon);
+          this.options.moved?.(me.id, me.lat, me.lon);
+        }
         // In a race, this may take them through their next gate, or over the line.
         const race = room?.race;
         if (race && room) {

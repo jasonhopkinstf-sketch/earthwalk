@@ -163,7 +163,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #menu .page { width: min(1290px, calc(100vw - 24px)); max-height: calc(100vh - 24px); scrollbar-width: thin; overflow-y: auto; background: rgba(22, 28, 38, .94); border-radius: 14px; padding: 18px 26px 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
 #menu .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #menu h2 { margin: 0; font-size: 26px; }
-#menu .dim, #ask .dim { font-size: 12px; opacity: .62; }
+#menu .dim, #ask .dim, #choice .dim { font-size: 12px; opacity: .62; }
 #menu .lead { font-size: 14px; margin: 2px 0 10px; }
 #menu .groups { columns: 3; column-gap: 16px; }
 #menu .group { break-inside: avoid; margin-bottom: 10px; display: flex; flex-direction: column; gap: 3px; }
@@ -217,6 +217,17 @@ body.talking #ride, body.talking #speedo { display: none; }
 #ask .choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
 #ask .choices button { background: rgba(255, 255, 255, .1); color: #fff; border: 1px solid rgba(255, 255, 255, .28); border-radius: 14px; padding: 4px 12px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
 #ask .choices button:hover { background: #f5c518; color: #26221f; border-color: #f5c518; }
+/* The choice once a place is found: there at once, or flown there to watch. */
+#choice { position: fixed; top: 170px; left: 50%; transform: translateX(-50%); width: min(584px, calc(100vw - 24px)); background: rgba(22, 28, 38, .94); border-radius: 12px; padding: 16px 22px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); z-index: 7; }
+#choice .title { font-size: 21px; font-weight: 700; }
+#choice .sub { font-size: 14px; opacity: .8; margin-top: 2px; }
+#choice .options { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 10px; }
+#choice .act { display: flex; align-items: center; gap: 12px; text-align: left; background: rgba(255, 255, 255, .09); color: #fff; border: 0; border-radius: 9px; padding: 10px 14px; font: inherit; cursor: pointer; }
+#choice .act:hover { background: rgba(255, 255, 255, .2); }
+#choice .act kbd { min-width: 46px; text-align: center; font-size: 13px; }
+#choice .act .words { flex: 1; display: flex; flex-direction: column; }
+#choice .act b { font-size: 18px; font-weight: 700; }
+#choice .act .about { font-size: 13px; opacity: .7; line-height: 1.35; }
 #credit { position: fixed; right: 12px; bottom: 10px; font-size: 11px; opacity: .8; text-shadow: 0 1px 2px #000; }
 #credit a { color: inherit; }
 #chat { position: fixed; left: 12px; bottom: 12px; width: min(520px, calc(100vw - 24px)); }

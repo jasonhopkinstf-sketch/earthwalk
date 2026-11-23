@@ -33,7 +33,7 @@ export class MiniMap {
    * @param {{ canvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
    *   world: import("./world.js").World, player: import("./player.js").Player, meetup: import("./net.js").Meetup,
    *   riding: import("./riding.js").Riding, traffic: import("./traffic.js").Traffic, houses: import("./houses.js").Houses,
-   *   orders: import("./orders.js").Orders, saved: string | undefined, save: (name: string) => void }} parts
+   *   orders: import("./orders.js").Orders, flight: import("./flight.js").Flight, saved: string | undefined, save: (name: string) => void }} parts
    */
   constructor(parts) {
     Object.assign(this, parts);
@@ -175,12 +175,13 @@ export class MiniMap {
       }
     }
     let way = null, going = "", goal = null;
-    const trip = orders.trip;
+    // A ride that is taking the player somewhere, or a flight (flight.js) that is.
+    const trip = orders.trip?.path.length ? orders.trip : this.flight?.trip() ?? null;
     if (trip?.path.length) {
       going = trip.name ?? "";
       way = [player.position, ...trip.path.slice(Math.min(Math.max(trip.i, 0), trip.path.length - 1))];
       const end = trip.path[trip.path.length - 1];
-      goal = { kind: "goal", x: end.x, z: end.z, label: going };
+      goal = { kind: "goal", x: end.x, z: end.z, label: going, left: trip.left };
       marks.push(goal);
     }
     return { marks, way, going, goal };
@@ -305,7 +306,7 @@ export class MiniMap {
       foot -= 22;
       pen.fillStyle = "rgba(13, 18, 26, 0.82)";
       pen.fillRect(EDGE, foot, side, 22);
-      this.words(goingWords(going, goal ? Math.hypot(goal.x - meX, goal.z - meZ) : NaN, this.size), mid, foot + 11.5, "center", 12, GOLD);
+      this.words(goingWords(going, goal ? goal.left ?? Math.hypot(goal.x - meX, goal.z - meZ) : NaN, this.size), mid, foot + 11.5, "center", 12, GOLD);
     }
     pen.beginPath();
     pen.roundRect(EDGE + 5, foot - 23, 18, 18, 4);

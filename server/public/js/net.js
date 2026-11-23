@@ -100,8 +100,9 @@ export class Meetup extends EventTarget {
     if (this.joined && this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
   }
 
-  sendPosition(lat, lon, alt, yaw) {
-    this.send({ t: "pos", lat, lon, alt, yaw });
+  /** `flown` says the player is being flown to a place (flight.js): the server tells friends where they are as ever, and does nothing else about it. */
+  sendPosition(lat, lon, alt, yaw, flown = false) {
+    this.send(flown ? { t: "pos", lat, lon, alt, yaw, flown: true } : { t: "pos", lat, lon, alt, yaw });
   }
 
   sendChat(text) {

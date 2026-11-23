@@ -1,5 +1,6 @@
 // The menu of everything (Tab), the strip of buttons along the bottom, the small box that asks
-// "Where to?" when a thing to do needs a place or a name, the speech bubble at the foot of the
+// "Where to?" when a thing to do needs a place or a name, the box that offers a choice once the
+// place is found (there at once, or flown there to watch), the speech bubble at the foot of the
 // screen in which a thing is talked to, and the "What's new" card. What there is to do is the table in actions.js; what each one
 // does is main.js's business (`act`, `answer` for what was typed into the box, `talkSay` and
 // `talkEnd` for the conversation). The Windows game's is SEarthMenu
@@ -24,14 +25,16 @@ function keepFocus(node) {
 
 export class Menu {
   /**
-   * @param {{ panel: HTMLElement, askBox: HTMLElement, strip: HTMLElement, talkBox: HTMLElement, newsBox: HTMLElement, act: (id: string) => void,
+   * @param {{ panel: HTMLElement, askBox: HTMLElement, choiceBox: HTMLElement, strip: HTMLElement, talkBox: HTMLElement, newsBox: HTMLElement, act: (id: string) => void,
    *   answer: (id: string, text: string) => void, talkSay: (words: string) => void, talkEnd: () => void }} parts
    */
   constructor(parts) {
     Object.assign(this, parts);
     this.asking = null; // the action whose question is up
+    this.choosing = null; // the choice that is up: { options, done }
     this.buildMenu();
     this.buildAsk();
+    this.buildChoice();
     this.buildStrip();
     this.buildTalk();
     keepFocus(this.newsBox);
@@ -292,11 +295,70 @@ export class Menu {
     this.focusTalk(); // asked from inside a conversation ("Take me to..."): back to it
   }
 
+  // ---------------------------------------------------------------- the box that offers a choice
+  buildChoice() {
+    this.choiceTitle = el("div", "title");
+    this.choiceSub = el("div", "sub");
+    this.choiceList = el("div", "options");
+    this.choiceBox.replaceChildren(this.choiceTitle, this.choiceSub, this.choiceList, el("div", "dim", "Click one, or press its yellow key. Esc to change your mind."));
+    keepFocus(this.choiceBox);
+    this.choiceBox.addEventListener("click", (e) => {
+      const pick = e.target.closest("button")?.dataset.pick;
+      if (pick) this.chooseDone(pick);
+    });
+  }
+
   /**
-   * Esc: the box that asks goes first, by itself (a change of mind is not the end of the conversation);
-   * otherwise the menu and the conversation both go. True if only the box went.
+   * Puts a choice up: a title, a line under it, and the things to choose between, each
+   * { id, code, key, label, about } with `code` the key that picks it and `key` what is written on its
+   * yellow cap. `done` hears the id of the one picked, or "" for a change of mind.
+   */
+  choose(title, sub, options, done) {
+    this.close();
+    if (this.asking) this.askDone("");
+    if (this.choosing) this.chooseDone("");
+    document.exitPointerLock?.();
+    this.choosing = { options, done };
+    this.choiceTitle.textContent = title;
+    this.choiceSub.textContent = sub;
+    this.choiceList.replaceChildren(...options.map((option) => {
+      const button = el("button", "act");
+      button.type = "button";
+      button.dataset.pick = option.id;
+      const words = el("span", "words");
+      words.append(el("b", "", option.label), el("span", "about", option.about));
+      button.append(cap(option.key), words);
+      return button;
+    }));
+    this.choiceBox.hidden = false;
+  }
+
+  /** A key while a choice is up. True if it picked something. */
+  chooseKey(code) {
+    const option = this.choosing?.options.find((o) => o.code === code || (o.code === "Enter" && code === "NumpadEnter"));
+    if (option) this.chooseDone(option.id);
+    return !!option;
+  }
+
+  /** The choice is made (or, with nothing, the player changed their mind). */
+  chooseDone(id) {
+    const choice = this.choosing;
+    if (!choice) return;
+    this.choosing = null;
+    this.choiceBox.hidden = true;
+    choice.done(id);
+    this.focusTalk();
+  }
+
+  /**
+   * Esc: the box that asks, or the one that offers a choice, goes first, by itself (a change of mind is not
+   * the end of the conversation); otherwise the menu and the conversation both go. True if only a box went.
    */
   escape() {
+    if (this.choosing) {
+      this.chooseDone("");
+      return true;
+    }
     if (this.asking) {
       this.askDone("");
       return true;

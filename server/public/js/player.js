@@ -1,5 +1,5 @@
 // The local player: first-person walking and flying, driving, seen from behind the car, and the view from
-// above while riding or being carried.
+// above while riding, being carried, or being flown to a place (flight.js).
 
 import * as THREE from "three";
 import { stepCar } from "./cardrive.js";
@@ -50,6 +50,10 @@ export class Player {
     this.mount = null;
     /** True while something else moves the player: a train, or the friend steering what they both ride. */
     this.carried = false;
+    /** Set while the player is being flown to a place (flight.js), which then says where they are each frame. */
+    this.flight = null;
+    /** How many times the player has looked round for themselves, by the mouse or the arrow keys. */
+    this.looks = 0;
     /** Metres ridden on the present mount, for its legs. */
     this.travelled = 0;
     /**
@@ -75,7 +79,7 @@ export class Player {
     addEventListener("keydown", (e) => {
       if (this.typing || e.ctrlKey || e.metaKey || e.altKey) return;
       this.keys.add(e.code);
-      if (e.code === "KeyF" && !e.repeat) this.setFlying(!this.flying);
+      if (e.code === "KeyF" && !e.repeat) { if (this.flight) this.flight.takeOver(); else this.setFlying(!this.flying); }
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
     addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -100,6 +104,7 @@ export class Player {
 
   look(dx, dy) {
     // At the wheel the mouse looks round the car, and the car goes where it is steered.
+    this.looks++;
     this.turn(dx * LOOK);
     this.pitch = Math.min(1.5, Math.max(-1.5, this.pitch - dy * LOOK));
   }
@@ -114,10 +119,10 @@ export class Player {
   }
 
   /**
-   * The V key: the next of VIEWS, while riding or being carried. Returns the view's name, or null on foot.
+   * The V key: the next of VIEWS, while riding, being carried or being flown. Returns the view's name, or null on foot.
    */
   nextView() {
-    if (!this.mount && !this.carried) return null;
+    if (!this.mount && !this.carried && !this.flight) return null;
     this.setView((this.view + 1) % VIEWS.length);
     return VIEWS[this.view].name;
   }
@@ -134,7 +139,7 @@ export class Player {
   }
 
   setFlying(fly) {
-    if (this.mount || this.carried) return; // not while riding
+    if (this.mount || this.carried || this.flight) return; // not while riding, and a flight is flying already
     this.flying = fly;
     this.velocityY = 0;
     this.grounded = false;
@@ -275,11 +280,15 @@ export class Player {
     const turn = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
     const tilt = (k.has("ArrowUp") ? 1 : 0) - (k.has("ArrowDown") ? 1 : 0);
     if (!this.typing) {
+      if (turn || tilt) this.looks++;
       this.turn(turn * 1.8 * dt);
       this.pitch = Math.min(1.5, Math.max(-1.5, this.pitch + tilt * 1.2 * dt));
     }
 
-    if (this.waitingForGround) {
+    if (this.flight) {
+      // Nothing to do: flight.js has put us where the flight has got to.
+      this.taken = true;
+    } else if (this.waitingForGround) {
       const ground = this.world.groundHeight(this.position.x, this.position.z);
       if (ground !== null) {
         this.position.y = ground;
@@ -386,7 +395,7 @@ export class Player {
     }
 
     this.track(dt);
-    if (this.view && !this.mount && !this.carried) this.setView(0); // on foot again
+    if (this.view && !this.mount && !this.carried && !this.flight) this.setView(0); // on foot again
     if (this.view && !this.waitingForGround) return this.hover(dt);
     if (this.car && this.mount && !this.waitingForGround) return this.chase(dt);
     this.camera.position.set(this.position.x, this.position.y + (this.mount || this.carried ? RIDING_EYE : EYE_HEIGHT), this.position.z);

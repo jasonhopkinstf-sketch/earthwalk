@@ -126,6 +126,7 @@ Chat commands:
 | Command | What it does |
 | --- | --- |
 | `/goto <place>` | Travel anywhere: `/goto Times Square`, `/goto 35.3606, 138.7274` |
+| `/flyto <place>` | Browser only: be flown there and watch the world go by, in place of landing there at once. "Go to a place..." in the Tab menu finds the place and then asks which you would like |
 | `/join <name>` | Go to someone in your room (or, when signed in, anyone online: it switches room) |
 | `/who` | List who is in your room and, when signed in, everyone with an account: online or not, which room, and where on Earth |
 | `/login`, `/logout` | Sign in with Google (the game opens your browser; the browser version has a button on its join screen) and forget the sign-in |
@@ -435,6 +436,24 @@ or an animal, say "take me to the beach": a car drives itself there along the ro
 is close (`server/src/route.ts` finds the way), an animal cuts across country, and anywhere far is
 one jump. Steering takes the reins back. Friends see all of it. `server/public/js/orders.js`;
 docs/PROTOCOL.md, "Doing as asked".
+
+Fly me there (browser): "Go to a place..." finds the place and then offers a choice, every time:
+go there now, or fly there and watch. A flight goes up from where the player stands, along a straight
+line on the map, and down onto clear ground beside the place; the mouse looks round, V looks from
+above, and any movement key, F or Esc takes over and leaves the player flying where they are. There
+are two kinds, because of what the game can draw. Across a town (up to 14 chunk edges, about 5 to 7 km
+at Auckland) the flight stays low, 60 to 180 m over the ground and over any roof on its way, with the
+world loading under it all the way: 300 m takes 15 s, 3 km half a minute, and it is fastest in the
+middle (175 m/s for 2.7 km). Anything further goes high: 14 s climbing out until the ground is lost in
+the haze (the fog ends at 2.6 km), then across at 3 km up, 5 s for 10 km and 31 s for the other side of
+the world, then 15 s coming down over the place: under a minute in all. In the middle there is the
+sky, its clouds and the haze and nothing else; the generated world has no far-off picture of the Earth,
+and none is pretended. What a flight asks of the server is bounded: a low one at most 70 chunks (five
+for each chunk edge crossed), a high one the 25 round the place, the same as landing there at once,
+against the 200 a caller may have built in five minutes. Positions sent during a flight carry
+`flown`, so friends see the flyer go while the server counts no walking, stamps no places passed and
+downloads no map ahead (docs/PROTOCOL.md, "Meetups"). The sums are `server/public/js/flightplan.js`
+(`server/test/flight.test.ts`), the flying `flight.js`. The Windows game has not got it yet.
 
 A passport: press P. The server keeps a journal for every player of where
 they have been, what they have ridden and whom they have talked to, and the passport shows it: a
