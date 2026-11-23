@@ -10,6 +10,7 @@ import { Sounds } from "./sounds.js";
 import { Passport } from "./passport.js";
 import { Orders } from "./orders.js";
 import { Houses } from "./houses.js";
+import { People } from "./people.js";
 import { Decor } from "./decor.js";
 import { Lunch } from "./lunch.js";
 import { Train } from "./train.js";
@@ -99,6 +100,9 @@ const houses = new Houses({
   say: (text) => notice(text),
   hint: (text) => { if (hints.door !== text) { hints.door = text; showHints(); } },
 });
+// Who is inside the shop, the office or the mall I am in; talk.js can speak to them.
+const people = new People({ world, player, meetup, houses });
+talk.people = people;
 const lunch = new Lunch({
   panel: $("lunch"), hud: $("hearts"), meetup, world, player, atHome: () => houses.mine(),
   hint: (text) => { if (hints.food !== text) { hints.food = text; showHints(); } },
@@ -348,6 +352,7 @@ function frame(now) {
   showcase.frame();
   talk.frame(dt);
   houses.frame(dt);
+  people.frame(dt);
   lunch.frame(dt);
   train.frame();
   treasure.frame(dt);
@@ -856,4 +861,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, people, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

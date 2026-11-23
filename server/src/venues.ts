@@ -37,7 +37,7 @@ const SLOPE_M = 6;
 const CEILING_LEAST_M = 2.3;
 
 /** One door: where it is on the real wall and the way out of it, the ground there, and the same door seen from inside (on the room's wall). */
-export interface VenueEntry { x: number; y: number; out: XY; g: number; ix: number; iy: number; iout: XY }
+export interface VenueEntry { x: number; y: number; out: XY; g: number; ix: number; iy: number; iout: XY; /** The mesh draws a door here already (the front door of a block of flats). */ drawn?: boolean }
 export interface Venue {
   id: number;
   kind: VenueKind;
@@ -169,6 +169,8 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
       if (big) kind = shops.length >= 2 || hash32(b.id, 0x4b494e44) % 6 >= 4 ? "mall" : "office";
     }
     if (!kind) continue;
+    // (A building that has its name from one of the shops inside it is not called that as a row of shops.)
+    const name = kind === "mall" && b.name && shops.some((s) => s.name.startsWith(b.name!) || b.name!.startsWith(s.name)) ? undefined : b.name;
 
     // ---- its front door: the home's, the one the mesh draws, the middle of its shopfront, or the wall facing the street
     let door: { x: number; y: number; along: XY; out: XY } | null = home ? { x: home.x, y: home.y, along: home.along, out: home.out } : shell.door ?? shell.front ?? null;
@@ -293,7 +295,7 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
     const spec: VenueSpec = {
       kind, width: Math.round(width * 100) / 100, depth: Math.round(depth * 100) / 100, ceiling: Math.round(ceiling * 100) / 100, seed,
       doors: [{ side: 0, at: Math.round(frontAt * 100) / 100 }, ...(second ? [{ side: second.side, at: (second.lo + second.hi) / 2, lo: second.lo, hi: second.hi } as VenueDoor] : [])],
-      ...(b.name ? { name: b.name } : {}),
+      ...(name ? { name } : {}),
       ...(kind === "shop" ? { trade: tradeOf(trade ?? (b.kind === "supermarket" ? "supermarket" : undefined), b.name, seed) } : {}),
       ...(kind === "mall" && shops.length ? { shops } : {}),
       ...(hotel ? { hotel } : {}),
@@ -302,7 +304,7 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
     const doors: VenueEntry[] = [];
     const g = (x: number, y: number, o: XY): number => Math.round(ground(x + o[0] * 0.3, y + o[1] * 0.3) * 100) / 100;
     const inFront = P(laid.doors[0].at, 0);
-    doors.push({ x: door.x, y: door.y, out: door.out, g: g(door.x, door.y, door.out), ix: inFront[0], iy: inFront[1], iout: [-tb[0], -tb[1]] });
+    doors.push({ x: door.x, y: door.y, out: door.out, g: g(door.x, door.y, door.out), ix: inFront[0], iy: inFront[1], iout: [-tb[0], -tb[1]], ...(!home && door === shell.door ? { drawn: true } : {}) });
     if (second && laid.doors[1]) {
       const s = sides.find((x) => x.side === laid.doors[1].side)!;
       const inside = s.at(laid.doors[1].at);
@@ -319,7 +321,7 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
     }
     const rank = (home ? 5000 : 0) + (b.name ? 2000 : 0) + (b.use ? 1000 : 0) + Math.min(999, area / 20);
     // (What was laid out is not kept: a chunk's labels need only the doors, and a mall is a thousand pieces. It is laid out again, the same, when somebody walks in.)
-    found.push({ id: b.id, kind, ...(b.name ? { name: b.name } : {}), A, ta, tb, floor, spec, doors, home: !!home, rank });
+    found.push({ id: b.id, kind, ...(name ? { name } : {}), A, ta, tb, floor, spec, doors, home: !!home, rank });
   }
   found.sort((p, q) => q.rank - p.rank || p.id - q.id);
   return found.slice(0, VENUE_CAP).map(({ rank: _rank, ...venue }) => venue);

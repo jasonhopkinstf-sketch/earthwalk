@@ -376,9 +376,10 @@ rectangle and the building may not be, and a mall's back door is always at the e
 in at such a door moves a player a few metres.) A game lets a player in by putting them 0.9 m inside
 the door inside (at `iu`, `iv` moved against `iyaw`; or `u`, `v` against `yaw`) at height `h`, facing in;
 and out, when they are within reach of the door inside, by putting them 1.4 m outside the door outside on
-the ground. Nothing is drawn on the outside wall by the server for these doors: a game draws a door there
-itself (ours: glass double doors 1.7 m wide and 2.2 m high in a white frame, and a board over them with
-`text`, or with what the place is).
+the ground. Nothing is drawn on the outside wall by the server for these doors, except where `drawn` is 1
+(the front door of a block of flats, which the mesh has always had): a game draws a door there itself
+(ours: glass double doors 1.7 m wide and 2.2 m high in a white frame), and a board over every one of
+them with `text`, or with what the place is.
 
 A small shop, café, office or hotel that already opened as a house keeps its `door` item, which now
 carries `use` (and `text`, its name) as well: it has that inside, not rooms, and nobody can make it

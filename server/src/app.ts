@@ -180,6 +180,7 @@ export function createApp(options: AppOptions = {}): App {
   const measureHome = options.findHome ?? ((x: number, y: number, id: number) => findHome(x, y, id, elevation));
   /** The insides of lived-in houses, as last built: a few, by house and by how often it has changed. */
   const furnished = new Map<string, Buffer>();
+  const insideNames = new Map<string, { use?: string; name?: string } | null>();
   const accounts = options.accounts ?? new AccountDirectory(undefined, { accessCode, invited: options.invited });
   const placeName = options.placeName ?? reversePlace;
   const givenName = options.placeName;
@@ -214,6 +215,18 @@ export function createApp(options: AppOptions = {}): App {
   const ahead = options.warm ? new LookAhead(options.warm) : null;
   const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, taxiRemarkMs: options.taxiRemarkMs,
     homes, findHome: measureHome, worldRev: GENERATOR_REV,
+    // What the building somebody is talked to in is called: from what was kept when its inside was built (nothing is built for this).
+    insideOf: async (x, y, id) => {
+      const key = `${x}/${y}/${id}`;
+      let known = insideNames.get(key);
+      if (known === undefined) {
+        const who = await readCache(whoRel(x, y, id));
+        try { const j = who ? JSON.parse(who.toString("utf8")) as { use?: unknown; name?: unknown } : null; known = j ? { ...(typeof j.use === "string" ? { use: j.use } : {}), ...(typeof j.name === "string" ? { name: j.name.slice(0, 40) } : {}) } : null; } catch { known = null; }
+        if (insideNames.size >= 200) insideNames.delete(insideNames.keys().next().value!);
+        insideNames.set(key, known);
+      }
+      return known;
+    },
     ...(ahead ? { moved: (id: string, lat: number, lon: number) => ahead.moved(id, lat, lon) } : {}),
     course: (lat, lon, seed) => planCourse(lat, lon, seed, (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon)),
   });

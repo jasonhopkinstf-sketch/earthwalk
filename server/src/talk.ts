@@ -67,6 +67,7 @@ const KINDS: Record<string, { a: string; names: string[] }> = {
   monkey: { a: "a monkey", names: ["Chatter", "Banana", "Swing", "Mischief", "Coco", "Peanut"] },
   panda: { a: "a panda", names: ["Bamboo", "Dumpling", "Mochi", "Roly", "Bao", "Snooze"] },
   koala: { a: "a koala", names: ["Gumleaf", "Doze", "Eucalyptus Ed", "Cuddles", "Blinky", "Matilda"] },
+  owl: { a: "an owl", names: ["Hoot", "Minerva", "Blink", "Tawny", "Midnight", "Professor Wing"] },
   bear: { a: "a bear", names: ["Bruin", "Honey", "Grumble", "Berry", "Ursula", "Big Paws"] },
   moose: { a: "a moose", names: ["Antlers", "Marsh", "Bullwinkle", "Timber", "Maple", "Lumber"] },
   bison: { a: "a bison", names: ["Thunder", "Prairie", "Shaggy", "Dakota", "Rumble", "Tatanka"] },
@@ -144,6 +145,34 @@ export function persona(thing: number, sp: string): Persona {
 }
 
 const fill = (line: string, p: Persona): string => line.replaceAll("{name}", p.name).replaceAll("{kind}", p.kind).replaceAll("{a}", p.a);
+
+// ---------------------------------------------------------------- people at work, and out for the day
+
+/**
+ * What somebody inside a shop, a café, an office, a mall or an entrance hall does there (venues.ts): how the
+ * AI is told of it, what they say when a visitor walks up, and a few lines for when there is no AI to ask.
+ * `{place}` is the name of the place, or "this shop"; `{name}` their own.
+ */
+export const ROLES: Record<string, { is: string; hello: string[]; lines: string[] }> = {
+  worker: { is: "work at a desk in {place}", hello: ["Hello! I'm {name}. I work here. Mind the cables.", "Oh, a visitor! I'm {name}. Just answering my letters."], lines: ["So many letters to answer, and it's nearly lunch.", "My screen says there are forty-two things to do. I've done two.", "The best part of the day is the biscuit tin in the kitchen."] },
+  meeting: { is: "are in a meeting in {place}, which has gone on rather a long time", hello: ["Shh... we're in a meeting. I'm {name}. It's about the biscuits.", "Hello! I'm {name}. This meeting was meant to end an hour ago."], lines: ["We have agreed to have another meeting about it.", "Does anyone remember what we were deciding?", "I vote for more plants in the office. All in favour?"] },
+  reception: { is: "look after the front desk of {place} and welcome everyone who comes in", hello: ["Welcome to {place}! I'm {name}. Go right through: there's a door on the other side.", "Good day! I'm {name}, at the front desk of {place}."], lines: ["You can walk straight through, you know. Everybody does.", "If you're looking for the kitchen, follow the smell of toast.", "Sign the visitors' book? We haven't got one. Come in anyway."] },
+  keeper: { is: "keep the shop at {place} and are proud of everything on its shelves", hello: ["Welcome to {place}! I'm {name}. Have a good look round.", "Hello! I'm {name}. This is my shop. Mind the bottom shelf."], lines: ["Everything on that shelf is my favourite.", "I dust the shelves every morning, and they know it.", "Take your time. The door at the back is open too."] },
+  barista: { is: "make the drinks and serve the food at {place}", hello: ["Hello! I'm {name}. What can I get you? Press B to see what we have.", "Welcome to {place}! I'm {name}. The kettle's just boiled."], lines: ["Press B at the counter and you can see what's on today.", "One hot chocolate with extra froth is my masterpiece.", "Everything tastes better if you sit by the window."] },
+  shopper: { is: "are out shopping in {place}, with a list you keep losing", hello: ["Oh, hello! I'm {name}. I only came in for one thing.", "Hi! I'm {name}. Have you seen what they've got in here?"], lines: ["I came for socks and I'm leaving with a lamp.", "My list said one thing. I can't read my own writing.", "I do like a good look round the shops."] },
+  guest: { is: "are having something to eat and drink at {place}, in no hurry at all", hello: ["Hello! I'm {name}. The cake here is very good.", "Oh, hello. I'm {name}. Just having a sit down."], lines: ["I could sit here all afternoon. I think I will.", "Try the cake. Then tell me which one, so I can try it too.", "It's the best seat in the house, this one."] },
+  caretaker: { is: "are the caretaker of {place}: you sort the letters and keep the hall tidy", hello: ["Morning! I'm {name}, the caretaker. Wipe your feet, please.", "Hello! I'm {name}. I look after this building."], lines: ["The lift's working today. I fixed it myself.", "Number seven never collects their letters.", "You can go out by the other door, if you like. Saves walking round."] },
+  resident: { is: "live in one of the flats upstairs at {place}", hello: ["Hello! I'm {name}. I live upstairs.", "Oh, hi! I'm {name}. Just waiting for the lift."], lines: ["My window looks right over the street. I see everything.", "The lift takes its time. So do I.", "It's a friendly building. Mostly."] },
+};
+/** What the place somebody is in is called in a sentence: its name, or what it is. */
+const PLACES_ARE: Record<string, string> = { office: "this office", shop: "this shop", cafe: "this café", mall: "these shops", lobby: "this building" };
+export interface Job { role: string; place: string }
+/** Somebody's job from the role a game says they have and the place it says they are in; null for a role nobody has. */
+export function jobOf(role: unknown, where: { use?: string; name?: string } | null): Job | null {
+  if (typeof role !== "string" || !Object.hasOwn(ROLES, role)) return null;
+  return { role, place: where?.name?.trim() || PLACES_ARE[where?.use ?? ""] || "this place" };
+}
+const atWork = (line: string, p: Persona, job: Job): string => fill(line, p).replaceAll("{place}", job.place);
 
 /** What a thing says when someone walks up and says hello. Costs nothing. */
 export function greeting(p: Persona, n = 0): string {
@@ -444,9 +473,10 @@ export class Talker {
   }
 
   /** What a thing says to someone who has just walked up. Free. */
-  greet(thing: number, sp: string): Said {
+  greet(thing: number, sp: string, job: Job | null = null): Said {
     const p = persona(thing, sp);
-    return { name: p.name, text: greeting(p, hash32(thing, Math.floor(this.now() / 60000)) & 1), ai: false };
+    const n = hash32(thing, Math.floor(this.now() / 60000)) & 1;
+    return { name: p.name, text: job ? atWork(ROLES[job.role].hello[n], p, job) : greeting(p, n), ai: false };
   }
 
   /**
@@ -454,8 +484,10 @@ export class Talker {
    * their name; `riding` says whether they are on its back (or in its seat) as they speak. `notes` tell it what
    * has just happened between them (favours.ts), for it to put in its own words.
    */
-  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false, notes: string[] = [], plain = false): Promise<Said> {
+  async reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding = false, notes: string[] = [], plain = false, job: Job | null = null): Promise<Said> {
     const p = persona(thing, sp);
+    // Somebody at work says so (venues.ts): the AI is told what they do there, and without it they have lines of their own.
+    if (job) notes = [...notes, `You are not out in the wild: you are indoors, and you ${atWork(ROLES[job.role].is, p, job)}. You walk on two legs and talk like anybody at work or out for the day would, as ${p.a}. Food and drink are bought at a counter with the B key, not from you.`];
     const key = `${room}/${sp}/${thing}`;
     const now = this.now();
     let talk = this.history.get(key);
@@ -473,6 +505,7 @@ export class Talker {
       const wish = allowed(plain);
       if (wish) return { name: p.name, text: doingLine(wish, hash32(thing, talk.said)), ai: false, wish };
       if (plain?.deed === "goto") return { name: p.name, text: "Hop on first (press E), then tell me where to.", ai: false };
+      if (job && talk.said % 2 === 1) return { name: p.name, text: atWork(ROLES[job.role].lines[(talk.said >> 1) % ROLES[job.role].lines.length], p, job), ai: false };
       return { name: p.name, text: stockLine(p, hash32(thing, talk.said)), ai: false };
     };
 

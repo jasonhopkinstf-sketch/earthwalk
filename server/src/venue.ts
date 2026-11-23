@@ -241,7 +241,7 @@ export function layVenue(spec: VenueSpec): Laid {
     const t = TRADES[trade] ?? TRADES.general;
     box(F, t.shelf, 0, w, 0, 0.12, 0, tall);
     const rows = tall > 1.5 ? 3 : 2;
-    const n = plain ? 1 : w > 1.6 ? 3 : 2;
+    const n = plain ? 1 : w > 1.6 && tall > 1.5 ? 3 : 2;
     for (let row = 0; row < rows; row++) {
       const z = 0.22 + row * 0.52;
       for (let k = 0; k < n; k++) {
@@ -282,6 +282,45 @@ export function layVenue(spec: VenueSpec): Laid {
     box(F, TIMBER, 0, 1.6, 0, 0.1, 0.36, 0.9, true);
     box(F, DARK, 0.1, 0.2, 0.05, 0.45, 0, 0.36);
     box(F, DARK, 1.4, 1.5, 0.05, 0.45, 0, 0.36);
+  };
+
+  /**
+   * Somewhere for a counter, 0.65 deep, with room behind it for whoever serves: along a side wall (the one with
+   * more room first), or failing both along the back wall; as long as `most` if that fits, down to `least`.
+   * `where` says how far along the wall to try, for a counter of a length on a wall of a length.
+   */
+  const counterSpot = (most: number, least: number, where: (cw: number, run: number) => number[]): { r: Rect; behind: Rect; side: number; cw: number; wall: Lettering } | null => {
+    for (const side of front.at < W / 2 ? [3, 2, 1] : [2, 3, 1]) {
+      const run = side === 1 ? W : D;
+      for (const cw of [most, (most + least) / 2, least]) {
+        if (cw > run - 1.2) continue;
+        for (const from of where(cw, run)) {
+          if (from < 0.6 || from + cw > run - 0.3) continue;
+          const r = against([0, W, 0, D], side, from, cw, 0.65, 0.95);
+          const behind: Rect = side === 2 ? [0.1, 0.9, r[2], r[3]] : side === 3 ? [W - 0.9, W - 0.1, r[2], r[3]] : [r[0], r[1], D - 0.9, D - 0.1];
+          if (!fits(r, undefined, 0.05) || !fits(behind, undefined, 0)) continue;
+          taken.push(r, behind);
+          // (And where a board goes on the wall behind it.)
+          const wall: Lettering = side === 1 ? { text: "", a: (r[0] + r[1]) / 2, b: D - 0.04, z: 0, fa: 0, fb: -1, w: 0 } : { text: "", a: side === 2 ? 0.04 : W - 0.04, b: (r[2] + r[3]) / 2, z: 0, fa: side === 2 ? 1 : -1, fb: 0, w: 0 };
+          return { r, behind, side, cw, wall };
+        }
+      }
+    }
+    // In the smallest places there is no room to stand behind a counter: a short one against a wall, then, with whoever serves at the end of it.
+    for (const side of front.at < W / 2 ? [3, 2, 1, 0] : [2, 3, 1, 0]) {
+      const run = side < 2 ? W : D;
+      for (const cw of [Math.min(most, 1.4), 1.0]) {
+        for (let from = 0.3; from + cw + 0.75 <= run - 0.2; from += 0.3) {
+          const r = against([0, W, 0, D], side, from, cw, 0.65, 0.06);
+          const behind = against([0, W, 0, D], side, from + cw + 0.1, 0.6, 0.6, 0.1);
+          if (!fits(r, undefined, 0.05) || !fits(behind, undefined, 0)) continue;
+          taken.push(r, behind);
+          const mid = pointIn(r, side, cw / 2, 0);
+          return { r, behind, side, cw, wall: { text: "", a: mid[0] + FACING[side][0] * 0.02, b: mid[1] + FACING[side][1] * 0.02, z: 0, fa: FACING[side][0], fb: FACING[side][1], w: 0 } };
+        }
+      }
+    }
+    return null;
   };
 
   // ---- the shell: the lining of the four outside walls, with the doors seen from inside
@@ -446,18 +485,31 @@ export function layVenue(spec: VenueSpec): Laid {
     // Desks, in pairs face to face with a screen between them, in rows across the rest of the floor.
     const alongB = (hash32(spec.seed, 0x524f5753) & 1) === 1 && D > 8;
     const cw = 1.5, cd = 2.9; // a pair of desks with their chairs: across, and from chair to chair
-    const GAP = 1.5; // between one row's chairs and the next's
-    const [stepU, stepV] = [cw + 0.1, cd + GAP];
-    let desks = 0, working = 0, pairs = 0;
+    let desks = 0, working = 0;
     const most = Math.min(9, Math.round(area / 22));
     const lenU = alongB ? D : W, lenV = alongB ? W : D;
-    const nu = Math.floor((lenU - 2.0) / stepU), nv = Math.floor((lenV - 1.6 + GAP) / stepV);
-    const offU = (lenU - nu * stepU + 0.1) / 2, offV = (lenV - (nv * stepV - GAP)) / 2;
-    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
-      const u = offU + i * stepU, v = offV + j * stepV;
-      const r: Rect = alongB ? [v, v + cd, u, u + cw] : [u, u + cw, v, v + cd];
-      if (pairs >= 14 || !take(r, undefined, 0.02)) continue;
-      pairs++;
+    /** Where the pairs would stand with this much room between them: from one to the next in a row, and from one row's chairs to the next's. */
+    const rows = (gapU: number, gapV: number): Rect[] => {
+      const stepU = cw + gapU, stepV = cd + gapV;
+      const nu = Math.floor((lenU - 2.0 + gapU) / stepU), nv = Math.floor((lenV - 1.6 + gapV) / stepV);
+      const offU = (lenU - (nu * stepU - gapU)) / 2, offV = (lenV - (nv * stepV - gapV)) / 2;
+      const out: Rect[] = [];
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+        const u = offU + i * stepU, v = offV + j * stepV;
+        const r: Rect = alongB ? [v, v + cd, u, u + cw] : [u, u + cw, v, v + cd];
+        if (fits(r, undefined, 0.02)) out.push(r);
+      }
+      return out;
+    };
+    // No more than fourteen pairs, however big the floor: a big office has them further apart, not all in one corner.
+    let gapU = 0.1, gapV = 1.5;
+    let spots = rows(gapU, gapV);
+    for (let n = 0; n < 12 && spots.length > 14; n++) {
+      if (n % 2) gapV += 0.6; else gapU += 0.7;
+      spots = rows(gapU, gapV);
+    }
+    for (const r of spots.slice(0, 14)) {
+      taken.push(r);
       const k = alongB ? 2 : 0;
       const box = boxIn(r, k);
       for (const side of [0, 1]) {
@@ -530,16 +582,13 @@ export function layVenue(spec: VenueSpec): Laid {
     const walk = walkOf(1.5);
     clear.push(...walk);
     // The counter, along a side wall a little way in, with the shopkeeper behind it.
-    const side = front.at < W / 2 ? 3 : 2; // on the side with more room
-    const cw = Math.min(2.4, D - 3);
-    if (cw >= 1.4) {
-      const r = against([0, W, 0, D], side, 1.3, cw, 0.65, 0.95);
-      const behind: Rect = side === 2 ? [0.1, 0.9, r[2], r[3]] : [W - 0.9, W - 0.1, r[2], r[3]];
-      if (take(r, undefined, 0.05) && take(behind, undefined, 0)) {
-        counter(boxIn(r, side), cw, accent);
-        person("keeper", "stand", [(behind[0] + behind[1]) / 2, (r[2] + r[3]) / 2], side);
-        tills.push({ a: (r[0] + r[1]) / 2, b: (r[2] + r[3]) / 2, use: "shop", text: spec.name ?? "the shop" });
-      }
+    const till = counterSpot(2.4, 1.4, (cw, run) => [1.3, (run - cw) / 2, run - cw - 1.3]);
+    const side = till?.side ?? (front.at < W / 2 ? 3 : 2);
+    if (till) {
+      counter(boxIn(till.r, till.side), till.cw, accent);
+      person("keeper", "stand", [(till.behind[0] + till.behind[1]) / 2, (till.behind[2] + till.behind[3]) / 2], till.side);
+      tills.push({ a: (till.r[0] + till.r[1]) / 2, b: (till.r[2] + till.r[3]) / 2, use: "shop", text: spec.name ?? "the shop" });
+      if (spec.name) lettering.push({ ...till.wall, text: spec.name, z: Math.min(H - 0.35, 2.3), w: Math.min(3, till.cw + 0.6) });
     }
     // Shelves round the walls, and in rows down the middle where the shop is wide enough.
     // (A big shop has longer shelves with wider aisles between them, like a supermarket's: fewer pieces to send.)
@@ -557,12 +606,11 @@ export function layVenue(spec: VenueSpec): Laid {
       for (let b = 2.4; b + sw <= D - 1.9; b += sw + (large ? 1.4 : 0.1)) {
         const r: Rect = [a, a + 0.9, b, b + sw];
         if (!take(r, undefined, 0.02)) continue;
-        shelves(boxIn([a, a + 0.45, b, b + sw], 3), sw, trade, 0x474f4e44 + n++ * 29, 1.4, large);
-        shelves(boxIn([a + 0.45, a + 0.9, b, b + sw], 2), sw, trade, 0x474f4e44 + n++ * 29, 1.4, large);
+        shelves(boxIn([a, a + 0.45, b, b + sw], 3), sw, trade, 0x474f4e44 + n++ * 29, 1.4);
+        shelves(boxIn([a + 0.45, a + 0.9, b, b + sw], 2), sw, trade, 0x474f4e44 + n++ * 29, 1.4);
       }
     }
     plants([0, W, 0, D], 1, 0x504c4e54);
-    if (spec.name) lettering.push({ text: spec.name, a: side === 2 ? 0.04 : W - 0.04, b: 1.3 + cw / 2, z: Math.min(H - 0.35, 2.3), fa: side === 2 ? 1 : -1, fb: 0, w: Math.min(3, cw + 0.6) });
     // Somebody looking along the shelves.
     if (W * D >= 40) stroller("shopper", walk, 0.5);
     const by: [number, number] = [front.at + (side === 2 ? 1.2 : -1.2), Math.min(D - 1.6, 3.2)];
@@ -579,23 +627,20 @@ export function layVenue(spec: VenueSpec): Laid {
     const walk = walkOf(1.5);
     clear.push(...walk);
     // The counter, along a side wall, with the coffee machine and the cakes; the menu on the wall behind.
-    const side = front.at < W / 2 ? 3 : 2;
-    const cw = Math.min(3.4, D - 2.6);
-    if (cw >= 1.6) {
-      const from = Math.max(1.0, D - cw - 1.6);
-      const r = against([0, W, 0, D], side, from, cw, 0.65, 0.95);
-      const behind: Rect = side === 2 ? [0.1, 0.9, r[2], r[3]] : [W - 0.9, W - 0.1, r[2], r[3]];
-      if (take(r, undefined, 0.05) && take(behind, undefined, 0)) {
-        const box = boxIn(r, side);
-        counter(box, cw, wood);
-        box(F, DARK, 0.15, 0.75, 0.1, 0.5, 0.94, 1.34); // the coffee machine
+    const till = counterSpot(3.4, 1.6, (cw, run) => [Math.max(1.0, run - cw - 1.6), (run - cw) / 2, 1.0]);
+    if (till) {
+      const cw = till.cw;
+      const box = boxIn(till.r, till.side);
+      counter(box, cw, wood);
+      box(F, DARK, 0.15, 0.75, 0.1, 0.5, 0.94, 1.34); // the coffee machine
+      if (cw >= 2.4) {
         box(F, GLASS, 0.95, cw - 0.7, 0.08, 0.57, 0.94, 1.3); // the cakes, under glass
         box(F, 0xe8b8c8, 1.05, 1.35, 0.15, 0.5, 0.94, 1.06);
         box(F, 0xd9a55a, 1.45, Math.min(1.8, cw - 0.75), 0.15, 0.5, 0.94, 1.1);
-        person("barista", "stand", [(behind[0] + behind[1]) / 2, (r[2] + r[3]) / 2], side);
-        tills.push({ a: (r[0] + r[1]) / 2, b: (r[2] + r[3]) / 2, use: "food", text: spec.name ?? "the café" });
-        lettering.push({ text: "MENU", a: side === 2 ? 0.04 : W - 0.04, b: (r[2] + r[3]) / 2, z: Math.min(H - 0.35, 2.2), fa: side === 2 ? 1 : -1, fb: 0, w: 1.6 });
       }
+      person("barista", "stand", [(till.behind[0] + till.behind[1]) / 2, (till.behind[2] + till.behind[3]) / 2], till.side);
+      tills.push({ a: (till.r[0] + till.r[1]) / 2, b: (till.r[2] + till.r[3]) / 2, use: "food", text: spec.name ?? "the café" });
+      lettering.push({ ...till.wall, text: "MENU", z: Math.min(H - 0.35, 2.2), w: Math.min(1.6, cw) });
     }
     // Tables for two and for four across the floor, and people at some of them.
     let sat = 0, tables = 0;
@@ -657,24 +702,26 @@ export function layVenue(spec: VenueSpec): Laid {
     if (lift) letter("LIFT", lift, 1.0, 2.5);
     if (spec.hotel) {
       // The desk, with whoever is on duty behind it and the keys on the wall; luggage on a trolley; somewhere to wait.
-      const side = sidesFirst[0];
-      const cw = Math.min(2.6, D - 3.2);
-      if (cw >= 1.6) {
-        const r = against([0, W, 0, D], side, Math.max(1.4, (D - cw) / 2), cw, 0.65, 0.95);
-        const behind: Rect = side === 2 ? [0.1, 0.9, r[2], r[3]] : [W - 0.9, W - 0.1, r[2], r[3]];
-        if (take(r, undefined, 0.05) && take(behind, undefined, 0)) {
-          const box = boxIn(r, side);
-          box(F, wood, 0, cw, 0, 0.65, 0, 1.05);
-          box(F, 0xe9e4d8, -0.03, cw + 0.03, -0.03, 0.68, 1.05, 1.09);
-          box(F, 0xe0b23c, 0.3, 0.42, 0.25, 0.37, 1.09, 1.17); // the bell
-          person("reception", "stand", [(behind[0] + behind[1]) / 2, (r[2] + r[3]) / 2], side);
+      const desk = counterSpot(2.6, 1.6, (cw, run) => [Math.max(1.4, (run - cw) / 2), 1.4, run - cw - 1.4]);
+      if (desk) {
+        const { r, cw, side } = desk;
+        const box = boxIn(r, side);
+        box(F, wood, 0, cw, 0, 0.65, 0, 1.05);
+        box(F, 0xe9e4d8, -0.03, cw + 0.03, -0.03, 0.68, 1.05, 1.09);
+        box(F, 0xe0b23c, 0.3, 0.42, 0.25, 0.37, 1.09, 1.17); // the bell
+        person("reception", "stand", [(desk.behind[0] + desk.behind[1]) / 2, (desk.behind[2] + desk.behind[3]) / 2], side);
+        // The keys, on a board on the wall behind; and the hotel's name there.
+        if (side === 1) {
+          sheetB(INSIDE.glass, TIMBER, D - 0.03, r[0] + 0.3, r[1] - 0.3, 1.3, 2.0, -1);
+          for (let k = 0; k < 5; k++) sheetB(INSIDE.glass, 0xe0b23c, D - 0.04, r[0] + 0.45 + k * ((cw - 1.0) / 4), r[0] + 0.55 + k * ((cw - 1.0) / 4), 1.45 + (k % 2) * 0.25, 1.6 + (k % 2) * 0.25, -1);
+        } else {
           const wall = side === 2 ? 0.03 : W - 0.03, s = side === 2 ? 1 : -1;
           sheetA(INSIDE.glass, TIMBER, wall, r[2] + 0.3, r[3] - 0.3, 1.3, 2.0, s);
           for (let k = 0; k < 5; k++) sheetA(INSIDE.glass, 0xe0b23c, wall + s * 0.01, r[2] + 0.45 + k * ((cw - 1.0) / 4), r[2] + 0.55 + k * ((cw - 1.0) / 4), 1.45 + (k % 2) * 0.25, 1.6 + (k % 2) * 0.25, s);
-          lettering.push({ text: spec.name ?? "HOTEL", a: side === 2 ? r[1] + 0.02 : r[0] - 0.02, b: (r[2] + r[3]) / 2, z: 0.6, fa: side === 2 ? 1 : -1, fb: 0, w: Math.min(2.2, cw - 0.3) });
         }
+        lettering.push({ ...desk.wall, text: spec.name ?? "HOTEL", z: Math.min(H - 0.3, 2.35), w: Math.min(2.6, cw) });
       }
-      stand(1.0, 0.6, 0x4c554747, sidesFirst.slice(1), (box) => {
+      stand(1.0, 0.6, 0x4c554747, [...sidesFirst.slice(1), sidesFirst[0]], (box) => {
         box(F, 0xe0b23c, 0, 1.0, 0, 0.6, 0.12, 0.2, true);
         box(F, 0xe0b23c, 0, 0.06, 0, 0.06, 0.2, 1.5);
         box(F, 0xe0b23c, 0.94, 1.0, 0, 0.06, 0.2, 1.5);
@@ -846,11 +893,13 @@ export function layVenue(spec: VenueSpec): Laid {
         taken.push(p);
         block(F, 0xd9d2c4, p[0], p[1], p[2], p[3], 0, 0.5);
         block(F, 0x5a4632, p[0] + 0.1, p[1] - 0.1, p[2] + 0.1, p[3] - 0.1, 0.5, 0.54);
-        const top = Math.min(H - 0.3, 3.6);
+        // (A small tree, its leaves at eye level: looked at from underneath, a big one is only a dark slab.)
+        const top = Math.min(H - 0.5, 2.9);
+        const half = Math.min(pw * 0.36, 0.7);
         block(F, TIMBER, ca - 0.1, ca + 0.1, mid - 0.1, mid + 0.1, 0.54, top - 1.2);
-        block(F, LEAF, ca - pw * 0.42, ca + pw * 0.42, mid - 0.95, mid + 0.95, top - 1.5, top - 0.5, true);
-        block(F, 0x4fae55, ca - pw * 0.28, ca + pw * 0.28, mid - 0.6, mid + 0.6, top - 0.5, top, true);
-        put("ceiling", INSIDE.glass, 0xcfe8f7, ca - cw / 2 + 0.6, ca + cw / 2 - 0.6, mid - 2.6, mid + 2.6, H - 0.02, H - 0.02);
+        block(F, LEAF, ca - half, ca + half, mid - half, mid + half, top - 1.5, top - 0.5, true);
+        block(F, 0x4fae55, ca - half * 0.65, ca + half * 0.65, mid - half * 0.65, mid + half * 0.65, top - 0.5, top, true);
+        put("ceiling", INSIDE.ceiling, 0xbfe3fa, ca - cw / 2 + 0.6, ca + cw / 2 - 0.6, mid - 2.6, mid + 2.6, H - 0.02, H - 0.02); // the skylight
         for (const end of [-1, 1]) {
           const r: Rect = [ca - 0.8, ca + 0.8, end < 0 ? mid - 1.85 : mid + 1.35, end < 0 ? mid - 1.35 : mid + 1.85];
           taken.push(r);

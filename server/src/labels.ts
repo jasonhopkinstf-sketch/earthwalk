@@ -50,6 +50,8 @@ export interface LabelItem {
    * just behind the door outside, where that is and the heading out through it. A `door` that is a shop's has `use` too.
    */
   use?: string;
+  /** Entries: 1 where the mesh already draws a door at this spot (a block of flats' front door), so a game adds none of its own. */
+  drawn?: number;
   iu?: number;
   iv?: number;
   iyaw?: number;
@@ -289,6 +291,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
       entries.push({
         kind: "entry", id: venue.id, use: venue.kind, u: r7(d.x / S), v: r7(-d.y / S), h: Math.round(venue.floor * 100) / 100, g: d.g, yaw: compass(d.out),
         ...(apart ? { iu: r7(d.ix / S), iv: r7(-d.iy / S), iyaw: compass(d.iout) } : {}),
+        ...(d.drawn ? { drawn: 1 } : {}),
         ...(n === 0 && venue.name ? { text: venue.name } : {}),
       });
     });

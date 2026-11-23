@@ -133,6 +133,8 @@ test("every inside has a way through, and nobody stands in the furniture", () =>
         }
         for (const l of laid.lettering) assert.ok(l.text && l.a >= 0 && l.a <= width && l.b >= 0 && l.b <= depth && l.z > 0.3 && l.z < spec.ceiling && l.w > 0.3, `${what}: lettering out of place: ${JSON.stringify(l)}`);
         for (const t of laid.tills) assert.ok(t.a > 0 && t.a < width && t.b > 0 && t.b < depth && (t.use === "shop" || t.use === "food") && t.text);
+        // A shop has its counter and its keeper, a café its counter and its barista, however small or awkward it is.
+        if (kind === "shop" || kind === "cafe") assert.ok(laid.tills.length === 1 && laid.people.some((p) => p.role === (kind === "shop" ? "keeper" : "barista")), `${what}: no counter`);
         const cap = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4 }[kind];
         assert.ok(laid.people.length <= cap, `${what}: ${laid.people.length} people`);
         // Not too much to send: a quad is 120 bytes.
@@ -292,6 +294,8 @@ test("shops, cafés, offices, malls, flats and hotels open, each with a door on 
     assert.equal(it.iu !== undefined, apart || door.iout[0] * door.out[0] + door.iout[1] * door.out[1] < 0.98);
     if (it.iu !== undefined) assert.ok(Math.abs(it.iu * S - door.ix) < 0.01 && Math.abs(-it.iv! * S - door.iy) < 0.01 && it.iyaw !== undefined);
   }
+  // A block of flats or a hotel (and a big building the map says nothing about, which is drawn as one) has a front door in the mesh already.
+  assert.deepEqual([...new Set(entries.filter((it) => it.drawn).map((it) => it.id))].sort((p, q) => p! - q!), [3, 6, 12]);
   assert.deepEqual(entries.filter((it) => it.text).map((it) => it.text).sort(), ["Hotel Kiwi", "Left", "Paper Kite Books", "Right", "Riverside Mall"], "its name comes with its front door");
   assert.ok(JSON.stringify(entries).length < venues.length * 2 * 190, "under 190 bytes a door");
 
