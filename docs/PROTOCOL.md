@@ -573,6 +573,55 @@ that tells a player where they are. The position is rounded to two decimal place
 before it is looked up, and answers are remembered, so a client may ask again whenever its own rounded
 position changes. It takes the same access code as the other routes.
 
+## The weather: `GET /v1/weather?lat=...&lon=...`
+
+The live weather of the district a player is in, from [Open-Meteo](https://open-meteo.com/)
+(`server/src/weather.ts`). It takes the same access code as the other routes.
+
+```json
+{ "lat": -36.75, "lon": 174.75, "at": 1764000000000,
+  "kind": "rain", "code": 63, "cloud": 0.9, "rain": 3.2, "snow": 0,
+  "wind": 6.2, "gust": 11.3, "windFrom": 240, "temp": 14.2, "visibility": 9000,
+  "day": true, "utcOffset": 46800,
+  "credit": "Weather data by Open-Meteo.com", "creditUrl": "https://open-meteo.com/" }
+```
+
+| Field | What it is |
+| --- | --- |
+| `lat`, `lon` | The middle of the area this is the weather of. A position is rounded to a quarter of a degree (some 28 km) before anything is asked, and that is all the service is ever told of where anybody is. |
+| `at` | When the service was asked, in milliseconds since 1970. An answer is kept a quarter of an hour and shared by everybody in the area. |
+| `kind` | What to draw: `fine`, `cloudy`, `fog`, `drizzle`, `rain`, `snow` or `storm` (rain with thunder). Worked out from `code`. |
+| `code` | The service's own code, from the World Meteorological Organization's table: 0 clear, 1 to 3 mainly clear to overcast, 45 and 48 fog, 51 to 57 drizzle, 61 to 67 rain, 71 to 77 snow, 80 to 82 showers, 85 and 86 snow showers, 95 to 99 thunder. |
+| `cloud` | How much of the sky is cloud, 0 to 1. |
+| `rain` | Rain and showers, in millimetres an hour. |
+| `snow` | Snow, in centimetres an hour. |
+| `wind`, `gust` | The wind ten metres up and its gusts, in metres a second. |
+| `windFrom` | Where the wind blows from, in degrees: 0 north, 90 east. |
+| `temp` | The air's temperature, in degrees Celsius. |
+| `visibility` | How far one can see, in metres, or `null` when the service did not say. |
+| `day` | The service's word on whether the sun is up there. (The games work the sun out for themselves: see below.) |
+| `utcOffset` | How far the clocks there are from Greenwich, in seconds. |
+| `credit`, `creditUrl` | The words and the link the service's licence (CC BY 4.0) asks for wherever its data are shown. Both games show them beside the map's credit while the real weather is on. |
+
+`400` without a proper `lat` and `lon`. `503 {"error": "..."}` when there is no weather to give: the
+service did not answer and nothing recent is kept for the area (an old answer does for two hours), the
+day's ceiling of calls is spent (3,000; the service allows 10,000), or the server has the weather turned
+off (`EARTHWALK_WEATHER=0`). `429` with `Retry-After` for one address asking about more than forty new
+areas in ten minutes. **A game must carry on unchanged on anything but a `200`: it then has its fine
+day.** A game asks when it arrives somewhere and every ten minutes or so after; asking again within
+the quarter of an hour costs the service nothing.
+
+The free service is for non-commercial use, which a family game with no adverts and nothing to pay is.
+`EARTHWALK_WEATHER_URL` points the server at another copy of the service (the tests use a stand-in).
+
+### The sun and the moon
+
+Nothing is sent for these: each game works out where the sun and the moon stand from the place, the
+date and the time, with the short sums of the Astronomical Almanac (`server/public/js/skymath.js`,
+which `server/test/sky.test.ts` holds to known days), and lights the world from them: morning, noon,
+evening, and a bright night with the moon in its real phase. `skyLight` in the same file is the light
+for every height of the sun; the Windows game is to use the same numbers.
+
 ## My journal: `GET /v1/journal`
 
 The journal (see "Journal" under Meetups) of whoever the request's player token belongs to, whether or

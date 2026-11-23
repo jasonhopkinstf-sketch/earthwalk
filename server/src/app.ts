@@ -29,6 +29,7 @@ import { LookAhead } from "./ahead.ts";
 import { SHOWS } from "./showcase.ts";
 import { newsSince } from "./news.ts";
 import { claudeGuide, Guide, sightsOf, type ChunkSights, type GuideAsk } from "./guide.ts";
+import { WeatherService } from "./weather.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -105,6 +106,10 @@ export interface AppOptions {
   planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
   /** The model behind the guide's fuller answers (guide.ts). Defaults to Claude when ANTHROPIC_API_KEY is set, and to nothing (built-in answers only) when it is not; null turns it off. */
   guideAsk?: GuideAsk | null;
+  /** The live weather (weather.ts). Defaults to Open-Meteo, unless EARTHWALK_WEATHER is 0; null turns it off, and every game then has its fine day. */
+  weather?: WeatherService | null;
+  /** How many areas that are news to the weather service one address may ask about in ten minutes. */
+  weatherLimit?: number;
   /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
   taxiRemarkMs?: [number, number];
 }
@@ -222,6 +227,9 @@ export function createApp(options: AppOptions = {}): App {
     }
     return { dest, pickup };
   };
+  const weather = options.weather !== undefined ? options.weather : process.env.EARTHWALK_WEATHER === "0" ? null : new WeatherService();
+  const weatherLimit = options.weatherLimit ?? 40;
+  const weatherAsks = new Map<string, number[]>(); // caller address -> times it had the weather service asked
   const ahead = options.warm ? new LookAhead(options.warm) : null;
   // The guide (guide.ts) reads what is near a player out of the labels already built for the chunks round them:
   // it never has a chunk built for a question. What it made of a chunk's labels is kept a while.
@@ -616,6 +624,29 @@ export function createApp(options: AppOptions = {}): App {
         if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) return json(res, 400, { error: "lat and lon are needed" });
         // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
+      }
+      if (p === "/v1/weather") {
+        // The weather of the district round a position (weather.ts): asked of the service at most every quarter of an
+        // hour for each quarter of a degree, whoever asks. With none to give, 503: a game then has its fine day.
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        const lat = Number(url.searchParams.get("lat") ?? NaN), lon = Number(url.searchParams.get("lon") ?? NaN);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json(res, 400, { error: "lat and lon are needed" });
+        if (weather?.wouldAsk(lat, lon)) {
+          // Somebody hopping all over the map is not to spend the day's calls for everybody.
+          const caller = callerOf(req), now = Date.now();
+          const recent = (weatherAsks.get(caller) ?? []).filter((t) => now - t < 10 * 60_000);
+          if (recent.length >= weatherLimit) {
+            res.setHeader("Retry-After", "120");
+            return json(res, 429, { error: "asking about the weather too fast; try again shortly" });
+          }
+          recent.push(now);
+          weatherAsks.set(caller, recent);
+          if (weatherAsks.size > 5000) weatherAsks.delete(weatherAsks.keys().next().value!);
+        }
+        const found = weather ? await weather.at(lat, lon) : null;
+        if (!found) return json(res, 503, { error: "no weather to give just now" });
+        res.setHeader("Cache-Control", "private, max-age=300");
+        return json(res, 200, found);
       }
       if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, guide: guide.live, ...rooms.stats(), mem: memNow(), memMost, memParts: partsOf(process.memoryUsage()), memTop, memSet });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
