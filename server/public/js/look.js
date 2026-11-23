@@ -391,6 +391,8 @@ uniform float PAINT_INK;
 uniform float FADE_START;
 uniform float FADE_END;
 uniform float INK_BLACK;
+uniform float uFogNear;
+uniform float uFogFar;
 varying vec2 vUv;
 // One over the distance in front of the camera, from what the depth buffer holds. Across any flat surface,
 // however steeply it is seen, this changes evenly from pixel to pixel: so where it bends, one thing ends
@@ -428,6 +430,8 @@ void main() {
   }
   float nearFar = clamp((nearest - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0);
   float ink = clamp(edge * INK_STRENGTH * mix(1.0, INK_FAR, nearFar), 0.0, 1.0);
+  // What is lost in the haze or the fog has no line either: an outline is not to show through a fog.
+  ink *= 1.0 - smoothstep(uFogNear, uFogFar, nearest);
   // The line: the colour under it much darkened, or with INK_BLACK a plain black line.
   gl_FragColor = vec4(mix(c, c * vec3(${INK_TINT.map((v) => v.toFixed(3)).join(", ")}) * (1.0 - INK_BLACK), ink), 1.0);
   #include <colorspace_fragment>
@@ -442,7 +446,7 @@ export class Ink {
     this.uniforms = {
       tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uHeight: { value: 720 }, uNear: { value: 0.2 }, uFar: { value: 6000 },
       INK_WIDTH: { value: 0 }, INK_STRENGTH: { value: 0 }, INK_FAR: { value: 0 }, FAR_WIDTH: { value: 0 }, DEPTH_EDGE: { value: 0 }, PAINT_EDGE: { value: 0 }, PAINT_INK: { value: 0 },
-      FADE_START: { value: 0 }, FADE_END: { value: 0 }, INK_BLACK: { value: 0 },
+      FADE_START: { value: 0 }, FADE_END: { value: 0 }, INK_BLACK: { value: 0 }, uFogNear: { value: 900 }, uFogFar: { value: 2600 },
     };
     // Each look has its own line.
     const tune = () => {
@@ -487,6 +491,10 @@ export class Ink {
     this.fit();
     this.uniforms.uNear.value = camera.near;
     this.uniforms.uFar.value = camera.far;
+    if (scene.fog) {
+      this.uniforms.uFogNear.value = scene.fog.near;
+      this.uniforms.uFogFar.value = scene.fog.far;
+    }
     const all = camera.layers.mask;
     camera.layers.set(LAYER.world);
     camera.layers.enable(LAYER.sky);
