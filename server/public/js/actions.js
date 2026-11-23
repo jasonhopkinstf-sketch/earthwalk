@@ -60,6 +60,7 @@ export const ACTIONS = [
   own("lunch", "Me", "My lunch box", "Your five hearts and the food you carry. Beside a real shop or café, what it sells.", "B"),
   own("invite", "Me", "Invite somebody", "Copies a link to send to them: it brings them into your room.", "", "invite"),
 
+  row("look", "The game", "Switch the look", "Between the painted look and the flat cartoon look."),
   row("sound", "The game", "Sounds on, or off", "The animals' voices, car horns and train whistles."),
   row("map", "The game", "The little map: bigger, or hidden", "The map in the corner: friends, doors, trains, cars and where you are going.", "M"),
   row("strip", "The game", "Buttons on, or off", "The row of buttons along the bottom of the screen.", "Z"),

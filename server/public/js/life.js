@@ -8,6 +8,7 @@
 // Cars, vans and taxis are ready-made models (models.gen.js), one instanced mesh each.
 
 import * as THREE from "three";
+import { paint } from "./look.js";
 import { xToLon, yToLat } from "./geo.js";
 import { CALL_SLOT, callTime, creatureAt, hash32, memberId, SPECIES } from "./lifemotion.js";
 import { RIGS, VEHICLES } from "./liferigs.js";
@@ -115,7 +116,7 @@ export class Life {
     this.shown = 0;
     this.lastTime = 0;
     this.meshes = {};
-    const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const material = paint({ color: 0xffffff });
     for (const [name, geometry] of Object.entries(SHAPES)) {
       const mesh = new THREE.InstancedMesh(geometry, material, CAPACITY);
       mesh.frustumCulled = false; // the instances are spread around the player, far from the unit shape
@@ -125,10 +126,11 @@ export class Life {
       this.meshes[name] = mesh;
     }
     // The ready-made models: a corner keeps its own colour, except where `own` says the car's paint goes.
-    const modelMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
-    modelMaterial.onBeforeCompile = (shader) => {
-      shader.vertexShader = "attribute float own;\n" + shader.vertexShader.replace("#include <color_vertex>", "#include <color_vertex>\n#ifdef USE_INSTANCING_COLOR\n\tvColor.xyz = mix( color.xyz, instanceColor.xyz, own );\n#endif");
-    };
+    const modelMaterial = paint({ color: 0xffffff, vertexColors: true }, {
+      patch: (shader) => {
+        shader.vertexShader = "attribute float own;\n" + shader.vertexShader.replace("#include <color_vertex>", "#include <color_vertex>\n#ifdef USE_INSTANCING_COLOR\n\tvColor.xyz = mix( color.xyz, instanceColor.xyz, own );\n#endif");
+      },
+    });
     for (const rig of Object.values(VEHICLES)) {
       if (!rig.model) continue;
       const mesh = new THREE.InstancedMesh(rig.model.geometry, modelMaterial, MODEL_CAPACITY);

@@ -7,12 +7,13 @@
 // T beside an animal has it follow you, and walking it into the pen counts it in.
 
 import * as THREE from "three";
+import { paint } from "./look.js";
 
 const box = new THREE.BoxGeometry(1, 1, 1);
 const cone = new THREE.ConeGeometry(1, 1, 12);
-const POLE = new THREE.MeshLambertMaterial({ color: 0xf4f1ea });
-const FLAG = new THREE.MeshLambertMaterial({ color: 0xf08a3c });
-const FENCE = new THREE.MeshLambertMaterial({ color: 0x8a5a3a });
+const POLE = paint({ color: 0xf4f1ea });
+const FLAG = paint({ color: 0xf08a3c });
+const FENCE = paint({ color: 0x8a5a3a });
 /** Things that talk but cannot be led anywhere. */
 const ROOTED = new Set(["tree", "house", "car", "taxi", "tractor", "train", "boat", "sailboat"]);
 const ARROW = new THREE.MeshBasicMaterial({ color: 0xe0352b });

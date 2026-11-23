@@ -27,6 +27,8 @@ import { findAction, Menu } from "./menu.js";
 import { quickReplies } from "./actions.js";
 import { MiniMap } from "./minimap.js";
 import { newsCard } from "./newsnotes.js";
+import { HAZE, Ink, LAYER, Sky, look, onLook, setLook } from "./look.js";
+import { lookSaid, parseLook } from "./lookdata.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
@@ -39,15 +41,21 @@ const save = (patch) => localStorage.setItem("earthwalk", JSON.stringify(Object.
 const canvas = $("view");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-const SKY = 0x9ec7e8;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 900, 2600);
+// Far land sinks into the haze the sky paints under its horizon (look.js).
+renderer.setClearColor(HAZE);
+scene.fog = new THREE.Fog(HAZE, 900, 2600);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6a55, 1.15));
 const sun = new THREE.DirectionalLight(0xfff2dd, 2.1);
 sun.position.set(-0.5, 1, 0.35);
 scene.add(sun);
 const camera = new THREE.PerspectiveCamera(70, 1, 0.2, 6000);
+camera.layers.enable(LAYER.over);
+camera.layers.enable(LAYER.sky);
+const sky = new Sky(scene, sun.position);
+// The flat look's black line (look.js): a second pass over the picture, made only while it is wanted.
+const ink = new Ink(renderer);
+onLook(() => { if (look.name !== "flat" || !look.lines) ink.rest(); });
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
@@ -349,7 +357,9 @@ function frame(now) {
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
   care.frame(meetup.now());
-  renderer.render(scene, camera);
+  sky.frame(camera, meetup.now());
+  if (look.name === "flat" && look.lines) ink.render(scene, camera);
+  else renderer.render(scene, camera);
   minimap.frame();
 }
 
@@ -537,6 +547,7 @@ function menuAction(id) {
   else if (id === "news") void openNews(false);
   else if (id === "above") viewKey();
   else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
+  else if (id === "look") void command("look", look.name === "flat" ? "barnyard" : "flat");
   else if (id === "tricks") tricksKey();
   else if (id === "myhouse") homeKey();
   else if (id === "lunch") lunchKey();
@@ -639,6 +650,14 @@ async function command(name, arg) {
     cycleMap();
   } else if (name === "news") {
     void openNews(false);
+  } else if (name === "look") {
+    // The look of the whole world: "/look flat", "/look barnyard", and "/look flat nolines" for a slow computer.
+    const asked = parseLook(arg);
+    if (asked) {
+      setLook(asked.name, asked.lines);
+      save({ look: look.name, lines: look.lines ? "on" : "off" });
+      notice(lookSaid(look.name, look.lines));
+    } else notice(`This is the ${look.name} look. /look flat   bright flat colours and bold black lines        /look barnyard   the painted look`);
   } else if (name === "do") {
     menuAction(arg.toLowerCase()); // one thing from the menu by its name there
   } else if (name === "houses") {
@@ -660,6 +679,8 @@ async function command(name, arg) {
     notice("/invite   get a link to send to someone        /where   show your coordinates");
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
+    notice("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look");
+    notice("    (/look flat nolines leaves the black line off, for a slow computer)");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
     notice("V   riding anything, or being carried by a train, a taxi or a friend: look down from above, then from high up,");
     notice("    then back to your seat; the mouse swings the camera round and the wheel brings it nearer or further");
@@ -833,4 +854,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

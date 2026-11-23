@@ -10,7 +10,6 @@ const FIELDS = ["id", "group", "title", "about", "key", "command", "ask", "askHi
 
 /** Things in the Windows menu that the browser game has no use for, or does not have yet. */
 const NOT_IN_BROWSER: Record<string, string> = {
-  look: "the flat look is Windows only until it is built for the browser",
   quit: "a browser tab is closed, not quit",
 };
 /** Fields that differ on purpose. */

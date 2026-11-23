@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { decodeChunk, GRID, terrainHeight } from "./chunk.js";
 import { CHUNK_Z, TILES, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.js";
+import { look, onLook, paint, surfaceColor, unlined } from "./look.js";
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -75,6 +76,16 @@ const WINDOWS = `
   }
 `;
 
+/** What makes a wall's material draw its windows. */
+const WALL_PATCH = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nattribute vec4 wall;\nvarying vec4 vWall;")
+    .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWall = wall;");
+  shader.fragmentShader = shader.fragmentShader
+    .replace("#include <common>", "#include <common>\nvarying vec4 vWall;")
+    .replace("#include <color_fragment>", `#include <color_fragment>\n${WINDOWS}`);
+};
+
 // Tree parts, shared by every chunk: unit shapes scaled per tree (the same proportions as the Unreal game).
 const TRUNK = new THREE.CylinderGeometry(0.5, 0.5, 1, 7);
 const CROWN = new THREE.IcosahedronGeometry(0.5, 1);
@@ -100,7 +111,7 @@ function doorSignMaterial() {
   const picture = new THREE.CanvasTexture(canvas);
   picture.colorSpace = THREE.SRGBColorSpace;
   picture.anisotropy = 4;
-  return (doorSign = new THREE.MeshBasicMaterial({ map: picture }));
+  return (doorSign = unlined(new THREE.MeshBasicMaterial({ map: picture })));
 }
 /** A building's name on a cream board: painted once for each name and width, and kept. */
 const NAME_SIGN_M = 0.56; // how tall the board is
@@ -126,14 +137,25 @@ function nameSignMaterial(text, width) {
   const picture = new THREE.CanvasTexture(canvas);
   picture.colorSpace = THREE.SRGBColorSpace;
   picture.anisotropy = 4;
-  material = new THREE.MeshBasicMaterial({ map: picture });
+  material = unlined(new THREE.MeshBasicMaterial({ map: picture }));
   if (nameSigns.size > 400) nameSigns.delete(nameSigns.keys().next().value);
   nameSigns.set(key, material);
   return material;
 }
-const BARK = new THREE.MeshLambertMaterial({ color: 0x5a3d2a });
-const LEAF = new THREE.MeshLambertMaterial({ color: 0x3f8a2f, flatShading: true });
-const NEEDLE = new THREE.MeshLambertMaterial({ color: 0x2f6b2f, flatShading: true });
+const BARK = paint({ color: 0x5a3d2a }, { world: true });
+const LEAF = paint({ color: 0x3f8a2f, flatShading: true }, { world: true });
+const NEEDLE = paint({ color: 0x2f6b2f, flatShading: true }, { world: true });
+/** In the flat look a crown is a smooth ball in three even levels, not a cut stone. */
+function shadeTrees() {
+  const faceted = look.name !== "flat";
+  for (const m of [LEAF, NEEDLE]) {
+    if (m.flatShading === faceted) continue;
+    m.flatShading = faceted;
+    m.needsUpdate = true;
+  }
+}
+onLook(shadeTrees);
+shadeTrees();
 // A rounded crown: one big ball with three smaller ones tucked around it. Offsets and sizes are in canopy radii.
 const CROWN_PARTS = [
   { at: [0, 0, 0], size: [2, 1.7, 2] },
@@ -157,6 +179,12 @@ export class World {
     this.generation = 0;
     this.lastError = "";
     this.setOrigin(0, 0);
+    onLook(() => this.applyLook());
+  }
+
+  /** The look has changed: the ground takes that look's colours (look.js; buildings keep the server's). */
+  applyLook() {
+    for (const m of this.materials.values()) if (m.userData.sent) surfaceColor(m.userData.id, m.userData.sent, m.color);
   }
 
   /** Re-centres the world on a place and drops everything loaded for the old one. */
@@ -216,11 +244,13 @@ export class World {
     this.chunks.delete(key);
   }
 
-  material(color) {
-    const key = color.join(",");
+  /** The paint for a surface of the world: the colour the server sent, or the look's own for that kind of ground (`id` is the server's surface id). */
+  material(color, id = -1) {
+    const key = `${id},${color.join(",")}`;
     let m = this.materials.get(key);
     if (!m) {
-      m = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace) });
+      m = paint({ color: surfaceColor(id, color) }, { world: true });
+      m.userData = { id, sent: color };
       this.materials.set(key, m);
     }
     return m;
@@ -231,7 +261,7 @@ export class World {
     const key = `inside,${color.join(",")}`;
     let m = this.materials.get(key);
     if (!m) {
-      m = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace), side: THREE.DoubleSide });
+      m = paint({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace), side: THREE.DoubleSide }, { world: true });
       this.materials.set(key, m);
     }
     return m;
@@ -342,15 +372,7 @@ export class World {
     const key = `wall,${color.join(",")}`;
     let m = this.materials.get(key);
     if (!m) {
-      m = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace) });
-      m.onBeforeCompile = (shader) => {
-        shader.vertexShader = shader.vertexShader
-          .replace("#include <common>", "#include <common>\nattribute vec4 wall;\nvarying vec4 vWall;")
-          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWall = wall;");
-        shader.fragmentShader = shader.fragmentShader
-          .replace("#include <common>", "#include <common>\nvarying vec4 vWall;")
-          .replace("#include <color_fragment>", `#include <color_fragment>\n${WINDOWS}`);
-      };
+      m = paint({ color: new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace) }, { world: true, patch: WALL_PATCH });
       this.materials.set(key, m);
     }
     return m;
@@ -435,7 +457,7 @@ export class World {
       geometry.setIndex(new THREE.BufferAttribute(section.indices, 1));
       const walls = isWall(section.materialId);
       if (walls) geometry.setAttribute("wall", new THREE.BufferAttribute(wallCoords(pos, section.indices, (px, pz) => terrainHeight(data.heights, px / S, pz / S)), 4));
-      const mesh = new THREE.Mesh(geometry, walls ? this.wallMaterial(section.color) : this.material(section.color));
+      const mesh = new THREE.Mesh(geometry, walls ? this.wallMaterial(section.color) : this.material(section.color, section.materialId));
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
       if (isBuilding(section.materialId)) {
