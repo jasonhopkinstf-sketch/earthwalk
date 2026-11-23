@@ -74,6 +74,8 @@ public:
 	/** Carried by a train or by the friend who is steering: the player is put where that has got to, every frame. */
 	void SetCarried(bool bInCarried);
 	bool IsCarried() const { return bCarried; }
+	/** For tests: holds the W key down, or lets it go. */
+	void SetAutoWalk(bool bOn) { bAutoWalk = bOn; }
 	/** Being flown to a place (EarthFlight.h): carried, but drawn stretched out to fly and not seated. */
 	void SetFlown(bool bInFlown) { bFlown = bInFlown; }
 	/**

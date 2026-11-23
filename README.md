@@ -321,7 +321,8 @@ lasts for the visit. The catalogue and who lives where are `server/src/home.ts` 
 not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
 things on a developer's own machine; it is not set on the live server.
 
-A house from a plan of your own (in the browser so far): at the bottom of the house panel (H) somebody
+A house from a plan of your own (the plan is given in the browser; both games walk in the house built
+from it): at the bottom of the browser's house panel (H) somebody
 signed in can choose a picture of a floor plan (a photo, a screenshot or a PDF, four megabytes at
 most). `POST /v1/plan` has it read by Claude (`server/src/planreader.ts`: one request with the picture
 and a form to fill in, `output_config.format`), three tries a person a day and within the daily AI
@@ -337,7 +338,9 @@ room at each end. The house is then built from it at its true size (`buildInteri
 `PLAN_LIFT_M` (three kilometres) straight above the real house, where the fog hides it from the
 ground: going in at the front door lifts the player there, coming out sets them down in the street,
 and the stairs are walked up. A game that does not ask for the planned house (`?plan=1`) is given the
-ordinary rooms. Things on show stand against walls there; free placing does not work in it yet.
+ordinary rooms. The Windows game asks for it when the house's `lift` says so (`AEarthWorld::HouseLift`
+and `OpenHouse`), stands the player on its floor up there (`UEarthCompany::StandInside`), and sets down
+in the street anybody who leaves it some other way than by its door (`SetDown`). Things on show stand against walls there; free placing does not work in it yet.
 
 Free placing (both games): anything on show in your house can be put where you like. Stand
 in the house where you want it and press Here under it in the house panel: it is put down a step in
@@ -688,7 +691,9 @@ says that to it, and `-EWPassport` opens the passport. `-EWRace` sets a race up 
 `-EWSteer=<-1 to 1>` the wheel over. `-EWHat=<id>` puts a hat on the player's own figure, `-EWPassportDo=<what>:<id>` presses one of the
 passport's buttons (`start:hunt`), `-EWPassportScroll=<distance>` scrolls it, and `-EWTreasure`
 stands a treasure chest in front of the player. `-EWDoor` walks to the nearest front door that opens and goes
-in (`-EWDoorTurn` then looks back at the door and a little down, which lifts the camera of the views
+in (`-EWDoorId=<building>` picks the house, `-EWDoorOut` comes out again, `-EWDoorSpot=<right>_<in>_<seconds>_<turn>_<turn after>`
+stands so many metres to the right of the door and into the house and walks on for so long, up a staircase say;
+`-EWDoorTurn` then looks back at the door and a little down, which lifts the camera of the views
 from behind to the ceiling; `-EWOpenCeiling` lets it through, as it was before 0.2.42), and `-EWTaxi=<place_with_underscores>` calls a taxi (with `-EWRide=taxi` the game hops on when
 it has pulled up). While a screenshot is pending the game ignores the keyboard and
 mouse, so typing in another window cannot move the player.

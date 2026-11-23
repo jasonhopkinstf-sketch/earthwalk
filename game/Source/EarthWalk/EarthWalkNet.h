@@ -182,7 +182,7 @@ struct FEarthLived
 	double Yaw = 0.0; // the compass heading that leads out of its door
 	FString Name;     // its owner's
 	int64 Rev = 0;    // tells one furnishing from the next (a large number): the inside is fetched again when it moves on
-	double Lift = 0.0; // a house built from its owner's plan stands this far above the real one (not shown by this game yet)
+	double Lift = 0.0; // a house built from its owner's plan stands this far above the real one (AEarthWorld::HouseLift)
 	TArray<TPair<FString, double>> Garden; // the young animals before its door: what each is, and how big it has grown (0.45 to 1)
 };
 

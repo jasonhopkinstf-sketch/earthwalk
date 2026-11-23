@@ -2181,10 +2181,42 @@ void UEarthCompany::DoorFrame(double Dt)
 	// Still in the house I went into? Not once I have been taken somewhere else, or wandered off (flying out through the roof).
 	// A shop or an office is as big as its room: I am in it while within that of the door I came in by, and near its floor.
 	const bool bVenue = bInHouse && !HouseIn.Use.IsEmpty();
+	// The house I am in has been given a plan of its owner's, or has gone back to its ordinary rooms: those
+	// are somewhere else (far overhead, or back down in the real walls), so I am stood just inside the door of them.
+	if (bInHouse && !bVenue && !bDoorBusy && Me && World.IsValid() && World->HouseLift(HouseIn) != HouseLiftIn && FPlatformTime::Seconds() - LiftTriedAt > 5.0)
+	{
+		LiftTriedAt = FPlatformTime::Seconds();
+		bDoorBusy = true;
+		const FEarthDoor Going = HouseIn;
+		const double Lift = World->HouseLift(HouseIn);
+		const TWeakObjectPtr<UEarthCompany> Weak(this);
+		World->OpenHouse(Going, [Weak, Going, Lift](bool bOpen, const FString&)
+		{
+			UEarthCompany* Self = Weak.Get();
+			if (!Self)
+			{
+				return;
+			}
+			Self->bDoorBusy = false;
+			if (bOpen && Self->bInHouse && Self->HouseIn.Id == Going.Id && Self->HouseIn.Chunk == Going.Chunk)
+			{
+				Self->StandInside(Going, Lift);
+			}
+		});
+		return;
+	}
+	const double InLift = bVenue ? 0.0 : HouseLiftIn;
 	if (bInHouse && (!Me || Me->IsWaitingForGround() || !PlayerAt(Px, Pz) || std::hypot(HouseIn.Ix - Px, HouseIn.Iz - Pz) > (bVenue ? InsideSize + 10.0 : 45.0)
-		|| FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H) > (bVenue ? 6.0 : 12.0)))
+		|| FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H - InLift) > (bVenue ? 6.0 : InLift > 0.0 ? 9.0 : 12.0)))
 	{
 		bInHouse = false;
+		// Out of a house in the sky some other way than by its door (through a wall, off the edge of its floor):
+		// set down in the street, not left to a three-kilometre fall.
+		if (InLift > 0.0 && Me && !Me->IsWaitingForGround() && !Me->IsCarried() && PlayerAt(Px, Pz) && std::hypot(HouseIn.X - Px, HouseIn.Z - Pz) < 300.0
+			&& Me->FeetLocation().Z / 100.0 > HouseIn.H + 20.0)
+		{
+			SetDown(HouseIn);
+		}
 	}
 	// The people of a building are there while I am in it; its room is as big as the server says.
 	if (World.IsValid())
@@ -2251,7 +2283,13 @@ void UEarthCompany::DoorFrame(double Dt)
 			const double Out = (Candidate.Yaw * UE_DOUBLE_PI) / 180.0;
 			const double Side = (Px - Candidate.X) * std::sin(Out) + (Pz - Candidate.Z) * -std::cos(Out);
 			const bool bInside = Side < 0.0;
-			if (bInside && (D > ReachInM || FMath::Abs(FeetM - Candidate.H) > 1.5))
+			// Inside, its door is on the floor of its rooms, which for a house of its owner's plan is far overhead.
+			if (bInside && (D > ReachInM || FMath::Abs(FeetM - Candidate.H - World->HouseLift(Candidate)) > 1.5))
+			{
+				continue;
+			}
+			// (Not from upstairs in a house of one's own plan, above somebody's door.)
+			if (!bInside && FMath::Abs(FeetM - Candidate.G) > 6.0)
 			{
 				continue;
 			}
@@ -2316,21 +2354,17 @@ void UEarthCompany::UseDoor()
 	{
 		return;
 	}
-	const double Out = (Door.Yaw * UE_DOUBLE_PI) / 180.0;
-	const double Ox = std::sin(Out), Oz = -std::cos(Out);
 	if (bDoorInside)
 	{
 		bInHouse = false;
-		const double X = Door.X + Ox * 1.4, Z = Door.Z + Oz * 1.4;
-		double Ground = Door.H;
-		Earth->TerrainHeightAt(X, Z, Ground);
-		Me->PlaceFeetAt(SceneToEngine(X, Ground + 0.3, Z));
+		SetDown(Door);
 		return;
 	}
 	bDoorBusy = true;
 	const FEarthDoor Going = Door;
+	const double Lift = Earth->HouseLift(Going);
 	const TWeakObjectPtr<UEarthCompany> Weak(this);
-	Earth->OpenHouse(Going, [Weak, Going, Ox, Oz](bool bOpen, const FString& Why)
+	Earth->OpenHouse(Going, [Weak, Going, Lift](bool bOpen, const FString& Why)
 	{
 		UEarthCompany* Self = Weak.Get();
 		AEarthWalkCharacter* Walker = Self ? Self->Player.Get() : nullptr;
@@ -2351,23 +2385,17 @@ void UEarthCompany::UseDoor()
 		{
 			return;
 		}
-		Walker->SetFlying(false);
-		// Just inside the door inside, which in a shop or an office can be a few steps from the door outside.
-		const double In = (Going.IYaw * UE_DOUBLE_PI) / 180.0;
-		Walker->PlaceFeetAt(SceneToEngine(Going.Ix - std::sin(In) * 0.9, Going.H + 0.05, Going.Iz + std::cos(In) * 0.9));
 		Self->bInHouse = true;
 		Self->HouseIn = Going;
 		Self->InsideSize = 50.0;
+		Self->StandInside(Going, Lift);
+		if (Lift > 0.0)
+		{
+			Self->Notice(TEXT("This house is built from its owner's own floor plan."));
+		}
 		if ((Going.bEntry || !Going.Use.IsEmpty()) && Self->World.IsValid())
 		{
 			Self->World->OpenInside(Going); // who is in there, the signs on its walls and its counters
-		}
-		if (APlayerController* PC = Cast<APlayerController>(Walker->GetController()))
-		{
-			FRotator Look = PC->GetControlRotation();
-			Look.Yaw = Going.IYaw + 180.0; // facing in
-			Look.Pitch = 0.0;
-			PC->SetControlRotation(Look);
 		}
 		if (Going.bEntry || !Going.Use.IsEmpty())
 		{
@@ -2384,6 +2412,48 @@ void UEarthCompany::UseDoor()
 				Same.Num() > 1 ? TEXT(" There is another door on another side: you can walk right through.") : TEXT("")));
 		}
 	});
+}
+
+/** Puts me just inside the door inside, facing in: in a shop or an office that can be a few steps from the door outside, and in a house of its owner's plan it is far overhead. */
+void UEarthCompany::StandInside(const FEarthDoor& Going, double Lift)
+{
+	AEarthWalkCharacter* Walker = Player.Get();
+	if (!Walker)
+	{
+		return;
+	}
+	HouseLiftIn = Lift;
+	Walker->SetFlying(false);
+	const double In = (Going.IYaw * UE_DOUBLE_PI) / 180.0;
+	Walker->PlaceFeetAt(SceneToEngine(Going.Ix - std::sin(In) * 0.9, Going.H + Lift + 0.05, Going.Iz + std::cos(In) * 0.9));
+	if (APlayerController* PC = Cast<APlayerController>(Walker->GetController()))
+	{
+		FRotator Look = PC->GetControlRotation();
+		Look.Yaw = Going.IYaw + 180.0; // facing in
+		Look.Pitch = 0.0;
+		PC->SetControlRotation(Look);
+	}
+}
+
+/** Puts me in the street before a door, on the ground. */
+void UEarthCompany::SetDown(const FEarthDoor& From)
+{
+	AEarthWalkCharacter* Walker = Player.Get();
+	AEarthWorld* Earth = World.Get();
+	if (!Walker || !Earth)
+	{
+		return;
+	}
+	const double Out = (From.Yaw * UE_DOUBLE_PI) / 180.0;
+	const double X = From.X + std::sin(Out) * 1.4, Z = From.Z - std::cos(Out) * 1.4;
+	double Ground = From.H;
+	Earth->TerrainHeightAt(X, Z, Ground);
+	if (HouseLiftIn > 0.0)
+	{
+		Walker->SetFlying(false); // (out of a house in the sky: not left hanging where its door was)
+	}
+	HouseLiftIn = 0.0;
+	Walker->PlaceFeetAt(SceneToEngine(X, Ground + 0.3, Z));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -2463,6 +2533,19 @@ void UEarthCompany::TestAids(double Dt)
 			bTaxiCalled = true;
 			CallTaxi(TaxiPlace);
 		}
+		if (DoorWalkUntil > 0.0 && TestClock > DoorWalkUntil)
+		{
+			DoorWalkUntil = 0.0;
+			Me->SetAutoWalk(false);
+			if (APlayerController* PC = Cast<APlayerController>(Me->GetController()))
+			{
+				FRotator Facing = PC->GetControlRotation();
+				Facing.Yaw += DoorTurnAfter; // (a fifth number: turned so far when the walk ends, to look back at where it came from)
+				PC->SetControlRotation(Facing);
+			}
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: company: walked on from the spot: feet at %.2f m, %.2f m above the floor at the door, in the house %d"), Me->FeetLocation().Z / 100.0,
+				Me->FeetLocation().Z / 100.0 - HouseIn.H - HouseLiftIn, bInHouse ? 1 : 0);
+		}
 		if (bDoorTest && DoorTestStep == 0 && TestClock > 4.0)
 		{
 			DoorTestStep = 1;
@@ -2530,6 +2613,25 @@ void UEarthCompany::TestAids(double Dt)
 				Facing.Yaw += 180.0;
 				Facing.Pitch = -25.0;
 				PC->SetControlRotation(Facing);
+			}
+			// -EWDoorSpot=<right>_<in>_<seconds>_<turn> then stands so many metres to the right of the door and into
+			// the house, turned so many degrees from straight in, and walks forward for so long: up a staircase, say.
+			FString Spot;
+			TArray<FString> Parts;
+			if (bInHouse && FParse::Value(FCommandLine::Get(), TEXT("-EWDoorSpot="), Spot) && Spot.ParseIntoArray(Parts, TEXT("_")) >= 2)
+			{
+				const double A = FCString::Atod(*Parts[0]), B = FCString::Atod(*Parts[1]);
+				const double In = (HouseIn.IYaw * UE_DOUBLE_PI) / 180.0;
+				Me->PlaceFeetAt(SceneToEngine(HouseIn.Ix - std::sin(In) * B - std::cos(In) * A, HouseIn.H + HouseLiftIn + 0.05, HouseIn.Iz + std::cos(In) * B - std::sin(In) * A));
+				if (PC && Parts.Num() > 3)
+				{
+					FRotator Facing = PC->GetControlRotation();
+					Facing.Yaw += FCString::Atod(*Parts[3]);
+					PC->SetControlRotation(Facing);
+				}
+				DoorWalkUntil = Parts.Num() > 2 ? TestClock + FCString::Atod(*Parts[2]) : 0.0;
+				DoorTurnAfter = Parts.Num() > 4 ? FCString::Atod(*Parts[4]) : 0.0;
+				Me->SetAutoWalk(DoorWalkUntil > 0.0);
 			}
 		}
 		else if (bDoorTest && DoorTestStep == 3 && TestClock > 16.0)

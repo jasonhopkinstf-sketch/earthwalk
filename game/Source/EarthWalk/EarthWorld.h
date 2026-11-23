@@ -183,6 +183,12 @@ public:
 	 */
 	void OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done);
 	/**
+	 * How far above its real door the inside of a house stands, in metres: nothing, but for a house built
+	 * from its owner's own floor plan, whose rooms are at their true size and so cannot go inside the real
+	 * walls (docs/PROTOCOL.md, "A plan of one's own"). Whoever goes in at the door is put on its floor up there.
+	 */
+	double HouseLift(const FEarthDoor& Door) const;
+	/**
 	 * Who is inside the shop, office or mall behind a door, what is lettered on its walls and where food is
 	 * sold in it: asked of the server and shown (EarthInside.h). For the one building the player is in.
 	 */

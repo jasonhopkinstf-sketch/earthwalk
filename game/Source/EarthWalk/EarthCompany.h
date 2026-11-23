@@ -291,6 +291,13 @@ private:
 	bool bDoorNear = false;
 	bool bInHouse = false;
 	FEarthDoor HouseIn;
+	/** How far above its real door the rooms I am in stand: nothing, but in a house built from its owner's plan. */
+	double HouseLiftIn = 0.0;
+	double LiftTriedAt = -100.0;
+	double DoorTurnAfter = 0.0;
+	double DoorWalkUntil = 0.0; // for a test: when the walk on from a spot in a house ends
+	void StandInside(const FEarthDoor& Going, double Lift);
+	void SetDown(const FEarthDoor& From);
 	/** For a shop or an office: how far across its room is, in metres; I am "in" it while within that (and a bit) of the door I came in by. */
 	double InsideSize = 50.0;
 	bool bDoorInside = false;

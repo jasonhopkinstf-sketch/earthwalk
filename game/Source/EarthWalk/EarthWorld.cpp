@@ -525,12 +525,26 @@ int64 AEarthWorld::HouseRev(const FEarthDoor& Door) const
 	return Lived ? Lived->Rev : 0;
 }
 
+double AEarthWorld::HouseLift(const FEarthDoor& Door) const
+{
+	if (Door.bEntry || !Door.Use.IsEmpty())
+	{
+		return 0.0; // a shop or an office: nobody's house
+	}
+	const UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	const FEarthLived* Lived = Net ? Net->GetHomes().Find(UEarthWalkNet::HouseKey(Door.Chunk.X, Door.Chunk.Y, Door.Id)) : nullptr;
+	return Lived ? FMath::Max(Lived->Lift, 0.0) : 0.0;
+}
+
 void AEarthWorld::OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, const FString& Why)> Done)
 {
 	// A house somebody lives in is furnished their way, and built again here whenever they change it.
+	// One built from its owner's plan is asked for as such: those rooms stand far above the real house.
 	const int64 Rev = HouseRev(Door);
+	const bool bPlanned = Rev != 0 && HouseLift(Door) > 0.0;
+	const int64 Stamp = Rev * 2 + (bPlanned ? 1 : 0); // what is built is out of date when either changes
 	const FString Name = InteriorName(Door.Chunk, Door.Id);
-	if (Interiors.Contains(Name) && InteriorRevs.FindRef(Name) == Rev)
+	if (Interiors.Contains(Name) && InteriorRevs.FindRef(Name) == Stamp)
 	{
 		Done(true, FString());
 		return;
@@ -538,7 +552,7 @@ void AEarthWorld::OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, c
 	const int32 WrappedX = ((Door.Chunk.X % 65536) + 65536) % 65536;
 	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(FString::Printf(TEXT("%s/v1/interior/%d/%d/%d/%lld%s"), *FEarthWalkConfig::ServerUrl(), EarthGeo::ChunkZoom, WrappedX, Door.Chunk.Y, Door.Id,
-		Rev ? *FString::Printf(TEXT("?r=%lld"), Rev) : TEXT("")));
+		Rev ? *FString::Printf(TEXT("?r=%lld%s"), Rev, bPlanned ? TEXT("&plan=1") : TEXT("")) : TEXT("")));
 	Request->SetVerb(TEXT("GET"));
 	Request->SetTimeout(30.f);
 	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
@@ -548,7 +562,7 @@ void AEarthWorld::OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, c
 	const int32 RequestGeneration = Generation;
 	const FIntPoint Key = Door.Chunk;
 	const int64 Id = Door.Id;
-	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, Id, Rev, RequestGeneration, Done](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, Key, Id, Rev, Stamp, bPlanned, RequestGeneration, Done](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
 	{
 		if (RequestGeneration != Generation || !Chunks.Contains(Key))
 		{
@@ -557,7 +571,7 @@ void AEarthWorld::OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, c
 		}
 		const bool bGot = bConnected && Response.IsValid() && Response->GetResponseCode() == 200;
 		const FString Built = InteriorName(Key, Id);
-		if (bGot && Interiors.Contains(Built) && InteriorRevs.FindRef(Built) == Rev)
+		if (bGot && Interiors.Contains(Built) && InteriorRevs.FindRef(Built) == Stamp)
 		{
 			Done(true, FString()); // asked for twice, and the other answer came first
 			return;
@@ -570,8 +584,9 @@ void AEarthWorld::OpenHouse(const FEarthDoor& Door, TFunction<void(bool bOpen, c
 		}
 		if (bGot && BuildInterior(Key, Id, Response->GetContent()))
 		{
-			InteriorRevs.Add(Built, Rev);
-			UE_LOG(LogTemp, Display, TEXT("EarthWalk: world: the inside of house %s is built at change %lld (%d bytes)%s"), *Built, Rev, Response->GetContent().Num(), Old ? TEXT(", in place of what was there") : TEXT(""));
+			InteriorRevs.Add(Built, Stamp);
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: world: the inside of house %s is built at change %lld (%d bytes)%s%s"), *Built, Rev, Response->GetContent().Num(),
+				bPlanned ? TEXT(", from its owner's plan") : TEXT(""), Old ? TEXT(", in place of what was there") : TEXT(""));
 			if (Old)
 			{
 				Old->DestroyComponent();
