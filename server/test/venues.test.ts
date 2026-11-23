@@ -9,7 +9,9 @@ import { findHome, INSIDE } from "../src/interior.ts";
 import { buildLabels } from "../src/labels.ts";
 import type { Features } from "../src/osm.ts";
 import { layVenue, type Laid, type VenueKind, type VenueSpec } from "../src/venue.ts";
-import { FIGURES, generateInside, VENUE_CAP, venueMesh, venuesOf, venueWho, type Venue } from "../src/venues.ts";
+import { jobOf, persona, ROLES, TALKABLE, Talker } from "../src/talk.ts";
+import { FIGURES, generateInside, VENUE_CAP, venueMesh, venuesOf, venueWho } from "../src/venues.ts";
+import { STROLL_PACE, STROLL_WAIT, strollAt } from "../public/js/peoplemotion.js";
 
 const CX = 33185;
 const CY = 22545;
@@ -360,4 +362,68 @@ test("GET /v1/inside says who is in a shop, and the interior route serves its ro
     open.close();
     locked.close();
   }
+});
+
+test("a stroller is in the same place for everybody: out along the path, a wait, back, a wait", () => {
+  // An L of 6 m and 3 m: 9 m at 0.9 m/s is ten seconds each way, with four seconds at each end.
+  const pts = [10, 20, 10, 26, 13, 26];
+  const period = 2 * (9 / STROLL_PACE + STROLL_WAIT);
+  assert.equal(period, 28);
+  const id = 123456789;
+  // Find when they set off: the start of a round is somewhere in one period, different for each of them.
+  let start = 0;
+  for (let t = 0; t < period; t += 0.01) {
+    const a = strollAt(id, pts, t), b = strollAt(id, pts, t + 0.02);
+    if (!a.moving && b.moving && Math.hypot(b.x - 10, b.z - 20) < 0.1) { start = t + 0.01; break; }
+  }
+  const at = (s: number): ReturnType<typeof strollAt> => strollAt(id, pts, start + s);
+  const near = (p: { x: number; z: number }, x: number, z: number): boolean => Math.hypot(p.x - x, p.z - z) < 0.05;
+  assert.ok(near(at(0.02), 10, 20) && at(1).moving && near(at(1), 10, 20.9), "sets off along the first stretch");
+  assert.ok(Math.abs(at(1).fx) < 1e-9 && at(1).fz === 1, "facing the way they walk");
+  assert.ok(near(at(8), 11.2, 26) && at(8).fx === 1, "round the corner");
+  assert.ok(near(at(11), 13, 26) && !at(11).moving && at(11).fx === -1, "standing at the far end, turned round");
+  assert.ok(at(15).moving && near(at(15), 12.1, 26) && at(15).fx === -1, "on the way back");
+  assert.ok(near(at(25), 10, 20) && !at(25).moving && at(25).fz === 1, "home again, turned to set off");
+  assert.deepEqual(at(period + 3), at(3), "and round again, the same");
+  // Never faster than the pace, never off the path, and not everybody in step.
+  for (let s = 0; s < period; s += 0.25) {
+    const p = at(s), q = at(s + 0.25);
+    assert.ok(Math.hypot(q.x - p.x, q.z - p.z) <= STROLL_PACE * 0.25 + 1e-9);
+    assert.ok((Math.abs(p.x - 10) < 1e-9 && p.z >= 20 - 1e-9 && p.z <= 26 + 1e-9) || (Math.abs(p.z - 26) < 1e-9 && p.x >= 10 - 1e-9 && p.x <= 13 + 1e-9), "on the path");
+  }
+  const other = strollAt(987654321, pts, start + 3);
+  assert.ok(Math.hypot(other.x - at(3).x, other.z - at(3).z) > 0.5 || other.moving !== at(3).moving, "each in their own time");
+  assert.deepEqual(strollAt(id, [5, 5, 5, 5], 77), { x: 5, z: 5, fx: 0, fz: 1, moving: false }, "a path of no length is somewhere to stand");
+});
+
+test("whoever is inside knows what they do there, with an AI to ask or without", async () => {
+  // Only a role there is: anything else a game sends is nobody's job.
+  assert.deepEqual(jobOf("barista", { use: "cafe", name: "Kettle & Crumb" }), { role: "barista", place: "Kettle & Crumb" });
+  assert.deepEqual(jobOf("keeper", { use: "shop" }), { role: "keeper", place: "this shop" });
+  assert.deepEqual(jobOf("worker", null), { role: "worker", place: "this place" });
+  for (const bad of ["boss", "constructor", "__proto__", "", 7, null, undefined]) assert.equal(jobOf(bad, { use: "shop" }), null);
+  for (const role of ["worker", "meeting", "reception", "keeper", "barista", "shopper", "guest", "caretaker", "resident"]) {
+    assert.ok(ROLES[role].hello.length === 2 && ROLES[role].lines.length >= 3 && ROLES[role].is.includes("{place}"), role);
+  }
+  for (const sp of FIGURES) assert.ok(TALKABLE.has(sp), `${sp} can be talked to`);
+
+  // Without an AI: a hello about the job, then lines about it turn and turn about with the animal's own.
+  const quiet = new Talker({ ask: null, spendFile: null });
+  const job = jobOf("barista", { use: "cafe", name: "Kettle & Crumb" })!;
+  const name = persona(4242, "rabbit").name;
+  const hello = quiet.greet(4242, "rabbit", job);
+  assert.ok(hello.name === name && /Kettle & Crumb|What can I get you/.test(hello.text) && hello.text.includes(name) && !hello.text.includes("{"), hello.text);
+  assert.notEqual(quiet.greet(4242, "rabbit").text, hello.text, "out of doors the same rabbit is only a rabbit");
+  const first = await quiet.reply("room", 4242, "rabbit", "hello there", "fox", null, false, [], false, job);
+  const second = await quiet.reply("room", 4242, "rabbit", "and then?", "fox", null, false, [], false, job);
+  assert.ok(ROLES.barista.lines.includes(first.text) !== ROLES.barista.lines.includes(second.text), `${first.text} / ${second.text}`);
+
+  // With one: it is told what they do and where, and still that they are a rabbit.
+  const asked: string[] = [];
+  const talker = new Talker({ ask: async (_model, system) => { asked.push(system); return { text: "One hot chocolate, coming up!", inputTokens: 500, outputTokens: 20 }; }, monthlyUsd: 30, spendFile: null });
+  const said = await talker.reply("room", 4242, "rabbit", "what do you do?", "fox", "Ponsonby, Auckland", false, [], false, job);
+  assert.deepEqual([said.text, said.ai], ["One hot chocolate, coming up!", true]);
+  assert.ok(asked[0].includes("make the drinks and serve the food at Kettle & Crumb") && asked[0].includes("a rabbit") && asked[0].includes("indoors"), asked[0].slice(-400));
+  await talker.reply("room", 4242, "rabbit", "what do you do?", "fox", null);
+  assert.ok(!asked[1].includes("Kettle & Crumb"), "and nothing of the sort when it has no job");
 });

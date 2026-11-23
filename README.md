@@ -382,6 +382,22 @@ the front door. Inside are rooms laid out from thirty recipes of our own
 bedrooms, bathrooms, studies and playrooms, with doorways, windows and furniture. A house is the same inside for everyone, and friends who go in together see each other.
 `server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
+Going into shops, cafés, offices, malls, blocks of flats and hotels (browser only so far): these open too, and
+can be walked through. Each has glass doors on the street with its name, or what it is, on a board over
+them, and a second door on another side wherever one of its walls is free: E goes in at one and out at the
+other. Inside is what the building is: a shop has a counter, a shopkeeper and shelves of what it sells; a
+café a counter and tables; an office a front desk, desks in pairs, meeting rooms and a kitchen; a mall (or,
+small, an arcade or a row of shops) a walk from door to door with shops down both sides, the ones the map
+names first and then made-up ones, with benches and a tree under a skylight; flats and hotels an entrance
+hall with a lift, letterboxes or a desk, and a sofa. A big building the map says nothing about is an office,
+or one time in three a row of shops. Animals are inside (the same six a player can be): at desks and in
+meetings, behind counters, at tables, strolling the mall. T talks to any of them, and they know what they do
+there. Food is bought at the counters inside (B) as well as at the name board outside. Nobody can make one
+of these their house. Which buildings and where their doors go is `server/src/venues.ts`, the layouts
+`server/src/venue.ts`, the browser's side `server/public/js/houses.js` and `people.js`; docs/PROTOCOL.md,
+"Inside other buildings". Not yet: churches, schools, hospitals, factories, and buildings mapped in 3D
+pieces (the best-known towers), which stay shut; upstairs.
+
 Treasure hunts and expeditions: the passport starts a treasure hunt wherever
 you stand. It is five riddles about real places nearby, taken from the map ("I have a bell but no
 bicycle" is the church 250 metres to the south), with a chest of coins at the last, and friends who

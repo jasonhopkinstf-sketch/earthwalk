@@ -582,6 +582,14 @@ the same somebody for everyone, on every visit. Clients learn a thing's `name` w
 
 The key is T in both games; while talking to a thing, what is typed goes to it instead of to the room.
 
+Somebody inside a shop, an office or a mall ("Inside other buildings") is talked to in the same way, with
+two more fields: `{"t": "talk", "thing": 2863311530, "sp": "rabbit", "role": "barista", "at": {"x": 33185, "y": 22545, "id": 25412345}}`.
+`role` is theirs from `GET /v1/inside`, and `at` the building. With a `role` the server knows (any other is
+ignored, and they answer as the animal they are), their hello and their stock lines are about what they do
+there (`ROLES` in `server/src/talk.ts`), the AI is told of it, and the place is called by its name, which the
+server reads from what it kept when it built that inside (never from the message). `owl` can be talked to
+as well, being one of the six.
+
 ### Doing as asked
 
 What a player says to a thing can be an instruction, and the thing does it as well as answering. The
