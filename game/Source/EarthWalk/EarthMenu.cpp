@@ -73,6 +73,7 @@ namespace
 		{ TEXT("strip"), TEXT("The game"), TEXT("Buttons on, or off"), TEXT("The row of buttons along the bottom of the screen."), TEXT("Z"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("news"), TEXT("The game"), TEXT("What's new"), TEXT("What has been added to EarthWalk lately."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("help"), TEXT("The game"), TEXT("Every typed command"), TEXT("Lists the slash commands in the chat window, for those who like typing."), TEXT(""), TEXT("help"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("suggest"), TEXT("The game"), TEXT("Suggest something..."), TEXT("Tell the people who make EarthWalk what you would like in it."), TEXT(""), TEXT("suggest"), TEXT("What would you like to see in the game?"), TEXT("more animals to ride"), TEXT("") },
 		{ TEXT("quit"), TEXT("The game"), TEXT("Leave EarthWalk"), TEXT("Where you are is remembered for next time."), TEXT("Esc Esc"), TEXT("quit"), TEXT(""), TEXT(""), TEXT("") },
 	};
 

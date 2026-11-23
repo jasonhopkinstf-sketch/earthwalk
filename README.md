@@ -151,7 +151,7 @@ Chat commands:
 | `/passport` | Your passport (the `P` key) |
 | `/guide`, `/guide <question>` | Browser so far: ask the guide (the `Q` key), or straight to an answer: `/guide where is the nearest station` |
 | `/menu`, `/buttons`, `/map`, `/news` | The Tab menu, the strip of buttons (`Z`), the little map (`M`) and the "What's new" card |
-| `/suggest <what you would like>` | Browser only so far: puts a suggestion in the box for whoever runs the server ("Suggest something..." in the Tab menu asks for it) |
+| `/suggest <what you would like>` | Puts a suggestion in the box for whoever runs the server ("Suggest something..." in the Tab menu asks for it) |
 | `/do <name>` | One thing from the Tab menu by its name in the table: `/do goto` asks "Where to?" |
 | `/look flat`, `/look barnyard` | The look of the whole world (see "The look" below). Browser: `/look flat nolines` leaves the black line off, for a slow computer |
 | `/car`, `/car away` | Bring your own car to where you are, or send it off |

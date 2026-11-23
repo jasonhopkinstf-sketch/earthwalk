@@ -3477,6 +3477,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
 		AddLine(TEXT("/invite   copy a link to send to someone: it brings them into your room, in their browser"), NoticeColor);
+		AddLine(TEXT("/suggest <what you would like>   tell the people who make EarthWalk what you would like in it"), NoticeColor);
 		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
 		AddLine(TEXT("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look"), NoticeColor);
 		AddLine(TEXT("/lines on, /lines off   the drawn line round everything; off is easier on a slow computer"), NoticeColor);
@@ -3602,6 +3603,59 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 					NetNow->SendHome(Lat, Lon, Name);
 				}
 			});
+		}
+	}
+	else if (Command == TEXT("suggest"))
+	{
+		// The suggestions box (POST /v1/suggest): what a player would like in the game, sent to whoever runs the server, who is
+		// told who said it and where they stood. With nothing typed after it, the box that asks.
+		const FString Said = Argument.TrimStartAndEnd();
+		if (Said.IsEmpty())
+		{
+			MenuAction(TEXT("suggest"));
+		}
+		else
+		{
+			const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+			Body->SetStringField(TEXT("text"), Said);
+			Body->SetStringField(TEXT("name"), Net && !Net->GetMyName().IsEmpty() ? Net->GetMyName() : FEarthWalkConfig::PlayerName());
+			Body->SetStringField(TEXT("client"), TEXT("windows"));
+			if (const AEarthWorld* Earth = AEarthWorld::Get(this); Earth && Character)
+			{
+				double Lat, Lon, Alt;
+				Earth->WorldToGeo(Character->GetActorLocation(), Lat, Lon, Alt);
+				Body->SetNumberField(TEXT("lat"), Lat);
+				Body->SetNumberField(TEXT("lon"), Lon);
+			}
+			FString Text;
+			FJsonSerializer::Serialize(Body, TJsonWriterFactory<>::Create(&Text));
+			const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+			Request->SetURL(FEarthWalkConfig::ServerUrl() + TEXT("/v1/suggest"));
+			Request->SetVerb(TEXT("POST"));
+			Request->SetTimeout(20.f);
+			Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+			if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+			{
+				Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code); // somebody signed in is known by their account
+			}
+			Request->SetContentAsString(Text);
+			Request->OnProcessRequestComplete().BindWeakLambda(this, [this](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+			{
+				const FLinearColor Colour(0.75f, 0.9f, 1.f);
+				FString Error;
+				if (bConnected && Response.IsValid() && Response->GetResponseCode() != 200)
+				{
+					TSharedPtr<FJsonObject> Json;
+					if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), Json) && Json.IsValid())
+					{
+						Json->TryGetStringField(TEXT("error"), Error);
+					}
+				}
+				const bool bSent = bConnected && Response.IsValid() && Response->GetResponseCode() == 200;
+				UE_LOG(LogTemp, Display, TEXT("EarthWalk: suggest: %s (%d)"), bSent ? TEXT("sent") : TEXT("not sent"), Response.IsValid() ? Response->GetResponseCode() : 0);
+				AddLine(bSent ? FString(TEXT("Thank you. Your suggestion has gone to the people who make EarthWalk.")) : !Error.IsEmpty() ? Error : FString(TEXT("The suggestion could not be sent just now. Try again in a moment.")), Colour);
+			});
+			Request->ProcessRequest();
 		}
 	}
 	else if (Command == TEXT("where"))
