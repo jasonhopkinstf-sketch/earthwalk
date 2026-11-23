@@ -29,24 +29,6 @@ const isRoof = (s: Section): boolean => s.mat.id === 24 || s.mat.id === 25;
 const heights = (sections: Section[]): number[] => sections.flatMap((s) => s.pos.filter((_, i) => i % 3 === 2));
 const rgba = (hex: number): number => ((hex << 8) | 0xff) >>> 0;
 
-test("a chunk crowded with houses is drawn more plainly: every house whole, with less on it", async () => {
-  // Rows of small houses twelve metres apart: twenty rows of twenty are drawn in full, twenty-one of twenty-one are a crowd.
-  const town = (rows: number): Building[] => {
-    const out: Building[] = [];
-    for (let i = 0; i < rows; i++) for (let k = 0; k < rows; k++) out.push({ id: 1000 + i * 100 + k, ring: rect(7, 6, (i - rows / 2) * 12, (k - rows / 2) * 12), height: 5, kind: "house" });
-    return out;
-  };
-  const corners = (sections: Section[], pick: (s: Section) => boolean): number => sections.filter(pick).reduce((sum, s) => sum + s.pos.length / 3, 0);
-  const isDoor = (s: Section): boolean => s.mat.id === 26 || s.mat.id === 27;
-  const full = await build(town(20)), plain = await build(town(21));
-  const fullEach = corners(full, () => true) / 400, plainEach = corners(plain, () => true) / 441;
-  assert.ok(plainEach < fullEach * 0.75, `a house of a crowd is ${plainEach.toFixed(0)} corners, one drawn in full ${fullEach.toFixed(0)}`);
-  assert.ok(corners(plain, isDoor) / 441 >= 8, "every house of a crowd still has its door and door frame");
-  assert.ok(corners(plain, isDoor) / 441 < corners(full, isDoor) / 400 / 2, "flat on the wall, not boxes");
-  assert.ok(corners(plain, isWall) / 441 >= 16 && corners(plain, isRoof) > 0, "and its walls and roof");
-  assert.equal(corners(plain, (s) => s.mat.id === 28), 0, "no chimneys in a crowd");
-});
-
 test("mapped colours are read as written and moved to the nearest of our paints", () => {
   assert.equal(colourOf("#377a62"), 0x377a62);
   assert.equal(colourOf("#CCC"), 0xcccccc);

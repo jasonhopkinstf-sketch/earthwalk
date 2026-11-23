@@ -20,11 +20,13 @@ export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
 export const GENERATOR_REV = 15;
 /**
- * More buildings of its own than this, and a chunk is drawn more plainly (0: never; EARTHWALK_CROWDED sets it).
- * Measured in the old middle of Jaipur, 2026-11-24: the 25 chunks of one arrival were 66 MB drawn in full, the
- * biggest 4.6 MB, most of it parapets, door frames and front gardens on five hundred small houses a chunk.
+ * More buildings of its own than this, and a chunk is drawn more plainly. OFF (0: never) unless EARTHWALK_CROWDED
+ * sets a number: the game's owner looked at it on 2026-11-24 and chose to keep every house drawn in full ("lets
+ * leave it as is (which is no plain buildings)"). At 400 it also took the gardens, porches and chimneys from the
+ * fullest streets of Devonport (460 to 530 buildings a chunk). Kept for a place that proves too heavy to send:
+ * measured in the old middle of Jaipur, the 25 chunks of one arrival were 66 MB drawn in full and 34 MB at 400.
  */
-const CROWDED = Number(process.env.EARTHWALK_CROWDED ?? 400);
+const CROWDED = Number(process.env.EARTHWALK_CROWDED ?? 0);
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
