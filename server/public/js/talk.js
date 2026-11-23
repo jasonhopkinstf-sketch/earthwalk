@@ -85,7 +85,7 @@ export class Talk {
     this.to = null; // who I am talking to: { thing, sp, x, z }
     this.near = null; // who T would talk to
     this.names = new Map(); // thing -> its name, once it has spoken
-    this.bubbles = new Map(); // thing -> { sprite, until }
+    this.bubbles = new Map(); // thing -> { sprite, until, sp, lift }
     this.sinceScan = 0;
     this.meetup.addEventListener("say", (e) => this.heard(e.detail));
   }
@@ -126,6 +126,24 @@ export class Talk {
     if (!this.to) return;
     this.to = null;
     this.changed();
+  }
+
+  /**
+   * Where a thing is being drawn just now, if this game is drawing it: { x, z }. Things move: a taxi tells
+   * its story as it drives, a cow answers as it follows. `near` picks between the carriages of a train.
+   */
+  whereIs(thing, sp, near = this.player.position) {
+    for (const m of this.riding.mounts) if (m.thing === thing) return m; // ridden, left standing, doing as it was told, a taxi on its way
+    let best = null;
+    let bestD = Infinity;
+    for (const c of this.traffic.rideable) {
+      if (c.thing !== thing || c.sp !== sp) continue;
+      const d = Math.hypot(c.x - near.x, c.z - near.z);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    if (best) return best;
+    for (const c of this.life.nearby) if (c.thing === thing && c.sp === sp) return c;
+    return null;
   }
 
   /** Everything near enough to talk to, nearest first: animals, cars and trains, whatever is being ridden, trees and houses. */
@@ -177,7 +195,13 @@ export class Talk {
         b.sprite.material.map.dispose();
         b.sprite.material.dispose();
         this.bubbles.delete(thing);
-      } else b.sprite.material.opacity = Math.min(1, (b.until - now) / 600);
+      } else {
+        b.sprite.material.opacity = Math.min(1, (b.until - now) / 600);
+        // The bubble goes along with whoever is speaking.
+        const at = this.whereIs(thing, b.sp, b.sprite.position);
+        const ground = at ? this.world.groundHeight(at.x, at.z) : null;
+        if (ground !== null) b.sprite.position.set(at.x, ground + b.lift, at.z);
+      }
     }
   }
 
@@ -188,9 +212,9 @@ export class Talk {
     this.names.set(msg.thing, msg.name);
     this.said(msg);
 
-    // Where is it? Beside me if I can see it; otherwise where the player who spoke to it stands.
-    let at = this.to?.thing === msg.thing ? this.to : null;
-    if (!at) for (const c of [...this.life.nearby, ...this.traffic.rideable, ...this.riding.mounts]) if (c.thing === msg.thing && c.sp === msg.sp) at = c;
+    // Where is it? Where this game is drawing it, if it is; otherwise where the player who spoke to it stands.
+    let at = this.whereIs(msg.thing, msg.sp);
+    if (!at && this.to?.thing === msg.thing) at = this.to;
     if (!at && this.near?.thing === msg.thing) at = this.near;
     if (!at && typeof msg.lat === "number") {
       const spot = world.geoToScene(msg.lat, msg.lon);
@@ -202,9 +226,10 @@ export class Talk {
     const old = this.bubbles.get(msg.thing);
     if (old) this.scene.remove(old.sprite);
     const sprite = bubble(msg.name, msg.text);
-    sprite.position.set(at.x, ground + (BUBBLE_AT[msg.sp] ?? 1.5), at.z);
+    const lift = BUBBLE_AT[msg.sp] ?? 1.5;
+    sprite.position.set(at.x, ground + lift, at.z);
     this.scene.add(sprite);
-    this.bubbles.set(msg.thing, { sprite, until: performance.now() + (BUBBLE_SECONDS + msg.text.length * 0.04) * 1000 });
+    this.bubbles.set(msg.thing, { sprite, sp: msg.sp, lift, until: performance.now() + (BUBBLE_SECONDS + msg.text.length * 0.04) * 1000 });
     this.life.speak(msg.sp, msg.thing, at.x, at.z); // and its own voice with it, if it has one
     if (this.to?.thing === msg.thing) this.changed();
   }
