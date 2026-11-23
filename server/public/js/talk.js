@@ -103,6 +103,18 @@ export class Talk {
     return true;
   }
 
+  /** Turns to whatever I am riding, to tell it where to go. True if I am on something that can be spoken to. */
+  beginRide() {
+    const mine = this.riding.mine;
+    if (!mine || !CALLED[mine.sp] || !this.meetup.joined) return false;
+    if (this.to?.thing === mine.thing) return true;
+    const at = [...this.riding.mounts, ...this.traffic.rideable].find((c) => c.thing === mine.thing) ?? { x: this.player.position.x, z: this.player.position.z };
+    this.to = { thing: mine.thing, sp: mine.sp, x: at.x, z: at.z };
+    this.meetup.sendTalk(this.to.thing, this.to.sp);
+    this.changed();
+    return true;
+  }
+
   /** Something typed while talking to a thing goes to it. */
   say(text) {
     if (this.to) this.meetup.sendTalk(this.to.thing, this.to.sp, text, this.world.sceneToGeo({ x: this.to.x, y: 0, z: this.to.z }));

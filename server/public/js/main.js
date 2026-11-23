@@ -23,6 +23,7 @@ import { Play } from "./play.js";
 import { Treasure } from "./treasure.js";
 import { Showcase } from "./showcase.js";
 import { Talk } from "./talk.js";
+import { findAction, Menu } from "./menu.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
@@ -104,6 +105,8 @@ const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, 
 $("showme").addEventListener("click", (e) => { e.currentTarget.blur(); void showcase.toggle(); });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
+// The menu of everything (Tab), and the box that asks "Where to?" (menu.js).
+const menu = new Menu({ panel: $("menu"), askBox: $("ask"), act: (id) => menuAction(id), answer: (id, text) => askDone(id, text) });
 let started = false;
 /** The signed-in account (from /v1/me), or null for a guest. */
 let account = null;
@@ -388,62 +391,151 @@ function goToPerson(p) {
 
 // ---------------------------------------------------------------- chat box and commands
 const say = $("say");
+/** Is the keyboard in a box for typing in? Then the game's own keys are letters. */
+const typingNow = () => {
+  const at = document.activeElement;
+  return !!at && (at.tagName === "TEXTAREA" || (at.tagName === "INPUT" && !/^(radio|checkbox|button|submit)$/.test(at.type)));
+};
+function syncTyping() {
+  const typing = typingNow();
+  if (typing && !player.typing) player.keys.clear();
+  player.typing = typing;
+}
+document.addEventListener("focusin", syncTyping);
+document.addEventListener("focusout", () => setTimeout(syncTyping, 0));
+
+// What the keys do, by name, so that the menu's buttons do the very same things.
+/** E: a door within reach, and nothing to ride: go in or out. Otherwise hop on whatever is nearest, or hop off. */
+function rideKey() {
+  if (houses.near && !riding.mine && !riding.near) void houses.use();
+  else riding.key();
+}
+/** T: in a round-up the animal beside me follows at once; otherwise say hello, then type. True if there was something to talk to. */
+function talkKey() {
+  if (play.lead()) return true;
+  if (!talk.begin()) return false;
+  say.focus();
+  return true;
+}
+/** R: join or start the game that is set up here; failing one, a race. */
+function raceKey() {
+  if (!play.key()) races.key();
+}
+/** V: riding or being carried: the seat, the view from above, the view from high up. */
+function viewKey() {
+  const view = player.nextView();
+  notice(view === null ? "V looks down from above while you are riding something, or being carried: hop on first (E)."
+    : view === "your seat" ? "Back in your seat."
+    : `Looking ${view}. The mouse swings the camera round, the wheel brings it nearer or further, and V moves on.`);
+}
+/** K: my companion's tricks. */
+function tricksKey() {
+  decor.close();
+  lunch.close();
+  train.toggle();
+}
+/** B: my lunch box, my hearts, and what the shop beside me sells. */
+function lunchKey() {
+  train.close();
+  decor.close();
+  lunch.toggle();
+}
+/** H: make this house mine, furnish my own, or go home. */
+function homeKey() {
+  lunch.close();
+  houses.home();
+}
+function toggleMenu() {
+  if (!menu.open) { passport.close(); showcase.close(); }
+  menu.toggle();
+}
+
+/** One thing from the menu, by its name there: what a click on it does, and "/do goto". */
+function menuAction(id) {
+  const action = findAction(id);
+  if (!action) return problem(`There is nothing called "${id}" to do. Tab shows everything there is.`);
+  menu.close();
+  if (action.ask) {
+    passport.close();
+    showcase.close();
+    return menu.ask(action);
+  }
+  if (id === "ride") rideKey();
+  else if (id === "talk") { if (!talkKey()) notice("There is nothing near enough to talk to. Walk up to an animal, a car, a tree or a house."); }
+  else if (id === "race") raceKey();
+  else if (id === "shows") void showcase.toggle();
+  else if (id === "passport") passport.toggle();
+  else if (id === "chat") say.focus();
+  else if (id === "above") viewKey();
+  else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
+  else if (id === "tricks") tricksKey();
+  else if (id === "myhouse") homeKey();
+  else if (id === "lunch") lunchKey();
+  else if (!action.command) notice(`"${action.title}" is on its way to this game.`);
+  else {
+    // Everything else is a command by another name.
+    const space = action.command.indexOf(" ");
+    void command(space < 0 ? action.command : action.command.slice(0, space), space < 0 ? "" : action.command.slice(space + 1));
+  }
+}
+
+/** What was typed into the box that asks: the place, the name. */
+function askDone(id, text) {
+  const action = findAction(id);
+  if (id === "taketo") {
+    // Said to whatever I am on (or in): "take me to the beach".
+    if (riding.mine && talk.beginRide()) talk.say(`take me to ${text}`);
+    else notice("Hop on something first (E beside an animal or a car), then ask it to take you. Or call a taxi: it comes to you.");
+  } else if (action) void command(action.command, text);
+}
+
 addEventListener("keydown", (e) => {
   if (!started) return;
-  if (e.code === "Enter" && document.activeElement !== say) {
+  const typing = typingNow();
+  if (e.code === "Tab") {
+    e.preventDefault(); // the keyboard stays with the game
+    if (!typing && !e.repeat) toggleMenu();
+  } else if ((e.code === "Enter" || e.code === "NumpadEnter") && !typing) {
     e.preventDefault();
+    menu.close();
     say.focus();
   } else if (e.code === "Escape") {
     if (document.activeElement === say) say.blur();
+    menu.escape();
     passport.close();
     showcase.close();
     decor.close();
     lunch.close();
     train.close();
     talk.stop(); // and stop talking to whatever it was
-  } else if (e.code === "KeyT" && document.activeElement !== say && !e.repeat) {
-    if (play.lead()) e.preventDefault(); // in a round-up, the animal beside me follows at once
-    else if (talk.begin()) { e.preventDefault(); say.focus(); } // say hello, then type
-  } else if (showcase.open && document.activeElement !== say && showcase.key(e.code)) {
+  } else if (typing || e.ctrlKey || e.metaKey || e.altKey) {
+    // Letters, in a box for typing in; or the browser's own shortcuts.
+  } else if (showcase.open && showcase.key(e.code)) {
     e.preventDefault(); // a number chose something from the list
-  } else if (e.code === "KeyG" && document.activeElement !== say && !e.repeat) {
-    void showcase.toggle(); // things to show somebody
-  } else if (e.code === "KeyP" && document.activeElement !== say && !e.repeat) {
-    passport.toggle(); // where I have been and what I have done
-  } else if (e.code === "KeyR" && document.activeElement !== say && !e.repeat) {
-    if (!play.key()) races.key(); // join or start the game that is set up here; failing one, a race
-  } else if (e.code === "Space" && train.lesson && document.activeElement !== say) {
+  } else if (e.code === "Space" && train.lesson) {
     if (!e.repeat) train.press(); // on the beat, I hope
     e.preventDefault();
-  } else if (e.code === "KeyK" && document.activeElement !== say && !e.repeat) {
-    decor.close();
-    lunch.close();
-    train.toggle(); // my companion's tricks
-  } else if (train.open && document.activeElement !== say && /^Digit[1-9]$/.test(e.code) && !e.repeat) {
+  } else if (train.open && /^Digit[1-9]$/.test(e.code) && !e.repeat) {
     train.perform(Number(e.code.slice(5)) - 1);
-  } else if (e.code === "KeyB" && document.activeElement !== say && !e.repeat) {
-    train.close();
-    decor.close();
-    lunch.toggle(); // my lunch box, my hearts, and what the shop beside me sells
-  } else if (e.code === "KeyH" && document.activeElement !== say && !e.repeat) {
-    lunch.close();
-    houses.home(); // make this house mine, furnish my own, or go home
-  } else if (e.code === "KeyV" && document.activeElement !== say && !e.repeat) {
-    // Riding or being carried: the seat, the view from above, the view from high up.
-    const view = player.nextView();
-    notice(view === null ? "V looks down from above while you are riding something, or being carried: hop on first (E)."
-      : view === "your seat" ? "Back in your seat."
-      : `Looking ${view}. The mouse swings the camera round, the wheel brings it nearer or further, and V moves on.`);
-  } else if (e.code === "KeyE" && document.activeElement !== say && !e.repeat) {
-    // A door within reach, and nothing to ride: go in or out. Otherwise hop on whatever is nearest, or hop off.
-    if (houses.near && !riding.mine && !riding.near) void houses.use();
-    else riding.key();
+  } else if (!e.repeat && KEYS[e.code]) {
+    menu.close(); // a key that does something of its own puts the menu away, and goes on to do it
+    if (KEYS[e.code]() === true) e.preventDefault();
   }
 });
-say.addEventListener("focus", () => { player.typing = true; player.keys.clear(); });
-say.addEventListener("blur", () => { player.typing = false; });
+/** The keys that each do one thing. (M and Z are kept for the little map and the strip of buttons.) */
+const KEYS = {
+  KeyT: talkKey, // talk to what is nearest
+  KeyG: () => void showcase.toggle(), // things to show somebody
+  KeyP: () => passport.toggle(), // where I have been and what I have done
+  KeyR: raceKey,
+  KeyK: tricksKey,
+  KeyB: lunchKey,
+  KeyH: homeKey,
+  KeyV: viewKey,
+  KeyE: rideKey,
+};
 say.addEventListener("keydown", (e) => {
-  if (e.code !== "Enter") return;
+  if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
   const text = say.value.trim();
   say.value = "";
   say.blur();
@@ -463,8 +555,21 @@ async function findPlace(query) {
   return res.ok ? res.json() : null;
 }
 
+/** How far off, for people: "120 m", "2.3 km". */
+const far = (m) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
+
 async function command(name, arg) {
-  if (name === "help") {
+  if (name === "menu") {
+    toggleMenu();
+  } else if (name === "do") {
+    menuAction(arg.toLowerCase()); // one thing from the menu by its name there
+  } else if (name === "houses") {
+    const where = houses.nearestDoor();
+    notice(where ? `The nearest house you can go into is ${where}. Look for the yellow COME IN sign over its front door, and press E there.`
+      : "No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not.");
+  } else if (name === "help") {
+    notice("Tab   everything you can do, to click.");
+    notice("The same things as typed commands, for those who like typing:");
     notice("G   show me: a list of things to see and do, and you are taken straight to the one you pick");
     notice("    (or /show, and /show train goes at once)");
     notice("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square");
@@ -502,7 +607,8 @@ async function command(name, arg) {
     notice("P   your passport (or /passport): today's three tasks, favours you were asked, treasure hunts and expeditions to set out on,");
     notice("    your coins and hats, countries, places, friends,");
     notice("/clue   hear again the clue of the treasure hunt you are on");
-    notice("/car    bring your own car to where you are (choose its paint in your passport)");
+    notice("/car    bring your own car to where you are (choose its paint in your passport); /car away sends it off");
+    notice("/houses   say where the nearest house you can go into is");
     notice("/herd   a round-up, alone or together: a pen appears where you stand; T beside an animal has it follow you,");
     notice("    and walking it into the pen counts it in");
     notice("/tag and /hide   set up a game of tag, or of hide and seek, where you stand: friends press R to join, and you");
@@ -532,6 +638,10 @@ async function command(name, arg) {
     races.key(arg.toLowerCase());
   } else if (name === "car") {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
+    if (arg.toLowerCase() === "away") {
+      notice("Your car has gone back to where it waits.");
+      return meetup.sendCarAway();
+    }
     notice("Your car is on its way. Press E beside it to get in.");
     meetup.callCar();
   } else if (name === "clue") {
@@ -570,7 +680,11 @@ async function command(name, arg) {
       else problem(`Nobody called "${arg}" is here. Type /who to see who is around.`);
     }
   } else if (name === "who") {
-    const names = [...meetup.peers.values()].map((p) => p.name);
+    const names = [...meetup.peers.values()].map((p) => {
+      // And how far off each is, as the crow flies.
+      const at = p.hasPosition ? world.geoToScene(p.lat, p.lon) : null;
+      return at ? `${p.name} (${far(Math.hypot(at.x - player.position.x, at.z - player.position.z))} away)` : p.name;
+    });
     notice(names.length ? `Here with you: ${names.join(", ")}` : "Nobody else is in this room right now.");
     if (meetup.me?.signedIn) {
       for (const p of meetup.people) notice(`${emojiOf(p.avatar)} ${p.name}: ${whereIs(p)}`);
@@ -639,4 +753,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, menuAction, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
