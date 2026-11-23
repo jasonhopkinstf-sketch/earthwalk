@@ -80,18 +80,16 @@ const lerp = (values: number[], t: number): number => {
 
 /**
  * A strip along a line of samples, between two points of its cross-section: `o` metres to the right of the
- * middle, at height `z`. It faces the way (`across`, `up`) points. `lit` gives it another direction to be lit
- * from: a lamp on a ceiling faces down, and is as bright as if it faced the sky.
+ * middle, at height `z`. It faces the way (`across`, `up`) points.
  */
-function strip(sec: Section, line: Sample[], o0: number | ((s: Sample) => number), z0: (s: Sample) => number, o1: number | ((s: Sample) => number), z1: (s: Sample) => number, across: number, up: number, lit?: [number, number, number]): void {
+function strip(sec: Section, line: Sample[], o0: number | ((s: Sample) => number), z0: (s: Sample) => number, o1: number | ((s: Sample) => number), z1: (s: Sample) => number, across: number, up: number): void {
   let before = -1;
   for (const s of line) {
     // To the right of the way it runs is (tn, -te).
     const ne = s.tn * across, nn = -s.te * across;
     const p0 = typeof o0 === "number" ? o0 : o0(s), p1 = typeof o1 === "number" ? o1 : o1(s);
-    const [le, ln, lh] = lit ?? [ne, nn, up];
-    const a = sec.vert(s.e + s.tn * p0, s.n - s.te * p0, z0(s), le, ln, lh);
-    sec.vert(s.e + s.tn * p1, s.n - s.te * p1, z1(s), le, ln, lh);
+    const a = sec.vert(s.e + s.tn * p0, s.n - s.te * p0, z0(s), ne, nn, up);
+    sec.vert(s.e + s.tn * p1, s.n - s.te * p1, z1(s), ne, nn, up);
     if (before >= 0) quad(sec, before, before + 1, a + 1, a, [ne, nn, up]);
     before = a;
   }
@@ -544,10 +542,14 @@ function tunnel(ctx: SpanCtx, profile: Profile, plan: TunnelPlan): void {
     }
     const roof = line.filter(shows);
     if (roof.length >= 2) strip(earth, roof, -shoulder, crest, shoulder, crest, 0, 1);
-    // Lamps along the roof, placed by how far along the tunnel they are.
-    for (let d = Math.ceil((line[0].d - 8) / 16) * 16 + 8; d + 1.6 < line[line.length - 1].d; d += 16) {
-      const a = sampleAt(line, Math.max(d, line[0].d)), b = sampleAt(line, d + 1.6);
-      if (a && b) strip(lamps, [a, b], -0.3, (q) => q.top + high - 0.04, 0.3, (q) => q.top + high - 0.04, 0, -1, [0, 0, 1]);
+    // Lamps along the roof, placed by how far along the tunnel they are: pale boxes hanging from the ceiling, whose sides catch the light.
+    for (let d = Math.ceil((line[0].d - 8) / 16) * 16 + 8; d < line[line.length - 1].d; d += 16) {
+      const a = sampleAt(line, d);
+      if (!a || !inChunk(ctx, a)) continue;
+      const z0 = a.top + high - 0.3, z1 = a.top + high;
+      block(lamps, a, 0, 0.9, 0.3, z0, z1);
+      const p = (along: number, across: number): [number, number, number] => [a.e + a.te * along + a.tn * across, a.n + a.tn * along - a.te * across, z0];
+      panel(lamps, [p(-0.9, -0.3), p(0.9, -0.3), p(0.9, 0.3), p(-0.9, 0.3)], [0, 0, -1]);
     }
   }
   // ---- the ends: a mouth where it comes out on the ground, a wall where it stops under it
