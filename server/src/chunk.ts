@@ -322,6 +322,16 @@ export function groundClasses(cx: number, cy: number, features: Features, elev: 
       [COVER.trees]: id("forest"), [COVER.mangroves]: id("forest"), [COVER.shrubs]: grass, [COVER.grass]: grass, [COVER.wetland]: grass, [COVER.moss]: grass,
       [COVER.crops]: id("farm"), [COVER.built]: urban, [COVER.snow]: id("rock"),
     };
+    // Bare ground among buildings is yards, car parks and building sites, not a beach: where a chunk has more
+    // built-up ground than bare, its bare ground is drawn as the town's.
+    let built = 0, bare = 0;
+    for (let j = 0; j < GRID; j++) {
+      for (let i = 0; i < GRID; i++) {
+        const kind = kindAt(cover, (cx + (i + 0.5) / GRID) / per, (cy + (j + 0.5) / GRID) / per);
+        if (kind === COVER.built) built++;
+        else if (kind === COVER.bare) bare++;
+      }
+    }
     for (let j = 0; j < GRID; j++) {
       for (let i = 0; i < GRID; i++) {
         const own = cls[j * GRID + i];
@@ -329,6 +339,8 @@ export function groundClasses(cx: number, cy: number, features: Features, elev: 
         const kind = kindAt(cover, (cx + (i + 0.5) / GRID) / per, (cy + (j + 0.5) / GRID) / per);
         if (own === urban) {
           if (kind === COVER.trees || kind === COVER.grass || kind === COVER.shrubs) cls[j * GRID + i] = grass;
+        } else if (kind === COVER.bare && built > bare) {
+          cls[j * GRID + i] = urban;
         } else if (kind === COVER.bare) {
           // Bare ground is sand where it lies flat (a desert, a beach, a dry river bed) and rock where it is steep.
           const x = cx + i / GRID, y = cy + j / GRID, d = 1 / GRID;

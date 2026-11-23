@@ -147,7 +147,7 @@ export function trimBuildings(tile: Buffer, leftOut: string[] = LEFT_OUT, scale 
 }
 
 /** Kinds of place a family game does not put a sign up for, wherever in Overture's words for a place they appear. */
-const NOT_FOR_US = /adult|strip_club|cannabis|tobacco|vap(e|or)|hookah|casino|gambl|betting|firearm|\bgun|liquor|nightlife|dance_club|lounge|winery|brewery|distillery|\balcoholic|psychic|astrolog/;
+const NOT_FOR_US = /adult|strip_club|cannabis|tobacco|vap(e|or)|hookah|casino|gambl|betting|firearm|\bgun|liquor|wine|beer|spirits|bottle_shop|nightlife|dance_club|lounge|brewery|distillery|\balcoholic|psychic|astrolog/;
 /** Names that are not a sign: an address on the web, or a word the game does not write up. */
 const NOT_A_NAME = /@|https?:|www\.|\.com\b|\b(sex|sexy|xxx|adult|adults|erotic|escort|escorts|strip|porn|nude|cannabis|hookah|shisha|vape|vapes|casino|gun|guns|firearms?)\b/i;
 
@@ -360,6 +360,7 @@ const sameName = (a: string, b: string): boolean => a.length >= 3 && b.length >=
 
 /** The share of an outline that already has a building on it, to count as the same building. */
 const SAME_BUILDING = 0.25;
+const ONE_OF_A_KIND = /^(fuel|school|hospital|church|mosque|temple)$/;
 /** How far outside a building a place's point may be and still be that building's (metres): they are often put at the kerb. */
 const PLACE_REACH_M = 8;
 
@@ -486,6 +487,12 @@ export function addOverture(out: Features, block: OvertureBlock, dx: number, dy:
       if (home.b.name || home.size * S * S > 2500) continue;
       const sign = signName(p.n);
       if (!sign) continue;
+      // A street has one petrol station, one school, one church where it has one: a second point for the same
+      // one (its other name, or its office) is not a second one next door.
+      if (use && ONE_OF_A_KIND.test(use)) {
+        const hx = (home.x0 + home.x1) / 2, hy = (home.y0 + home.y1) / 2;
+        if (boxes.some((q) => q !== home && q.b.use === use && Math.hypot((q.x0 + q.x1) / 2 - hx, (q.y0 + q.y1) / 2 - hy) * S < 90)) continue;
+      }
       home.b.name = sign;
       if (!home.b.use && use) home.b.use = use;
       stats.named++;

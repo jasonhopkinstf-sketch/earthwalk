@@ -1,8 +1,10 @@
 # EarthWalk
 
 Walk anywhere on Earth with family and friends. The world is generated on the fly
-from open data (OpenStreetMap for buildings, roads, parks and water; open elevation
-tiles for terrain), and everyone in the same "room" can see each other and chat.
+from open data (OpenStreetMap for buildings, roads, parks and water; Overture Maps for
+buildings and shops OpenStreetMap does not have; satellite maps of ground cover and tree
+heights; open elevation tiles for terrain), and everyone in the same "room" can see each
+other and chat.
 
 ![Sydney Harbour, generated from open data](docs/preview-sydney.png)
 
@@ -56,6 +58,9 @@ settings (environment variables):
 | `EARTHWALK_CONTACT` | Contact shown to the OpenStreetMap services in the User-Agent, as their usage policies ask |
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
+| `EARTHWALK_OVERTURE` | `0` leaves Overture Maps out: no buildings or named places beyond OpenStreetMap's own |
+| `EARTHWALK_OVERTURE_LEAVE_OUT` | Sets of building outlines within Overture to leave out, by Overture's name for them, comma-separated (default `Google Open Buildings`; set it to nothing to take them all) |
+| `EARTHWALK_COVER` | `0` leaves the satellite maps out: ground cover and tree heights only where OpenStreetMap gives them |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |
 | `ANTHROPIC_API_KEY`, `EARTHWALK_TALK_MONTHLY_USD`, `EARTHWALK_TALK_MODEL` | Optional and paid: let the things players talk to, and the guide, answer through Claude, under a monthly limit they share (see [docs/HOSTING.md](docs/HOSTING.md)) |
@@ -702,8 +707,26 @@ mouse, so typing in another window cannot move the player.
 
 Map data © OpenStreetMap contributors, available under the Open Database License.
 Terrain from the Terrain Tiles open dataset on AWS (Mapzen/Tilezen; sources include
-SRTM, USGS 3DEP and others). The game shows the OpenStreetMap credit on screen; keep
-it there if you change the interface.
+SRTM, USGS 3DEP and others).
+
+Buildings where OpenStreetMap has none, and the names of shops and other public places,
+are from the Overture Maps Foundation (overturemaps.org): © OpenStreetMap contributors,
+Overture Maps Foundation. The buildings are under the Open Database License and include
+outlines from Esri Community Maps contributors (CC BY 4.0) and Microsoft's Global ML
+Building Footprints (ODbL); the places are from Meta, Microsoft, Foursquare and others
+under CDLA Permissive 2.0, Apache 2.0 and CC0. (Overture also carries Google's Open
+Buildings, an open set under CC BY 4.0 and ODbL; the server leaves those out unless
+`EARTHWALK_OVERTURE_LEAVE_OUT` is changed.)
+
+Ground cover is from ESA WorldCover 2021: © ESA WorldCover project 2021 / Contains
+modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, under
+CC BY 4.0. Tree heights are from the High Resolution Canopy Height Maps by Meta and the
+World Resources Institute (2024), under CC BY 4.0 (source imagery for them © 2016 Maxar).
+
+The game shows these credits on screen (the line at the bottom right, and its tooltip);
+keep them there if you change the interface. None of this data is in the repository: the
+server reads a small piece of each as a place is first visited, and keeps what it uses in
+its cache (`overture/` and `cover/` beside `osm/`).
 
 The car, van and taxi models are from Kenney's Car Kit (www.kenney.nl), public
 domain (Creative Commons CC0); the licence is beside them in `game/Models/kenney-car-kit`.

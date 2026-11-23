@@ -213,6 +213,7 @@ test("only places open to anybody get a sign, and nothing a family game would no
   assert.equal(placeKind(["shopping", "specialty_store"], "adult_store", "specialty_store"), null);
   assert.equal(placeKind(["shopping"], "liquor_store", "food_and_beverage_store"), null);
   assert.equal(placeKind(["arts_and_entertainment"], "casino", "casino"), null);
+  assert.equal(placeKind(["shopping", "food_and_beverage_store"], "wine_shop", "food_and_beverage_store"), null);
   assert.equal(placeKind(["food_and_drink"], "juice_bar", "non_alcoholic_beverage_venue"), "amenity=cafe");
   assert.equal(placeName("  Bread &  Honey "), "Bread & Honey");
   assert.equal(placeName("www.cheapstuff.com"), null);
@@ -326,8 +327,10 @@ test("places name the buildings they stand in or at, and the map's own names sta
     building(13, square(CX + 0.70, CY + 0.30, 0.03)),
     building(14, square(CX + 0.30, CY + 0.50, 0.5)), // a hall of 200 m by 200 m: too big to be named by one shop in it
     building(15, square(CX + 0.10, CY + 0.10, 0.03)),
+    building(16, square(CX + 0.25, CY + 0.30, 0.03), { name: "Hill School", use: "school" }),
+    building(17, square(CX + 0.20, CY + 0.30, 0.03)),
   ]);
-  f.places = [{ id: 1, at: [CX + 0.11, CY + 0.11], name: "Moss & Fern", kind: "shop=florist" }];
+  f.places =[{ id: 1, at: [CX + 0.11, CY + 0.11], name: "Moss & Fern", kind: "shop=florist" }];
   const place = (id: string, wx: number, wy: number, n: string, k: string, c = 90): OvertureBlock["places"][number] => ({ id: idOf(id), x: U(wx, wy)[0], y: U(wx, wy)[1], n, k, c });
   const stats = addOverture(f, blockOf([], [
     place("1", CX + 0.31, CY + 0.31, "Lantern Lane Gifts", "tourism=museum", 95),
@@ -337,7 +340,9 @@ test("places name the buildings they stand in or at, and the map's own names sta
     place("5", CX + 0.90, CY + 0.90, "Nowhere Bakery", "shop=bakery"), // no building near
     place("6", CX + 0.5, CY + 0.7, "Stall In The Hall", "shop=gift"), // in the big hall
     place("7", CX + 0.115, CY + 0.115, "Moss and Fern", "shop=florist"), // the map names this one already
+    place("8", CX + 0.21, CY + 0.31, "Te Kura Annexe", "amenity=school", 99), // the school is next door already
   ]), DX, DY);
+  assert.equal(f.buildings[6].name, undefined, "one school in a street, not two");
   assert.equal(stats.named, 2);
   const [a, b, c, d, e] = f.buildings;
   assert.deepEqual([a.name, a.use], ["Kettle & Crumb", "food"]);
@@ -348,7 +353,7 @@ test("places name the buildings they stand in or at, and the map's own names sta
   assert.equal(e.name, undefined, "the map's own place was there first (it names the building where the extras are put in)");
   // The places are handed on for the insides of buildings: all that stand in one, and the map's own.
   const names = f.places.map((p) => p.name).sort();
-  assert.deepEqual(names, ["Kettle & Crumb", "Lantern Lane Gifts", "Moss & Fern", "Paper Kite Books", "Stall In The Hall", "The Toy Cupboard"]);
+  assert.deepEqual(names, ["Kettle & Crumb", "Lantern Lane Gifts", "Moss & Fern", "Paper Kite Books", "Stall In The Hall", "Te Kura Annexe", "The Toy Cupboard"]);
   const moved = f.places.find((p) => p.name === "The Toy Cupboard")!;
   assert.ok(moved.at[0] > CX + 0.70, "moved to just inside the wall");
 });
@@ -608,6 +613,12 @@ test("the ground cover fills in only where the map says nothing", async () => {
   assert.equal(at(cls, 0.75, 0.4), groundClassId("farm"));
   assert.equal(at(cls, 0.75, 0.6), groundClassId("sand"), "bare and flat");
   assert.equal(at(cls, 0.75, 0.9), 0, "water is the map's to say");
+
+  // Bare ground in a town is yards and building sites, not a beach.
+  f.cover = coverOf((i, j) => { const [u, v] = local(i, j); return u > 0.5 && v > 0.5 && v < 0.75 ? COVER.bare : COVER.built; });
+  const town = groundClasses(CX, CY, f, elev);
+  assert.equal(at(town, 0.75, 0.6), groundClassId("urban"));
+  assert.equal(at(town, 0.75, 0.1), groundClassId("urban"), "built-up ground the map has no name for");
 });
 
 test("trees stand where satellites saw them, as tall as they are there, and off the roads", async () => {
