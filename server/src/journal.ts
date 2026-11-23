@@ -21,6 +21,7 @@ import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
 import { type Feat, howWon, pieceById, PIECES } from "./home.ts";
 import { TRICK_COINS, trickById, TRICKS, tricksView } from "./tricks.ts";
+import { hungerOf } from "../public/js/care.js";
 import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, HELPINGS, ingredients, LARDER_MAX, menuFor, needName, recipeById, RECIPES, recipesKnown, thanksFood } from "./food.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
@@ -94,6 +95,8 @@ export interface JournalDoc {
   cooked: Record<string, number>;
   /** The tricks each kind of companion has been taught (tricks.ts). */
   tricks: Record<string, string[]>;
+  /** How many hungry animals they have fed (public/js/care.js). */
+  caredFor: number;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -136,6 +139,8 @@ export interface JournalView {
   garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
   /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
   house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
+  /** Hungry animals: how many they have fed, those fed today (as "cow:918398760"), the coins for each, and the companion that feeding more will win. */
+  care: { fed: number; today: string[]; coins: number; next: { at: number; pet: string } | null };
   /** The companion at their side (null for none), every trick there is with whether it knows it, and the one it could learn next. */
   tricks: { pet: string | null; all: { id: string; name: string; known: boolean }[]; next: string | null; coins: number };
   /** Today's five hearts, whether all are full, and the lunch box: each food with the hearts it fills and how many are carried. */
@@ -145,7 +150,7 @@ export interface JournalView {
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play" | "food" | "trick";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play" | "food" | "trick" | "care";
   /** For a treasure just found: where its finder stood, so that their game can show it there. */
   at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
@@ -303,6 +308,7 @@ const STAMPS: StampRule[] = [
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
   { id: "halves", title: "Both halves", unit: "", steps: [1], count: (d) => (d.north !== null && d.south !== null && d.north > 0 && d.south < 0 ? 1 : 0), say: () => "You have stood on both halves of the world" },
   { id: "north", title: "Far north", unit: "", steps: [1], count: (d) => (d.north !== null && d.north > 66.5 ? 1 : 0), say: () => "You have been north of the Arctic Circle" },
+  { id: "cared", title: "Animals fed", unit: "animals", steps: [1, 3, 8, 15, 25, 50, 100], count: (d) => d.caredFor ?? 0, say: (n) => `You have fed ${one(n, "hungry animal")}` },
   { id: "tricks", title: "Tricks taught", unit: "tricks", steps: [1, 3, 7, 14, 30], count: (d) => Object.values(d.tricks ?? {}).reduce((n, list) => n + list.length, 0), say: (n) => `You have taught ${one(n, "trick")}` },
   { id: "cooked", title: "Meals cooked", unit: "meals", steps: [1, 5, 20, 50], count: (d) => Object.values(d.cooked ?? {}).reduce((a, b) => a + b, 0), say: (n) => `You have cooked ${one(n, "meal")}` },
   { id: "healthy", title: "Healthy days", unit: "days", steps: [1, 3, 7, 14, 30, 100], count: (d) => d.healthyDays ?? 0, say: (n) => `You have filled all five hearts on ${one(n, "day")}` },
@@ -327,7 +333,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {}, tricks: {},
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {}, tricks: {}, caredFor: 0,
   };
 }
 
@@ -338,6 +344,9 @@ const todayOf = (d: JournalDoc, now: number): Daily => {
 };
 const hatHow = (h: { days?: number; hunts?: number }): string | null =>
   h.days ? (h.days === 1 ? "Do all three tasks in one day" : `Do all three tasks on ${h.days} days`) : h.hunts ? (h.hunts === 1 ? "Find the treasure at the end of a treasure hunt" : `Find ${h.hunts} treasures`) : null;
+/** Coins for feeding a hungry animal, and the companions that feeding so many wins. */
+export const CARE_COINS = 12;
+export const CARE_PETS: { at: number; pet: string }[] = [{ at: 3, pet: "hedgehog" }, { at: 8, pet: "fox" }, { at: 15, pet: "deer" }, { at: 25, pet: "otter" }];
 /** How much of something a player has done, for the prizes that are won by it (home.ts). */
 export function featOf(d: JournalDoc, feat: Feat): number {
   switch (feat) {
@@ -393,6 +402,7 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
       bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
     }))(d.car ?? emptyGarage()),
+    care: { fed: d.caredFor ?? 0, today: today.cared ?? [], coins: CARE_COINS, next: CARE_PETS.find((c) => c.at > (d.caredFor ?? 0)) ?? null },
     tricks: ((pet) => ({ pet, ...tricksView(pet ? (d.tricks ?? {})[pet] ?? [] : []), coins: TRICK_COINS }))(passengerOf(d) ?? (d.pet && petsOf(d).includes(d.pet) ? d.pet : null)),
     food: ((ate, larder) => ({
       hearts: heartsOf(ate), full: ate.length >= GROUPS.length, healthyDays: d.healthyDays ?? 0, coinsFull: HEALTHY_COINS,
@@ -1091,8 +1101,28 @@ export class Journals {
         const keys = Object.keys(d.friends);
         if (keys.length > FRIEND_CAP) delete d.friends[keys.reduce((a, b) => (d.friends[a].last <= d.friends[b].last ? a : b))];
       }
-      // What it has to give (food.ts): once a day from each thing, into the lunch box.
-      const food = foodById(foodGiftOf(sp, thing, w.at?.lat ?? 45) ?? "");
+      // A hungry animal (public/js/care.js) is fed from the lunch box if what it would like is there; if not, it says
+      // what that is, once. Feeding it is paid for, and every so many animals fed wins a new companion.
+      const want = foodById(hungerOf(sp, thing, t.day) ?? "");
+      const cared = (t.cared ??= []);
+      const hungry = !!want && !cared.includes(id);
+      if (want && hungry && (d.larder ?? {})[want.id] > 0) {
+        if (--d.larder[want.id] <= 0) delete d.larder[want.id];
+        cared.push(id);
+        d.caredFor = (d.caredFor ?? 0) + 1;
+        d.coins += CARE_COINS;
+        this.tell(key, { kind: "care", title: `You fed ${name}`, text: `${want.name[0].toUpperCase()}${want.name.slice(1)} was just what it wanted: ${CARE_COINS} coins` });
+        const won = CARE_PETS.find((c) => c.at === d.caredFor);
+        if (won && !petsOf(d).includes(won.pet)) {
+          (d.morePets ??= []).push(won.pet);
+          this.tell(key, { kind: "care", title: `${aKind(won.pet)[0].toUpperCase()}${aKind(won.pet).slice(1)} wants to keep you company`, text: `You have fed ${d.caredFor} hungry animals, and word has got round. Choose it under Companions in your passport (P)` });
+        }
+      } else if (want && hungry && !(t.hungry ??= []).includes(id) && t.hungry.length < 60) {
+        t.hungry.push(id);
+        this.tell(key, { kind: "care", title: `${name} is hungry`, text: `It would love ${want.name}. Bring one in your lunch box (B) and talk to it again` });
+      }
+      // What it has to give (food.ts): once a day from each thing, into the lunch box. (Not on an empty stomach.)
+      const food = hungry && !cared.includes(id) ? undefined : foodById(foodGiftOf(sp, thing, w.at?.lat ?? 45) ?? "");
       const gifts = (t.gifts ??= []);
       if (food && !gifts.includes(id) && gifts.length < 60 && this.stock(d, food.id)) {
         gifts.push(id);

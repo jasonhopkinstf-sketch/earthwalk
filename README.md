@@ -251,6 +251,13 @@ helpings at a time. Three are known from the start, and each one cooked for the 
 the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
 lunch box has a button to give it to them.
 
+Hungry animals (in the browser so far): each day about one animal in five is hungry, and a thought
+bubble over it shows the food it would like (a duck bread, a horse an apple or a carrot, a squirrel
+nuts). Talk to it with that food in your lunch box and it is fed: twelve coins, a count in the
+passport, and at three, eight, fifteen and twenty-five animals fed a new companion (a hedgehog, a
+fox, a deer, an otter). Without the food it says what it would like. Which animals are hungry is one
+rule in `server/public/js/care.js`, used by the server to judge and by the games to draw the bubbles.
+
 Tricks (in the browser so far): the companion at your side can be taught seven tricks, in order: sit
 up, spin, jump, take a bow, fetch, jump through a hoop, dance. K opens the list. A lesson is a game
 of timing: paw prints run along a bar and Space is pressed as each reaches the ring; the server sets

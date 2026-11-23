@@ -586,6 +586,18 @@ finished the state is `over` and the results stay for a minute. `stop` takes a r
 its maker (or when its maker leaves the room) it ends the race. A race nobody starts is cleared
 after ten minutes, and one nobody finishes after twenty.
 
+### Hungry animals
+
+On any day about one animal in five is hungry for one food: which, and for what, is
+`hungerOf(sp, thing, day)` in `server/public/js/care.js` (a hash of the animal's identity and the day
+number, the player's own day as for the daily tasks; a table says what each kind likes). Games are
+expected to mark the hungry ones nearby. A `talk` to a hungry animal by a player who has that food in
+their lunch box feeds it: the food goes, twelve coins come, and it is not hungry for that player
+again that day. Without the food, the player is told what it would like. News comes as `stamp`
+messages of kind `care`. The journal's `care` has `fed` (in all), `today` (those fed today, as
+`"horse:918398760"`), `coins`, and `next` (how many fed wins which companion, or null). A hungry
+animal gives no food of its own until it has been fed.
+
 ### Tricks
 
 The companion at a player's side (see "Riddles and companions") can be taught tricks, in this order:

@@ -28,6 +28,9 @@ export interface Daily {
   eaten?: number;
   gifts?: string[];
   fed?: boolean;
+  /** Hungry animals (public/js/care.js): those fed today, and those that have said what they would like. */
+  cared?: string[];
+  hungry?: string[];
   /** Tasks done, with when; and whether the prize for all three has been paid. */
   done: Record<string, number>;
   bonus: boolean;

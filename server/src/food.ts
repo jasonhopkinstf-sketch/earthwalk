@@ -91,13 +91,14 @@ const DISHES: Record<string, string[]> = {
   "Switzerland": ["fondue", "chocolate"], "Belgium": ["waffle", "chocolate"],
 };
 const CAFE = ["sandwich", "soup", "fruitsalad", "omelette", "cake", "icecream"];
-const GROCER = ["bread", "rice", "porridge", "egg", "beans", "milk", "cheese", "yoghurt", "carrot", "potato", "tomato", "lettuce", "chocolate"];
+// (A grocer has everything a hungry animal might want, public/js/care.js: nobody should have to hunt for a corn cob.)
+const GROCER = ["bread", "rice", "porridge", "egg", "beans", "nuts", "fish", "milk", "cheese", "yoghurt", "carrot", "potato", "tomato", "lettuce", "corn", "pumpkin", "berries", "banana", "honey", "chocolate"];
 
 /** What a shop (`shop`) or somewhere to eat (`food`) sells, in a country (as the place lookup names it) and at a latitude. */
 export function menuFor(use: "shop" | "food", country: string | null, lat: number): Food[] {
   const ids = use === "food"
     ? [...(DISHES[country ?? ""] ?? []), ...CAFE]
-    : [...GROCER, ...(Math.abs(lat) < 23.5 ? ["banana", "mango"] : Math.abs(lat) < 40 ? ["orange", "peach"] : ["apple", "pear"])];
+    : [...GROCER, ...(Math.abs(lat) < 23.5 ? ["banana", "mango", "apple", "fig"] : Math.abs(lat) < 40 ? ["orange", "peach", "fig", "apple"] : ["apple", "pear"])];
   return [...new Set(ids)].map((id) => foodById(id)!).filter(Boolean);
 }
 

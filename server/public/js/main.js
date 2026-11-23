@@ -13,6 +13,7 @@ import { Houses } from "./houses.js";
 import { Decor } from "./decor.js";
 import { Lunch } from "./lunch.js";
 import { Train } from "./train.js";
+import { CareBubbles } from "./carebubbles.js";
 import { Taxis } from "./taxi.js";
 import { Pets } from "./pets.js";
 import { Garage } from "./garage.js";
@@ -59,9 +60,9 @@ sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
 const life = new Life(scene, world, sounds, traffic);
 // What the E and T keys would do just now, shown together at the bottom of the screen.
-const hints = { ride: "", talk: "", door: "", food: "" };
+const hints = { ride: "", talk: "", door: "", food: "", care: "" };
 function showHints() {
-  const text = [hints.ride || hints.door, hints.talk, hints.food].filter(Boolean).join("   ·   ");
+  const text = [hints.ride || hints.door, hints.care || hints.talk, hints.food].filter(Boolean).join("   ·   ");
   $("ride").hidden = !text;
   $("ride").textContent = text;
 }
@@ -91,6 +92,7 @@ const lunch = new Lunch({
 const orders = new Orders({ world, player, meetup, avatars, life, traffic, riding, say: (text) => notice(text) });
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 const pets = new Pets({ scene, world, player, meetup, avatars, riding });
+const care = new CareBubbles({ scene, world, player, meetup, life, hint: (text) => { if (hints.care !== text) { hints.care = text; showHints(); } } });
 const train = new Train({ panel: $("train"), bar: $("lesson"), meetup, player, say: (text) => notice(text) });
 const garage = new Garage({ world, meetup, riding, traffic });
 const play = new Play({ scene, world, meetup, player, avatars, talk, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
@@ -226,7 +228,7 @@ meetup.addEventListener("journal", (e) => {
 });
 // A treasure found: the chest stands a few steps ahead of me, where I am looking.
 meetup.addEventListener("stamp", (e) => { if (e.detail.at) treasure.show(e.detail.at.lat, e.detail.at.lon, Math.sin(player.yaw) * 3.5, -Math.cos(player.yaw) * 3.5); });
-meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : e.detail.kind === "favour" ? "A favour" : e.detail.kind === "hunt" ? "Treasure hunt" : e.detail.kind === "expedition" ? "Expedition" : e.detail.kind === "race" ? "Race" : e.detail.kind === "play" ? "Game over" : e.detail.kind === "food" ? "Food" : e.detail.kind === "trick" ? "A new trick" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" || e.detail.kind === "hunt" || e.detail.kind === "food" || e.detail.kind === "trick" ? "" : " (P opens your passport)"}`));
+meetup.addEventListener("stamp", (e) => notice(`${e.detail.kind === "country" ? "New country" : e.detail.kind === "level" ? "Level up" : e.detail.kind === "riddle" ? "Riddles" : e.detail.kind === "task" ? "Today" : e.detail.kind === "prize" ? "A prize" : e.detail.kind === "favour" ? "A favour" : e.detail.kind === "hunt" ? "Treasure hunt" : e.detail.kind === "expedition" ? "Expedition" : e.detail.kind === "race" ? "Race" : e.detail.kind === "play" ? "Game over" : e.detail.kind === "food" ? "Food" : e.detail.kind === "trick" ? "A new trick" : e.detail.kind === "care" ? "Animals" : "New stamp"}: ${e.detail.title}. ${e.detail.text ?? ""}${e.detail.kind === "riddle" || e.detail.kind === "prize" || e.detail.kind === "hunt" || e.detail.kind === "food" || e.detail.kind === "trick" || e.detail.kind === "care" ? "" : " (P opens your passport)"}`));
 meetup.addEventListener("home", (e) => { if (e.detail) notice(`Home set to ${e.detail.name}. You will start there next time.`); });
 
 // ---------------------------------------------------------------- the world
@@ -277,6 +279,7 @@ function frame(now) {
   everyone.length = 1;
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
+  care.frame(meetup.now());
   renderer.render(scene, camera);
 }
 
@@ -475,6 +478,8 @@ async function command(name, arg) {
     notice("    then back to your seat; the mouse swings the camera round and the wheel brings it nearer or further");
     notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
     notice("E   at the front door of a house: go in, and E again just inside it to come out");
+    notice("    an animal with a thought bubble over it is hungry: talk to it (T) with that food in your lunch box and it is fed;");
+    notice("    feeding hungry animals wins new companions");
     notice("K   tricks for the companion at your side: teach it the next one (a game of timing: Space as each paw print");
     notice("    reaches the ring), and have it do the ones it knows (or /trick spin, /teach)");
     notice("B   your lunch box and your five hearts: eat one of each kind of good food (fruit, vegetables, bread, protein, dairy)");
@@ -626,4 +631,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

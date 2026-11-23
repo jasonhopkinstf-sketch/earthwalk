@@ -111,6 +111,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #lesson .paw.hit { filter: hue-rotate(80deg) saturate(2); opacity: .5; }
 #lesson .paw.miss { opacity: .25; }
 #stamp.trick { border-color: #d08a1e; border-style: solid; }
+#stamp.care { border-color: #c2507a; }
 #passport .homebox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #passport .homebox .go { background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
 #hint { position: fixed; top: 12px; right: 12px; background: var(--panel); padding: 6px 10px; border-radius: 6px; font-size: 12px; opacity: .85; }

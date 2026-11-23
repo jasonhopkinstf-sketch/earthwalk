@@ -99,7 +99,8 @@ test("the journal: food is given once a day by each thing, eaten into five heart
 });
 
 test("the lunch box holds so much and no more", async () => {
-  const journals = new Journals({ startCoins: 1000 });
+  // (A day on which neither cow is hungry: a hungry animal gives nothing.)
+  const journals = new Journals({ startCoins: 1000, now: () => Date.UTC(2026, 10, 23, 9) });
   await journals.joined("a", null, "family");
   for (let i = 0; i < LARDER_MAX; i++) assert.equal(journals.buyFood("a", "shop", "bread"), "ok");
   journals.talked("a", 11, "cow", "Buttercup", "", "Moo."); // (a riddle answered, too: coins before the next line)
