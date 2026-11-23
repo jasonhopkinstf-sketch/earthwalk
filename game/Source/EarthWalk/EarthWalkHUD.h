@@ -7,6 +7,7 @@
 
 class SEarthMenu;
 class UEarthMiniMap;
+class UEarthLunch;
 class SEarthWalkOverlay;
 class UEarthCompany;
 
@@ -99,6 +100,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UEarthMiniMap> MiniMap;
 	void CycleMap();
+	/** Food and hearts: the five hearts in the corner and the lunch box (EarthLunch.h). B opens and closes it. */
+	UPROPERTY()
+	TObjectPtr<UEarthLunch> Lunch;
 
 	/**
 	 * "What's new": asks the server what has been added since the version this player last saw the

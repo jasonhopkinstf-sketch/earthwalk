@@ -116,6 +116,23 @@ struct FEarthRace
 	TArray<FEarthRunner> Runners;
 };
 
+/** Something to eat, as a shop or a café sells it (docs/PROTOCOL.md, "Food and hearts"). */
+struct FEarthFood
+{
+	FString Id;
+	FString Name;           // "a plate of sushi"
+	TArray<FString> Groups; // which hearts it fills: fruit, veg, grain, protein, dairy
+	int32 Price = 0;        // coins
+};
+
+/** What is sold where the player stands: at a shop ("shop") or somewhere to eat ("food"). */
+struct FEarthMenu
+{
+	FString Use;
+	FString Country; // somewhere to eat begins with this country's dishes
+	TArray<FEarthFood> Items;
+};
+
 /** Someone else in the same room. */
 struct FEarthPeer
 {
@@ -168,6 +185,8 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthHat, const FString& /*MemberId*/, c
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*Lon*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthMenu, const FEarthMenu& /*Menu*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthPep, bool /*bAllHeartsFull*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
 
 /**
@@ -248,6 +267,12 @@ public:
 	const FEarthRace& GetRace() const { return Race; }
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
 	void SendTaxi(const FString& Place);
+	/**
+	 * Food and hearts: "eat" one of these from my lunch box, ask for the "menu" of a shop ("shop") or of
+	 * somewhere to eat ("food"), "buy" one there (With says which of the two), "cook" a recipe, or
+	 * "give" one to the member whose id With is. My journal comes back, and the menu through OnMenu.
+	 */
+	void SendFood(const FString& Verb, const FString& What, const FString& With = FString());
 	/** Taxis on their way or waiting, by identity. The caller removes the ones whose time is up. */
 	TMap<uint32, FEarthTaxi>& GetTaxis() { return Taxis; }
 
@@ -288,6 +313,10 @@ public:
 	FOnEarthTreasure OnTreasure;
 	FOnEarthJournal OnJournal;
 	FOnEarthStamp OnStamp;
+	/** What the shop or café beside me sells: the answer to SendFood("menu", ...). */
+	FOnEarthMenu OnMenu;
+	/** All five hearts are full today (or, false, no longer): the player goes a little quicker on foot. */
+	FOnEarthPep OnPep;
 
 private:
 	void HandleMessage(const FString& Message);

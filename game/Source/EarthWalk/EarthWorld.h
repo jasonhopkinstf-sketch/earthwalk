@@ -32,6 +32,16 @@ struct FEarthDoor
 	double Yaw = 0.0; // the compass heading out of the door, in degrees
 };
 
+/** A shop or somewhere to eat with its name on a board (a labels item of kind "sign" with a `use`; docs/PROTOCOL.md, "Food and hearts"). */
+struct FEarthShop
+{
+	FIntPoint Chunk = FIntPoint::ZeroValue;
+	double X = 0.0; // metres east of the world's origin
+	double Z = 0.0; // metres south of it
+	FString Text;   // its name, as on the board
+	FString Use;    // "shop" or "food"
+};
+
 /** What covers a square metre of ground, as far as planting tufts and flowers on it goes (AEarthWorld::CoverAt). */
 namespace EarthCover
 {
@@ -136,6 +146,8 @@ public:
 	AEarthLife* GetLife() const { return Life; }
 	/** The front doors that open within reach of a spot (metres east and south of the origin). */
 	void DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const;
+	/** The shops and places to eat within reach of a spot: food is bought beside one. */
+	void ShopsNear(double EastM, double SouthM, double ReachM, TArray<FEarthShop>& Out) const;
 	/**
 	 * Makes the inside of a house ready to walk into: fetched from the server and built the first time
 	 * somebody goes in, and kept with its chunk after that. Done is told whether it is, and why not.
@@ -222,6 +234,7 @@ private:
 	UPROPERTY()
 	TMap<FString, TObjectPtr<UProceduralMeshComponent>> Interiors;
 	TMap<FIntPoint, TArray<FEarthDoor>> Doors;
+	TMap<FIntPoint, TArray<FEarthShop>> Shops;
 
 	/** Per chunk, which cells of the terrain (TerrainGrid a side) are water, row by row from the north-west corner. */
 	TMap<FIntPoint, TArray<uint8>> WaterMaps;

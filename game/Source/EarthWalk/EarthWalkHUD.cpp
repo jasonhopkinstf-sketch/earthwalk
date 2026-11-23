@@ -2,6 +2,7 @@
 
 #include "EarthMenu.h"
 #include "EarthMiniMap.h"
+#include "EarthLunch.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -218,7 +219,7 @@ public:
 				.Visibility(EVisibility::Collapsed)
 			]
 			// The race: who is in and how far along, under the status line; and the countdown, large, in the middle.
-			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f, 44.f, 0.f, 0.f)
+			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f, 78.f, 0.f, 0.f) // under the five hearts (EarthLunch.h)
 			[
 				SAssignNew(RacePanel, SBorder)
 				.BorderImage(&WhereBrush)
@@ -1338,6 +1339,8 @@ void AEarthWalkHUD::BeginPlay()
 		GEngine->GameViewport->AddViewportWidgetContent(Menu.ToSharedRef(), 11);
 		MiniMap = NewObject<UEarthMiniMap>(this);
 		MiniMap->Setup(this);
+		Lunch = NewObject<UEarthLunch>(this);
+		Lunch->Setup(this);
 	}
 	// Tab is the menu. It is bound, not just looked at each frame, so that it is used up here: left to
 	// itself Tab moves the keyboard from one thing on the screen to the next, as it does in any window.
@@ -1459,6 +1462,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		MiniMap->Shutdown();
 		MiniMap = nullptr;
 	}
+	if (Lunch)
+	{
+		Lunch->Shutdown();
+		Lunch = nullptr;
+	}
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 	{
 		Net->OnChat.Remove(ChatHandle);
@@ -1494,6 +1502,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	if (MiniMap)
 	{
 		MiniMap->Frame(DeltaSeconds);
+	}
+	if (Lunch)
+	{
+		Lunch->Frame(DeltaSeconds);
 	}
 
 	APlayerController* PC = GetOwningPlayerController();
@@ -1565,6 +1577,11 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			CloseNews();
 			bMenuTookEsc = true;
 		}
+		else if (Lunch && Lunch->IsOpen() && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			Lunch->Close();
+			bMenuTookEsc = true;
+		}
 		else if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
 		{
 			CloseMenu();
@@ -1583,6 +1600,11 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		{
 			CycleMap();
 		}
+		if (Lunch && PC->WasInputKeyJustPressed(EKeys::B))
+		{
+			CloseMenu();
+			Lunch->Toggle();
+		}
 	}
 	// -EWAsk=<words_with_underscores> answers the box that asks "where to?" three seconds after it comes up, as if typed, for tests.
 	if (bAskOpen && AskOpenedAt > 0.0 && FPlatformTime::Seconds() - AskOpenedAt > 3.0)
@@ -1595,7 +1617,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		}
 	}
 	// What is new since last time, a few seconds after arriving: once the world is on the screen, and not over anything else.
-	if (!bNewsChecked && FPlatformTime::Seconds() - StartedAt > 8.0 && !Typing() && !bMenuOpen && !bPassportOpen && !bShowsOpen)
+	if (!bNewsChecked && FPlatformTime::Seconds() - StartedAt > 8.0 && !Typing() && !bMenuOpen && !bPassportOpen && !bShowsOpen && !(Lunch && Lunch->IsOpen()))
 	{
 		bNewsChecked = true;
 		OpenNews(true);
@@ -1759,9 +1781,29 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		}
 	}
 	// (What is said to a thing is typed in its own bubble: the chat box is for people.)
-	Overlay->SetHint(Friends->GetHint());
+	// What E and T would do just now; and, beside a shop, what B would.
+	{
+		FString Hints = Friends->GetHint();
+		if (Lunch && !Lunch->GetHint().IsEmpty())
+		{
+			Hints += (Hints.IsEmpty() ? TEXT("") : TEXT("      ")) + Lunch->GetHint();
+		}
+		Overlay->SetHint(Hints);
+	}
 	Overlay->SetRace(Friends->GetRacePanel(), Friends->GetRaceCount());
-	Overlay->SetBubbles(Friends->GetBubbles(), PC);
+	// What things have said, each above the thing that said it; but not above the one being talked to,
+	// whose words are in the conversation bubble at the foot of the screen already.
+	if (bTalkOpen)
+	{
+		TArray<UEarthCompany::FBubble> Others = Friends->GetBubbles();
+		const uint32 Talking = Friends->TalkingThing();
+		Others.RemoveAll([Talking](const UEarthCompany::FBubble& Bubble) { return Bubble.Thing == Talking; });
+		Overlay->SetBubbles(Others, PC);
+	}
+	else
+	{
+		Overlay->SetBubbles(Friends->GetBubbles(), PC);
+	}
 
 	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
 	// P and Esc still close it. If a click has left the keyboard somewhere else, give it back.
@@ -1832,12 +1874,18 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		bRunTested = true;
 		if (FParse::Value(FCommandLine::Get(), TEXT("-EWRun="), Run))
 		{
-			FString Command, Argument;
-			if (!Run.Split(TEXT("_"), &Command, &Argument))
+			// Several, one after another, with a plus between them: -EWRun=buy_meatpie+do_lunch.
+			TArray<FString> Each;
+			Run.ParseIntoArray(Each, TEXT("+"));
+			for (const FString& One : Each)
 			{
-				Command = Run;
+				FString Command, Argument;
+				if (!One.Split(TEXT("_"), &Command, &Argument))
+				{
+					Command = One;
+				}
+				RunCommand(Command.ToLower(), Argument.Replace(TEXT("_"), TEXT(" ")));
 			}
-			RunCommand(Command.ToLower(), Argument.Replace(TEXT("_"), TEXT(" ")));
 		}
 	}
 
@@ -2338,6 +2386,13 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	{
 		OpenNews(false);
 	}
+	else if (Id == TEXT("lunch"))
+	{
+		if (Lunch)
+		{
+			Lunch->Toggle();
+		}
+	}
 	else if (Id == TEXT("above"))
 	{
 		const APlayerController* PC = GetOwningPlayerController();
@@ -2709,6 +2764,37 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		OpenNews(false);
 	}
+	else if (Command == TEXT("lunch"))
+	{
+		if (Lunch)
+		{
+			Lunch->Toggle();
+		}
+	}
+	else if (Command == TEXT("buy"))
+	{
+		// "/buy meatpie": one of what the shop or café beside me sells, by the name the server knows it by.
+		if (Lunch && !Argument.IsEmpty() && !Lunch->GetHint().IsEmpty())
+		{
+			Lunch->Buy(Argument.ToLower().Replace(TEXT(" "), TEXT("")));
+		}
+		else
+		{
+			AddLine(TEXT("Stand by a real shop or caf\u00e9 with its name on a board first; then B shows what it sells, and a click buys it."), NoticeColor);
+		}
+	}
+	else if (Command == TEXT("eat"))
+	{
+		// "/eat milk": one of these from the lunch box, by the name the server knows it by.
+		if (Lunch && !Argument.IsEmpty())
+		{
+			Lunch->Eat(Argument.ToLower().Replace(TEXT(" "), TEXT("-")));
+		}
+		else
+		{
+			AddLine(TEXT("Say what: /eat milk. B opens your lunch box, where a click does the same."), NoticeColor);
+		}
+	}
 	else if (Command == TEXT("do"))
 	{
 		// One thing from the menu by its name there ("/do goto"): what a button of the strip does.
@@ -2717,6 +2803,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("help"))
 	{
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("B   your lunch box: your five hearts, the food you carry (a click eats it), and beside a shop or a caf\u00e9 what it sells."), NoticeColor);
 		AddLine(TEXT("M   the little map in the corner: bigger, hidden, and back. It shows friends, doors that open, where trains stop, cars, and the way to where you are being taken."), NoticeColor);
 		AddLine(TEXT("The same things as typed commands, for those who like typing:"), NoticeColor);
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);

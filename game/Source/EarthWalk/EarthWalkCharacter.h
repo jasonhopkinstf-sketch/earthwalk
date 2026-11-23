@@ -54,6 +54,8 @@ public:
 
 	/** Rebuilds the player's own figure from the saved animal choice. */
 	void RefreshFigure();
+	/** All five hearts are full today: a little quicker on foot (the server's `pep`; docs/PROTOCOL.md, "Food and hearts"). */
+	void SetPep(bool bOn) { bPep = bOn; }
 
 	/** While true (chat box open), movement and look keys are ignored. */
 	bool bTyping = false;
@@ -154,6 +156,7 @@ private:
 	bool bDriveFriction = false;
 	bool bCarried = false;
 	bool bSteering = false;
+	bool bPep = false;
 	bool bAutopilot = false;
 	FVector2D AutoNorthEast = FVector2D::ZeroVector;
 	double AutoPace = 0.0;

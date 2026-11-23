@@ -400,6 +400,23 @@ void UEarthWalkNet::SendTaxi(const FString& Place)
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendFood(const FString& Verb, const FString& What, const FString& With)
+{
+	if (!bJoined)
+	{
+		OnNotice.Broadcast(TEXT("Not connected to the meetup server just now, so the lunch box is shut."));
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("food"));
+	Message->SetStringField(Verb, What.Left(60));
+	if (!With.IsEmpty())
+	{
+		Message->SetStringField(Verb == TEXT("give") ? TEXT("to") : TEXT("at"), With.Left(80));
+	}
+	SendJson(Message);
+}
+
 void UEarthWalkNet::SendChat(const FString& Text)
 {
 	if (!bJoined)
@@ -976,6 +993,38 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 	{
 		const TSharedPtr<FJsonObject>* Journal = nullptr;
 		OnJournal.Broadcast(Json->TryGetObjectField(TEXT("journal"), Journal) ? *Journal : TSharedPtr<FJsonObject>());
+	}
+	else if (Type == TEXT("menu"))
+	{
+		// What the shop or café beside me sells.
+		FEarthMenu Menu;
+		Json->TryGetStringField(TEXT("use"), Menu.Use);
+		Json->TryGetStringField(TEXT("country"), Menu.Country);
+		const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+		if (Json->TryGetArrayField(TEXT("items"), Items))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Items)
+			{
+				const TSharedPtr<FJsonObject>* Row = nullptr;
+				FEarthFood Food;
+				if (!Value.IsValid() || !Value->TryGetObject(Row) || !(*Row)->TryGetStringField(TEXT("id"), Food.Id) || !(*Row)->TryGetStringField(TEXT("name"), Food.Name))
+				{
+					continue;
+				}
+				(*Row)->TryGetStringArrayField(TEXT("groups"), Food.Groups);
+				double Price = 0.0;
+				(*Row)->TryGetNumberField(TEXT("price"), Price);
+				Food.Price = FMath::RoundToInt32(Price);
+				Menu.Items.Add(MoveTemp(Food));
+			}
+		}
+		OnMenu.Broadcast(Menu);
+	}
+	else if (Type == TEXT("pep"))
+	{
+		bool bOn = false;
+		Json->TryGetBoolField(TEXT("on"), bOn);
+		OnPep.Broadcast(bOn);
 	}
 	else if (Type == TEXT("stamp"))
 	{

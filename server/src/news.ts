@@ -11,6 +11,14 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.46", date: "2026-11-23", title: "Food and hearts in the Windows game",
+    items: [
+      { text: "Five hearts in the top left corner, one for each kind of good food. Fill all five and you are quicker on your feet for the day.", in: "windows" },
+      { text: "B opens your lunch box. A cow, a hen or a fruit tree gives you food when you talk to it; a click eats it, or gives it to a friend standing by.", in: "windows" },
+      { text: "Stand by a real shop or café and B shows what it sells. Each country has its own food.", in: "windows" },
+    ],
+  },
+  {
     version: "0.2.45", date: "2026-11-23", title: "Easier to find your way about",
     items: [
       { text: "Press Tab to see everything you can do, and click it. Nothing needs a typed command any more.", in: "windows" },
@@ -27,7 +35,7 @@ export const NEWS: NewsEntry[] = [
     version: "0.2.44", date: "2026-11-23", title: "A house of your own, food, and games with animals",
     items: [
       { text: "Make a house your own: your name over the door, your choice of furniture, your prizes on show.", in: "browser" },
-      { text: "Five hearts and a lunch box. Animals, trees and real shops give food; a good mix fills your hearts.", in: "browser" },
+      { text: "Five hearts and a lunch box. Animals, trees and real shops give food; a good mix fills your hearts." },
       { text: "Cook in your own kitchen, and give food to a friend.", in: "browser" },
       { text: "Teach your companion tricks, feed hungry wild animals, raise a chick, a lamb, a piglet or a calf in your garden, and run an agility course.", in: "browser" },
       { text: "While riding or being carried, V looks down from above." },

@@ -268,6 +268,7 @@ void AEarthWorld::ClearLabels()
 	PendingLabels.Reset();
 	LabelRetryAfter.Reset();
 	Doors.Reset();
+	Shops.Reset();
 	if (Life)
 	{
 		Life->Clear();
@@ -359,6 +360,20 @@ bool AEarthWorld::WaterAt(double EastM, double SouthM, bool& bOutWet) const
 	const int32 Y = FMath::Min(TerrainGrid - 1, FMath::FloorToInt32((V - Key.Y) * TerrainGrid));
 	bOutWet = (*Water)[Y * TerrainGrid + X] == 1;
 	return true;
+}
+
+void AEarthWorld::ShopsNear(double EastM, double SouthM, double ReachM, TArray<FEarthShop>& Out) const
+{
+	for (const TPair<FIntPoint, TArray<FEarthShop>>& Pair : Shops)
+	{
+		for (const FEarthShop& Shop : Pair.Value)
+		{
+			if (FMath::Abs(Shop.X - EastM) <= ReachM && FMath::Abs(Shop.Z - SouthM) <= ReachM && Chunks.Contains(Shop.Chunk))
+			{
+				Out.Add(Shop);
+			}
+		}
+	}
 }
 
 void AEarthWorld::DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const
@@ -834,6 +849,25 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 					// Front doors that open: E beside one goes in (UEarthCompany).
 						TArray<FEarthDoor>& ChunkDoors = Doors.FindOrAdd(Key);
 						ChunkDoors.Reset();
+						// And the shops and places to eat, where food is bought (UEarthLunch).
+						TArray<FEarthShop>& ChunkShops = Shops.FindOrAdd(Key);
+						ChunkShops.Reset();
+						for (const TSharedPtr<FJsonValue>& Value : *Items)
+						{
+							const TSharedPtr<FJsonObject>* Sign = nullptr;
+							FString SignKind;
+							FEarthShop Shop;
+							double SignU = 0.0, SignV = 0.0;
+							if (Value.IsValid() && Value->TryGetObject(Sign) && (*Sign)->TryGetStringField(TEXT("kind"), SignKind) && SignKind == TEXT("sign")
+								&& (*Sign)->TryGetStringField(TEXT("use"), Shop.Use) && (Shop.Use == TEXT("shop") || Shop.Use == TEXT("food"))
+								&& (*Sign)->TryGetStringField(TEXT("text"), Shop.Text) && (*Sign)->TryGetNumberField(TEXT("u"), SignU) && (*Sign)->TryGetNumberField(TEXT("v"), SignV))
+							{
+								Shop.Chunk = Key;
+								Shop.X = (Key.X - OriginX + SignU) * TileCm / 100.0;
+								Shop.Z = (Key.Y - OriginY + SignV) * TileCm / 100.0;
+								ChunkShops.Add(Shop);
+							}
+						}
 						for (const TSharedPtr<FJsonValue>& Value : *Items)
 						{
 							const TSharedPtr<FJsonObject>* Item = nullptr;
