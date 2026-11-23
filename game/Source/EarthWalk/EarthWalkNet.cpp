@@ -387,6 +387,62 @@ void UEarthWalkNet::SendRace(const FString& What)
 	SendJson(Message);
 }
 
+void UEarthWalkNet::SendAgility()
+{
+	if (bJoined)
+	{
+		const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+		Message->SetStringField(TEXT("t"), TEXT("race"));
+		Message->SetStringField(TEXT("make"), TEXT("agility"));
+		SendJson(Message);
+	}
+}
+
+void UEarthWalkNet::SendTrick(const FString& Verb, const FString& Trick)
+{
+	if (bJoined)
+	{
+		const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+		Message->SetStringField(TEXT("t"), TEXT("trick"));
+		Message->SetStringField(Verb, Trick.Left(40));
+		SendJson(Message);
+	}
+}
+
+void UEarthWalkNet::SendTrickPresses(const TArray<int32>& Presses)
+{
+	if (bJoined)
+	{
+		TArray<TSharedPtr<FJsonValue>> Values;
+		for (const int32 Press : Presses)
+		{
+			Values.Add(MakeShared<FJsonValueNumber>(Press));
+		}
+		const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+		Message->SetStringField(TEXT("t"), TEXT("trick"));
+		Message->SetArrayField(TEXT("presses"), Values);
+		SendJson(Message);
+	}
+}
+
+void UEarthWalkNet::SendGarden(const FString& Verb, const FString& Sp, int32 Index)
+{
+	if (bJoined)
+	{
+		const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+		Message->SetStringField(TEXT("t"), TEXT("garden"));
+		if (Verb == TEXT("adopt"))
+		{
+			Message->SetStringField(Verb, Sp);
+		}
+		else
+		{
+			Message->SetNumberField(Verb, Index);
+		}
+		SendJson(Message);
+	}
+}
+
 void UEarthWalkNet::SendTaxi(const FString& Place)
 {
 	if (!bJoined)
@@ -463,6 +519,21 @@ void UEarthWalkNet::ReadLived(const TSharedPtr<FJsonObject>& Row)
 		Row->TryGetNumberField(TEXT("rev"), Rev);
 		Lived.Rev = static_cast<int64>(Rev);
 		Row->TryGetNumberField(TEXT("lift"), Lived.Lift);
+		const TArray<TSharedPtr<FJsonValue>>* Young = nullptr;
+		if (Row->TryGetArrayField(TEXT("garden"), Young))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Young)
+			{
+				const TSharedPtr<FJsonObject>* Animal = nullptr;
+				FString Sp;
+				double Size = 1.0;
+				if (Value.IsValid() && Value->TryGetObject(Animal) && (*Animal)->TryGetStringField(TEXT("sp"), Sp))
+				{
+					(*Animal)->TryGetNumberField(TEXT("size"), Size);
+					Lived.Garden.Emplace(Sp, Size);
+				}
+			}
+		}
 		Homes.Add(Key, Lived);
 		UE_LOG(LogTemp, Display, TEXT("EarthWalk: net: house %s is lived in by %s, change %lld"), *Key, *Lived.Name, Lived.Rev);
 	}
@@ -833,6 +904,8 @@ namespace
 		(*Object)->TryGetNumberField(TEXT("metres"), Race.Metres);
 		(*Object)->TryGetNumberField(TEXT("startAt"), Race.StartAt);
 		(*Object)->TryGetNumberField(TEXT("made"), Race.Made);
+		(*Object)->TryGetStringField(TEXT("kind"), Race.Kind);
+		(*Object)->TryGetStringArrayField(TEXT("obstacles"), Race.Obstacles);
 		const TArray<TSharedPtr<FJsonValue>>* Runners = nullptr;
 		if ((*Object)->TryGetArrayField(TEXT("runners"), Runners))
 		{
@@ -1045,6 +1118,40 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 	{
 		const TSharedPtr<FJsonObject>* Journal = nullptr;
 		OnJournal.Broadcast(Json->TryGetObjectField(TEXT("journal"), Journal) ? *Journal : TSharedPtr<FJsonObject>());
+	}
+	else if (Type == TEXT("lesson"))
+	{
+		FEarthLesson Lesson;
+		Json->TryGetStringField(TEXT("trick"), Lesson.Trick);
+		Json->TryGetStringField(TEXT("name"), Lesson.Name);
+		Json->TryGetNumberField(TEXT("slack"), Lesson.Slack);
+		Json->TryGetBoolField(TEXT("done"), Lesson.bDone);
+		Json->TryGetBoolField(TEXT("passed"), Lesson.bPassed);
+		double Hits = 0.0, Of = 0.0;
+		Json->TryGetNumberField(TEXT("hits"), Hits);
+		Json->TryGetNumberField(TEXT("of"), Of);
+		Lesson.Hits = FMath::RoundToInt32(Hits);
+		Lesson.Of = FMath::RoundToInt32(Of);
+		const TArray<TSharedPtr<FJsonValue>>* Beats = nullptr;
+		if (Json->TryGetArrayField(TEXT("beats"), Beats))
+		{
+			for (const TSharedPtr<FJsonValue>& Beat : *Beats)
+			{
+				Lesson.Beats.Add(Beat->AsNumber());
+			}
+		}
+		OnLesson.Broadcast(Lesson);
+	}
+	else if (Type == TEXT("trick"))
+	{
+		// Somebody's companion does a trick.
+		FString Id, Sp, Trick;
+		uint32 Thing = 0;
+		if (Json->TryGetStringField(TEXT("id"), Id) && Json->TryGetStringField(TEXT("trick"), Trick) && ReadThing(*Json, Thing))
+		{
+			Json->TryGetStringField(TEXT("sp"), Sp);
+			OnTrick.Broadcast(Id, Thing, Sp, Trick);
+		}
 	}
 	else if (Type == TEXT("lived"))
 	{

@@ -9,6 +9,7 @@ class SEarthMenu;
 class UEarthMiniMap;
 class UEarthLunch;
 class UEarthHome;
+class UEarthCare;
 class SEarthWalkOverlay;
 class UEarthCompany;
 
@@ -107,6 +108,9 @@ private:
 	/** A house of your own: the names over doors and the furnishing panel (EarthHome.h). H is the home key. */
 	UPROPERTY()
 	TObjectPtr<UEarthHome> House;
+	/** Games with animals: thoughts over hungry ones, the tricks panel and its lessons (EarthCare.h). K is the tricks key. */
+	UPROPERTY()
+	TObjectPtr<UEarthCare> Care;
 	/** -EWRun's commands still to run, one after another, and when the next may (a "wait_3" among them holds the rest up). */
 	TArray<FString> RunQueue;
 	double RunNextAt = 0.0;

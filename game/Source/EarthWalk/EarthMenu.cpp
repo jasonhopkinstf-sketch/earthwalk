@@ -44,6 +44,8 @@ namespace
 		{ TEXT("chat"), TEXT("Talk"), TEXT("Chat with people"), TEXT("Everybody in your room reads what you type."), TEXT("Enter"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("passport"), TEXT("Play"), TEXT("My passport"), TEXT("Today's tasks, treasure hunts, expeditions, coins, hats, riddles and everywhere you have been."), TEXT("P"), TEXT(""), TEXT(""), TEXT(""), TEXT("Passport") },
+		{ TEXT("tricks"), TEXT("Play"), TEXT("Teach my companion tricks"), TEXT("A small game of timing teaches it to sit, spin, jump and more; then it does them when you ask."), TEXT("K"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("agility"), TEXT("Play"), TEXT("Set up an agility course"), TEXT("Nine obstacles in a ring before you, run against the clock with your companion at your heels."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("race"), TEXT("Play"), TEXT("A race"), TEXT("Sets a race up along the roads here, joins a friend's, or starts yours."), TEXT("R"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("racestop"), TEXT("Play"), TEXT("Leave the race"), TEXT("Leaves it, or ends your own."), TEXT(""), TEXT("race stop"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("clue"), TEXT("Play"), TEXT("Hear the clue again"), TEXT("The clue of the treasure hunt you are on."), TEXT(""), TEXT("clue"), TEXT(""), TEXT(""), TEXT("") },

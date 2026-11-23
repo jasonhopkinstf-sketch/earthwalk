@@ -434,11 +434,11 @@ void UEarthHome::GoHome()
 		return;
 	}
 	const double Lat = HomeNum(Mine, TEXT("lat")), Lon = HomeNum(Mine, TEXT("lon")), Yaw = HomeNum(Mine, TEXT("yaw"));
-	const double Out = 4.5, Turn = FMath::DegreesToRadians(Yaw); // the way out of the door; far enough back to see the name over it
+	const double Out = 7.5, Turn = FMath::DegreesToRadians(Yaw); // the way out of the door; far enough back to see the name over it and the garden before it
 	Screen->AddLine(TEXT("Going home..."), FLinearColor(0.75f, 0.9f, 1.f));
 	Close();
 	Me->TeleportToGeo(Lat + (FMath::Cos(Turn) * Out) / 111320.0, Lon + (FMath::Sin(Turn) * Out) / (111320.0 * FMath::Cos(FMath::DegreesToRadians(Lat))));
-	PC->SetControlRotation(FRotator(8.0, Yaw + 180.0, 0.0)); // facing the door, and up a little at the name over it
+	PC->SetControlRotation(FRotator(0.0, Yaw + 180.0, 0.0)); // facing the door
 	bArriving = true; // a traveller is set down on whatever is highest there, which may be a porch roof: Frame puts them on the ground
 }
 
@@ -492,6 +492,28 @@ void UEarthHome::Place(const FString& Id, int32 How)
 	}
 }
 
+void UEarthHome::Garden(const FString& Verb, const FString& Sp, int32 Index)
+{
+	UEarthWalkNet* Net = Room();
+	if (!Net)
+	{
+		return;
+	}
+	if (Verb == TEXT("release") && !(Parting == Index && FPlatformTime::Seconds() < PartingUntil))
+	{
+		// Sending one away wants a second click, so that it cannot happen by accident.
+		Parting = Index;
+		PartingUntil = FPlatformTime::Seconds() + 5.0;
+		if (bOpen)
+		{
+			Redraw();
+		}
+		return;
+	}
+	Parting = -1;
+	Net->SendGarden(Verb, Sp, Index);
+}
+
 void UEarthHome::MoveOut()
 {
 	UEarthWalkNet* Net = Room();
@@ -535,7 +557,7 @@ void UEarthHome::Frame(float DeltaSeconds)
 		{
 			const double Turn = FMath::DegreesToRadians(HomeNum(Mine, TEXT("yaw")));
 			const FVector Door = Earth->GeoToWorld(HomeNum(Mine, TEXT("lat")), HomeNum(Mine, TEXT("lon")), 0.0);
-			const double X = Door.Y / 100.0 + FMath::Sin(Turn) * 4.5, Z = -Door.X / 100.0 - FMath::Cos(Turn) * 4.5;
+			const double X = Door.Y / 100.0 + FMath::Sin(Turn) * 7.5, Z = -Door.X / 100.0 - FMath::Cos(Turn) * 7.5;
 			double Ground = 0.0;
 			if (Earth->TerrainHeightAt(X, Z, Ground))
 			{
@@ -652,6 +674,82 @@ void UEarthHome::Redraw()
 		return Piece->TryGetNumberField(TEXT("price"), Coins) ? FMath::RoundToInt32(Coins) : -1;
 	};
 
+	// The garden: young animals before the front door, fed from the lunch box until they are grown.
+	{
+		const TArray<TSharedPtr<FJsonObject>> Animals = HomeRows(House, TEXT("animals"));
+		const int32 Most = FMath::Max(1, FMath::RoundToInt32(HomeNum(House, TEXT("gardenMax"))));
+		const FString Fodder = HomeStr(HomeObj(Journal, TEXT("food")), TEXT("fodder"));
+		const auto Flag = [](const TSharedPtr<FJsonObject>& Json, const TCHAR* Field)
+		{
+			bool bOut = false;
+			Json->TryGetBoolField(Field, bOut);
+			return bOut;
+		};
+		Heading(FString::Printf(TEXT("Your garden (%d of %d)"), Animals.Num(), Most));
+		for (int32 i = 0; i < Animals.Num(); ++i)
+		{
+			const TSharedPtr<FJsonObject>& Animal = Animals[i];
+			const FString Name = HomeStr(Animal, TEXT("name"));
+			const FString Gives = HomeStr(Animal, TEXT("gives"));
+			const bool bGrown = Flag(Animal, TEXT("grown")), bHungry = Flag(Animal, TEXT("hungry")), bReady = Flag(Animal, TEXT("ready"));
+			const FString About = bGrown ? FString::Printf(TEXT("Grown: gives %s a day"), *Gives) : FString::Printf(TEXT("%d of %d meals"), FMath::RoundToInt32(HomeNum(Animal, TEXT("fed"))), FMath::RoundToInt32(HomeNum(Animal, TEXT("meals"))));
+			const FString Do = bReady ? FString::Printf(TEXT("Collect %s"), *Gives) : bGrown ? FString(TEXT("Given today")) : !bHungry ? FString(TEXT("Fed today"))
+				: !Fodder.IsEmpty() ? FString::Printf(TEXT("Feed it %s"), *Fodder) : FString(TEXT("Nothing it eats in your lunch box"));
+			const bool bCan = bGrown ? bReady : bHungry && !Fodder.IsEmpty();
+			const bool bSure = Parting == i && FPlatformTime::Seconds() < PartingUntil;
+			Body->AddSlot().Padding(0.f, 0.f, 0.f, 4.f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()[HomeLine(Name.Left(1).ToUpper() + Name.Mid(1), TEXT("Bold"), 12, FLinearColor::White)]
+					+ SVerticalBox::Slot().AutoHeight()[HomeLine(About, TEXT("Regular"), 10, HomeDim)]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6.f, 0.f, 0.f, 0.f)
+				[
+					View->Small(Do, bCan, [Self, bReady, i]()
+					{
+						if (UEarthHome* Home = Self.Get())
+						{
+							Home->Garden(bReady ? TEXT("gather") : TEXT("feed"), FString(), i);
+						}
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6.f, 0.f, 0.f, 0.f)
+				[
+					View->Small(bSure ? TEXT("Sure? Click again") : TEXT("Send to a farm"), true, [Self, i]()
+					{
+						if (UEarthHome* Home = Self.Get())
+						{
+							Home->Garden(TEXT("release"), FString(), i);
+						}
+					})
+				]
+			];
+		}
+		if (Animals.Num() == 0)
+		{
+			Note(TEXT("A young animal lives before your front door. Feed it once a day from your lunch box (plain vegetables, bread or fruit) and it grows up; then it gives you something every day. It never minds waiting if you are away."));
+		}
+		const TSharedRef<SWrapBox> Young = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(6.0, 6.0));
+		for (const TSharedPtr<FJsonObject>& Breed : HomeRows(House, TEXT("breeds")))
+		{
+			const FString Sp = HomeStr(Breed, TEXT("sp"));
+			const int32 Costs = FMath::RoundToInt32(HomeNum(Breed, TEXT("price")));
+			const bool bFull = Animals.Num() >= Most;
+			const FColor Coat = Sp == TEXT("chicken") ? FColor(242, 204, 116) : Sp == TEXT("sheep") ? FColor(244, 246, 250) : Sp == TEXT("pig") ? FColor(242, 184, 198) : FColor(111, 74, 48);
+			Young->AddSlot()[View->Card({ Coat }, FString::Printf(TEXT("A %s"), *HomeStr(Breed, TEXT("young"))), bFull ? FString(TEXT("The garden is full")) : FString::Printf(TEXT("%d coins"), Costs), false, !bFull && Coins >= Costs, [Self, Sp]()
+			{
+				if (UEarthHome* Home = Self.Get())
+				{
+					Home->Garden(TEXT("adopt"), Sp, 0);
+				}
+			})];
+		}
+		Body->AddSlot()[Young];
+	}
+
 	// Walls, floors, sofa, beds and rugs: what the house came with, or a piece of one's own.
 	for (const FHomeSlot& Slot : HomeSlots)
 	{
@@ -751,7 +849,7 @@ void UEarthHome::Redraw()
 	// A plan of one's own, and the garden: the browser game's so far.
 	TArray<FString> Planned;
 	House->TryGetStringArrayField(TEXT("planned"), Planned);
-	Heading(TEXT("A plan of your own, and your garden"));
+	Heading(TEXT("A plan of your own"));
 	if (Planned.Num() > 0)
 	{
 		Note(TEXT("This house is built from your own floor plan. The browser game shows it at its real size; this game shows its ordinary rooms for now."));
@@ -764,8 +862,6 @@ void UEarthHome::Redraw()
 	{
 		Note(TEXT("In the browser game you can upload a picture of a real floor plan and have the inside of your house built from it. Not in this game yet."));
 	}
-	Note(TEXT("The garden of young animals before your front door is in the browser game so far."));
-
 	Note(TEXT("Your furniture and prizes stay yours if you move. Friends can walk in and look round."));
 	Body->AddSlot().HAlign(HAlign_Left).Padding(0.f, 6.f, 0.f, 0.f)
 	[

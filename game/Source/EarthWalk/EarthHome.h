@@ -21,8 +21,11 @@ class UEarthWalkNet;
  * coins, puts prizes on show, and puts anything on show down where its owner stands. The server keeps
  * all of it and builds the rooms; this game only asks, and fetches the rooms again.
  *
- * Not here yet: the garden of young animals, uploading a floor plan (the browser game does both), and
- * walking in a house built from a plan (this game shows such a house with its ordinary rooms).
+ * The garden: up to four young animals before the front door, bought with coins, fed once a day from
+ * the lunch box until they are grown, and giving something every day after that.
+ *
+ * Not here yet: uploading a floor plan (the browser game does it), and walking in a house built from a
+ * plan (this game shows such a house with its ordinary rooms).
  */
 UCLASS()
 class UEarthHome : public UObject
@@ -50,6 +53,8 @@ public:
 	/** How: 0 puts it down a step in front of where I stand, 1 turns it a quarter round, 2 sends it back to a wall. */
 	void Place(const FString& Id, int32 How);
 	void MoveOut();
+	/** The garden: "adopt" a young animal (Sp: chicken, sheep, pig or cow), or "feed", "gather" from or "release" the one at a place. */
+	void Garden(const FString& Verb, const FString& Sp, int32 Index);
 
 private:
 	void Toggle();
@@ -78,6 +83,8 @@ private:
 	FString SureKey;    // moving house wants H twice
 	double SureUntil = 0.0;
 	double LeavingUntil = 0.0; // "Really move out?" wants a second click
+	int32 Parting = -1;        // the animal "Send away" was clicked for once
+	double PartingUntil = 0.0;
 	double SinceScan = 0.0;
 	bool bArriving = false; // sent home, and to be stood on the ground before the door once the world there has come
 	int32 TagsLogged = -1;

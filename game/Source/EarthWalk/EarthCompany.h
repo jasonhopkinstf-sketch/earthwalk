@@ -127,7 +127,11 @@ private:
 	void OrdersFrame(double Dt, double T);
 	bool WhereIs(const FString& MemberId, double& OutX, double& OutZ) const;
 	bool Find(uint32 Thing, const FString& Sp, FEarthThing& Out) const;
-	void Stand(uint32 Thing, const FString& Sp, double X, double Z, double Yaw, double Gait, bool bMoving, double Lift, double Spin);
+	void Stand(uint32 Thing, const FString& Sp, double X, double Z, double Yaw, double Gait, bool bMoving, double Lift, double Spin, double Tip = 0.0, double Lean = 0.0);
+	/** Somebody's companion does a trick (tricks.js): drawn by PetFrame until it is done. */
+	void OnTrick(const FString& MemberId, uint32 Thing, const FString& Sp, const FString& Trick);
+	/** The young animals before the door of every house near here that has a garden (garden.js). */
+	void GardenFrame(double T);
 
 	// ---- taxis (taxi.js) and going into houses (houses.js)
 	void OnTaxi(const FEarthTaxi& Taxi, bool bGone);
@@ -135,6 +139,19 @@ private:
 	void GarageFrame();
 	void PetFrame(double Dt);
 	void OnRace();
+
+public:
+	/** Has the companion of a member leap, as it comes to a jump on an agility course. */
+	void Hop(const FString& MemberId);
+
+private:
+	struct FAct
+	{
+		FString Trick;
+		double Start = 0.0;
+	};
+	TMap<uint32, FAct> Acts; // the trick each companion is in the middle of
+	TMap<FString, int32> GatesSeen; // how many gates each runner had passed, to tell when one comes to a jump
 	void RaceFrame(double T);
 	void DoorFrame(double Dt);
 	void UseDoor();

@@ -225,6 +225,7 @@ void UEarthCompany::Setup(AEarthWorld* InWorld)
 		Room->OnTaxi.AddUObject(this, &UEarthCompany::OnTaxi);
 		Room->OnTreasure.AddUObject(this, &UEarthCompany::OnTreasure);
 		Room->OnRace.AddUObject(this, &UEarthCompany::OnRace);
+		Room->OnTrick.AddUObject(this, &UEarthCompany::OnTrick);
 	}
 }
 
@@ -663,6 +664,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	TaxiFrame(T); // and taxis on their way to whoever called them
 	GarageFrame(); // and players' own cars, standing or driven, in their paint
 	PetFrame(Dt); // and everyone's companion, trotting after them
+	GardenFrame(T); // and the young animals in the gardens of houses near here
 
 	// ---- what would E hop on?
 	bNear = false;
@@ -673,7 +675,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 		const auto Consider = [&](const FEarthThing& Candidate)
 		{
 			const FEarthMount* Mount = EarthMounts::Find(Candidate.Sp);
-			if (!Mount)
+			if (!Mount || Candidate.bNoRide)
 			{
 				return;
 			}
@@ -1202,7 +1204,7 @@ void UEarthCompany::Steer(double Dt)
 	}
 }
 
-void UEarthCompany::Stand(uint32 Thing, const FString& Sp, double X, double Z, double Yaw, double Gait, bool bMoving, double Lift, double Spin)
+void UEarthCompany::Stand(uint32 Thing, const FString& Sp, double X, double Z, double Yaw, double Gait, bool bMoving, double Lift, double Spin, double Tip, double Lean)
 {
 	double Y = 0.0;
 	Hidden.Add(Thing);
@@ -1215,10 +1217,98 @@ void UEarthCompany::Stand(uint32 Thing, const FString& Sp, double X, double Z, d
 		Mount.Y = Y + Lift;
 		Mount.Z = Z;
 		Mount.Yaw = Yaw + Spin;
+		Mount.Pitch = Tip;
+		Mount.Roll = Lean;
 		Mount.Gait = Gait;
 		Mount.bMoving = bMoving;
 		Mount.bOutOfPlace = true;
 		Mounts.Add(Mount);
+	}
+}
+
+void UEarthCompany::OnTrick(const FString& MemberId, uint32 Thing, const FString& Sp, const FString& Trick)
+{
+	FAct Act;
+	Act.Trick = Trick;
+	Act.Start = FPlatformTime::Seconds();
+	Acts.Add(Thing, Act);
+}
+
+void UEarthCompany::Hop(const FString& MemberId)
+{
+	const UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	const FEarthPeer* Peer = Room->GetPeers().Find(MemberId);
+	const FEarthPet Pet = MemberId == Room->GetMyId() ? Room->GetMyPet() : Peer ? Peer->Pet : FEarthPet();
+	if (Pet.bOn && !Acts.Contains(Pet.Thing))
+	{
+		OnTrick(MemberId, Pet.Thing, Pet.Sp, TEXT("jump"));
+	}
+}
+
+/**
+ * The gardens of houses that are lived in: the young animals their owners are raising, ambling about
+ * before the front door for everybody to see, each at the size it has grown to. As garden.js.
+ */
+void UEarthCompany::GardenFrame(double T)
+{
+	const UEarthWalkNet* Room = Net.Get();
+	const AEarthWorld* Earth = World.Get();
+	double Px = 0.0, Pz = 0.0;
+	if (!Room || !Earth || !PlayerAt(Px, Pz))
+	{
+		return;
+	}
+	constexpr double SeeM = 160.0, OutM = 3.1, ApartM = 2.6, RoamM = 0.65;
+	for (const TPair<FString, FEarthLived>& Pair : Room->GetHomes())
+	{
+		const FEarthLived& Home = Pair.Value;
+		if (Home.Garden.Num() == 0)
+		{
+			continue;
+		}
+		double DoorX = 0.0, DoorZ = 0.0;
+		GeoToScene(Home.Lat, Home.Lon, DoorX, DoorZ);
+		if (std::hypot(DoorX - Px, DoorZ - Pz) > SeeM)
+		{
+			continue;
+		}
+		const double Yaw = (Home.Yaw * UE_DOUBLE_PI) / 180.0; // the way out of the door
+		const double Ox = std::sin(Yaw), Oz = -std::cos(Yaw), Sx = std::cos(Yaw), Sz = std::sin(Yaw);
+		for (int32 i = 0; i < Home.Garden.Num(); ++i)
+		{
+			const uint32 Hashed = EarthLife::Hash32(static_cast<uint32>(Home.Id), 0x47415244u + i);
+			const uint32 Thing = Hashed ? Hashed : 1;
+			const double Side = (i - (Home.Garden.Num() - 1) / 2.0) * ApartM;
+			// Each ambles round a spot of its own, some one way and some the other.
+			const double Turn = i % 2 ? -1.0 : 1.0;
+			const double Phase = Turn * (T * 0.22 + i * 1.9);
+			const double X = DoorX + Ox * OutM + Sx * Side + std::cos(Phase) * RoamM;
+			const double Z = DoorZ + Oz * OutM + Sz * Side + std::sin(Phase) * RoamM;
+			double Y = 0.0;
+			if (!GroundFor(Home.Garden[i].Key, X, Z, Y))
+			{
+				continue;
+			}
+			const double Dx = -std::sin(Phase) * Turn, Dz = std::cos(Phase) * Turn; // the way it is going
+			Hidden.Add(Thing);
+			FEarthThing Mount;
+			Mount.Thing = Thing;
+			Mount.Sp = Home.Garden[i].Key;
+			Mount.X = X;
+			Mount.Y = Y;
+			Mount.Z = Z;
+			Mount.Yaw = std::atan2(-Dx, -Dz);
+			Mount.Gait = FMath::Abs(Phase) * RoamM;
+			Mount.bMoving = true;
+			Mount.bOutOfPlace = true;
+			Mount.Scale = FMath::Clamp(Home.Garden[i].Value, 0.3, 1.2);
+			Mount.bNoRide = true;
+			Mounts.Add(Mount);
+		}
 	}
 }
 
@@ -1402,15 +1492,93 @@ void UEarthCompany::PetFrame(double Dt)
 		}
 		Stand(Pet.Thing, Pet.Sp, Pose->X, Pose->Z, Pose->Yaw, Pose->D, bMoving, 0.0, 0.0);
 	};
+	// A companion in the middle of a trick stays where it began and is drawn doing it (perform in pets.js):
+	// how long each takes, and where and how it is drawn so much of the way through.
+	const auto Perform = [&](const FEarthPet& Pet) -> bool
+	{
+		const FAct* Act = Pet.bOn ? Acts.Find(Pet.Thing) : nullptr;
+		FOrderPose* Pose = Act ? PetPoses.Find(Pet.Thing) : nullptr;
+		if (!Act || !Pose || Hidden.Contains(Pet.Thing))
+		{
+			return false;
+		}
+		static const TMap<FString, double> Takes = { { TEXT("sit"), 2.6 }, { TEXT("spin"), 1.7 }, { TEXT("jump"), 1.5 }, { TEXT("bow"), 2.2 }, { TEXT("fetch"), 4.2 }, { TEXT("hoop"), 2.2 }, { TEXT("dance"), 3.6 } };
+		const double* Seconds = Takes.Find(Act->Trick);
+		const double U = Seconds ? (FPlatformTime::Seconds() - Act->Start) / *Seconds : 2.0;
+		constexpr double FetchM = 7.0, HoopM = 4.4;
+		const double Fx = -std::sin(Pose->Yaw), Fz = -std::cos(Pose->Yaw); // the way it faces
+		if (U >= 1.0)
+		{
+			if (Act->Trick == TEXT("hoop"))
+			{
+				Pose->X += Fx * HoopM; // it landed further on
+				Pose->Z += Fz * HoopM;
+			}
+			Acts.Remove(Pet.Thing);
+			return false;
+		}
+		const double Hold = FMath::Min3(1.0, U * 5.0, (1.0 - U) * 5.0); // up to full and back again, holding in between
+		double X = Pose->X, Z = Pose->Z, Yaw = Pose->Yaw, Lift = 0.0, Tip = 0.0, Lean = 0.0, Gait = Pose->D;
+		bool bMoving = false;
+		if (Act->Trick == TEXT("sit"))
+		{
+			Tip = 0.6 * Hold;
+		}
+		else if (Act->Trick == TEXT("bow"))
+		{
+			Tip = -0.5 * Hold;
+		}
+		else if (Act->Trick == TEXT("spin"))
+		{
+			Yaw += U * UE_DOUBLE_PI * 4.0;
+		}
+		else if (Act->Trick == TEXT("jump"))
+		{
+			Lift = FMath::Abs(std::sin(U * UE_DOUBLE_PI * 2.0)) * 1.1;
+		}
+		else if (Act->Trick == TEXT("dance"))
+		{
+			X += std::cos(Pose->Yaw) * std::sin(U * UE_DOUBLE_PI * 6.0) * 0.5;
+			Z += -std::sin(Pose->Yaw) * std::sin(U * UE_DOUBLE_PI * 6.0) * 0.5;
+			Lift = FMath::Abs(std::sin(U * UE_DOUBLE_PI * 12.0)) * 0.28;
+			Lean = std::sin(U * UE_DOUBLE_PI * 6.0) * 0.25;
+			Yaw += std::sin(U * UE_DOUBLE_PI * 4.0) * 0.6;
+		}
+		else if (Act->Trick == TEXT("fetch"))
+		{
+			// Out to where the ball would be and back (this game draws no ball).
+			const double S = FetchM * (U < 0.5 ? U * 2.0 : (1.0 - U) * 2.0);
+			X += Fx * S;
+			Z += Fz * S;
+			Yaw += U >= 0.5 ? UE_DOUBLE_PI : 0.0;
+			bMoving = true;
+			Gait += FetchM * 2.0 * U;
+		}
+		else if (Act->Trick == TEXT("hoop"))
+		{
+			// A run and a leap, as through a hoop (this game draws no hoop).
+			X += Fx * HoopM * U;
+			Z += Fz * HoopM * U;
+			Lift = std::sin(U * UE_DOUBLE_PI) * 0.95;
+			bMoving = true;
+			Gait += HoopM * U;
+		}
+		Live.Add(Pet.Thing);
+		Stand(Pet.Thing, Pet.Sp, X, Z, Yaw, Gait, bMoving, Lift, 0.0, Tip, Lean);
+		return true;
+	};
 	double Px = 0.0, Pz = 0.0;
-	if (!Me->IsWaitingForGround() && PlayerAt(Px, Pz))
+	if (!Me->IsWaitingForGround() && PlayerAt(Px, Pz) && !Perform(Room->GetMyPet()))
 	{
 		Keep(Room->GetMyPet(), true, Px, Pz);
 	}
 	for (const TPair<FString, FEarthPeer>& Pair : Room->GetPeers())
 	{
 		double Ox = 0.0, Oz = 0.0;
-		Keep(Pair.Value.Pet, WhereIs(Pair.Key, Ox, Oz), Ox, Oz);
+		if (!Perform(Pair.Value.Pet))
+		{
+			Keep(Pair.Value.Pet, WhereIs(Pair.Key, Ox, Oz), Ox, Oz);
+		}
 	}
 	for (auto It = PetPoses.CreateIterator(); It; ++It)
 	{
@@ -1555,7 +1723,7 @@ void UEarthCompany::RaceFrame(double T)
 		{
 			In.Add(Runner.Name);
 		}
-		Lines.Add(FString::Printf(TEXT("Race by %s: %.0f m, %d gates"), *Race.ByName, Race.Metres, Gates));
+		Lines.Add(Race.Kind == TEXT("agility") ? FString::Printf(TEXT("Agility course by %s: %d obstacles"), *Race.ByName, Gates) : FString::Printf(TEXT("Race by %s: %.0f m, %d gates"), *Race.ByName, Race.Metres, Gates));
 		Lines.Add(FString::Printf(TEXT("In: %s"), *FString::Join(In, TEXT(", "))));
 		Lines.Add(!Me ? FString(TEXT("R: join in")) : Race.By == Room->GetMyId() ? FString(TEXT("R: start the race")) : FString::Printf(TEXT("Waiting for %s to say go"), *Race.ByName));
 	}

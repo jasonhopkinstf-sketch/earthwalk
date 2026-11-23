@@ -114,6 +114,8 @@ struct FEarthRace
 	double StartAt = 0.0; // server clock, milliseconds
 	double Made = 0.0;
 	TArray<FEarthRunner> Runners;
+	FString Kind;              // "agility" for an agility course; empty for a race by road
+	TArray<FString> Obstacles; // an agility course: what stands at each gate (start, jump, hoop, weave, tunnel, table, finish)
 };
 
 /** A house somebody lives in (docs/PROTOCOL.md, "A house of your own"): which, where its front door is, whose, and how often it has been changed. */
@@ -128,6 +130,20 @@ struct FEarthLived
 	FString Name;     // its owner's
 	int64 Rev = 0;    // tells one furnishing from the next (a large number): the inside is fetched again when it moves on
 	double Lift = 0.0; // a house built from its owner's plan stands this far above the real one (not shown by this game yet)
+	TArray<TPair<FString, double>> Garden; // the young animals before its door: what each is, and how big it has grown (0.45 to 1)
+};
+
+/** A lesson in a trick (docs/PROTOCOL.md, "Tricks"): set with its beats, and marked when the presses have been sent. */
+struct FEarthLesson
+{
+	FString Trick;
+	FString Name;         // "Sit up"
+	TArray<double> Beats; // milliseconds from when it was set
+	double Slack = 0.0;   // how near a beat a press must fall
+	bool bDone = false;   // the server's marks, not a lesson to begin
+	bool bPassed = false;
+	int32 Hits = 0;
+	int32 Of = 0;
 };
 
 /** Something to eat, as a shop or a café sells it (docs/PROTOCOL.md, "Food and hearts"). */
@@ -203,6 +219,8 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthMenu, const FEarthMenu& /*Menu*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthLived, const FString& /*Key: "x/y/id"*/, bool /*bGone*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthHouse, bool /*bFromWelcome: what a new connection says of my house is not news*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthPep, bool /*bAllHeartsFull*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthLesson, const FEarthLesson& /*Lesson*/);
+DECLARE_MULTICAST_DELEGATE_FourParams(FOnEarthTrick, const FString& /*MemberId*/, uint32 /*Thing*/, const FString& /*Sp*/, const FString& /*Trick*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
 
 /**
@@ -280,6 +298,14 @@ public:
 	const TMap<FString, FEarthOwnCar>& GetCars() const { return Cars; }
 	/** A race: "make" one where I stand, "join" the one set up, say "go" (its maker), or "stop" (leave it; its maker ends it). */
 	void SendRace(const FString& What);
+	/** Sets up an agility course where I stand, for me and my companion (docs/PROTOCOL.md, "Races"). */
+	void SendAgility();
+	/** Tricks: "learn" begins a lesson in a trick, "do" has my companion do one it knows. */
+	void SendTrick(const FString& Verb, const FString& Trick);
+	/** My presses for the lesson under way, in milliseconds from when it was set. The marks come through OnLesson. */
+	void SendTrickPresses(const TArray<int32>& Presses);
+	/** The garden of my house: "adopt" a young animal (Sp), or "feed", "gather" from or "release" the one at a place (Index). */
+	void SendGarden(const FString& Verb, const FString& Sp, int32 Index = 0);
 	const FEarthRace& GetRace() const { return Race; }
 	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
 	void SendTaxi(const FString& Place);
@@ -343,6 +369,10 @@ public:
 	FOnEarthMenu OnMenu;
 	/** All five hearts are full today (or, false, no longer): the player goes a little quicker on foot. */
 	FOnEarthPep OnPep;
+	/** A lesson has been set, or marked. */
+	FOnEarthLesson OnLesson;
+	/** Somebody's companion is doing a trick: every game draws it. */
+	FOnEarthTrick OnTrick;
 	/** A house has been moved into, furnished anew, or left. */
 	FOnEarthLived OnLived;
 	/** My own house has changed: got, furnished, or given up. */

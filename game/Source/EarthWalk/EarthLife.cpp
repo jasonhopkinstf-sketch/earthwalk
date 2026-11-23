@@ -1020,14 +1020,14 @@ void AEarthLife::PutMount(const FEarthThing& Mount, double T)
 		return;
 	}
 	const double Beat = (Mount.Thing % 628) / 100.0;
-	const double Size = 0.9 + 0.2 * EarthLife::Unit(Mount.Thing, SaltCoat + 1);
+	const double Size = (0.9 + 0.2 * EarthLife::Unit(Mount.Thing, SaltCoat + 1)) * Mount.Scale;
 	const int32 Coat = EarthLife::Hash32(Mount.Thing, SaltCoat) % Rig->Coats.Num();
-	const double Stride = (Mount.Gait / Rig->Stride) * Pi * 2.0;
+	const double Stride = (Mount.Gait / (Rig->Stride * Mount.Scale)) * Pi * 2.0;
 	const double Walk = Mount.bMoving ? 1.0 : 0.0;
 	const double Lift = Rig->Hop > 0.0 ? FMath::Abs(std::sin(Stride / 2.0)) * Rig->Hop * Walk : FMath::Abs(std::sin(Stride)) * 0.03 * Walk;
 	const double Bob = Rig->bSwim ? std::sin(T * 1.7 + Beat) * 0.012 - Rig->Swim : 0.0;
 	Base.Position = Engine(Mount.X, Mount.Y + (Lift + Bob) * Size, Mount.Z);
-	Base.Rotation = EarthRigs::Turned(0.0, Mount.Yaw, Rig->Heel);
+	Base.Rotation = EarthRigs::Turned(Mount.Pitch, Mount.Yaw, Rig->Heel + Mount.Roll); // tipped back to sit, forward to bow, leaning to dance
 	Base.Size = Size;
 	Pose.Beat = Beat;
 	Pose.Swing = std::sin(Stride) * 0.55 * Walk;

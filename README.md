@@ -105,6 +105,7 @@ Controls (Unreal):
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
 | `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `K` | Tricks: what your companion knows, a lesson in the next (Space on each paw print), and an agility course to set up |
 | `H` | The home key: inside a house nobody lives in, make it yours; inside your own (or by its door), furnish it; anywhere else, go home |
 | `B` | Your lunch box: your five hearts, the food you carry (a click eats it, or gives it to a friend standing by), and beside a shop or a café what it sells |
 | `M` | Windows: the little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, and the road to where you are being taken |
@@ -257,14 +258,14 @@ helpings at a time. Three are known from the start, and each one cooked for the 
 the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
 lunch box has a button to give it to them.
 
-Agility (in the browser so far): `/agility` (or the button under the tricks, K) sets up nine obstacles
+Agility (both games; in Windows from the tricks panel, K, or `/agility`): `/agility` (or the button under the tricks, K) sets up nine obstacles
 in a ring before you: a start, jumps, a hoop, weave poles, a tunnel, a table and a finish. R starts
 it; run them in order with your companion at your heels (it leaps at the jumps), and the round is
 timed. A clear round pays twelve coins, your quickest is kept, and friends can press R to join and
 run it against you. It is a race of another kind (`agilityCourse` in `server/src/race.ts`): no roads
 are needed, only a companion.
 
-The garden (in the browser so far): the house panel (H, indoors or by your own front door) has a
+The garden (both games; in Windows it is the first part of the house panel, and typed `/garden adopt chicken`, `/garden feed 0`): the house panel (H, indoors or by your own front door) has a
 garden too. A chick, a lamb, a piglet or a calf is bought with coins and lives before the front door,
 where everybody sees it. It is fed once a day from your lunch box (plain vegetables, bread or fruit)
 and after three to five meals is grown; a grown hen gives an egg a day, a cow milk, a sheep wool and
@@ -272,14 +273,14 @@ a pig a truffle (coins). Nothing happens to one that is not fed: it waits. Four 
 move house with you (`BREEDS` and the garden methods of `Homes` in `server/src/home.ts`,
 `server/public/js/garden.js`).
 
-Hungry animals (in the browser so far): each day about one animal in five is hungry, and a thought
+Hungry animals (both games; the Windows table of what each kind likes is in `game/Source/EarthWalk/EarthCare.cpp` and must be kept in step with `care.js`; `-EWHungry` makes them all hungry for a picture): each day about one animal in five is hungry, and a thought
 bubble over it shows the food it would like (a duck bread, a horse an apple or a carrot, a squirrel
 nuts). Talk to it with that food in your lunch box and it is fed: twelve coins, a count in the
 passport, and at three, eight, fifteen and twenty-five animals fed a new companion (a hedgehog, a
 fox, a deer, an otter). Without the food it says what it would like. Which animals are hungry is one
 rule in `server/public/js/care.js`, used by the server to judge and by the games to draw the bubbles.
 
-Tricks (in the browser so far): the companion at your side can be taught seven tricks, in order: sit
+Tricks (both games; in Windows K, or typed `/learn`, `/trick sit`, `/companion cow`; `-EWLesson` presses Space for the player; the Windows game draws no ball or hoop): the companion at your side can be taught seven tricks, in order: sit
 up, spin, jump, take a bow, fetch, jump through a hoop, dance. K opens the list. A lesson is a game
 of timing: paw prints run along a bar and Space is pressed as each reaches the ring; the server sets
 the beats and marks the presses (`server/src/tricks.ts`), one slip is forgiven, and a lesson that does

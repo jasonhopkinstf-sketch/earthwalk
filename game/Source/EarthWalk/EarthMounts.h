@@ -57,6 +57,8 @@ struct FEarthThing
 	bool bOutOfPlace = false; // true for everything in the list of things being ridden, left or told what to do
 	double Pitch = 0.0; // a driven car sits to the slope under its wheels: nose up, radians
 	double Roll = 0.0;  // and leans out of a bend
+	double Scale = 1.0;    // a young animal in a garden is drawn smaller
+	bool bNoRide = false;  // drawn here, but not to be hopped on (a young animal in a garden)
 	bool bOwnLook = false; // somebody's own car: this body ("car" or "van") in this paint, whatever its identity would give it
 	FString Body;
 	uint32 Paint = 0;

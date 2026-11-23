@@ -4,6 +4,7 @@
 #include "EarthMiniMap.h"
 #include "EarthLunch.h"
 #include "EarthHome.h"
+#include "EarthCare.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -1344,6 +1345,8 @@ void AEarthWalkHUD::BeginPlay()
 		Lunch->Setup(this);
 		House = NewObject<UEarthHome>(this);
 		House->Setup(this);
+		Care = NewObject<UEarthCare>(this);
+		Care->Setup(this);
 		// In a house of one's own, or by its door, the lunch box is a kitchen too.
 		Lunch->SetKitchen([this]() { return House && House->AtHome(); });
 	}
@@ -1477,6 +1480,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		House->Shutdown();
 		House = nullptr;
 	}
+	if (Care)
+	{
+		Care->Shutdown();
+		Care = nullptr;
+	}
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 	{
 		Net->OnChat.Remove(ChatHandle);
@@ -1520,6 +1528,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	if (House)
 	{
 		House->Frame(DeltaSeconds);
+	}
+	if (Care)
+	{
+		Care->Frame(DeltaSeconds);
 	}
 
 	APlayerController* PC = GetOwningPlayerController();
@@ -1601,6 +1613,11 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			House->Close();
 			bMenuTookEsc = true;
 		}
+		else if (Care && Care->IsOpen() && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			Care->Close();
+			bMenuTookEsc = true;
+		}
 		else if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
 		{
 			CloseMenu();
@@ -1627,6 +1644,19 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 				House->Close();
 			}
 			Lunch->Toggle();
+		}
+		if (Care && PC->WasInputKeyJustPressed(EKeys::K))
+		{
+			CloseMenu();
+			if (Lunch)
+			{
+				Lunch->Close();
+			}
+			if (House)
+			{
+				House->Close();
+			}
+			Care->Toggle();
 		}
 		if (House && PC->WasInputKeyJustPressed(EKeys::H))
 		{
@@ -1823,6 +1853,10 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		if (House && !House->GetHint().IsEmpty())
 		{
 			Hints += (Hints.IsEmpty() ? TEXT("") : TEXT("      ")) + House->GetHint();
+		}
+		if (Care && !Care->GetHint().IsEmpty())
+		{
+			Hints += (Hints.IsEmpty() ? TEXT("") : TEXT("      ")) + Care->GetHint();
 		}
 		Overlay->SetHint(Hints);
 	}
@@ -2436,6 +2470,20 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 			Lunch->Toggle();
 		}
 	}
+	else if (Id == TEXT("tricks"))
+	{
+		if (Care)
+		{
+			Care->Toggle();
+		}
+	}
+	else if (Id == TEXT("agility"))
+	{
+		if (Care)
+		{
+			Care->Agility();
+		}
+	}
 	else if (Id == TEXT("myhouse"))
 	{
 		if (House)
@@ -2821,6 +2869,54 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			Lunch->Toggle();
 		}
 	}
+	else if (Command == TEXT("companion"))
+	{
+		// "/companion cow": the animal I have won that keeps me company (the passport chooses it with a click); nothing sends it home.
+		PassportAction(TEXT("pet"), Argument.ToLower());
+	}
+	else if (Command == TEXT("tricks"))
+	{
+		if (Care)
+		{
+			Care->Toggle();
+		}
+	}
+	else if (Command == TEXT("learn"))
+	{
+		// A lesson in the next trick my companion can learn (what "Teach it" in the tricks panel does).
+		if (Care)
+		{
+			Care->Teach();
+		}
+	}
+	else if (Command == TEXT("trick"))
+	{
+		// "/trick sit": have my companion do a trick it knows.
+		if (Care && !Care->Perform(Argument))
+		{
+			AddLine(TEXT("Your companion does not know that one yet. K shows what it knows and what it could learn next."), NoticeColor);
+		}
+	}
+	else if (Command == TEXT("agility"))
+	{
+		if (Care)
+		{
+			Care->Agility();
+		}
+	}
+	else if (Command == TEXT("garden"))
+	{
+		// "/garden adopt chicken", "/garden feed 0", "/garden gather 0", "/garden release 0": the garden of my house, typed. For tests, and for those who type.
+		FString Verb, What;
+		if (!Argument.Split(TEXT(" "), &Verb, &What))
+		{
+			Verb = Argument;
+		}
+		if (House && !Verb.IsEmpty())
+		{
+			House->Garden(Verb.ToLower(), What.ToLower(), FCString::Atoi(*What));
+		}
+	}
 	else if (Command == TEXT("myhouse"))
 	{
 		// What H does: make this house mine, furnish my own, or go home.
@@ -2894,6 +2990,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("help"))
 	{
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("K   tricks: what your companion knows (a click has it do one), a lesson in the next, and an agility course to set up."), NoticeColor);
 		AddLine(TEXT("H   the home key: inside a house nobody lives in, make it yours; inside your own, furnish it; anywhere else, go home."), NoticeColor);
 		AddLine(TEXT("B   your lunch box: your five hearts, the food you carry (a click eats it), and beside a shop or a caf\u00e9 what it sells."), NoticeColor);
 		AddLine(TEXT("M   the little map in the corner: bigger, hidden, and back. It shows friends, doors that open, where trains stop, cars, and the way to where you are being taken."), NoticeColor);

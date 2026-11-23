@@ -79,6 +79,73 @@ int32 AEarthRaceCourse::Rebuild(AEarthWorld* World, const FEarthRace& Race, int3
 		const FVector Across = FRotationMatrix(Facing).GetUnitAxis(EAxis::Y);
 		++Placed;
 
+		// An agility course: a small thing to run at, built to face along the course (makeObstacle in race.js).
+		if (Race.Kind == TEXT("agility"))
+		{
+			const FString What = Race.Obstacles.IsValidIndex(i) ? Race.Obstacles[i] : FString(TEXT("jump"));
+			const bool bPassed = MyGate >= 0 && i < MyGate;
+			const int32 Bold = bPassed ? PaintPassed : What == TEXT("start") ? PaintStart : What == TEXT("finish") ? PaintFinish : PaintGate;
+			const int32 Light = bPassed ? PaintPassedPale : PaintPale;
+			const FVector Forward = FRotationMatrix(Facing).GetUnitAxis(EAxis::X);
+			// A box so many metres along, across and up, its middle so far along, across and above the ground.
+			const auto Part = [&](int32 Paint, double AlongM, double AcrossM, double UpM, double SizeAlong, double SizeAcross, double SizeUp)
+			{
+				Paints[Paint]->AddInstance(FTransform(Facing, At + Forward * AlongM * 100.0 + Across * AcrossM * 100.0 + FVector(0, 0, UpM * 100.0), FVector(SizeAlong, SizeAcross, SizeUp)), true);
+			};
+			if (What == TEXT("start") || What == TEXT("finish"))
+			{
+				Part(Light, 0.0, -1.3, 0.9, 0.14, 0.14, 1.8);
+				Part(Light, 0.0, 1.3, 0.9, 0.14, 0.14, 1.8);
+				Part(Bold, 0.0, 0.0, 1.65, 0.1, 2.6, 0.3);
+			}
+			else if (What == TEXT("hoop"))
+			{
+				Part(Light, 0.0, 0.0, 0.2, 0.12, 0.12, 0.4);
+				Part(Bold, 0.0, -0.8, 1.2, 0.1, 0.1, 1.7);
+				Part(Bold, 0.0, 0.8, 1.2, 0.1, 0.1, 1.7);
+				Part(Bold, 0.0, 0.0, 0.4, 0.1, 1.6, 0.1);
+				Part(Bold, 0.0, 0.0, 2.0, 0.1, 1.6, 0.1);
+			}
+			else if (What == TEXT("weave"))
+			{
+				for (int32 k = 0; k < 5; ++k)
+				{
+					Part(k % 2 ? Light : Bold, (k - 2) * 0.9, 0.0, 0.6, 0.1, 0.1, 1.2);
+				}
+			}
+			else if (What == TEXT("tunnel"))
+			{
+				Part(Bold, 0.0, -0.6, 0.5, 2.2, 0.08, 1.0);
+				Part(Bold, 0.0, 0.6, 0.5, 2.2, 0.08, 1.0);
+				Part(Light, 0.0, 0.0, 1.04, 2.2, 1.28, 0.08);
+			}
+			else if (What == TEXT("table"))
+			{
+				Part(Bold, 0.0, 0.0, 0.42, 1.4, 1.4, 0.12);
+				for (const double Lx : { -0.6, 0.6 })
+				{
+					for (const double Ly : { -0.6, 0.6 })
+					{
+						Part(Light, Lx, Ly, 0.18, 0.1, 0.1, 0.36);
+					}
+				}
+			}
+			else
+			{
+				// A jump: a bar across two short posts.
+				Part(Light, 0.0, -0.95, 0.45, 0.12, 0.12, 0.9);
+				Part(Light, 0.0, 0.95, 0.45, 0.12, 0.12, 0.9);
+				Part(Bold, 0.0, 0.0, 0.55, 0.08, 1.9, 0.08);
+			}
+			if (bBeacon && i == MyGate)
+			{
+				Beacon->SetWorldLocation(At + FVector(0, 0, 900.0));
+				Beacon->SetWorldScale3D(FVector(0.18, 0.18, 12.0));
+				Beacon->SetVisibility(true);
+			}
+			continue;
+		}
+
 		const bool bStart = i == 0, bFinish = i == Count - 1;
 		// Gates I have been through go grey (the finish keeps its chequers).
 		const bool bDone = MyGate >= 0 && i < MyGate && !bFinish;
