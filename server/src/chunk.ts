@@ -1636,8 +1636,8 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
             // (An outline that only looks like a rectangle once its small corners are smoothed off is not one.)
             const whole = isRectangle(outline) && Math.min(side(0), side(1)) >= HOME_MIN_M && Math.max(side(0), side(1)) <= HOME_MAX_M && liesInside(outline, ring);
             const corners = whole ? outline : roomInside(ring, x, y, t, o);
-            // (A small shop, café, office or hotel opens like a house, but is not one inside: venues.ts.)
-            const notHome = b.use === "shop" || b.use === "food" ? b.use : /^(office|government|civic|public)$/.test(kind) ? "office" : kind === "hotel" ? "hotel" : undefined;
+            // (A small shop, café, office, hotel, chapel, school or clinic opens like a house, but is not one inside: venues.ts. So does a petrol station's shop, and a workshop.)
+            const notHome = b.use ? b.use : /^(office|government|civic|public)$/.test(kind) ? "office" : kind === "hotel" ? "hotel" : /^(university|college)$/.test(kind) ? "school" : /^(industrial|factory|manufacture|warehouse)$/.test(kind) ? "factory" : undefined;
             if (corners) homes.push({ id: b.id, corners, x, y, along: t, out: o, floor: hi + 0.06, height: top - hi, seed: h, wall: wallHex, porch, ...(notHome ? { use: notHome, ...(b.name ? { name: b.name } : {}) } : {}) });
           }
           const leaf = sec(painted(MATERIALS.door, style.doors[(h >>> 18) % style.doors.length]));

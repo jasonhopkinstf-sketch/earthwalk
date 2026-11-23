@@ -22,7 +22,7 @@ const REACH_IN_M = 1.7;
 /** Further than this from the door of the house you went into, you are no longer in it. */
 const HOUSE_M = 45;
 /** What a place the map gives no name is called in a hint. */
-const PLACE_TITLES = { office: "the office", shop: "the shop", cafe: "the café", mall: "the shops", lobby: "the entrance hall" };
+const PLACE_TITLES = { office: "the office", shop: "the shop", cafe: "the café", mall: "the shops", lobby: "the entrance hall", church: "the church", mosque: "the mosque", temple: "the temple", school: "the school", hospital: "the hospital", clinic: "the clinic", factory: "the factory", warehouse: "the warehouse", fuel: "the petrol station" };
 
 const wrap = (x) => ((x % TILES) + TILES) % TILES;
 /** A house's name on the server: its chunk and its number there. */
@@ -279,7 +279,7 @@ export class Houses {
       const mine = this.meetup.house;
       if (place) {
         const through = at.chunk.doors.filter((d) => d.id === at.door.id).length > 1;
-        const what = { office: "an office", shop: "a shop", cafe: "a café", mall: "shops", lobby: "an entrance hall" }[who?.use ?? at.door.use] ?? "";
+        const what = { office: "an office", shop: "a shop", cafe: "a café", mall: "shops", lobby: "an entrance hall", church: "a church", mosque: "a mosque", temple: "a temple", school: "a school", hospital: "a hospital", clinic: "a clinic", factory: "a factory", warehouse: "a warehouse", fuel: "a petrol station" }[who?.use ?? at.door.use] ?? "";
         const title = this.placeTitle(at.chunk, at.door);
         this.say(`${/^the /.test(title) ? `You are in ${what || title}` : `${title}${what ? `: ${what}` : ""}`}. ${through ? "There is another door on another side: you can walk right through." : "The way out is the way you came in."}${who?.people?.length ? " Press T beside anyone to talk to them." : ""}`);
       } else if (this.mine()) this.say("Welcome home. Press H to change the furniture.");

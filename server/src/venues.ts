@@ -1,6 +1,6 @@
 // Which buildings that are not homes can be walked into, what each is inside, and where its doors
-// are. A house has rooms (interior.ts); a shop, a café, an office, a mall, a block of flats or a hotel
-// has the inside venue.ts lays out for it, with a way through: the door on the street, and a second
+// are. A house has rooms (interior.ts); a shop, a café, an office, a mall, a block of flats, a hotel, a
+// church, a school, a hospital, a factory or a petrol station has the inside venue.ts lays out for it, with a way through: the door on the street, and a second
 // door on another side wherever one of its walls is free.
 //
 // Like a house's rooms, the inside is the largest rectangle that fits within the real walls behind
@@ -14,12 +14,13 @@ import { BARN_KINDS, type ChunkMesh, encodeChunk, face, featuresForChunk, type H
 import type { Elevation } from "./elevation.ts";
 import { buildInterior } from "./interior.ts";
 import { type Building, type Features, loadFeatures, useOf } from "./osm.ts";
-import { layVenue, type NamedShop, tradeOf, type VenueDoor, type VenueKind, type VenueSpec } from "./venue.ts";
+import { layVenue, type NamedShop, tradeOf, useWord, type VenueDoor, type VenueKind, type VenueSpec } from "./venue.ts";
 
 type XY = [number, number];
 
 /** Bump when what is inside these buildings, or who, changes: the people file is kept beside the mesh. */
-export const VENUES_REV = 1;
+// (2: churches, schools, hospitals, factories and warehouses opened, and a mall's way to a side door got walls. 1 went out in 0.2.47.)
+export const VENUES_REV = 2;
 /** A chunk of a city centre has a hundred such buildings; this many open, those the map names first. */
 export const VENUE_CAP = 40;
 /** The animals the people inside are: the six a player can be, so both games already draw them sitting and walking. */
@@ -32,6 +33,10 @@ const SIZE: Record<VenueKind, { wide: number; deep: number; least: number; ceili
   cafe: { wide: 14, deep: 12, least: 4.5, ceiling: 3.0 },
   mall: { wide: 40, deep: 60, least: 11, ceiling: 4.2 },
   lobby: { wide: 12, deep: 10, least: 4.5, ceiling: 3.2 },
+  church: { wide: 22, deep: 34, least: 6, ceiling: 5.5 },
+  school: { wide: 30, deep: 36, least: 6, ceiling: 3.0 },
+  hospital: { wide: 30, deep: 36, least: 6, ceiling: 3.0 },
+  factory: { wide: 30, deep: 40, least: 6, ceiling: 6.0 },
 };
 const SLOPE_M = 6;
 const CEILING_LEAST_M = 2.3;
@@ -41,6 +46,8 @@ export interface VenueEntry { x: number; y: number; out: XY; g: number; ix: numb
 export interface Venue {
   id: number;
   kind: VenueKind;
+  /** The word for what it is (venue.ts, `useWord`): its kind, but "mosque", "temple" or "clinic" where it is one of those. */
+  use: string;
   name?: string;
   /** The room's frame: its front corner, the way along the front wall and the way back into the building; chunk-local metres. */
   A: XY; ta: XY; tb: XY;
@@ -67,6 +74,10 @@ const OFFICES = /^(office|commercial|government|civic|public)$/;
 const NOT_ROOMS = /^(garage|garages|shed|carport|roof|greenhouse|hut|toilets|transformer_tower|service|kiosk)$/;
 const MALL_NAME = /\b(mall|arcade|shopping|galler|plaza|market|passage|centre commercial|emporium)\b/i;
 const STAYS = /^tourism=(hotel|hostel|motel|guest_house)$/;
+/** Buildings of a university or a college are schools inside, though no flag flies outside them. */
+const COLLEGES = /^(university|college)$/;
+/** Where things are made, and where they are kept. */
+const WORKS = /^(industrial|factory|manufacture|warehouse)$/;
 
 /** The buildings of a chunk that are not homes and can be walked into. */
 function findVenues(cx: number, cy: number, features: Features, elev: Elevation): Venue[] {
@@ -155,13 +166,21 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
     const big = area >= 400 || b.height >= 13;
     let kind: VenueKind | null = null;
     let hotel = false;
+    let faith: "mosque" | "temple" | undefined;
+    let fuel = false;
     const wantsMall = (shops.length >= 3 && area >= 250) || area >= 2500 || MALL_NAME.test(b.name ?? "");
     if (b.use === "food") kind = shops.length >= 3 && area >= 400 ? "mall" : "cafe";
     else if (b.use === "shop") kind = wantsMall ? "mall" : "shop";
-    else if (b.use) kind = null; // churches, schools, hospitals, petrol stations: not yet
+    else if (b.use === "church" || b.use === "mosque" || b.use === "temple") { kind = "church"; if (b.use !== "church") faith = b.use; }
+    else if (b.use === "school") kind = "school";
+    else if (b.use === "hospital") kind = "hospital";
+    else if (b.use === "fuel") { kind = "shop"; fuel = true; } // a petrol station's shop
+    else if (b.use) kind = null;
     else if (home && !home.use) kind = null;
     else if (k === "hotel" || (stays && !HOUSES.test(k))) { kind = "lobby"; hotel = true; }
     else if (FLATS.test(k)) kind = "lobby";
+    else if (COLLEGES.test(k)) kind = "school";
+    else if (WORKS.test(k)) kind = "factory";
     else if (HOUSES.test(k)) kind = null;
     else if (OFFICES.test(k)) kind = "office";
     else if (k === "" || k === "yes") {
@@ -224,7 +243,7 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
         }
       }
     }
-    if (depth < SIZE[kind].least) continue;
+    if (depth < SIZE[kind].least && !home) continue;
 
     // ---- its floor: level with the highest ground under the room, so no hillside comes up through it
     let low = Infinity, high = -Infinity;
@@ -296,9 +315,12 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
       kind, width: Math.round(width * 100) / 100, depth: Math.round(depth * 100) / 100, ceiling: Math.round(ceiling * 100) / 100, seed,
       doors: [{ side: 0, at: Math.round(frontAt * 100) / 100 }, ...(second ? [{ side: second.side, at: (second.lo + second.hi) / 2, lo: second.lo, hi: second.hi } as VenueDoor] : [])],
       ...(name ? { name } : {}),
-      ...(kind === "shop" ? { trade: tradeOf(trade ?? (b.kind === "supermarket" ? "supermarket" : undefined), b.name, seed) } : {}),
+      ...(kind === "shop" ? { trade: fuel ? "motor" : tradeOf(trade ?? (b.kind === "supermarket" ? "supermarket" : undefined), b.name, seed) } : {}),
+      ...(kind === "shop" && fuel ? { fuel } : {}),
+      ...(kind === "factory" && k === "warehouse" ? { store: true } : {}),
       ...(kind === "mall" && shops.length ? { shops } : {}),
       ...(hotel ? { hotel } : {}),
+      ...(kind === "church" && faith ? { faith } : {}),
     };
     const laid = layVenue(spec);
     const doors: VenueEntry[] = [];
@@ -321,7 +343,7 @@ function findVenues(cx: number, cy: number, features: Features, elev: Elevation)
     }
     const rank = (home ? 5000 : 0) + (b.name ? 2000 : 0) + (b.use ? 1000 : 0) + Math.min(999, area / 20);
     // (What was laid out is not kept: a chunk's labels need only the doors, and a mall is a thousand pieces. It is laid out again, the same, when somebody walks in.)
-    found.push({ id: b.id, kind, ...(name ? { name } : {}), A, ta, tb, floor, spec, doors, home: !!home, rank });
+    found.push({ id: b.id, kind, use: useWord(spec), ...(name ? { name } : {}), A, ta, tb, floor, spec, doors, home: !!home, rank });
   }
   found.sort((p, q) => q.rank - p.rank || p.id - q.id);
   return found.slice(0, VENUE_CAP).map(({ rank: _rank, ...venue }) => venue);
@@ -390,7 +412,8 @@ export function venueMesh(v: Venue, S: number): ChunkMesh {
 
 export interface WhoJson {
   x: number; y: number; id: number; rev: number;
-  use: VenueKind; name?: string;
+  /** What it is: a kind of place (docs/PROTOCOL.md lists them). */
+  use: string; name?: string;
   /** The room: how far it is from one corner to the opposite one, in metres (a game is "inside" while within that of its doors). */
   size: number;
   people: { id: number; sp: string; role: string; pose: string; u: number; v: number; h: number; yaw: number; seat?: number; pts?: number[] }[];
@@ -410,7 +433,7 @@ export function venueWho(v: Venue, cx: number, cy: number, S: number): WhoJson {
   };
   const laid = layVenue(v.spec);
   return {
-    x: cx, y: cy, id: v.id, rev: VENUES_REV, use: v.kind, ...(v.name ? { name: v.name } : {}),
+    x: cx, y: cy, id: v.id, rev: VENUES_REV, use: v.use, ...(v.name ? { name: v.name } : {}),
     size: r2(Math.hypot(v.spec.width, v.spec.depth)),
     people: laid.people.map((p) => {
       const [u, w] = uv(p.a, p.b);
@@ -441,5 +464,6 @@ export async function generateInside(cx: number, cy: number, id: number, elev: E
   const venue = venuesOf(cx, cy, features, elev).find((v) => v.id === id);
   if (venue) return { mesh: encodeChunk(cx, cy, venueMesh(venue, S)), who: Buffer.from(JSON.stringify(venueWho(venue, cx, cy, S)), "utf8") };
   const home = homesOf(cx, cy, features, elev).find((h) => h.id === id);
-  return home ? { mesh: encodeChunk(cx, cy, buildInterior(home, S)), who: null } : null;
+  // (What is not a home has no rooms: a petrol station, or a shop too many for its chunk.)
+  return home && !home.use ? { mesh: encodeChunk(cx, cy, buildInterior(home, S)), who: null } : null;
 }

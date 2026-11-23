@@ -413,21 +413,29 @@ the front door. Inside are rooms laid out from thirty recipes of our own
 bedrooms, bathrooms, studies and playrooms, with doorways, windows and furniture. A house is the same inside for everyone, and friends who go in together see each other.
 `server/public/js/houses.js`; docs/PROTOCOL.md, "Inside houses".
 
-Going into shops, cafés, offices, malls, blocks of flats and hotels (both games; the Windows half is `game/Source/EarthWalk/EarthInside.cpp`): these open too, and
+Going into shops, cafés, offices, malls, blocks of flats, hotels, churches, schools, hospitals, factories and petrol stations (both games; the Windows half is `game/Source/EarthWalk/EarthInside.cpp`): these open too, and
 can be walked through. Each has glass doors on the street with its name, or what it is, on a board over
 them, and a second door on another side wherever one of its walls is free: E goes in at one and out at the
 other. Inside is what the building is: a shop has a counter, a shopkeeper and shelves of what it sells; a
 café a counter and tables; an office a front desk, desks in pairs, meeting rooms and a kitchen; a mall (or,
 small, an arcade or a row of shops) a walk from door to door with shops down both sides, the ones the map
 names first and then made-up ones, with benches and a tree under a skylight; flats and hotels an entrance
-hall with a lift, letterboxes or a desk, and a sofa. A big building the map says nothing about is an office,
-or one time in three a row of shops. Animals are inside (the same six a player can be): at desks and in
-meetings, behind counters, at tables, strolling the mall. T talks to any of them, and they know what they do
+hall with a lift, letterboxes or a desk, and a sofa; a church an aisle between pews to a table under a
+window of coloured glass, with the organ and the choir (a mosque a carpet and a niche in the far wall, a
+temple of any other faith low benches, lanterns and a gong; no faith's own signs are drawn); a school a
+corridor with classrooms, a library, an art room and a music room off it (a small one is one classroom, and a
+university building is a school inside); a hospital a hall to wait in with a desk, then a corridor with
+wards, the doctor's room and the X-ray room (a small one is a clinic, in one room); a factory a way through
+between yellow lines, a machine and a belt carrying boxes down the hall, more machines, crates and a fork-lift
+truck (a warehouse has rows of racking instead); a petrol station a shop with oil and snacks. A big building
+the map says nothing about is an office, or one time in three a row of shops. Animals are inside (the same six a player can be): at desks and in
+meetings, behind counters, at tables, strolling the mall, in the pews and the choir, teaching and being
+taught, in bed on the ward, along the belt and at the wheel of the fork-lift. T talks to any of them, and they know what they do
 there. Food is bought at the counters inside (B) as well as at the name board outside. Nobody can make one
 of these their house. Which buildings and where their doors go is `server/src/venues.ts`, the layouts
 `server/src/venue.ts`, the browser's side `server/public/js/houses.js` and `people.js`; docs/PROTOCOL.md,
-"Inside other buildings". Not yet: churches, schools, hospitals, factories, and buildings mapped in 3D
-pieces (the best-known towers), which stay shut; upstairs.
+"Inside other buildings". Not yet: buildings mapped in 3D pieces (the best-known towers, cathedrals and
+big hospitals among them), sheds, garages and barns, which stay shut; upstairs.
 
 Treasure hunts and expeditions: the passport starts a treasure hunt wherever
 you stand. It is five riddles about real places nearby, taken from the map ("I have a bell but no

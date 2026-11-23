@@ -1,5 +1,6 @@
 // The inside of a building that is not a home: an office, a shop, a café, a mall (which, small, is
-// an arcade or a row of shops), or the entrance hall of a block of flats or a hotel. Like a house's rooms (interior.ts), everything follows from the
+// an arcade or a row of shops), the entrance hall of a block of flats or a hotel, a church (or a mosque
+// or a temple), a school, a hospital, or a factory (or a warehouse). Like a house's rooms (interior.ts), everything follows from the
 // building's own numbers, so it is the same inside for everyone and on every visit; unlike a house,
 // it has a way through, from the door on the street to a door on another side, and people in it.
 //
@@ -13,7 +14,7 @@ import { hash32 } from "./geo.ts";
 import type { MaterialDef } from "./chunk.ts";
 import { INSIDE } from "./interior.ts";
 
-export type VenueKind = "office" | "shop" | "cafe" | "mall" | "lobby";
+export type VenueKind = "office" | "shop" | "cafe" | "mall" | "lobby" | "church" | "school" | "hospital" | "factory";
 /** A door of the room: which wall (0 front, 1 back, 2 the wall a = 0, 3 the wall a = width) and how far along it. `lo` and `hi`, when given, are how far it may be moved along its wall. */
 export interface VenueDoor { side: 0 | 1 | 2 | 3; at: number; lo?: number; hi?: number }
 /** A shop the map names inside a mall. */
@@ -34,9 +35,21 @@ export interface VenueSpec {
   shops?: NamedShop[];
   /** An entrance hall: a hotel's, with a desk and luggage, and not a block of flats'. */
   hotel?: boolean;
+  /** A place of worship that is not a church: a mosque, or a temple of any other faith. */
+  faith?: "mosque" | "temple";
+  /** A factory that only stores things: a warehouse, with racks and no machines. */
+  store?: boolean;
+  /** A shop that is a petrol station's. */
+  fuel?: boolean;
 }
+/** A school or a hospital this big has a corridor with rooms off it; smaller, it is one room. */
+export const hasWings = (spec: Pick<VenueSpec, "kind" | "width" | "depth">): boolean => (spec.kind === "school" || spec.kind === "hospital") && spec.width >= 13 && spec.depth >= 11;
+/** The word for what a place is, for the games and for whoever is talked to there: its kind, but a mosque or a temple by that name, and a small hospital a clinic. */
+export const useWord = (spec: Pick<VenueSpec, "kind" | "width" | "depth" | "faith" | "store" | "fuel">): string =>
+  spec.faith ?? (spec.kind === "hospital" && !hasWings(spec) ? "clinic" : spec.kind === "factory" && spec.store ? "warehouse" : spec.kind === "shop" && spec.fuel ? "fuel" : spec.kind);
 
-export type Role = "worker" | "meeting" | "reception" | "keeper" | "barista" | "shopper" | "guest" | "caretaker" | "resident";
+export type Role = "worker" | "meeting" | "reception" | "keeper" | "barista" | "shopper" | "guest" | "caretaker" | "resident"
+  | "warden" | "musician" | "singer" | "visitor" | "teacher" | "pupil" | "doctor" | "nurse" | "patient" | "foreman" | "maker" | "packer";
 /**
  * Somebody inside. `fa`, `fb` is the way they face (a unit vector in the room's frame). Sitting, `seat` is
  * how high the seat is; strolling, `path` is where they walk, there and back, as a, b, a, b...
@@ -85,6 +98,8 @@ const TRADES: Record<string, { goods: number[]; shelf: number }> = {
   clothes: { goods: [0xe8b8c8, 0xa9c8e8, 0xf2e3b0, 0xb8d8b8, 0xd8c0e8, 0x8a9ab0], shelf: 0xd9d4c8 },
   flowers: { goods: [0xe86aa8, 0xf2cc4a, 0xd9483a, 0x9a6ad8, 0xf4f1ea, 0x3f9a45], shelf: 0x7a9a6a },
   chemist: { goods: [0xf4f1ea, 0x3f9a8a, 0xa9d4ee, 0xe8f0e8, 0x5fae8a], shelf: 0xf4f1ea },
+  // (A petrol station's: cans of oil, things for the car, and something to eat on the way.)
+  motor: { goods: [0xf2cc4a, 0xd9483a, 0x26323c, 0x3f7fd0, 0xf4f1ea, 0xe8935a], shelf: 0xb9c0c6 },
 };
 /** Shops of our own, for the fronts of a mall the map names no shops in: a name, what it sells, and whether that is food. */
 const MADE_UP: [string, string, boolean][] = [
@@ -138,6 +153,10 @@ export function layVenue(spec: VenueSpec): Laid {
   /** How wide a mall's walk is, and where its middle is: straight back from the front door. */
   const mallWalk = W >= 26 ? 6 : W >= 16 ? 4.5 : 3.2;
   const mallMid = clamp(front.at, mallWalk / 2, W - mallWalk / 2);
+  /** A school or a hospital big enough has a corridor straight back from the front door, with rooms down both sides of it. */
+  const wings = hasWings(spec);
+  const corridor = W >= 22 ? 3.2 : 2.6;
+  const corridorMid = clamp(front.at, corridor / 2, W - corridor / 2);
   if (given) {
     const len = given.side === 1 ? W : D;
     let lo = Math.max(1.2, given.lo ?? given.at), hi = Math.min(len - 1.2, given.hi ?? given.at);
@@ -145,6 +164,11 @@ export function layVenue(spec: VenueSpec): Laid {
     // A mall's back door is at the end of its walk, wherever the wall outside is free (the door outside is then a few steps along).
     if (spec.kind === "mall" && given.side === 1) { lo = 1.2; hi = len - 1.2; want = mallMid; }
     if (spec.kind === "mall" && given.side !== 1) { lo = Math.max(lo, 3); hi = Math.min(hi, len - 3); }
+    // So is the back door of a school or a hospital, at the end of its corridor.
+    if (wings && given.side === 1) { lo = 1.2; hi = len - 1.2; want = corridorMid; }
+    if (wings && given.side !== 1) { lo = Math.max(lo, 3); hi = Math.min(hi, len - 3); }
+    // A church's is to one side of its far end, where everybody faces.
+    if (spec.kind === "church" && given.side === 1) want = Math.abs(lo - W / 2) > Math.abs(hi - W / 2) ? lo : hi;
     if (hi >= lo) doors.push({ side: given.side, at: clamp(want, lo, hi) });
   }
   const second = doors[1] as VenueDoor | undefined;
@@ -179,7 +203,7 @@ export function layVenue(spec: VenueSpec): Laid {
   const F = INSIDE.furniture;
   let nobody = 0;
   /** No more than this many in one place: whoever is thought of first is in (the people who work there, before those passing through). */
-  const MOST = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4 }[spec.kind];
+  const MOST = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4, church: 14, school: 30, hospital: 20, factory: 16 }[spec.kind];
   const person = (role: Role, pose: Person["pose"], at: [number, number], k: number, more: Partial<Person> = {}): void => {
     if (people.length >= MOST) return;
     people.push({ n: nobody++, role, pose, a: Math.round(at[0] * 100) / 100, b: Math.round(at[1] * 100) / 100, fa: FACING[k][0], fb: FACING[k][1], ...more });
@@ -204,13 +228,13 @@ export function layVenue(spec: VenueSpec): Laid {
   /** Where a door is on the floor, and the way in from it. */
   const doorAt = (d: VenueDoor): { a: number; b: number; k: number } =>
     d.side === 0 ? { a: d.at, b: 0, k: 0 } : d.side === 1 ? { a: d.at, b: D, k: 1 } : d.side === 2 ? { a: 0, b: d.at, k: 2 } : { a: W, b: d.at, k: 3 };
-  /** The walk from the front door to the other one, `w` wide: the strips of floor it takes. */
-  const walkOf = (w: number): Rect[] => {
+  /** The walk from the front door to the other one, `w` wide: the strips of floor it takes. `crossAt`: how far back it goes across to a door on the back wall that is not straight ahead (halfway, unless said). */
+  const walkOf = (w: number, crossAt?: number): Rect[] => {
     const f = front.at;
     if (!second) return [[f - w / 2, f + w / 2, 0, Math.min(D, Math.max(3, D * 0.55))]];
     if (second.side === 1) {
       if (Math.abs(second.at - f) < 0.3) return [[f - w / 2, f + w / 2, 0, D]];
-      const m = D / 2;
+      const m = crossAt ?? D / 2;
       return [[f - w / 2, f + w / 2, 0, m + w / 2], [Math.min(f, second.at) - w / 2, Math.max(f, second.at) + w / 2, m - w / 2, m + w / 2], [second.at - w / 2, second.at + w / 2, m - w / 2, D]];
     }
     const b = second.at;
@@ -321,6 +345,28 @@ export function layVenue(spec: VenueSpec): Laid {
       }
     }
     return null;
+  };
+
+  /** Stands a thing `w` across and `d` deep against a wall, wherever along the walls (in the order given) there is room; says where. */
+  const stand = (w: number, d: number, salt: number, walls: number[], make: (box: Box, rect: Rect, k: number) => void): { rect: Rect; k: number } | null => {
+    for (const k of walls) {
+      const run = k < 2 ? W : D;
+      if (w > run - 0.6) continue;
+      const first = hash32(spec.seed, salt + k) % 3;
+      for (let n = 0; n < 3; n++) {
+        const where = (first + n) % 3;
+        const from = where === 0 ? (run - w) / 2 : where === 1 ? 0.3 : run - w - 0.3;
+        const rect = against([0, W, 0, D], k, from, w, d);
+        if (!take(rect)) continue;
+        make(boxIn(rect, k), rect, k);
+        return { rect, k };
+      }
+    }
+    return null;
+  };
+  const letter = (text: string, at: { rect: Rect; k: number }, w: number, z: number): void => {
+    const p = pointIn(at.rect, at.k, (at.k < 2 ? at.rect[1] - at.rect[0] : at.rect[3] - at.rect[2]) / 2, 0.02);
+    lettering.push({ text, a: p[0], b: p[1], z: Math.min(H - 0.2, z), fa: FACING[at.k][0], fb: FACING[at.k][1], w });
   };
 
   // ---- the shell: the lining of the four outside walls, with the doors seen from inside
@@ -670,27 +716,6 @@ export function layVenue(spec: VenueSpec): Laid {
     const walk = walkOf(1.6);
     clear.push(...walk);
     for (const r of walk) floor(hexMix(accent, 0x8a8478), r, 0.006, INSIDE.soft); // a runner from door to door
-    /** Stands a thing `w` across and `d` deep against a wall, wherever along the walls (in the order given) there is room; says where. */
-    const stand = (w: number, d: number, salt: number, walls: number[], make: (box: Box, rect: Rect, k: number) => void): { rect: Rect; k: number } | null => {
-      for (const k of walls) {
-        const run = k < 2 ? W : D;
-        if (w > run - 0.6) continue;
-        const first = hash32(spec.seed, salt + k) % 3;
-        for (let n = 0; n < 3; n++) {
-          const where = (first + n) % 3;
-          const from = where === 0 ? (run - w) / 2 : where === 1 ? 0.3 : run - w - 0.3;
-          const rect = against([0, W, 0, D], k, from, w, d);
-          if (!take(rect)) continue;
-          make(boxIn(rect, k), rect, k);
-          return { rect, k };
-        }
-      }
-      return null;
-    };
-    const letter = (text: string, at: { rect: Rect; k: number }, w: number, z: number): void => {
-      const p = pointIn(at.rect, at.k, (at.k < 2 ? at.rect[1] - at.rect[0] : at.rect[3] - at.rect[2]) / 2, 0.02);
-      lettering.push({ text, a: p[0], b: p[1], z: Math.min(H - 0.2, z), fa: FACING[at.k][0], fb: FACING[at.k][1], w });
-    };
     const backFirst = [1, 2, 3, 0], sidesFirst = front.at < W / 2 ? [3, 2, 1, 0] : [2, 3, 1, 0];
     // The lift: two steel doors in a frame, with a button beside them.
     const lift = stand(2.3, 0.12, 0x4c494654, backFirst, (box) => {
@@ -806,6 +831,12 @@ export function layVenue(spec: VenueSpec): Laid {
       const k = left ? 3 : 2; // the way out of a shop on this side, towards the walk
       // (Its back wall, where the building goes on behind it.)
       const spans: [number, number][] = cross && (left ? second!.side === 2 : second!.side === 3) ? [[0, cross[2]], [cross[3], D]] : [[0, D]];
+      if (spans.length === 2) {
+        // The way across to a door on this side: the outside wall at its end, and (in a wide mall) what is behind the shops walled off from it.
+        sheetA(INSIDE.wall, paint, left ? 0 : W, cross![2], cross![3], 0, H, left ? 1 : -1);
+        const [v0, v1] = left ? [0, c0 - deep] : [c1 + deep, W];
+        if (v1 - v0 > 0.05) { sheetB(INSIDE.wall, paint, cross![2], v0, v1, 0, H, 1); sheetB(INSIDE.wall, paint, cross![3], v0, v1, 0, H, -1); }
+      }
       for (const [p, q] of spans) {
         if (q - p < 3.5) {
           if (q - p > 0.05) sheetA(INSIDE.wall, paint, left ? c0 : c1, p, q, 0, H, left ? 1 : -1);
@@ -931,7 +962,782 @@ export function layVenue(spec: VenueSpec): Laid {
     if (spec.name) lettering.push({ text: spec.name, a: ca, b: D - 0.04, z: Math.min(H - 0.4, 3.0), fa: 0, fb: -1, w: Math.min(cw - 0.6, 5) });
   };
 
+  // ---- a room's own frame, for furnishing rooms that may lie any way round
+  /**
+   * `w` runs along the room's back wall and `d` out from it; `up` and `down` are the ways along w, `out` and
+   * `back` the ways along d (as FACING). The end wall is the one at w = 0.
+   */
+  interface Frame {
+    r: Rect; fw: number; deep: number; box: Box;
+    rect: (w0: number, w1: number, d0: number, d1: number) => Rect;
+    at: (w: number, d: number) => [number, number];
+    out: number; back: number; up: number; down: number;
+    /** A flat thing on the end wall (a blackboard), and on the back wall (a picture). */
+    onEnd: (hex: number, d0: number, d1: number, z0: number, z1: number, lift?: number) => void;
+    onBack: (hex: number, w0: number, w1: number, z0: number, z1: number, lift?: number) => void;
+    letterBack: (text: string, w: number, z: number, wide: number) => void;
+    /** Somebody standing at the first of these places that is free floor; or, failing them all, `anywhere` that is. */
+    post: (role: Role, k: number, spots: [number, number][], anywhere?: boolean) => boolean;
+  }
+  const frameOf = (r: Rect, k: number, flip = false): Frame => {
+    const fw = k < 2 ? r[1] - r[0] : r[3] - r[2], deep = k < 2 ? r[3] - r[2] : r[1] - r[0];
+    const base = boxIn(r, k);
+    const box: Box = flip ? (mat, hex, w0, w1, d0, d1, z0, z1, under) => base(mat, hex, fw - w1, fw - w0, d0, d1, z0, z1, under) : base;
+    const rect = (w0: number, w1: number, d0: number, d1: number): Rect => {
+      if (flip) [w0, w1] = [fw - w1, fw - w0];
+      return k === 0 ? [r[0] + w0, r[0] + w1, r[2] + d0, r[2] + d1] : k === 1 ? [r[0] + w0, r[0] + w1, r[3] - d1, r[3] - d0] : k === 2 ? [r[0] + d0, r[0] + d1, r[2] + w0, r[2] + w1] : [r[1] - d1, r[1] - d0, r[2] + w0, r[2] + w1];
+    };
+    const at = (w: number, d: number): [number, number] => pointIn(r, k, flip ? fw - w : w, d);
+    const up = (k < 2 ? 2 : 0) + (flip ? 1 : 0), down = up ^ 1, out = k, back = k ^ 1;
+    const s = flip ? -1 : 1; // the way the end wall faces, along its axis
+    const t = k === 0 || k === 2 ? 1 : -1; // and the back wall
+    const onEnd = (hex: number, d0: number, d1: number, z0: number, z1: number, lift = 0): void => {
+      const q = rect(0, 0, clamp(d0, 0.1, deep - 0.1), clamp(d1, 0.1, deep - 0.1));
+      z1 = Math.min(z1, H - 0.05);
+      if (z1 - z0 < 0.02) return;
+      if (k < 2) sheetA(INSIDE.glass, hex, (flip ? r[1] : r[0]) + s * (0.06 + lift), q[2], q[3], z0, z1, s);
+      else sheetB(INSIDE.glass, hex, (flip ? r[3] : r[2]) + s * (0.06 + lift), q[0], q[1], z0, z1, s);
+    };
+    const onBack = (hex: number, w0: number, w1: number, z0: number, z1: number, lift = 0): void => {
+      const q = rect(clamp(w0, 0.1, fw - 0.1), clamp(w1, 0.1, fw - 0.1), 0, 0);
+      z1 = Math.min(z1, H - 0.05);
+      if (z1 - z0 < 0.02) return;
+      if (k < 2) sheetB(INSIDE.glass, hex, (k === 0 ? r[2] : r[3]) + t * (0.02 + lift), q[0], q[1], z0, z1, t);
+      else sheetA(INSIDE.glass, hex, (k === 2 ? r[0] : r[1]) + t * (0.02 + lift), q[2], q[3], z0, z1, t);
+    };
+    const letterBack = (text: string, w: number, z: number, wide: number): void => {
+      const p = at(clamp(w, 0.3, fw - 0.3), 0.04);
+      lettering.push({ text, a: p[0], b: p[1], z: Math.min(H - 0.2, z), fa: FACING[out][0], fb: FACING[out][1], w: wide });
+    };
+    const post = (role: Role, kf: number, spots: [number, number][], anywhere = false): boolean => {
+      const tryAt = (w: number, d: number): boolean => {
+        if (w < 0.4 || w > fw - 0.4 || d < 0.4 || d > deep - 0.4) return false;
+        const [a, b] = at(w, d);
+        if (!take([a - 0.3, a + 0.3, b - 0.3, b + 0.3], r, 0.05)) return false;
+        person(role, "stand", [a, b], kf);
+        return true;
+      };
+      for (const [w, d] of spots) if (tryAt(w, d)) return true;
+      if (anywhere) for (let d = 0.5; d <= deep - 0.5; d += 0.4) for (let w = 0.5; w <= fw - 0.5; w += 0.4) if (tryAt(w, d)) return true;
+      return false;
+    };
+    return { r, fw, deep, box, rect, at, out, back, up, down, onEnd, onBack, letterBack, post };
+  };
+  /** The whole room as one frame, measured as the room is: w is a and d is b. */
+  const whole = frameOf([0, W, 0, D], 0);
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  /** Somebody who walks up and down the corridor, `across` of the way over it, between two depths. */
+  const lane = (role: Role, across: number, lo: number, hi: number): void => {
+    const a = r2(corridorMid - corridor / 2 + corridor * across);
+    if (people.length < MOST && hi - lo > 2) people.push({ n: nobody++, role, pose: "walk", a, b: r2(lo), fa: 0, fb: 1, path: [a, r2(lo), a, r2(hi)] });
+  };
+
+  /**
+   * Where the corridor of a school or a hospital runs: straight back from the front door, with (where a door is
+   * on a side wall) a way across to that door. Nothing may stand in either.
+   */
+  const corridorPlan = (): { c0: number; c1: number; cross: Rect | null } => {
+    let c0 = corridorMid - corridor / 2, c1 = corridorMid + corridor / 2;
+    if (c0 < 3.6) c0 = 0; // too little room for rooms on that side: the corridor takes it
+    if (W - c1 < 3.6) c1 = W;
+    const cross: Rect | null = second && second.side >= 2 ? (second.side === 2 ? [0, c0, second.at - 1.5, second.at + 1.5] : [c1, W, second.at - 1.5, second.at + 1.5]) : null;
+    clear.push([corridorMid - corridor / 2, corridorMid + corridor / 2, 0, D]);
+    if (cross) clear.push([Math.min(cross[0], corridorMid), Math.max(cross[1], corridorMid), cross[2], cross[3]]);
+    return { c0, c1, cross };
+  };
+  /**
+   * The corridor and the rooms down both sides of it, from `from` back to the far wall: a school's classrooms,
+   * a hospital's wards. `fit` furnishes each room (it is told which it is, of how many) and says what is
+   * written over its door.
+   */
+  const wingRooms = (plan: { c0: number; c1: number; cross: Rect | null }, from: number, tile: number, band: number, deepest: number, fit: (fr: Frame, no: number, of: number) => string): void => {
+    const { c0, c1, cross } = plan;
+    floor(tile, [c0, c1, from, D]);
+    sheetB(INSIDE.wall, paint, D, c0, c1, 0, H, -1);
+    if (from === 0) sheetB(INSIDE.wall, paint, 0, c0, c1, 0, H, 1);
+    if (c0 === 0) sheetA(INSIDE.wall, paint, 0, from, D, 0, H, 1);
+    if (c1 === W) sheetA(INSIDE.wall, paint, W, from, D, 0, H, -1);
+    lights([c0, c1, from, D]);
+    const slots: { r: Rect; left: boolean; last: boolean }[] = [];
+    const strips: Rect[] = [];
+    for (const left of [true, false]) {
+      const strip = left ? c0 : W - c1;
+      if (strip < 3.6) continue;
+      const deep = Math.min(strip, deepest);
+      const edge = left ? c0 : c1, back = left ? c0 - deep : c1 + deep, s = left ? 1 : -1;
+      const mine = cross !== null && (left ? second!.side === 2 : second!.side === 3);
+      const spans: [number, number][] = mine ? [[from, Math.max(from, cross![2])], [Math.max(from, cross![3]), D]] : [[from, D]];
+      // What is behind the rooms (in a wide building) is walled off from the hall in front, and from the way across.
+      const [v0, v1] = left ? [0, back] : [back, W];
+      const behind = v1 - v0 > 0.05;
+      if (from > 0 && behind && !(mine && cross![2] < from && cross![3] > from)) sheetB(INSIDE.wall, paint, from, v0, v1, 0, H, -1);
+      if (mine && cross![3] > from) {
+        const p = Math.max(from, cross![2]);
+        floor(tile, [cross![0], cross![1], p, cross![3]]);
+        sheetA(INSIDE.wall, paint, left ? 0 : W, p, cross![3], 0, H, s);
+        if (behind && cross![2] > from) sheetB(INSIDE.wall, paint, cross![2], v0, v1, 0, H, 1);
+        if (behind) sheetB(INSIDE.wall, paint, cross![3], v0, v1, 0, H, -1);
+      }
+      for (const [p, q] of spans) {
+        if (q - p < 3.2) {
+          if (q - p > 0.05) sheetA(INSIDE.wall, paint, edge, p, q, 0, H, s);
+          continue;
+        }
+        const count = Math.max(1, Math.round((q - p) / 7.5));
+        for (let i = 0; i < count; i++) {
+          const b0 = p + ((q - p) * i) / count, b1 = p + ((q - p) * (i + 1)) / count;
+          slots.push({ r: left ? [back, edge, b0, b1] : [edge, back, b0, b1], left, last: i === count - 1 });
+        }
+      }
+      strips.push(left ? [0, c0, from, D] : [c1, W, from, D]);
+    }
+    slots.forEach(({ r, left, last }, no) => {
+      const b0 = r[2], b1 = r[3];
+      const edge = left ? r[1] : r[0], back = left ? r[0] : r[1], s = left ? 1 : -1; // `s`: from the room out to the corridor
+      const m = (b0 + b1) / 2, T = 0.12;
+      sheetA(INSIDE.wall, WHITE, back, b0, b1, 0, H, s);
+      block(INSIDE.wall, WHITE, r[0], r[1], Math.max(0, b0 - 0.05), b0 + 0.05, 0, H);
+      if (last) block(INSIDE.wall, WHITE, r[0], r[1], b1 - 0.05, Math.min(D, b1 + 0.05), 0, H);
+      // Its wall on the corridor: a doorway in the middle, a window beside it, and what it is over the doorway.
+      block(INSIDE.wall, WHITE, edge - T / 2, edge + T / 2, b0, m - 0.55, 0, H);
+      block(INSIDE.wall, WHITE, edge - T / 2, edge + T / 2, m + 0.55, b1, 0, H);
+      block(INSIDE.wall, WHITE, edge - T / 2, edge + T / 2, m - 0.55, m + 0.55, 2.05, H, true);
+      if (b1 - 0.3 - (m + 0.85) >= 0.7) for (const f of [-1, 1]) sheetA(INSIDE.glass, GLASS, edge + f * (T / 2 + 0.01), m + 0.85, b1 - 0.3, 1.0, 2.0, f);
+      // (And a band of colour along the corridor, waist high, with the door's frame in it.)
+      sheetA(INSIDE.glass, band, edge + s * (T / 2 + 0.008), b0, m - 0.55, 0, 0.9, s);
+      sheetA(INSIDE.glass, band, edge + s * (T / 2 + 0.008), m + 0.55, b1, 0, 0.9, s);
+      for (const e of [-1, 1]) sheetA(INSIDE.glass, band, edge + s * (T / 2 + 0.009), m + e * 0.6 - 0.05, m + e * 0.6 + 0.05, 0.9, 2.05, s);
+      clear.push(left ? [edge - 1.3, edge, m - 0.6, m + 0.6] : [edge, edge + 1.3, m - 0.6, m + 0.6]);
+      const name = fit(frameOf(r, left ? 2 : 3), no, slots.length);
+      lettering.push({ text: name, a: edge + s * (T / 2 + 0.02), b: m, z: 2.05 + (H - 2.05) / 2, fa: s, fb: 0, w: 1.0 });
+    });
+    // (Nothing else is stood where the rooms are.)
+    taken.push(...strips);
+  };
+
+  // ---- what the rooms of a school and of a hospital have in them
+  /** A classroom: the blackboard on the end wall with the teacher at it, desks for two in rows, a shelf at the back. */
+  const classroom = (fr: Frame, budget: number, no: number): void => {
+    const { fw, deep } = fr;
+    const mid = deep / 2;
+    fr.onEnd(0x2f5a45, mid - 1.2, mid + 1.2, 0.9, 1.9);
+    fr.onEnd(WHITE, mid - 0.9, mid - 0.2, 1.5, 1.56, 0.01);
+    fr.onEnd(0xf2cc4a, mid + 0.2, mid + 0.8, 1.22, 1.28, 0.01);
+    fr.post("teacher", fr.up, [[0.75, mid + 0.3], [0.75, mid - 0.9], [0.75, mid + 1.2], [1.4, mid], [fw / 2, deep / 2]], true);
+    if (fw >= 4.4 && take(fr.rect(fw - 1.5, fw - 0.3, 0.05, 0.45), fr.r, 0.02)) {
+      shelves((mat, hex, a, b, c, e, z0, z1, under) => fr.box(mat, hex, fw - 1.5 + a, fw - 1.5 + b, 0.05 + c, 0.05 + e, z0, z1, under), 1.2, no % 2 ? "toys" : "books", 0x53484c46 + no * 13, 1.3, true);
+    }
+    for (let i = 0; i < 3 && 1.2 + i * 0.9 <= fw - 1.8; i++) fr.onBack(ACCENTS[hash32(spec.seed, 0x50494354 + no * 7 + i) % ACCENTS.length], 0.6 + i * 0.9, 1.2 + i * 0.9, 1.3, 1.8);
+    // (Tried every step of the way across and back, so that a room with a walk through the middle of it still has its desks.)
+    let desks = 0, sat = 0;
+    const most = budget > 5 ? 8 : 6;
+    for (let w = 2.0; w + 0.9 <= fw - 0.3 && desks < most; w += 0.45) {
+      for (let d = 0.55; d + 1.15 <= deep - 1.35 && desks < most; d += 0.35) {
+        if (!take(fr.rect(w, w + 0.9, d, d + 1.15), fr.r, 0.3)) continue;
+        desks++;
+        fr.box(F, wood, w, w + 0.45, d, d + 1.15, 0.5, 0.55, true);
+        fr.box(F, STEEL, w + 0.18, w + 0.27, d + 0.5, d + 0.65, 0, 0.5);
+        fr.box(F, accent, w + 0.57, w + 0.9, d + 0.05, d + 1.1, 0, 0.33);
+        for (const dd of [0.3, 0.85]) {
+          if (sat >= budget || hash32(spec.seed, 0x50555049 + no * 101 + desks * 7 + (dd > 0.5 ? 3 : 0)) % 10 >= 7) continue;
+          sat++;
+          person("pupil", "sit", fr.at(w + 0.735, d + dd), fr.down, { seat: 0.33 });
+        }
+      }
+    }
+  };
+  /** A library: books along the back wall, a table to read at. */
+  const library = (fr: Frame, budget: number, no: number): void => {
+    const { fw, deep } = fr;
+    const n = Math.min(5, Math.floor((fw - 0.6) / 1.3));
+    for (let i = 0; i < n; i++) {
+      const w0 = 0.3 + (i * (fw - 0.6)) / n;
+      if (take(fr.rect(w0, w0 + 1.2, 0.05, 0.45), fr.r, 0.02)) shelves((mat, hex, a, b, c, e, z0, z1, under) => fr.box(mat, hex, w0 + a, w0 + b, 0.05 + c, 0.05 + e, z0, z1, under), 1.2, "books", 0x4c494252 + no * 17 + i * 31, 1.8, fw > 5.5);
+    }
+    let sat = 0;
+    if (deep >= 4.2 && take(fr.rect(fw / 2 - 0.9, fw / 2 + 0.9, 0.95, 2.85), fr.r, 0.05)) {
+      const seats = tableAndChairs(fr.rect(fw / 2 - 0.9, fw / 2 + 0.9, 1.5, 2.3), [fr.out, fr.back], wood, accent);
+      fr.box(F, pick(ACCENTS, 0x424f4f4b + no), fw / 2 - 0.3, fw / 2 + 0.05, 1.75, 2.0, 0.74, 0.79);
+      seats.forEach((s, i) => {
+        if (sat >= budget || hash32(spec.seed, 0x52454144 + no * 11 + i) % 10 >= 6) return;
+        sat++;
+        person("pupil", "sit", s.at, s.k, { seat: 0.45 });
+      });
+    }
+    fr.post("teacher", fr.out, [[fw - 0.9, 1.1], [0.9, 1.1], [fw / 2, 0.9], [fw / 2, deep / 2]], true);
+  };
+  /** An art room: easels along the end wall with somebody painting at each, a table with pots of paint. */
+  const artRoom = (fr: Frame, budget: number, no: number): void => {
+    const { fw, deep } = fr;
+    let easels = 0;
+    for (let d = 0.6; d + 0.6 <= deep - 1.4 && easels < 3; d += 1.3) {
+      if (!take(fr.rect(0.25, 1.3, d, d + 0.6), fr.r, 0.02)) continue;
+      easels++;
+      fr.box(F, TIMBER, 0.3, 0.38, d, d + 0.6, 0, 1.55);
+      fr.box(F, WHITE, 0.38, 0.4, d + 0.04, d + 0.56, 0.85, 1.5, true);
+      fr.box(INSIDE.soft, ACCENTS[hash32(spec.seed, 0x41525421 + no * 5 + easels) % ACCENTS.length], 0.4, 0.41, d + 0.14, d + 0.46, 0.98, 1.36, true);
+      if (easels <= budget) person("pupil", "stand", fr.at(0.98, d + 0.3), fr.down);
+    }
+    const t0 = Math.max(2.1, fw / 2 - 0.6);
+    if (t0 + 1.6 <= fw - 0.4 && take(fr.rect(t0, t0 + 1.6, 0.6, 1.5), fr.r, 0.3)) {
+      fr.box(F, wood, t0, t0 + 1.6, 0.6, 1.5, 0.7, 0.75, true);
+      fr.box(F, wood, t0 + 0.7, t0 + 0.9, 0.95, 1.15, 0, 0.7);
+      for (let i = 0; i < 4; i++) fr.box(F, ACCENTS[(i * 3 + no) % ACCENTS.length], t0 + 0.25 + i * 0.32, t0 + 0.39 + i * 0.32, 0.9 + (i % 2) * 0.2, 1.04 + (i % 2) * 0.2, 0.75, 0.88);
+    }
+    for (let i = 0; i < 4 && 1.9 + i * 0.8 <= fw - 0.4; i++) fr.onBack(ACCENTS[hash32(spec.seed, 0x50494354 + no * 7 + i) % ACCENTS.length], 1.4 + i * 0.8, 1.9 + i * 0.8, 1.2 + (i % 2) * 0.2, 1.75 + (i % 2) * 0.2);
+    fr.post("teacher", fr.back, [[t0 + 0.8, 2.15], [fw / 2, 2.3], [fw / 2, deep / 2]], true);
+  };
+  /** A music room: a piano on the end wall with the teacher at it, chairs in rows, a drum. */
+  const musicRoom = (fr: Frame, budget: number, no: number): void => {
+    const { fw, deep } = fr;
+    const mid = deep / 2;
+    if (take(fr.rect(0.08, 1.75, mid - 0.8, mid + 0.8), fr.r, 0.02)) {
+      fr.box(F, DARK, 0.08, 0.7, mid - 0.75, mid + 0.75, 0, 1.2);
+      fr.box(F, WHITE, 0.7, 0.95, mid - 0.7, mid + 0.7, 0.72, 0.78, true);
+      fr.box(F, DARK, 1.2, 1.6, mid - 0.25, mid + 0.25, 0, 0.45);
+      person("teacher", "sit", fr.at(1.4, mid), fr.down, { seat: 0.45 });
+    } else fr.post("teacher", fr.up, [[0.8, mid], [fw / 2, mid]], true);
+    let chairs = 0, sat = 0;
+    for (let w = 2.7; w + 0.45 <= fw - 0.3 && chairs < 6; w += 1.0) {
+      for (let d = 0.6; d + 0.45 <= deep - 1.4 && chairs < 6; d += 0.95) {
+        if (!take(fr.rect(w, w + 0.45, d, d + 0.45), fr.r, 0.02)) continue;
+        chairs++;
+        fr.box(F, accent, w, w + 0.42, d, d + 0.42, 0, 0.4);
+        if (sat >= budget || hash32(spec.seed, 0x4d555349 + no * 13 + chairs) % 10 >= 6) continue;
+        sat++;
+        person("pupil", "sit", fr.at(w + 0.21, d + 0.21), fr.down, { seat: 0.4 });
+      }
+    }
+    if (take(fr.rect(fw - 0.85, fw - 0.25, 0.15, 0.75), fr.r, 0.02)) {
+      fr.box(F, 0xd9483a, fw - 0.8, fw - 0.3, 0.2, 0.7, 0, 0.5);
+      fr.box(F, WHITE, fw - 0.82, fw - 0.28, 0.18, 0.72, 0.5, 0.54);
+    }
+  };
+  /** A ward: beds with their heads to the back wall, somebody sitting up in some of them, a cupboard by each. */
+  const ward = (fr: Frame, budget: number, no: number, quilt: number): void => {
+    const { fw } = fr;
+    let beds = 0, inBed = 0;
+    fr.onBack(quilt, 0.2, fw - 0.2, 1.05, 1.3);
+    for (let w = 0.45; w + 0.95 <= fw - 0.35 && beds < 4; w += 2.05) {
+      if (!take(fr.rect(w, w + 0.95, 0.08, 2.15), fr.r, 0.02)) continue;
+      beds++;
+      if (beds < 4 && w + 3.0 <= fw - 0.35) fr.box(INSIDE.soft, hexMix(quilt, accent), w + 1.72, w + 1.76, 0.1, 1.7, 0.3, 2.0, true);
+      fr.box(F, STEEL, w, w + 0.95, 0.08, 0.14, 0, 0.95);
+      fr.box(F, WHITE, w, w + 0.95, 0.14, 2.1, 0, 0.5);
+      floor(quilt, fr.rect(w, w + 0.95, 0.85, 2.1), 0.51, INSIDE.soft);
+      fr.box(INSIDE.soft, 0xfdfcf8, w + 0.15, w + 0.8, 0.2, 0.6, 0.5, 0.6);
+      if (inBed < budget && hash32(spec.seed, 0x42454453 + no * 19 + beds * 3) % 10 < 7) {
+        inBed++;
+        person("patient", "sit", fr.at(w + 0.475, 0.95), fr.out, { seat: 0.5 });
+      }
+      if (w + 1.5 <= fw - 0.1 && take(fr.rect(w + 1.05, w + 1.45, 0.08, 0.5), fr.r, 0.02)) {
+        fr.box(F, wood, w + 1.05, w + 1.45, 0.08, 0.5, 0, 0.6);
+        if (hash32(spec.seed, 0x464c5752 + no * 7 + beds) % 2 === 0) {
+          fr.box(F, 0x3f7fd0, w + 1.19, w + 1.31, 0.23, 0.35, 0.6, 0.76);
+          fr.box(INSIDE.soft, ACCENTS[hash32(spec.seed, 0x424c4f4d + no + beds) % ACCENTS.length], w + 1.1, w + 1.4, 0.14, 0.44, 0.76, 0.98);
+        }
+      }
+    }
+    if (hash32(spec.seed, 0x4e555253 + no) % 3 !== 0) fr.post("nurse", fr.back, [[fw / 2 + 1.3, 2.75], [fw / 2 - 1.3, 2.75]]);
+    else fr.post("visitor", fr.back, [[fw / 2 - 1.3, 2.75], [fw / 2 + 1.3, 2.75]]);
+  };
+  /** The doctor's room: a couch to lie on, a desk, a chart of letters on the wall. */
+  const consulting = (fr: Frame, no: number, quilt: number): void => {
+    const { fw } = fr;
+    if (take(fr.rect(fw - 1.05, fw - 0.2, 0.3, 2.2), fr.r, 0.02)) {
+      fr.box(F, WHITE, fw - 1.0, fw - 0.2, 0.3, 2.2, 0, 0.55);
+      floor(quilt, fr.rect(fw - 1.0, fw - 0.2, 0.3, 2.2), 0.56, INSIDE.soft);
+      fr.box(INSIDE.soft, 0xfdfcf8, fw - 0.9, fw - 0.3, 0.38, 0.75, 0.55, 0.64);
+      if (hash32(spec.seed, 0x50415449 + no) % 10 < 6) person("patient", "sit", fr.at(fw - 0.6, 1.4), fr.down, { seat: 0.55 });
+    }
+    fr.post("doctor", fr.up, [[fw - 1.75, 1.4], [fw / 2, 1.1], [fw / 2, fr.deep / 2]], true);
+    if (fw >= 4.6 && take(fr.rect(0.1, 1.45, 0.4, 1.8), fr.r, 0.02)) {
+      fr.box(F, wood, 0.1, 0.75, 0.4, 1.8, 0, 0.74);
+      fr.box(F, DARK, 0.2, 0.26, 0.8, 1.4, 0.74, 1.15);
+      fr.box(F, accent, 0.95, 1.37, 0.9, 1.32, 0, 0.45);
+    }
+    if (take(fr.rect(fw / 2 - 0.45, fw / 2 + 0.45, 0.05, 0.45), fr.r, 0.02)) {
+      fr.box(F, WHITE, fw / 2 - 0.45, fw / 2 + 0.45, 0.05, 0.45, 0, 1.0);
+      fr.box(F, 0x3f9a8a, fw / 2 - 0.4, fw / 2 + 0.4, 0.45, 0.46, 0.7, 0.9);
+    }
+    fr.letterBack("E  F P  T O Z", fw / 2, 1.7, 0.8);
+  };
+  /** The X-ray room: the table with the machine over it, the pictures lit up on the wall. */
+  const xray = (fr: Frame): void => {
+    const { fw, deep } = fr;
+    const len = Math.min(2.0, deep - 2.2);
+    if (len >= 1.2 && take(fr.rect(fw / 2 - 0.5, fw / 2 + 0.5, 0.1, 0.6 + len), fr.r, 0.02)) {
+      fr.box(F, 0xd9dde2, fw / 2 - 0.2, fw / 2 + 0.2, 0.1, 0.5, 0, 2.0);
+      fr.box(F, STEEL, fw / 2 - 0.42, fw / 2 + 0.42, 0.6, 0.6 + len, 0, 0.7);
+      floor(DARK, fr.rect(fw / 2 - 0.36, fw / 2 + 0.36, 0.7, 0.5 + len), 0.71, INSIDE.soft);
+      fr.box(INSIDE.soft, 0xd9dde2, fw / 2 - 0.1, fw / 2 + 0.1, 0.5, 1.5, 1.85, 2.0, true);
+      fr.box(INSIDE.soft, DARK, fw / 2 - 0.25, fw / 2 + 0.25, 1.15, 1.65, 1.5, 1.85, true);
+    }
+    fr.onEnd(0xdff3ff, deep / 2 - 0.7, deep / 2 + 0.7, 1.2, 1.9);
+    fr.onEnd(0x26323c, deep / 2 - 0.6, deep / 2 - 0.05, 1.27, 1.83, 0.01);
+    fr.onEnd(0x26323c, deep / 2 + 0.05, deep / 2 + 0.6, 1.27, 1.83, 0.01);
+    fr.onEnd(0xe8f0f4, deep / 2 - 0.38, deep / 2 - 0.27, 1.35, 1.75, 0.02);
+    fr.onEnd(0xe8f0f4, deep / 2 + 0.2, deep / 2 + 0.45, 1.5, 1.6, 0.02);
+    fr.post("nurse", fr.up, [[1.0, deep / 2], [fw - 1.0, 2.6], [fw / 2, deep - 1.9]], true);
+  };
+
+  // =============================================================== a church, a mosque, a temple
+  const hall = (): void => {
+    const faith = spec.faith ?? "church";
+    lining(faith === "mosque" ? 0xf4f1e6 : pick([0xe9e2d0, 0xe6dfd2, 0xf0e8d8, 0xe8e4da], 0x53544f4e));
+    const carpet = pick([0x2f7f6a, 0x8a3a3a, 0x3f5f9a, 0x7a4f6a], 0x43415250);
+    floor(faith === "mosque" ? carpet : faith === "temple" ? pick(WOODS, 0x464c4f52) : 0xd6cfc0, [0, W, 0, D]);
+    doors.forEach(doorway);
+    // Tall windows of coloured glass down both sides.
+    const colours = { church: [0xd9483a, 0x3f7fd0, 0xe0a82e, 0x3f9a55, 0x7a4f9a], mosque: [0x2f8f8a, 0x3f7fd0, 0xe0b23c, 0xf4f1ea], temple: [0xe8935a, 0xe0a82e, 0xd9483a, 0xf2e3b0] }[faith];
+    const top = Math.min(H - 0.4, 3.6);
+    for (const side of [2, 3]) {
+      const n = top - 1.0 < 1 ? 0 : Math.min(8, Math.floor((D - 1.2) / 3.4));
+      const a = side === 2 ? 0 : W, s = side === 2 ? 1 : -1;
+      for (let i = 0; i < n; i++) {
+        const c = 0.6 + ((D - 1.2) * (i + 0.5)) / n;
+        if (doors.some((d) => d.side === side && Math.abs(d.at - c) < 1.8)) continue;
+        sheetA(INSIDE.glass, WHITE, a + s * 0.01, c - 0.55, c + 0.55, 0.9, top + 0.1, s);
+        for (let k = 0; k < 3; k++) sheetA(INSIDE.glass, colours[hash32(spec.seed, 0x474c4153 + side * 97 + i * 7 + k) % colours.length], a + s * 0.02, c - 0.45, c + 0.45, 1.0 + ((top - 1.0) * k) / 3 + 0.03, 1.0 + ((top - 1.0) * (k + 1)) / 3 - 0.03, s);
+      }
+    }
+    lights([0, W, 0, D]);
+    // Beams under a high roof.
+    if (H >= 3.6 && faith !== "mosque") {
+      const n = Math.min(7, Math.floor(D / 4.5));
+      for (let i = 1; i <= n; i++) block(INSIDE.soft, TIMBER, 0, W, (D * i) / (n + 1) - 0.12, (D * i) / (n + 1) + 0.12, H - 0.32, H - 0.04, true);
+    }
+    // The aisle, from the front door to the far end and across to the other door.
+    const w = W >= 9 ? 1.8 : 1.4;
+    const walk = walkOf(w, D >= 10 ? D - 3.6 : undefined);
+    clear.push(...walk);
+    if (faith !== "mosque") for (const r of walk) floor(hexMix(accent, 0x7a3030), r, 0.006, INSIDE.soft);
+    else for (let b = 2.2; b <= D - 2.2; b += 1.3) floor(hexMix(carpet, 0xf4f1e6), [0.3, W - 0.3, b, b + 0.1], 0.006, INSIDE.soft);
+
+    // The far end: what everybody faces. In the middle of the far wall, or to one side of a door there.
+    const tw = Math.min(2.4, W - 2.6);
+    let c = -1;
+    if (D >= 8 && tw >= 1.2) for (const at of [W / 2, W * 0.3, W * 0.7]) if (take([at - tw / 2, at + tw / 2, D - 1.75, D - 0.2], undefined, 0.25)) { c = at; break; }
+    if (c >= 0 && faith === "mosque") {
+      // A niche in the wall, tiled, and steps beside it to speak from.
+      const z1 = Math.min(H - 0.5, 2.7);
+      sheetB(INSIDE.glass, hexMix(carpet, DARK), D - 0.02, c - 0.9, c + 0.9, 0, z1, -1);
+      sheetB(INSIDE.glass, 0xe0b23c, D - 0.03, c - 0.72, c + 0.72, 0.08, z1 - 0.12, -1);
+      sheetB(INSIDE.glass, hexMix(carpet, 0xf4f1e6), D - 0.04, c - 0.64, c + 0.64, 0.14, z1 - 0.2, -1);
+      const steps: Rect = [c + 1.3, c + 2.2, D - 2.2, D - 0.1];
+      if (take(steps, undefined, 0.1)) for (let i = 0; i < 3; i++) block(F, TIMBER, steps[0], steps[1], steps[2] + i * 0.7, steps[2] + (i + 1) * 0.7, 0, 0.3 * (i + 1));
+    } else if (c >= 0) {
+      // A table with a white cloth, flowers and lights on it; in a temple a low one, with lanterns.
+      const low = faith === "temple";
+      const z = low ? 0.5 : 0.92;
+      const t: Rect = [c - tw / 2, c + tw / 2, D - 1.75, D - 0.95];
+      block(F, wood, t[0] + 0.1, t[1] - 0.1, t[2] + 0.08, t[3] - 0.08, 0, z);
+      block(F, low ? accent : WHITE, t[0], t[1], t[2], t[3], z, z + 0.05, true);
+      if (!low) floor(accent, [c - 0.3, c + 0.3, t[2], t[3]], z + 0.055, INSIDE.soft);
+      for (const s of [-1, 1]) {
+        const a = c + s * (tw / 2 - 0.3);
+        if (low) { block(F, DARK, a - 0.1, a + 0.1, D - 1.45, D - 1.25, z + 0.05, z + 0.11); block(INSIDE.soft, 0xf2cc4a, a - 0.08, a + 0.08, D - 1.43, D - 1.27, z + 0.11, z + 0.36); }
+        else { block(F, 0xf2e6c0, a - 0.04, a + 0.04, D - 1.39, D - 1.31, z + 0.05, z + 0.4); block(INSIDE.soft, 0xf2cc4a, a - 0.025, a + 0.025, D - 1.375, D - 1.325, z + 0.4, z + 0.48); }
+      }
+      block(F, 0xd9d2c4, c - 0.09, c + 0.09, D - 1.44, D - 1.26, z + 0.05, z + 0.25);
+      block(INSIDE.soft, LEAF, c - 0.16, c + 0.16, D - 1.51, D - 1.19, z + 0.25, z + 0.4);
+      block(INSIDE.soft, pick([0xe86aa8, 0xf2cc4a, 0xd9483a, 0xf4f1ea, 0xe8935a], 0x424c4f4d), c - 0.22, c + 0.22, D - 1.57, D - 1.13, z + 0.4, z + 0.6);
+      // Over it, a window of coloured glass (a hanging, in a temple).
+      const z0 = low ? 1.3 : 1.7, z1 = Math.min(H - 0.3, low ? 2.9 : 4.2);
+      if (z1 - z0 >= 1.1) {
+        sheetB(INSIDE.glass, low ? accent : WHITE, D - 0.01, c - 1.0, c + 1.0, z0 - 0.1, z1 + 0.1, -1);
+        if (low) { sheetB(INSIDE.glass, 0xe0b23c, D - 0.02, c - 0.8, c + 0.8, z0 + 0.1, z1 - 0.1, -1); sheetB(INSIDE.glass, WHITE, D - 0.03, c - 0.45, c + 0.45, z0 + 0.4, z1 - 0.4, -1); }
+        else for (let i = 0; i < 3; i++) for (let k = 0; k < 3; k++) sheetB(INSIDE.glass, colours[hash32(spec.seed, 0x524f5345 + i * 5 + k) % colours.length], D - 0.02, c - 0.9 + i * 0.6 + 0.03, c - 0.9 + (i + 1) * 0.6 - 0.03, z0 + ((z1 - z0) * k) / 3 + 0.03, z0 + ((z1 - z0) * (k + 1)) / 3 - 0.03, -1);
+      }
+    }
+    // Whoever looks after the place: at a stand to read from beside the table, or by the door.
+    const stand0: Rect = [c - tw / 2 - 1.15, c - tw / 2 - 0.6, D - 2.3, D - 1.85];
+    const lectern = c >= 0 && faith === "church" && take(stand0, undefined, 0.05);
+    if (lectern) {
+      block(F, TIMBER, stand0[0], stand0[1], stand0[2], stand0[3], 0, 1.1);
+      block(F, WHITE, stand0[0] + 0.05, stand0[1] - 0.05, stand0[2] + 0.05, stand0[3] - 0.05, 1.1, 1.14);
+    }
+    whole.post("warden", 1, [...(lectern ? [[(stand0[0] + stand0[1]) / 2, D - 1.3] as [number, number]] : []), [front.at + 1.7, 1.9], [front.at - 1.7, 1.9], [W / 2, D / 2], [W / 2, 1.2]], true);
+    if (c >= 0 && faith === "church" && W >= 9) for (let i = 0; i < 3; i++) whole.post("singer", 1, [[c + tw / 2 + 0.75 + i * 0.75, D - 1.3]]);
+    if (faith === "church" && D >= 11) {
+      // The organ, against a side wall near the far end, with somebody playing it.
+      for (const k of second?.side === 3 || ((hash32(spec.seed, 0x4f524741) & 1) === 1 && second?.side !== 2) ? [2, 3] : [3, 2]) {
+        const r = against([0, W, 0, D], k, D - 7.2, 2.0, 1.4);
+        if (!take(r, undefined, 0.1)) continue;
+        const box = boxIn(r, k);
+        box(F, TIMBER, 0, 2.0, 0, 0.55, 0, 1.2);
+        box(F, WHITE, 0.3, 1.7, 0.55, 0.8, 0.78, 0.84, true);
+        for (let i = 0; i < 6; i++) box(F, STEEL, 0.15 + i * 0.3, 0.37 + i * 0.3, 0.02, 0.24, 1.2, Math.min(H - 0.4, 1.9 + ((i * 5) % 4) * 0.35));
+        box(F, TIMBER, 0.75, 1.25, 1.0, 1.35, 0, 0.45);
+        person("musician", "sit", pointIn(r, k, 1.0, 1.17), k ^ 1, { seat: 0.45 });
+        break;
+      }
+    }
+    if (faith === "temple") {
+      // A gong in its frame.
+      stand(1.2, 0.35, 0x474f4e47, [1, 2, 3], (box) => {
+        box(F, TIMBER, 0, 0.1, 0.1, 0.25, 0, 1.7);
+        box(F, TIMBER, 1.1, 1.2, 0.1, 0.25, 0, 1.7);
+        box(F, TIMBER, 0, 1.2, 0.1, 0.25, 1.7, 1.8, true);
+        box(F, 0xe0b23c, 0.3, 0.9, 0.15, 0.2, 0.8, 1.45, true);
+      });
+    }
+    if (faith === "mosque") {
+      // Somewhere for shoes by the door, and books.
+      stand(1.6, 0.35, 0x53484f45, [0, 2, 3], (box) => {
+        box(F, wood, 0, 1.6, 0, 0.04, 0, 0.9);
+        box(F, wood, 0, 1.6, 0.04, 0.35, 0.1, 0.14, true);
+        box(F, wood, 0, 1.6, 0.04, 0.35, 0.5, 0.54, true);
+        for (let i = 0; i < 4; i++) box(F, [DARK, 0x8a5a3a, WHITE, 0x3f7fd0][i], 0.15 + i * 0.38, 0.4 + i * 0.38, 0.08, 0.32, i % 2 ? 0.54 : 0.14, (i % 2 ? 0.54 : 0.14) + 0.12);
+      });
+      stand(1.2, 0.4, 0x424f4f4b, [2, 3, 0], (box) => shelves(box, 1.2, "books", 0x424f4f4b));
+    }
+    // A board by the door with the name of the place.
+    const board = stand(1.4, 0.05, 0x4e4f5445, [0, 2, 3], (box) => {
+      box(F, TIMBER, 0, 1.4, 0, 0.03, 1.1, 2.0, true);
+      box(F, 0xc9a36b, 0.06, 1.34, 0.03, 0.04, 1.16, 1.94, true);
+      for (let k = 0; k < 4; k++) box(F, [WHITE, 0xf2cc74, 0xa9d4ee, WHITE][k], 0.16 + (k % 2) * 0.6, 0.58 + (k % 2) * 0.6, 0.04, 0.045, 1.25 + Math.floor(k / 2) * 0.36, 1.53 + Math.floor(k / 2) * 0.36, true);
+    });
+    if (board) letter(spec.name ?? "WELCOME", board, 1.4, 2.25);
+
+    // Rows of seats facing the far end, either side of the aisle: pews, or in a temple low benches. (A mosque has its carpet.)
+    const gap = W < 9 ? 0.15 : 0.9;
+    const f = front.at;
+    const sides = ([[gap, f - w / 2 - 0.1], [f + w / 2 + 0.1, W - gap]] as [number, number][]).map(([p, q], i): [number, number] => (q - p <= 5 ? [p, q] : i === 0 ? [q - 5, q] : [p, p + 5]));
+    const first = 2.6, last = D - (c >= 0 ? 4.9 : 1.6);
+    const n = Math.min(12, Math.floor((last - first) / 1.2));
+    let sat = 0;
+    for (let i = 0; i < n; i++) {
+      const b = first + (i * (last - first)) / n;
+      for (const [p, q] of sides) {
+        if (q - p < 1.3) continue;
+        if (faith === "mosque") {
+          // Somebody standing on the carpet, now and then.
+          const a = p + (q - p) * (0.2 + (hash32(spec.seed, 0x5354414e + i * 3 + Math.round(p)) % 60) / 100);
+          if (sat < 5 && i >= n - 3 && hash32(spec.seed, 0x56495349 + i * 7 + Math.round(p)) % 10 < 6 && whole.post("visitor", 0, [[a, b]])) sat++;
+          continue;
+        }
+        if (!take([p, q, b, b + 0.55], undefined, 0.02)) continue;
+        block(F, TIMBER, p, q, b + 0.1, b + 0.5, 0, 0.44);
+        if (faith === "church") block(F, TIMBER, p, q, b, b + 0.1, 0, 0.92);
+        const seats = Math.floor((q - p) / 0.7);
+        for (let j = 0; j < seats; j++) {
+          if (sat >= 6 || hash32(spec.seed, 0x50455753 + i * 31 + j * 7 + Math.round(p)) % 10 >= 2) continue;
+          sat++;
+          person("visitor", "sit", [p + ((q - p) * (j + 0.5)) / seats, b + 0.3], 0, { seat: 0.44 });
+        }
+      }
+    }
+    if (second && W * D >= 60) stroller("visitor", walk, 0.5);
+  };
+
+  // =============================================================== a school
+  const school = (): void => {
+    const kinds = ["class", "class", "library", "class", "art", "class", "music", "class"];
+    if (!wings) {
+      // A small school is one classroom.
+      lining(paint);
+      floor(pick(WOODS, 0x464c4f52), [0, W, 0, D]);
+      doors.forEach(doorway);
+      for (const side of [0, 1, 2, 3]) windows(side, 0.6, (side < 2 ? W : D) - 0.6, false);
+      lights([0, W, 0, D]);
+      const walk = walkOf(1.5);
+      clear.push(...walk);
+      const fr = frameOf([0, W, 0, D], 1, second?.side === 2);
+      classroom(fr, 8, 0);
+      if (spec.name) fr.letterBack(spec.name, fr.fw / 2, 2.55, Math.min(3, W - 1));
+      plants([0, W, 0, D], 2, 0x504c4e54);
+      if (second && W * D >= 60) stroller("teacher", walk, 0.5);
+      return;
+    }
+    const plan = corridorPlan();
+    doors.forEach(doorway);
+    let classes = 0;
+    wingRooms(plan, 0, pick(TILES, 0x464c4f52), hexMix(accent, WHITE), 8, (fr, no, of) => {
+      const what = fr.fw < 4.4 || fr.deep < 4.2 ? "class" : kinds[(no + hash32(spec.seed, 0x524f4f4d)) % kinds.length];
+      // Three are on their way along the corridor and every room has its teacher: the rest are pupils, shared out.
+      const pupils = Math.max(of, MOST - 3 - of);
+      const budget = clamp(Math.floor(pupils / of) + (no < pupils % of ? 1 : 0), 1, 5);
+      floor(what === "class" ? pick(WOODS, 0x53464c52 + no) : pick(CARPETS, 0x53464c52 + no), fr.r, 0.004);
+      if (what === "library") { library(fr, budget, no); return "LIBRARY"; }
+      if (what === "art") { artRoom(fr, budget, no); return "ART"; }
+      if (what === "music") { musicRoom(fr, budget, no); return "MUSIC"; }
+      classroom(fr, budget, no);
+      return `CLASS ${++classes}`;
+    });
+    // Paintings at the end of the corridor, under the name of the school; and somebody on their way to a lesson.
+    if (spec.name) lettering.push({ text: spec.name, a: corridorMid, b: D - 0.04, z: Math.min(H - 0.3, 2.55), fa: 0, fb: -1, w: Math.min(corridor - 0.4, 3) });
+    lane("teacher", 0.3, 1.2, D - 1.2);
+    lane("pupil", 0.72, 1.4 + (D - 4) * 0.3, D - 1.4);
+    lane("pupil", 0.5, 1.6, 1.6 + (D - 4) * 0.5);
+  };
+
+  // =============================================================== a hospital, a clinic
+  const hospital = (): void => {
+    const tile = pick(TILES, 0x464c4f52);
+    const quilt = pick([0xbfe3d0, 0xbcd9ee, 0xf2d9c4, 0xe3d3ee], 0x5155494c);
+    /** A row of seats against a wall, with somebody waiting on some of them. */
+    const seats = (box: Box, rect: Rect, k: number, len: number, salt: number, most: number): number => {
+      box(F, STEEL, 0, len, 0, 0.08, 0, 0.85);
+      box(F, accent, 0.03, len - 0.03, 0.08, 0.5, 0, 0.42);
+      let sat = 0;
+      for (let i = 0; i < Math.floor(len / 0.6); i++) {
+        if (sat >= most || hash32(spec.seed, salt + i * 7) % 10 >= 4) continue;
+        sat++;
+        person("patient", "sit", pointIn(rect, k, i * 0.6 + 0.3, 0.3), k, { seat: 0.42 });
+      }
+      return sat;
+    };
+    if (!wings) {
+      // A clinic: one room, with a desk, somewhere to wait, and the doctor's corner.
+      lining(paint);
+      floor(tile, [0, W, 0, D]);
+      doors.forEach(doorway);
+      windows(0, 0.4, W - 0.4, false);
+      lights([0, W, 0, D]);
+      const walk = walkOf(1.5);
+      clear.push(...walk);
+      const desk = counterSpot(2.2, 1.2, (cw, run) => [1.3, (run - cw) / 2, run - cw - 1.3]);
+      if (desk) {
+        const box = boxIn(desk.r, desk.side);
+        box(F, WHITE, 0, desk.cw, 0, 0.65, 0, 1.0);
+        box(F, quilt, -0.03, desk.cw + 0.03, -0.03, 0.68, 1.0, 1.04);
+        person("reception", "stand", [(desk.behind[0] + desk.behind[1]) / 2, (desk.behind[2] + desk.behind[3]) / 2], desk.side);
+        lettering.push({ ...desk.wall, text: spec.name ?? "RECEPTION", z: Math.min(H - 0.35, 2.3), w: Math.min(2.6, desk.cw + 0.6) });
+      }
+      const sidesFirst = front.at < W / 2 ? [3, 2, 1, 0] : [2, 3, 1, 0];
+      const couch = stand(1.9, 0.75, 0x434f5543, [1, sidesFirst[1], sidesFirst[0]], (box) => {
+        box(F, WHITE, 0, 1.9, 0, 0.75, 0, 0.55);
+        box(INSIDE.soft, quilt, 0.02, 1.88, 0.02, 0.73, 0.55, 0.58);
+        box(INSIDE.soft, 0xfdfcf8, 0.1, 0.55, 0.12, 0.63, 0.58, 0.67);
+      });
+      if (couch) {
+        if (unit(0x50415449) < 0.6) person("patient", "sit", pointIn(couch.rect, couch.k, 1.25, 0.4), couch.k, { seat: 0.55 });
+        const p = pointIn(couch.rect, couch.k, 0.6, 1.3);
+        whole.post("doctor", couch.k ^ 1, [p, [W / 2, D / 2], [front.at + 1.6, 2], [front.at - 1.6, 2]], true);
+      } else whole.post("doctor", 1, [[W / 2, D / 2], [front.at + 1.6, 2], [front.at - 1.6, 2]], true);
+      const wait = stand(1.8, 0.5, 0x57414954, [0, ...sidesFirst], (box, rect, k) => { seats(box, rect, k, 1.8, 0x57414954, 2); });
+      const cupboard = stand(0.9, 0.4, 0x43554042, [1, 2, 3, 0], (box) => {
+        box(F, WHITE, 0, 0.9, 0, 0.4, 0, 1.1);
+        box(F, 0x3f9a8a, 0.05, 0.85, 0.4, 0.41, 0.75, 0.95);
+      });
+      if (cupboard) letter("E  F P  T O Z", cupboard, 0.8, 1.75);
+      plants([0, W, 0, D], wait ? 2 : 3, 0x504c4e54);
+      if (second && W * D >= 60) stroller("nurse", walk, 0.5);
+      return;
+    }
+    // A hospital: a hall to wait in across the front, then the corridor, with wards and the doctors' rooms off it.
+    const from = clamp(D * 0.3, 4.5, 7);
+    const plan = corridorPlan();
+    const front0: Rect = [0, W, 0, from];
+    floor(tile, front0);
+    sheetB(INSIDE.wall, paint, 0, 0, W, 0, H, 1);
+    sheetA(INSIDE.wall, paint, 0, 0, from, 0, H, 1);
+    sheetA(INSIDE.wall, paint, W, 0, from, 0, H, -1);
+    doors.forEach(doorway);
+    windows(0, 0.4, W - 0.4, false);
+    lights(front0);
+    // The desk, beside the way through, with its back to the rooms.
+    let desked = false;
+    for (const right of corridorMid < W / 2 ? [true, false] : [false, true]) {
+      const room = right ? W - (corridorMid + corridor / 2) : corridorMid - corridor / 2;
+      if (room < 3) continue;
+      const dw = Math.min(2.4, room - 0.8);
+      const a0 = right ? corridorMid + corridor / 2 + 0.4 : corridorMid - corridor / 2 - 0.4 - dw;
+      const r: Rect = [a0, a0 + dw, from - 1.9, from - 1.25], behind: Rect = [a0, a0 + dw, from - 1.1, from - 0.2];
+      if (!fits(r, front0, 0.05) || !fits(behind, front0, 0)) continue;
+      taken.push(r, behind);
+      const box = boxIn(r, 1);
+      box(F, WHITE, 0, dw, 0, 0.65, 0, 1.0);
+      box(F, quilt, -0.03, dw + 0.03, -0.03, 0.68, 1.0, 1.04);
+      box(F, DARK, 0.25, 0.75, 0.1, 0.16, 1.04, 1.38);
+      person("reception", "stand", [a0 + dw / 2, from - 0.65], 1);
+      lettering.push({ text: "RECEPTION", a: a0 + dw / 2, b: r[2] - 0.04, z: 0.62, fa: 0, fb: -1, w: Math.min(1.8, dw - 0.3) });
+      desked = true;
+      break;
+    }
+    if (!desked) whole.post("reception", 1, [[corridorMid + corridor / 2 + 0.8, 2.2], [corridorMid - corridor / 2 - 0.8, 2.2]], true);
+    // Rows of seats to wait on, along the front wall and the sides.
+    let rows = 0, waiting = 0;
+    const row = (k: number, at: number, len: number): void => {
+      if (rows >= 4 || len < 1.8) return;
+      const rect = against(front0, k, at, len, 0.5);
+      if (!take(rect, front0, 0.3)) return;
+      waiting += seats(boxIn(rect, k), rect, k, len, 0x57414954 + rows++ * 31, Math.max(0, 4 - waiting));
+    };
+    const leftRun = front.at - 1.3 - 0.4, rightRun = W - 0.4 - (front.at + 1.3);
+    row(0, 0.4 + Math.max(0, leftRun - 3), Math.min(3, leftRun));
+    row(0, front.at + 1.3, Math.min(3, rightRun));
+    row(2, 1.2, Math.min(3, from - 2.4));
+    row(3, 1.2, Math.min(3, from - 2.4));
+    plants(front0, 2, 0x504c4e54);
+    let wards = 0;
+    const kinds = ["ward", "doctor", "ward", "xray", "ward", "doctor"];
+    wingRooms(plan, from, tile, hexMix(quilt, WHITE), 6, (fr, no, of) => {
+      let what = kinds[(no + hash32(spec.seed, 0x524f4f4d)) % kinds.length];
+      if (what === "xray" && fr.fw < 3.8) what = "ward";
+      floor(what === "ward" ? hexMix(quilt, WHITE) : pick(TILES, 0x53464c52 + no), fr.r, 0.004);
+      if (what === "doctor") { consulting(fr, no, quilt); return "DOCTOR"; }
+      if (what === "xray") { xray(fr); return "X-RAY"; }
+      ward(fr, clamp(Math.floor((MOST - 9) / of), 1, 3), no, quilt);
+      return `WARD ${++wards}`;
+    });
+    if (spec.name) lettering.push({ text: spec.name, a: corridorMid, b: D - 0.04, z: Math.min(H - 0.3, 2.55), fa: 0, fb: -1, w: Math.min(corridor - 0.4, 3) });
+    lane("nurse", 0.3, from + 0.5, D - 1.2);
+    lane("doctor", 0.72, 1.6, D - 1.6);
+  };
+
+  // =============================================================== a factory, a warehouse
+  const works = (): void => {
+    const store = !!spec.store;
+    lining(pick([0xdfe2e4, 0xe6e2d8, 0xd9dee2], 0x53544f4e));
+    floor(0xb9b6ae, [0, W, 0, D]);
+    doors.forEach(doorway);
+    // A strip of high windows down both sides where the roof is high enough; ordinary ones where it is not.
+    for (const side of [2, 3]) {
+      if (H < 3.4) { windows(side, 0.6, D - 0.6, false); continue; }
+      const a = side === 2 ? 0 : W, s = side === 2 ? 1 : -1;
+      const n = Math.min(8, Math.floor((D - 1.2) / 4));
+      for (let i = 0; i < n; i++) {
+        const c = 0.6 + ((D - 1.2) * (i + 0.5)) / n;
+        if (doors.some((d) => d.side === side && Math.abs(d.at - c) < 2.4)) continue;
+        sheetA(INSIDE.glass, WHITE, a + s * 0.01, c - 1.3, c + 1.3, H - 1.5, H - 0.4, s);
+        sheetA(INSIDE.glass, GLASS, a + s * 0.02, c - 1.2, c + 1.2, H - 1.4, H - 0.5, s);
+      }
+    }
+    lights([0, W, 0, D]);
+    if (H >= 3.6) {
+      const n = Math.min(7, Math.floor(D / 5));
+      for (let i = 1; i <= n; i++) block(INSIDE.soft, 0x8d949a, 0, W, (D * i) / (n + 1) - 0.1, (D * i) / (n + 1) + 0.1, H - 0.3, H - 0.04, true);
+    }
+    // The way through, between yellow lines.
+    const w = W >= 9 ? 2 : 1.5;
+    const walk = walkOf(w);
+    clear.push(...walk);
+    for (const r of walk) floor(0xe0b23c, r, 0.006, INSIDE.soft);
+    for (const r of walk) floor(0xa9a69e, [r[0] + 0.1, r[1] - 0.1, r[2] + 0.1, r[3] - 0.1], 0.008, INSIDE.soft);
+    const f = front.at;
+    // Whoever is in charge: on their way through with a list, or standing by the door.
+    if (second && W * D >= 60) stroller("foreman", walk, 0.5);
+    else whole.post("foreman", 1, [[f + w / 2 + 0.6, 2.0], [f - w / 2 - 0.6, 2.0]], true);
+    // Its name on a board by the door.
+    const board = stand(1.4, 0.05, 0x4e4f5445, [0, 2, 3], (box) => {
+      box(F, 0x3f6f9a, 0, 1.4, 0, 0.03, 1.1, 2.0, true);
+      box(F, WHITE, 0.06, 1.34, 0.03, 0.04, 1.16, 1.94, true);
+    });
+    if (board) letter(spec.name ?? (store ? "WAREHOUSE" : "FACTORY"), board, 1.4, 2.25);
+    const role: Role = store ? "packer" : "maker";
+
+    if (store) {
+      // Rows of racking, three shelves high, with crates on them; somebody fetching and carrying in the aisles.
+      // (No more than 20 stretches of it: a big warehouse has its rows further apart, not all in one corner.)
+      const tall = Math.min(H - 0.6, 3.4);
+      const levels = tall > 2.6 ? 3 : 2;
+      const long = D >= 12 ? 4.8 : 2.4;
+      const nb = Math.max(1, Math.floor((D - 4.2 - long) / (long + 0.15)) + 1);
+      const na = Math.max(1, Math.min(Math.floor((W - 2.9) / 3.3) + 1, Math.max(2, Math.floor(20 / nb))));
+      const stepA = na > 1 ? (W - 2.9) / (na - 1) : 0;
+      let racks = 0, packers = 0;
+      for (let i = 0; i < na; i++) {
+        const a = na > 1 ? 1.0 + i * stepA : (f < W / 2 ? W - 1.9 : 1.0);
+        for (let j = 0; j < nb && racks < 20; j++) {
+          const b = 2.2 + j * (long + 0.15);
+          const r: Rect = [a, a + 0.9, b, b + long];
+          if (!take(r, undefined, 0.02)) continue;
+          racks++;
+          block(F, 0x3f6f9a, r[0], r[1], b, b + 0.06, 0, tall);
+          block(F, 0x3f6f9a, r[0], r[1], b + long - 0.06, b + long, 0, tall);
+          for (let l = 0; l < levels; l++) {
+            const z = 0.12 + (l * (tall - 0.3)) / levels;
+            block(F, 0xe8935a, r[0], r[1], b + 0.06, b + long - 0.06, z, z + 0.06);
+            const high = Math.min(0.7, (tall - 0.3) / levels - 0.22);
+            for (let c = b + 0.2, k = 0; c + 0.9 <= b + long - 0.15; c += 1.15, k++) {
+              if (hash32(spec.seed, 0x43524154 + racks * 11 + l * 3 + k) % 5 < 2) continue;
+              block(F, [wood, 0xc9a36b, 0xd9d4c8, accent][hash32(spec.seed, 0x43524155 + racks * 13 + l * 5 + k) % 4], r[0] + 0.08, r[1] - 0.08, c, c + 0.9, z + 0.06, z + 0.06 + high * (0.7 + 0.3 * ((racks + k) % 2)));
+            }
+          }
+          if (packers < 5 && hash32(spec.seed, 0x5041434b + racks * 13) % 10 < 4 && whole.post("packer", a + 1.6 < W - 0.5 ? 3 : 2, [[a + 1.6 < W - 0.5 ? a + 1.6 : a - 0.7, b + long / 2]])) packers++;
+        }
+      }
+    } else {
+      // The line: a machine that makes things, a belt that carries them down the hall, somebody at every other stretch of it.
+      const rightFirst = second ? (second.side === 2 ? true : second.side === 3 ? false : second.at <= f) : W - f >= f;
+      const hues = [0x3f9a8a, 0x3f7fd0, 0xe8935a, 0x5fae4a];
+      const hue = pick(hues, 0x4d414348);
+      // (A wide hall has several lines, 4.5 m apart, on both sides of the way through; the first is a stride from it.)
+      const spots: { a0: number; right: boolean }[] = [];
+      for (let n = 0; n < 3; n++) for (const right of [rightFirst, !rightFirst]) {
+        const a0 = right ? f + w / 2 + 0.9 + n * 4.5 : f - w / 2 - 0.9 - 0.8 - n * 4.5;
+        const edge = n ? 2.2 : 0.5; // (the further ones leave the walls to the machines that stand against them)
+        if (a0 >= edge && a0 + 0.8 <= W - edge) spots.push({ a0, right });
+      }
+      let makers = 0, lines = 0, stretches = 0;
+      for (const { a0, right } of spots) {
+        if (lines >= (W < 16 ? 1 : 6) || stretches >= 24) break;
+        let laid = 0;
+        for (let b = 2.2; b + 2.4 <= D - 1.6 && laid < 10 && stretches < 24; b += 2.4) {
+          const r: Rect = [a0, a0 + 0.8, b, b + 2.4];
+          if (!take(r, undefined, 0.02)) continue;
+          laid++;
+          stretches++;
+          let start = b;
+          if (laid === 1) {
+            // (The machine at the head of the line, with its funnel and its chimney.)
+            const top = Math.min(H - 0.7, 2.0);
+            block(F, hues[(hues.indexOf(hue) + lines) % hues.length], r[0], r[1], b, b + 1.4, 0, top);
+            block(F, STEEL, r[0] + 0.15, r[1] - 0.15, b + 0.3, b + 0.9, top, top + 0.35);
+            block(INSIDE.soft, STEEL, r[0] + 0.3, r[1] - 0.3, b + 1.0, b + 1.2, top, H - 0.1, true);
+            start = b + 1.4;
+          }
+          block(F, STEEL, r[0] + 0.08, r[1] - 0.08, start, b + 2.4, 0, 0.7);
+          block(F, DARK, r[0], r[1], start, b + 2.4, 0.7, 0.78, true);
+          for (let c = start + 0.3; c + 0.4 <= b + 2.4; c += 1.0) block(F, [wood, accent, 0xd9d4c8][hash32(spec.seed, 0x424f5845 + stretches * 7 + Math.round(c * 3)) % 3], r[0] + 0.2, r[1] - 0.2, c, c + 0.4, 0.78, 1.12);
+          if (makers < 9 && laid % 2 === 0 && whole.post("maker", right ? 2 : 3, [[right ? a0 - 0.45 : a0 + 1.25, b + 1.2]])) makers++;
+        }
+        if (laid) lines++;
+      }
+      // Machines along the walls, each with its lights and its pipe, and somebody minding some of them.
+      const machines = Math.min(4, Math.round((W * D) / 60));
+      for (let i = 0; i < machines; i++) {
+        const m = stand(1.8, 1.15, 0x4d414348 + i * 53, [[3, 2, 1], [2, 1, 3], [1, 3, 2], [2, 3, 1]][i], (box) => {
+          box(F, [hue, 0x8d949a, 0xe0a82e, hue][i], 0, 1.8, 0, 1.1, 0, 1.5);
+          box(F, DARK, 0.2, 0.9, 1.1, 1.13, 0.8, 1.3, true);
+          box(F, 0x5fae4a, 0.3, 0.42, 1.13, 1.15, 1.05, 1.17, true);
+          box(F, 0xd9483a, 0.55, 0.67, 1.13, 1.15, 1.05, 1.17, true);
+          box(INSIDE.soft, STEEL, 1.2, 1.5, 0.3, 0.6, 1.5, Math.min(H - 0.1, 3.2), true);
+        });
+        if (m && i % 2 === 0) whole.post("maker", m.k ^ 1, [pointIn(m.rect, m.k, 0.9, 1.75)]);
+      }
+    }
+    // Crates stacked by the walls, and the fork-lift truck with somebody at the wheel.
+    for (let i = 0; i < (W * D >= 80 ? 2 : 1); i++) {
+      stand(1.2, 1.2, 0x43524154 + i * 71, [[1, 2, 3, 0], [3, 2, 1, 0]][i], (box) => {
+        box(F, wood, 0, 0.6, 0, 0.6, 0, 0.6);
+        box(F, 0xc9a36b, 0.6, 1.2, 0, 0.6, 0, 0.6);
+        box(F, 0xb98c5a, 0, 0.6, 0.6, 1.2, 0, 0.6);
+        box(F, 0xc9a36b, 0.3, 0.9, 0, 0.6, 0.6, 1.2);
+      });
+    }
+    if (W * D >= 50) {
+      const truck = stand(1.1, 2.0, 0x464f524b, [1, 3, 2, 0], (box) => {
+        box(F, 0xe0a82e, 0.1, 1.0, 0.2, 1.3, 0.25, 0.5, true);
+        box(F, 0xe0a82e, 0.1, 1.0, 0.2, 0.55, 0.5, 0.95);
+        box(F, DARK, 0.05, 1.05, 0.25, 0.6, 0, 0.3);
+        box(F, DARK, 0.05, 1.05, 0.95, 1.3, 0, 0.3);
+        box(F, DARK, 0.2, 0.28, 1.3, 1.38, 0, 2.0);
+        box(F, DARK, 0.82, 0.9, 1.3, 1.38, 0, 2.0);
+        box(F, STEEL, 0.25, 0.85, 1.38, 1.95, 0.12, 0.17, true);
+        box(F, wood, 0.28, 0.82, 1.42, 1.92, 0.17, 0.7);
+      });
+      if (truck) person(role, "sit", pointIn(truck.rect, truck.k, 0.55, 0.8), truck.k, { seat: 0.5 });
+    }
+  };
+
   if (spec.kind === "office") office();
+  else if (spec.kind === "factory") works();
+  else if (spec.kind === "church") hall();
+  else if (spec.kind === "school") school();
+  else if (spec.kind === "hospital") hospital();
   else if (spec.kind === "shop") shop();
   else if (spec.kind === "cafe") cafe();
   else if (spec.kind === "lobby") lobby();
