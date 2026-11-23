@@ -6,7 +6,8 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
-import { aKind, persona, STORY_PARTS, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
+import { aKind, deedsOf, doingLine, persona, STORY_PARTS, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
+import type { Asker, GuideAnswer, GuidePlace } from "./guide.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { agilityCourse, COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
@@ -73,6 +74,11 @@ interface Member {
   /** The lesson their companion is having: the trick, its beats (ms from the start) and when it began. And when it last did a trick. */
   lesson: { trick: string; beats: number[]; at: number } | null;
   trickAt: number;
+  /** The guide (guide.ts): the place of its last answer to this member ("how far is it?"), and their last few questions with its answers. */
+  guideLast: GuidePlace | null;
+  guideTurns: [string, string][];
+  /** When they last had their ride take them to the place of an answer. */
+  guideTakeAt: number;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -93,6 +99,8 @@ export interface Way { name: string; lat: number; lon: number; path?: [number, n
 interface Taxi { thing: number; by: string; name: string; path: [number, number][]; at: number; until: number; dest: Way; aboard: string | null; remarks: number; nextRemark: number }
 /** What `cab` finds for a caller: where they want to go, and the road the taxi comes along. */
 export interface Cab { dest: Way; pickup: [number, number][] }
+/** Where a place is, when the game asking already knows (from an answer of the guide): then its name is not looked up. */
+export interface Spot { lat: number; lon: number }
 
 /** What the rest of the server may know about someone in a room. */
 export interface RoomMember {
@@ -166,11 +174,13 @@ export interface RoomsOptions {
     muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number, ride?: number): Promise<Said>;
   };
   /** Finds where a caller wants a taxi to take them, and a road for the taxi to arrive by. */
-  cab?: (lat: number, lon: number, place: string) => Promise<Cab | null>;
+  cab?: (lat: number, lon: number, place: string, at?: Spot) => Promise<Cab | null>;
   /** How long after its fare boards a taxi first speaks, and how long between remarks, in milliseconds (shortened in tests). */
   taxiRemarkMs?: [number, number];
   /** Finds a place a rider has asked to be taken to, near where they are, with the way there by road if it is close. */
-  wayTo?: (lat: number, lon: number, place: string, sp: string) => Promise<Way | null>;
+  wayTo?: (lat: number, lon: number, place: string, sp: string, at?: Spot) => Promise<Way | null>;
+  /** Answers questions about where a player is and how to get somewhere (guide.ts). Without one, nobody is there to ask. */
+  guide?: { hello(): GuideAnswer; answer(asker: Asker, question: string): Promise<GuideAnswer> };
   /** Makes a race course along the roads near a position (race.ts). Without it there are no races. */
   course?: (lat: number, lon: number, seed: number) => Promise<Course | null>;
   /** How long after "go" a race begins (the tests do not wait five seconds). */
@@ -196,6 +206,8 @@ const clean = (s: unknown, max: number): string =>
 const DEFAULT_AVATAR = "fox";
 const avatarId = (s: unknown): string => (typeof s === "string" && /^[a-z][a-z0-9-]{0,15}$/.test(s) ? s : DEFAULT_AVATAR);
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+/** A position a game sent along with a place's name, if it is one. */
+const spotOf = (lat: unknown, lon: unknown): Spot | undefined => (finite(lat) && finite(lon) && Math.abs(lat) <= 85 && Math.abs(lon) <= 180 ? { lat, lon } : undefined);
 
 export function cookieValue(header: string | undefined, name: string): string | undefined {
   for (const part of (header ?? "").split(";")) {
@@ -323,7 +335,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0, lesson: null, trickAt: 0,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0, lesson: null, trickAt: 0, guideLast: null, guideTurns: [], guideTakeAt: 0,
         };
         clearTimeout(helloTimer);
         send({
@@ -442,11 +454,7 @@ export class Rooms {
         if (favours && !said.ai && !said.wish) said = { ...said, text: favourWords(said.text, favours, asked, aKind) };
         if (!room.members.has(me.id)) return; // left while it was thinking
         this.journal?.talked(me.id, thing, sp, said.name, text, said.text);
-        const out = JSON.stringify({ t: "say", thing, sp, name: said.name, text: said.text, by: me.id, ...(text ? { q: text } : {}), ...(me.hasPos ? { lat: +me.lat.toFixed(7), lon: +me.lon.toFixed(7) } : {}) });
-        for (const m of room.members.values()) {
-          const near = m === me || (m.hasPos && me.hasPos && Math.hypot((m.lat - me.lat) * 111_320, (m.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) <= HEARING_M);
-          if (near && m.ws.readyState === m.ws.OPEN) m.ws.send(out);
-        }
+        this.hear(room, me, { t: "say", thing, sp, name: said.name, text: said.text, by: me.id, ...(text ? { q: text } : {}), ...(me.hasPos ? { lat: +me.lat.toFixed(7), lon: +me.lon.toFixed(7) } : {}) });
         if (said.wish) {
           // Where the thing is, by the word of the player talking to it; failing that, where they are themselves.
           const here = finite(msg.lat) && finite(msg.lon) && Math.abs(msg.lat) <= 90 && Math.abs(msg.lon) <= 180 ? { lat: msg.lat, lon: msg.lon } : me.hasPos ? { lat: me.lat, lon: me.lon } : null;
@@ -462,7 +470,8 @@ export class Rooms {
         if (!place || !me.hasPos) { send({ t: "error", code: "nowhere", text: "Say where to: /taxi the beach" }); return; }
         if (now - me.taxiAt < TAXI_EVERY_MS || !this.options.cab) { send({ t: "error", code: "slow", text: "No taxi is free just now. Try again in a moment." }); return; }
         me.taxiAt = now;
-        const cab = await this.options.cab(me.lat, me.lon, place).catch(() => null);
+        // (A game that has the place from the guide says where it is, and then the name is not looked up.)
+        const cab = await this.options.cab(me.lat, me.lon, place, spotOf(msg.lat, msg.lon)).catch(() => null);
         if (!room.members.has(me.id)) return;
         if (!cab) { send({ t: "error", code: "nowhere", text: `No taxi could find "${place}"` }); return; }
         for (const old of [...room.taxis.values()]) if (old.by === me.id && !old.aboard) this.dismiss(room, old.thing); // one at a time
@@ -470,6 +479,48 @@ export class Rooms {
         const called: Taxi = { thing, by: me.id, name: this.talker.greet(thing, "taxi").name, path: cab.pickup, at: Date.now(), until: Date.now() + TAXI_WAIT_MS, dest: cab.dest, aboard: null, remarks: 0, nextRemark: 0 };
         room.taxis.set(thing, called);
         this.broadcast(room, this.publicTaxi(called));
+      } else if (msg.t === "guide" && room) {
+        // The guide (guide.ts): hello (nothing asked), a question, or "take me there" for the place of an answer.
+        const guide = this.options.guide;
+        if (!guide) { send({ t: "guide", text: "There is no guide here just now.", ai: false, go: [], ask: [] }); return; }
+        const take = msg.take && typeof msg.take === "object" ? (msg.take as Record<string, unknown>) : null;
+        const q = clean(msg.q, 200);
+        if (!take && !q) { send({ t: "guide", ...guide.hello() }); return; }
+        if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+        const now = Date.now();
+        // Only somebody with the reins of a thing that can carry them is taken anywhere by it.
+        const reins = me.ride && me.ride.seat === 0 && deedsOf(me.ride.sp).includes("goto") ? me.ride : null;
+        if (take) {
+          // (A button under an answer, clicked as soon as it is read: not held to the pace of questions.)
+          const name = clean(take.name, 80);
+          const at = spotOf(take.lat, take.lon);
+          if (!name || !at || now - me.guideTakeAt < 1500) return;
+          me.guideTakeAt = now;
+          if (!reins) { send({ t: "error", code: "nowhere", text: "Hop on something first (E beside an animal or a car), and it can take you. Or call a taxi." }); return; }
+          const way = this.options.wayTo ? await this.options.wayTo(me.lat, me.lon, name, reins.sp, at).catch(() => null) : null;
+          if (!room.members.has(me.id) || me.ride?.thing !== reins.thing) return; // left, or got off, while the way was found
+          if (!way) { send({ t: "error", code: "nowhere", text: `No way to ${name} could be found` }); return; }
+          // The ride says so, for everyone near to hear, as when it is told itself ("Doing as asked").
+          this.hear(room, me, { t: "say", thing: reins.thing, sp: reins.sp, name: persona(reins.thing, reins.sp).name, text: doingLine({ deed: "goto", place: name }, hash32(reins.thing, now & 0x7fffffff)), by: me.id, lat: +me.lat.toFixed(7), lon: +me.lon.toFixed(7) });
+          send({ t: "order", thing: reins.thing, sp: reins.sp, act: "goto", name: way.name, lat: +way.lat.toFixed(7), lon: +way.lon.toFixed(7), ...(way.path ? { path: way.path } : {}) });
+          return;
+        }
+        // Questions share the pace of talking to things: each may cost a lookup, and with the AI a little money.
+        me.talkTimes = me.talkTimes.filter((t) => now - t < 60_000);
+        if (me.talkTimes.length >= TALKS_A_MINUTE || now - (me.talkTimes[me.talkTimes.length - 1] ?? 0) < 1200) {
+          send({ t: "error", code: "slow", text: "Give the guide a moment to answer" });
+          return;
+        }
+        me.talkTimes.push(now);
+        const answer = await guide.answer({ key: me.id, lat: me.lat, lon: me.lon, avatar: me.avatar, riding: reins?.sp ?? null, last: me.guideLast, turns: me.guideTurns }, q).catch((err) => {
+          console.error(`the guide: ${err instanceof Error ? err.message : String(err)}`);
+          return null;
+        });
+        if (!room.members.has(me.id)) return; // left while it was thinking
+        if (!answer) { send({ t: "guide", q, text: "I have lost my map for a moment. Ask me again shortly.", ai: false, go: [], ask: [] }); return; }
+        if (answer.place) me.guideLast = answer.place;
+        me.guideTurns = [...me.guideTurns, [q, answer.text] as [string, string]].slice(-3);
+        send({ t: "guide", q, ...answer });
       } else if (msg.t === "pet" && room) {
         // Choose a companion from those I have won, or (with no `sp`) send it home.
         const sp = clean(msg.sp, 16) || null;
@@ -1003,6 +1054,15 @@ export class Rooms {
   }
 
   /** A thing has agreed to do something: work out what that means and tell whoever needs to know. */
+  /** What a thing says goes to whoever it was said to, and to everyone within hearing of them. */
+  private hear(room: Room, me: Member, said: unknown): void {
+    const out = JSON.stringify(said);
+    for (const m of room.members.values()) {
+      const near = m === me || (m.hasPos && me.hasPos && Math.hypot((m.lat - me.lat) * 111_320, (m.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) <= HEARING_M);
+      if (near && m.ws.readyState === m.ws.OPEN) m.ws.send(out);
+    }
+  }
+
   private async obey(room: Room, m: Member, thing: number, sp: string, said: Said, here: { lat: number; lon: number }): Promise<void> {
     const wish = said.wish as Wish;
     const now = Date.now();

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { ACTIONS, actionGroups, findAction, quickReplies, type Action } from "../public/js/actions.js";
+import { ACTIONS, actionGroups, findAction, GUIDE_QUESTIONS, quickReplies, type Action } from "../public/js/actions.js";
+import { HELLO_ASKS } from "../src/guide.ts";
 
 // The menu of everything is one table in each game. The two are kept alike here: the same names for
 // things, the same words, the same keys. What is allowed to differ is written down, with why.
@@ -11,6 +12,13 @@ const FIELDS = ["id", "group", "title", "about", "key", "command", "ask", "askHi
 /** Things in the Windows menu that the browser game has no use for, or does not have yet. */
 const NOT_IN_BROWSER: Record<string, string> = {
   quit: "a browser tab is closed, not quit",
+};
+/**
+ * Things in the browser's menu that are meant for both games, in the place they are to have in both, and that the
+ * Windows game has not got yet. When its table gains the row (same id, words and key), this test says to take it off.
+ */
+const NOT_IN_WINDOWS_YET: Record<string, string> = {
+  guide: "the guide was built for the server and the browser first (2026-11-23); the Windows half is written up for the main chat (docs/PROTOCOL.md, \"The guide\")",
 };
 /** Fields that differ on purpose. */
 const DIFFERENT: Record<string, Partial<Record<(typeof FIELDS)[number], string>>> = {
@@ -82,12 +90,27 @@ test("the browser's menu says the same things as the Windows game's", { skip: !e
     }
   }
   // The same order, so that somebody who knows one game finds things in the other.
-  assert.deepEqual(ACTIONS.filter((a) => !a.own).map((a) => a.id), shared);
+  assert.deepEqual(ACTIONS.filter((a) => !a.own && !(a.id in NOT_IN_WINDOWS_YET)).map((a) => a.id), shared);
+  for (const [id, why] of Object.entries(NOT_IN_WINDOWS_YET)) {
+    assert.ok(findAction(id), `${id} is listed as not in the Windows game yet, and is not in the browser's menu either`);
+    assert.ok(!windows.some((w) => w.id === id), `${id} is in the Windows game now: take it off the list of what it has not got yet (${why})`);
+  }
   for (const a of ACTIONS.filter((x) => x.own)) assert.ok(!windows.some((w) => w.id === a.id), `${a.id} is in the Windows game now: it is no longer the browser's own`);
 });
 
 test("the strip of buttons has the few things done most", () => {
-  assert.deepEqual(ACTIONS.filter((a) => a.strip).map((a) => a.strip), ["Go to...", "Show me", "Ride", "My car", "Taxi...", "Talk", "Passport"]);
+  assert.deepEqual(ACTIONS.filter((a) => a.strip).map((a) => a.strip), ["Go to...", "Show me", "Ride", "My car", "Taxi...", "Talk", "Guide", "Passport"]);
+});
+
+test("the guide is one row of the menu, on a key of its own, with questions ready to click", () => {
+  const guide = findAction("guide")!;
+  assert.deepEqual([guide.group, guide.title, guide.key, guide.command, guide.ask, guide.askHint, guide.strip], ["Talk", "Ask the guide...", "Q", "guide", "What would you like to know?", "where is the nearest station?", "Guide"]);
+  // The questions in the box are the ones the server's guide offers when it is said hello to.
+  assert.deepEqual(GUIDE_QUESTIONS, HELLO_ASKS);
+  // Q is free in the Windows game too: none of its rows has it, and none of the keys its code binds.
+  const used = "W A S D C E F G H K M P R T V Z B".split(" ");
+  assert.ok(!used.includes(guide.key));
+  if (existsSync(WINDOWS_TABLE)) assert.ok(!windowsTable().some((w) => w.key === guide.key && w.id !== "guide"), "no other row of the Windows menu has the Q key");
 });
 
 test("things to say in one click fit what is spoken to", () => {

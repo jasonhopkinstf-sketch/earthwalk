@@ -187,6 +187,9 @@ kbd { flex: none; background: #f5c518; color: #26221f; border-radius: 5px; paddi
 #talkbox .replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 #talkbox .replies button { background: #f5e9c4; color: #26221f; border: 2px solid #26221f; border-radius: 14px; padding: 3px 11px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 #talkbox .replies button:hover { background: #f5c518; }
+/* (A button that starts a trip, under an answer of the guide's.) */
+#talkbox .replies button.go { background: #f5c518; font-size: 15px; padding: 5px 14px; box-shadow: 0 2px 0 #26221f; }
+#talkbox .replies button.go:hover { background: #ffd94a; }
 #talkbox input { width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 2px solid #26221f; background: #fff; color: #26221f; font: inherit; font-size: 16px; color-scheme: light; }
 #talkbox input:focus { outline: 2px solid #f5c518; }
 body.talking #ride, body.talking #speedo { display: none; }
@@ -211,6 +214,9 @@ body.talking #ride, body.talking #speedo { display: none; }
 #ask .title { font-size: 21px; font-weight: 700; }
 #ask input { width: 100%; margin: 10px 0 8px; padding: 9px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .08); color: #fff; font: inherit; font-size: 17px; }
 #ask input:focus { outline: 2px solid #f5c518; }
+#ask .choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+#ask .choices button { background: rgba(255, 255, 255, .1); color: #fff; border: 1px solid rgba(255, 255, 255, .28); border-radius: 14px; padding: 4px 12px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+#ask .choices button:hover { background: #f5c518; color: #26221f; border-color: #f5c518; }
 #credit { position: fixed; right: 12px; bottom: 10px; font-size: 11px; opacity: .8; text-shadow: 0 1px 2px #000; }
 #credit a { color: inherit; }
 #chat { position: fixed; left: 12px; bottom: 12px; width: min(520px, calc(100vw - 24px)); }

@@ -438,6 +438,11 @@ export class Talker {
     this.spendFile = options.spendFile === undefined ? "talk/spend.json" : options.spendFile;
   }
 
+  /** The model that is asked: the guide (guide.ts) asks the same one, out of the same allowance. */
+  get modelName(): string {
+    return this.model;
+  }
+
   /** Whether things answer through the AI at all (a key is set). */
   get live(): boolean {
     return this.ask !== null;
