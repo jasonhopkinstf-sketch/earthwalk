@@ -304,6 +304,21 @@ void UEarthWalkNet::SendTalkInside(uint32 Thing, const FString& Sp, const FStrin
 	SendJson(Message);
 }
 
+bool UEarthWalkNet::ReadLevel(const FJsonObject& Json, FEarthLevel& Out)
+{
+	double Number = 0.0;
+	if (!Json.TryGetNumberField(TEXT("n"), Number) || !Json.TryGetNumberField(TEXT("points"), Out.Points))
+	{
+		return false;
+	}
+	Out.N = FMath::RoundToInt32(Number);
+	Json.TryGetStringField(TEXT("title"), Out.Title);
+	Json.TryGetNumberField(TEXT("from"), Out.From);
+	Json.TryGetNumberField(TEXT("next"), Out.Next);
+	Json.TryGetStringField(TEXT("hint"), Out.Hint);
+	return true;
+}
+
 void UEarthWalkNet::RequestJournal()
 {
 	if (!bJoined)
@@ -1374,6 +1389,27 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 		bool bOn = false;
 		Json->TryGetBoolField(TEXT("on"), bOn);
 		OnPep.Broadcast(bOn);
+	}
+	else if (Type == TEXT("progress"))
+	{
+		FEarthProgress News;
+		const TSharedPtr<FJsonObject>* Level = nullptr;
+		if (Json->TryGetObjectField(TEXT("level"), Level) && ReadLevel(**Level, News.Level))
+		{
+			Json->TryGetNumberField(TEXT("gained"), News.Gained);
+			Json->TryGetStringField(TEXT("why"), News.Why);
+			const TSharedPtr<FJsonObject>* Up = nullptr;
+			if (Json->TryGetObjectField(TEXT("up"), Up))
+			{
+				News.bUp = true;
+				double Number = 0.0;
+				News.UpN = (*Up)->TryGetNumberField(TEXT("n"), Number) ? FMath::RoundToInt32(Number) : News.Level.N;
+				(*Up)->TryGetStringField(TEXT("title"), News.UpTitle);
+				News.UpCoins = (*Up)->TryGetNumberField(TEXT("coins"), Number) ? FMath::RoundToInt32(Number) : 0;
+				News.UpRiddles = (*Up)->TryGetNumberField(TEXT("riddles"), Number) ? FMath::RoundToInt32(Number) : 0;
+			}
+			OnProgress.Broadcast(News);
+		}
 	}
 	else if (Type == TEXT("stamp"))
 	{

@@ -615,14 +615,40 @@ void UEarthAnimalFigure::Animate(float DeltaSeconds, const FEarthFigureMotion& M
 	const float FootSpread = 0.1f * S.Seat;
 	const float FootArc = FMath::Max3(S.Seat, S.Fly, S.Air);
 
+	// ---- a fidget, on top of all that: left standing a while, the figure waves, dances, nods off (addFidget in idle.js)
+	float HeadYaw = S.Look, HeadRoll = S.Look * 0.15f, Spin = 0.f;
+	if (bFidget)
+	{
+		Lift += Fidget.Lift;
+		Squash *= 1.f + Fidget.Squash;
+		Pitch += Fidget.Pitch;
+		Roll += Fidget.Roll;
+		Twist += Fidget.Twist;
+		HeadPitch += Fidget.HeadPitch;
+		HeadYaw += Fidget.HeadYaw;
+		HeadRoll += Fidget.HeadRoll;
+		ArmL += Fidget.ArmSwing[0];
+		ArmR += Fidget.ArmSwing[1];
+		ArmOutL += Fidget.ArmOut[0];
+		ArmOutR += Fidget.ArmOut[1];
+		FootL += Fidget.FootSwing[0];
+		FootR += Fidget.FootSwing[1];
+		LiftL += Fidget.FootLift[0];
+		LiftR += Fidget.FootLift[1];
+		TailYaw += Fidget.TailYaw;
+		TailUp += Fidget.TailUp;
+		Spin = Fidget.Spin;
+	}
+
 	// ---- the pose on the joints. A lean forward is nose down; the browser's sideways turns are mirrored here.
 	const float Wide = 1.f / FMath::Sqrt(FMath::Max(Squash, 0.3f));
 	All.Node->SetRelativeScale3D(FVector(Wide, Wide, Squash));
+	All.Node->SetRelativeRotation(FRotator(0.0, FMath::RadiansToDegrees(Spin), 0.0)); // a spin on the spot is to its right
 	Hips.Node->SetRelativeLocationAndRotation(Hips.Rest + FVector(0.0, 0.0, Lift * 100.0), Turned(-Pitch, 0.f, Roll));
 	Trunk.Node->SetRelativeRotation(Turned(0.f, -Twist, 0.f));
 	const float Breathe = 1.f + Breath * 0.015f * Still;
 	Trunk.Node->SetRelativeScale3D(FVector(Breathe, Breathe, 1.0));
-	Head.Node->SetRelativeRotation(Turned(-HeadPitch, S.Look, S.Look * 0.15f));
+	Head.Node->SetRelativeRotation(Turned(-HeadPitch, HeadYaw, HeadRoll));
 	Tail.Node->SetRelativeRotation(Turned(-TailUp, -TailYaw, 0.f));
 	const float ArmSwing[2] = { ArmL, ArmR };
 	const float ArmOut[2] = { ArmOutL, ArmOutR };

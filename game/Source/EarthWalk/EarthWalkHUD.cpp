@@ -3,6 +3,7 @@
 #include "EarthMenu.h"
 #include "EarthMiniMap.h"
 #include "EarthLunch.h"
+#include "EarthProgress.h"
 #include "EarthFlight.h"
 #include "EarthHome.h"
 #include "EarthCare.h"
@@ -13,12 +14,15 @@
 #include "EarthLook.h"
 #include "EarthShowcase.h"
 #include "EarthSounds.h"
+#include "EarthIdleMoves.h"
+#include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
 #include "EarthWorld.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
+#include "EngineUtils.h"
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
 #include "Framework/Application/SlateApplication.h"
@@ -224,7 +228,7 @@ public:
 				.Visibility(EVisibility::Collapsed)
 			]
 			// The race: who is in and how far along, under the status line; and the countdown, large, in the middle.
-			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f, 78.f, 0.f, 0.f) // under the five hearts (EarthLunch.h)
+			+ SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.f, 142.f, 0.f, 0.f) // under the five hearts (EarthLunch.h) and the progress bar (EarthProgress.h)
 			[
 				SAssignNew(RacePanel, SBorder)
 				.BorderImage(&WhereBrush)
@@ -1346,6 +1350,8 @@ void AEarthWalkHUD::BeginPlay()
 		MiniMap->Setup(this);
 		Lunch = NewObject<UEarthLunch>(this);
 		Lunch->Setup(this);
+		Progress = NewObject<UEarthProgress>(this);
+		Progress->Setup(this);
 		Flight = NewObject<UEarthFlight>(this);
 		Flight->Setup(this);
 		if (FParse::Param(FCommandLine::Get(), TEXT("EWFlightCheck")))
@@ -1499,6 +1505,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		Lunch->Shutdown();
 		Lunch = nullptr;
 	}
+	if (Progress)
+	{
+		Progress->Shutdown();
+		Progress = nullptr;
+	}
 	if (House)
 	{
 		House->Shutdown();
@@ -1555,6 +1566,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	if (Lunch)
 	{
 		Lunch->Frame(DeltaSeconds);
+	}
+	if (Progress)
+	{
+		Progress->Frame(DeltaSeconds);
 	}
 	if (House)
 	{
@@ -1952,17 +1967,47 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 	Overlay->SetRace(bGame ? Play->GetPanel() : Friends->GetRacePanel(), bGame ? Play->GetCount() : Friends->GetRaceCount());
 	// What things have said, each above the thing that said it; but not above the one being talked to,
 	// whose words are in the conversation bubble at the foot of the screen already.
+	TArray<UEarthCompany::FBubble> Said = Friends->GetBubbles();
 	if (bTalkOpen)
 	{
-		TArray<UEarthCompany::FBubble> Others = Friends->GetBubbles();
 		const uint32 Talking = Friends->TalkingThing();
-		Others.RemoveAll([Talking](const UEarthCompany::FBubble& Bubble) { return Bubble.Thing == Talking; });
-		Overlay->SetBubbles(Others, PC);
+		Said.RemoveAll([Talking](const UEarthCompany::FBubble& Bubble) { return Bubble.Thing == Talking; });
 	}
-	else
+	// Left standing a while, a player's animal fidgets and says things to itself (EarthIdleMoves.h): mine, and
+	// friends' near enough to read. Nobody does while a race or a game is on, so that a hider can keep still;
+	// and I am not standing about while something is open on the screen.
+	EarthIdle::bQuiet = bGame || !Friends->GetRacePanel().IsEmpty() || !Friends->GetRaceCount().IsEmpty();
+	if (AEarthWalkCharacter* Me = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
 	{
-		Overlay->SetBubbles(Friends->GetBubbles(), PC);
+		Me->SetIdleBusy(Typing() || bMenuOpen || bPassportOpen || bShowsOpen || bTalkOpen || (Lunch && Lunch->IsOpen()) || (Care && Care->IsOpen()));
+		const auto Mutter = [&Said](uint32 Thing, const FString& Name, const FString& Text, const FVector& Feet, int32 Cycle)
+		{
+			UEarthCompany::FBubble Bubble;
+			Bubble.Thing = Thing;
+			Bubble.Name = Name;
+			Bubble.Text = Text;
+			Bubble.Where = Feet + FVector(0.0, 0.0, 205.0);
+			Bubble.Until = 4.0e9 + Cycle; // the same for as long as the same thing is being said
+			Said.Add(Bubble);
+		};
+		int32 Say = -1, Cycle = 0;
+		if (Me->IdleSaying(Say, Cycle))
+		{
+			// Now and then what it wonders aloud about is what would reach the next level.
+			const FString Hint = Progress ? Progress->GetHint() : FString();
+			const UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+			Mutter(0xfffffff0u, Room ? Room->GetMyName() : FString(), Cycle % 6 == 2 && !Hint.IsEmpty() ? Hint + TEXT(". Shall we?") : FString(EarthIdle::Mutter(Say)), Me->FeetLocation(), Cycle);
+		}
+		uint32 Other = 0xffff0000u;
+		for (TActorIterator<AEarthWalkAvatar> It(GetWorld()); It; ++It, ++Other)
+		{
+			if (It->IdleSaying(Say, Cycle) && FVector::Dist(It->GetActorLocation(), Me->FeetLocation()) < 3500.0)
+			{
+				Mutter(Other, It->GetDisplayName(), EarthIdle::Mutter(Say), It->GetActorLocation(), Cycle);
+			}
+		}
 	}
+	Overlay->SetBubbles(Said, PC);
 
 	// The passport's buttons are pressed with the mouse; the keyboard has to stay with the game, so that
 	// P and Esc still close it. If a click has left the keyboard somewhere else, give it back.

@@ -102,6 +102,16 @@ public:
 	int32 GetRideView() const { return RideView; }
 	/** Where the soles of the player's feet are. */
 	FVector FeetLocation() const;
+
+	/** Something is open on the screen or being typed: the player is busy, not standing about (EarthIdleMoves.h). */
+	void SetIdleBusy(bool bBusy) { bIdleBusy = bBusy; }
+	/** What the player's animal is saying to itself just now, left standing a while, and in which cycle of it; false when nothing. */
+	bool IdleSaying(int32& OutSay, int32& OutCycle) const
+	{
+		OutSay = IdleSay;
+		OutCycle = IdleCycle;
+		return IdleSay >= 0;
+	}
 	/** Puts the player's feet at a place, at once. */
 	void PlaceFeetAt(const FVector& Feet);
 
@@ -159,6 +169,14 @@ private:
 	float FarDistance = 700.f;
 	float ArmTarget = 0.f;
 	float FigureYaw = 0.f; // which way the figure faced a frame ago, to tell how fast it is turning
+	// Left standing: how long nothing has been done, and what that has the figure doing (EarthIdleMoves.h).
+	double StillFor = 0.0;
+	bool bIdleBusy = false;
+	uint32 IdleSeed = 0;
+	int32 IdleSay = -1;
+	int32 IdleCycle = 0;
+	FRotator IdleLook = FRotator::ZeroRotator;
+	bool bIdleSteppedOut = false; // the camera has stepped out in front of the figure to watch it
 
 	bool bFlying = false;
 	bool bWaitingForGround = true;

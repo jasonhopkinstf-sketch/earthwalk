@@ -44,6 +44,7 @@ void AEarthWalkAvatar::SetNameShown(bool bShown)
 
 void AEarthWalkAvatar::SetDisplayName(const FString& Name)
 {
+	DisplayName = Name;
 	Label->SetText(FText::FromString(Name));
 }
 
@@ -101,6 +102,31 @@ void AEarthWalkAvatar::Tick(float DeltaSeconds)
 	Motion.bSeated = bSeated;
 	Motion.bFlying = !bSeated && AboveGroundCm > 250.f;
 	Motion.bInAir = !bSeated && (Motion.bFlying || (AboveGroundCm > 50.f && FMath::Abs(Climb) > 80.f));
+	// Somebody whose place and heading have not changed for half a minute fidgets, and talks to themselves.
+	const bool bStill = !EarthIdle::bQuiet && !bSeated && !Motion.bFlying && !Motion.bInAir && TargetLocation.Equals(IdlePlace, 1.0)
+		&& FMath::Abs(FMath::FindDeltaAngleDegrees(static_cast<float>(TargetYaw), static_cast<float>(IdleYaw))) < 0.1f;
+	IdlePlace = TargetLocation;
+	IdleYaw = TargetYaw;
+	StillFor = bStill ? StillFor + DeltaSeconds : 0.0;
+	EarthIdle::FNow Idle;
+	if (EarthIdle::At(StillFor, IdleSeed, Idle))
+	{
+		FEarthFidget Pose;
+		EarthIdle::Pose(Idle.Fidget, Idle.U, Pose);
+		Figure->SetFidget(&Pose);
+		if (Idle.N != IdleCycle || IdleSay == -2)
+		{
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: idle: %s, cycle %d, fidget %d, after %.1f s of standing"), *DisplayName, Idle.N, Idle.Fidget, StillFor);
+		}
+		IdleSay = Idle.Say;
+		IdleCycle = Idle.N;
+	}
+	else
+	{
+		Figure->SetFidget(nullptr);
+		IdleSay = -1;
+		IdleCycle = -1; // so that the first cycle is told of in the log
+	}
 	Figure->Animate(DeltaSeconds, Motion);
 
 	// Keep the name readable: turn it to the viewer and grow it with distance.

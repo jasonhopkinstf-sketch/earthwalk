@@ -33,6 +33,17 @@ public:
 	/** Riding something: the figure sits. */
 	void SetSeated(bool bInSeated) { bSeated = bInSeated; }
 
+	/** A number of this player's own (from their id), which says what they do when left standing (EarthIdleMoves.h). */
+	void SetIdleSeed(uint32 Seed) { IdleSeed = Seed; }
+	/** What they are saying to themselves just now, and in which cycle of standing about; false when nothing. */
+	bool IdleSaying(int32& OutSay, int32& OutCycle) const
+	{
+		OutSay = IdleSay;
+		OutCycle = IdleCycle;
+		return IdleSay >= 0;
+	}
+	const FString& GetDisplayName() const { return DisplayName; }
+
 	/** The name over their head: shown, but for somebody hiding from me at hide and seek. */
 	void SetNameShown(bool bShown);
 
@@ -49,6 +60,14 @@ private:
 	FVector TargetLocation = FVector::ZeroVector;
 	double TargetYaw = 0.0;
 	bool bSeated = false;
+	FString DisplayName;
+	// Standing about: how long their place and heading have not changed, and what that has them doing.
+	double StillFor = 0.0;
+	FVector IdlePlace = FVector::ZeroVector;
+	double IdleYaw = 0.0;
+	uint32 IdleSeed = 0;
+	int32 IdleSay = -1;
+	int32 IdleCycle = 0;
 	float GroundCheckIn = 0.f;  // seconds until the ground under the figure is looked for again
 	float AboveGroundCm = 0.f;
 };

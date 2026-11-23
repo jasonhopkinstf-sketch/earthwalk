@@ -11,6 +11,7 @@
 #include "EarthSounds.h"
 #include "EarthPhotoWorld.h"
 #include "EarthShowcase.h"
+#include "EarthIdleMoves.h"
 #include "EarthWalkAvatar.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkNet.h"
@@ -1693,6 +1694,7 @@ void AEarthWorld::UpdateAvatars()
 			{
 				Avatar->SetDisplayName(Peer.Name);
 				Avatar->SetAnimal(Peer.Avatar);
+				Avatar->SetIdleSeed(EarthIdle::SeedOf(Pair.Key));
 			}
 		}
 		if (Avatar)

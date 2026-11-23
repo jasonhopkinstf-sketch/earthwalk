@@ -281,6 +281,30 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthLesson, const FEarthLesson& /*Lesson
 DECLARE_MULTICAST_DELEGATE_FourParams(FOnEarthTrick, const FString& /*MemberId*/, uint32 /*Thing*/, const FString& /*Sp*/, const FString& /*Trick*/);
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthStamp, const FString& /*Kind*/, const FString& /*Title*/, const FString& /*Text*/);
 
+/** The level a player is on (docs/PROTOCOL.md, "Progress"): the bar is (Points - From) of (Next - From) full. */
+struct FEarthLevel
+{
+	int32 N = 0;
+	FString Title;
+	double Points = 0.0;
+	double From = 0.0;
+	double Next = 0.0;
+	FString Hint; // what would reach the next level, a whole sentence
+};
+/** Where the player stands, and what has just earned points: nothing (Gained 0) in the word sent once after the welcome. */
+struct FEarthProgress
+{
+	FEarthLevel Level;
+	double Gained = 0.0;
+	FString Why;      // a few words for what earned them
+	bool bUp = false; // these points reached a new level
+	int32 UpN = 0;
+	FString UpTitle;
+	int32 UpCoins = 0;
+	int32 UpRiddles = 0;
+};
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthProgress, const FEarthProgress& /*News*/);
+
 /**
  * Connection to the world server's meetup room: who is here, where they are, and chat.
  * Also the sign-in link (/login) and the signed-in player's home and people list.
@@ -437,6 +461,10 @@ public:
 	FOnEarthTreasure OnTreasure;
 	FOnEarthJournal OnJournal;
 	FOnEarthStamp OnStamp;
+	/** Where I stand on the way to the next level, and what has just earned points (EarthProgress.h). */
+	FOnEarthProgress OnProgress;
+	/** Reads a `level` object, of a `progress` message or of the journal. False when it is not one. */
+	static bool ReadLevel(const class FJsonObject& Json, FEarthLevel& Out);
 	/** What the shop or café beside me sells: the answer to SendFood("menu", ...). */
 	FOnEarthMenu OnMenu;
 	/** All five hearts are full today (or, false, no longer): the player goes a little quicker on foot. */

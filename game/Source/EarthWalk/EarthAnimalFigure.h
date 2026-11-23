@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
+#include "EarthIdleMoves.h"
 #include "EarthAnimalFigure.generated.h"
 
 class UMaterialInstanceDynamic;
@@ -43,6 +44,16 @@ public:
 
 	/** Advances the pose. Call every frame. */
 	void Animate(float DeltaSeconds, const FEarthFigureMotion& Motion);
+
+	/** What the figure adds to its standing about from the next Animate on, left standing a while (EarthIdleMoves.h); null for nothing. */
+	void SetFidget(const FEarthFidget* Pose)
+	{
+		bFidget = Pose != nullptr;
+		if (Pose)
+		{
+			Fidget = *Pose;
+		}
+	}
 
 	/**
 	 * The joint the head turns on, for hanging something on the head (a hat) so that it nods and leans
@@ -136,5 +147,7 @@ private:
 
 	FString AnimalId;
 	bool bHopper = false; // rabbits and frogs hop rather than stride
+	FEarthFidget Fidget;
+	bool bFidget = false;
 	FState State;
 };

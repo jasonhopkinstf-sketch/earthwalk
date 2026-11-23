@@ -828,6 +828,71 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		Motion.bSeated = (Mount != nullptr || bCarried) && !bFlown;
 		Motion.bFlying = (bFlying || bFlown) && !bWaitingForGround;
 		Motion.bInAir = !bWaitingForGround && !Motion.bSeated && GetCharacterMovement()->IsFalling();
+
+		// Left standing for half a minute with nothing pressed and nothing open, the figure fidgets and talks to
+		// itself (EarthIdleMoves.h). Whichever view the player has, there would be little to see of it, so the
+		// camera steps out in front of the animal and looks back at it; the first key or look round puts it back.
+		if (IdleSeed == 0)
+		{
+			const UEarthWalkNet* Room = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+			if (Room && !Room->GetMyId().IsEmpty())
+			{
+				IdleSeed = EarthIdle::SeedOf(Room->GetMyId());
+			}
+		}
+		const APlayerController* Hands = Cast<APlayerController>(GetController());
+		const FRotator LookNow = Hands ? Hands->GetControlRotation() : FRotator::ZeroRotator;
+		static const FKey Keys[] = { EKeys::W, EKeys::A, EKeys::S, EKeys::D, EKeys::SpaceBar, EKeys::E, EKeys::T, EKeys::F, EKeys::C, EKeys::V, EKeys::LeftMouseButton, EKeys::RightMouseButton, EKeys::Enter, EKeys::Tab };
+		bool bKeys = false;
+		for (const FKey& Key : Keys)
+		{
+			bKeys = bKeys || (Hands && Hands->IsInputKeyDown(Key));
+		}
+		// (-EWIdleNotMe: my own animal never starts, for a picture of a friend's through my own eyes.)
+		static const bool bNotMe = FParse::Param(FCommandLine::Get(), TEXT("EWIdleNotMe"));
+		const bool bStill = !bNotMe && !bIdleBusy && !EarthIdle::bQuiet && !bWaitingForGround && !bAutoWalk && Motion.Speed < 5.f && !Motion.bSeated && !Motion.bFlying && !Motion.bInAir
+			&& !bKeys && LookNow.Equals(IdleLook, 0.01);
+		IdleLook = LookNow;
+		StillFor = bStill ? StillFor + DeltaSeconds : 0.0;
+		EarthIdle::FNow Idle;
+		if (EarthIdle::At(StillFor, IdleSeed, Idle))
+		{
+			FEarthFidget Pose;
+			EarthIdle::Pose(Idle.Fidget, Idle.U, Pose);
+			Figure->SetFidget(&Pose);
+			if (Idle.N != IdleCycle || !bIdleSteppedOut)
+			{
+				UE_LOG(LogTemp, Display, TEXT("EarthWalk: idle: cycle %d, fidget %d, after %.1f s of standing"), Idle.N, Idle.Fidget, StillFor);
+			}
+			IdleSay = Idle.Say;
+			IdleCycle = Idle.N;
+			if (!bIdleSteppedOut)
+			{
+				bIdleSteppedOut = true;
+				Boom->bUsePawnControlRotation = false;
+				Boom->SetUsingAbsoluteRotation(true);
+				Boom->SetWorldRotation(FRotator(-13.0, GetActorRotation().Yaw + 180.0 + 24.0, 0.0)); // from in front, a little to one side and above
+				Boom->bDoCollisionTest = true; // nearer where a wall is in the way
+				Boom->bEnableCameraLag = false;
+				Boom->SocketOffset = FVector::ZeroVector;
+				Boom->TargetOffset = FVector(0, 0, 20);
+				Figure->SetVisibility(true, true);
+			}
+			Boom->TargetArmLength = FMath::FInterpTo(Boom->TargetArmLength, 400.f, DeltaSeconds, 3.f);
+		}
+		else
+		{
+			Figure->SetFidget(nullptr);
+			IdleSay = -1;
+			if (bIdleSteppedOut)
+			{
+				bIdleSteppedOut = false;
+				Boom->bUsePawnControlRotation = true;
+				Boom->SetUsingAbsoluteRotation(false);
+				Boom->SetRelativeRotation(FRotator::ZeroRotator);
+				ApplyView(); // the view the player had, as it was
+			}
+		}
 		Figure->Animate(DeltaSeconds, Motion);
 	}
 
