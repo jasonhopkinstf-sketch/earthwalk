@@ -102,11 +102,19 @@ const play = new Play({ scene, world, meetup, player, avatars, talk, panel: $("p
 const races = new Races({ scene, world, meetup, pets, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
 // "Show me...": straight to a train, a horse, a car to drive, for showing the world to somebody (G).
 const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, riding, meetup, say: (text) => notice(text), problem: (text) => problem(text) });
-$("showme").addEventListener("click", (e) => { e.currentTarget.blur(); void showcase.toggle(); });
 // Browsers only let a page make sound once it has been clicked or typed in.
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 // The menu of everything (Tab), and the box that asks "Where to?" (menu.js).
-const menu = new Menu({ panel: $("menu"), askBox: $("ask"), act: (id) => menuAction(id), answer: (id, text) => askDone(id, text) });
+const menu = new Menu({ panel: $("menu"), askBox: $("ask"), strip: $("strip"), act: (id) => menuAction(id), answer: (id, text) => askDone(id, text) });
+// The strip of buttons along the bottom: there unless it was hidden (Z), and that is remembered.
+let stripOn = saved.strip !== "off";
+menu.showStrip(stripOn);
+function toggleStrip() {
+  stripOn = !stripOn;
+  menu.showStrip(stripOn);
+  save({ strip: stripOn ? "on" : "off" });
+  notice(stripOn ? "The buttons are back. Z hides them." : "The buttons are hidden. Z brings them back, and Tab still shows everything you can do.");
+}
 let started = false;
 /** The signed-in account (from /v1/me), or null for a guest. */
 let account = null;
@@ -250,8 +258,8 @@ function start(me) {
   player.travelTo(Number.isFinite(lat) ? lat : 48.8583, Number.isFinite(lon) ? lon : 2.2945);
   if (home && !params.has("lat")) notice(`Starting at home: ${home.name}.`);
   notice(me.signedIn
-    ? "Welcome back. /home sets your home to where you stand; /who shows where everyone is; /help lists the rest."
-    : "Welcome to EarthWalk. Try /goto Sydney Opera House, or /help.");
+    ? "Welcome back. Tab shows everything you can do."
+    : "Welcome to EarthWalk. Click the view to look around, walk with W, A, S and D, and press Tab to see everything you can do.");
   setInterval(tickSlow, 100);
   renderer.setAnimationLoop(frame);
 }
@@ -466,6 +474,7 @@ function menuAction(id) {
   else if (id === "shows") void showcase.toggle();
   else if (id === "passport") passport.toggle();
   else if (id === "chat") say.focus();
+  else if (id === "strip") toggleStrip();
   else if (id === "above") viewKey();
   else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
   else if (id === "tricks") tricksKey();
@@ -518,7 +527,7 @@ addEventListener("keydown", (e) => {
   } else if (train.open && /^Digit[1-9]$/.test(e.code) && !e.repeat) {
     train.perform(Number(e.code.slice(5)) - 1);
   } else if (!e.repeat && KEYS[e.code]) {
-    menu.close(); // a key that does something of its own puts the menu away, and goes on to do it
+    if (e.code !== "KeyZ" && e.code !== "KeyM") menu.close(); // a key that does something of its own puts the menu away, and goes on to do it
     if (KEYS[e.code]() === true) e.preventDefault();
   }
 });
@@ -533,6 +542,7 @@ const KEYS = {
   KeyH: homeKey,
   KeyV: viewKey,
   KeyE: rideKey,
+  KeyZ: toggleStrip,
 };
 say.addEventListener("keydown", (e) => {
   if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
@@ -561,6 +571,8 @@ const far = (m) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toF
 async function command(name, arg) {
   if (name === "menu") {
     toggleMenu();
+  } else if (name === "buttons") {
+    toggleStrip();
   } else if (name === "do") {
     menuAction(arg.toLowerCase()); // one thing from the menu by its name there
   } else if (name === "houses") {
@@ -568,7 +580,7 @@ async function command(name, arg) {
     notice(where ? `The nearest house you can go into is ${where}. Look for the yellow COME IN sign over its front door, and press E there.`
       : "No house near here can be gone into. Most houses open, so try the next street; shops, sheds and big buildings do not.");
   } else if (name === "help") {
-    notice("Tab   everything you can do, to click.");
+    notice("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back.");
     notice("The same things as typed commands, for those who like typing:");
     notice("G   show me: a list of things to see and do, and you are taken straight to the one you pick");
     notice("    (or /show, and /show train goes at once)");

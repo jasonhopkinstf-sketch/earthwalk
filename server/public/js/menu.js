@@ -3,7 +3,7 @@
 // business (`act`, and `answer` for what was typed into the box). The Windows game's is SEarthMenu
 // (game/Source/EarthWalk/EarthMenu.cpp), and this is laid out the same way.
 
-import { actionGroups, findAction } from "./actions.js";
+import { ACTIONS, actionGroups, findAction } from "./actions.js";
 
 const el = (tag, cls, text) => {
   const node = document.createElement(tag);
@@ -22,13 +22,39 @@ function keepFocus(node) {
 
 export class Menu {
   /**
-   * @param {{ panel: HTMLElement, askBox: HTMLElement, act: (id: string) => void, answer: (id: string, text: string) => void }} parts
+   * @param {{ panel: HTMLElement, askBox: HTMLElement, strip: HTMLElement, act: (id: string) => void, answer: (id: string, text: string) => void }} parts
    */
   constructor(parts) {
     Object.assign(this, parts);
     this.asking = null; // the action whose question is up
     this.buildMenu();
     this.buildAsk();
+    this.buildStrip();
+  }
+
+  // ---------------------------------------------------------------- the strip of buttons
+  /** The menu itself first, then the few things done most. */
+  buildStrip() {
+    const button = (id, key, label) => {
+      const node = el("button");
+      node.type = "button";
+      node.dataset.act = id;
+      if (key) node.append(cap(key));
+      node.append(label);
+      return node;
+    };
+    this.strip.replaceChildren(button("", "Tab", "Everything"), ...ACTIONS.filter((a) => a.strip).map((a) => button(a.id, a.key, a.strip)));
+    keepFocus(this.strip);
+    this.strip.addEventListener("click", (e) => {
+      const node = e.target.closest("button");
+      if (!node) return;
+      if (node.dataset.act) this.act(node.dataset.act);
+      else this.toggle();
+    });
+  }
+
+  showStrip(on) {
+    this.strip.hidden = !on;
   }
 
   // ---------------------------------------------------------------- the menu
