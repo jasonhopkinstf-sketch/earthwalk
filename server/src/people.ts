@@ -57,9 +57,15 @@ export interface PersonRecord {
   lastPlace: string | null;
   lastLat: number | null;
   lastLon: number | null;
+  /** Shut out by whoever runs the server (the admin screen): cannot sign in, and their tokens no longer work. */
+  blocked?: boolean;
 }
 interface TokenRecord { personId: string; created: number; lastUsed: number }
-interface StoreFile { version: 1; people: PersonRecord[]; tokens: Record<string, TokenRecord> }
+/** `invited`: the emails added to the guest list from the admin screen (those in the server's settings are not kept here). */
+interface StoreFile { version: 1; people: PersonRecord[]; tokens: Record<string, TokenRecord>; invited?: string[] }
+/** One line of the guest list: `fixed` when it comes from the server's settings and so cannot be taken off here; `joined` once that person has an account. */
+export interface Invite { email: string; fixed: boolean; joined: boolean }
+const EMAIL = /^[^\s@,;<>"]{1,64}@[^\s@,;<>"]{1,180}\.[^\s@,;<>".]{2,24}$/;
 
 export interface AccountOptions {
   /** The shared access code; it also lets a new Google account sign up (see `signIn`). */
@@ -89,6 +95,8 @@ export class AccountDirectory implements PeopleDirectory {
   private readonly file: string | null;
   private readonly accessCode: string;
   private readonly invited = new Set<string>();
+  /** Those of the invited that came from the server's settings. */
+  private readonly fixedInvites = new Set<string>();
   private readonly people = new Map<string, PersonRecord>();
   private readonly tokens = new Map<string, TokenRecord>();
   private saving: Promise<void> | null = null;
@@ -97,7 +105,7 @@ export class AccountDirectory implements PeopleDirectory {
   constructor(file?: string, options: AccountOptions = {}) {
     this.file = file ?? null;
     this.accessCode = options.accessCode ?? "";
-    for (const e of options.invited ?? []) if (e.trim()) this.invited.add(e.trim().toLowerCase());
+    for (const e of options.invited ?? []) if (e.trim()) { this.invited.add(e.trim().toLowerCase()); this.fixedInvites.add(e.trim().toLowerCase()); }
   }
 
   /** Creates a directory and loads its file, if there is one. */
@@ -118,6 +126,7 @@ export class AccountDirectory implements PeopleDirectory {
     const data = JSON.parse(text) as StoreFile;
     for (const p of data.people ?? []) this.people.set(p.id, { ...p, lastRoom: p.lastRoom ?? null, lastPlace: p.lastPlace ?? null, lastLat: p.lastLat ?? null, lastLon: p.lastLon ?? null });
     for (const [hash, t] of Object.entries(data.tokens ?? {})) this.tokens.set(hash, t);
+    for (const e of data.invited ?? []) if (typeof e === "string" && EMAIL.test(e)) this.invited.add(e);
   }
 
   /** Writes the file (once, even if asked many times while a write is in progress). */
@@ -129,7 +138,7 @@ export class AccountDirectory implements PeopleDirectory {
     this.saving = (async () => {
       while (this.dirty) {
         this.dirty = false;
-        const data: StoreFile = { version: 1, people: [...this.people.values()], tokens: Object.fromEntries(this.tokens) };
+        const data: StoreFile = { version: 1, people: [...this.people.values()], tokens: Object.fromEntries(this.tokens), invited: [...this.invited].filter((e) => !this.fixedInvites.has(e)) };
         await mkdir(path.dirname(file), { recursive: true });
         const tmp = `${file}.${process.pid}.tmp`;
         await writeFile(tmp, JSON.stringify(data, null, 1));
@@ -174,6 +183,7 @@ export class AccountDirectory implements PeopleDirectory {
   signIn(identity: GoogleIdentity, gate: { accessCode?: string } = {}): { person: PersonRecord; token: string } | null {
     const email = identity.email.trim().toLowerCase();
     let person = [...this.people.values()].find((p) => p.googleSub === identity.sub) ?? (email ? [...this.people.values()].find((p) => p.email === email) : undefined);
+    if (person?.blocked) return null;
     if (!person) {
       const hasCode = !!gate.accessCode && same(gate.accessCode, this.accessCode);
       if (this.accessCode && !hasCode && !this.invited.has(email)) return null;
@@ -215,8 +225,51 @@ export class AccountDirectory implements PeopleDirectory {
     if (!t) return null;
     const person = this.people.get(t.personId);
     if (!person) { this.tokens.delete(hashToken(raw)); return null; }
+    if (person.blocked) return null;
     t.lastUsed = Date.now();
     return person;
+  }
+
+  // ------------------------------------------------------------------ the guest list (the admin screen)
+
+  /** The guest list: who may make an account without the access code. */
+  invites(): Invite[] {
+    const joined = new Set([...this.people.values()].map((p) => p.email));
+    return [...this.invited].sort().map((email) => ({ email, fixed: this.fixedInvites.has(email), joined: joined.has(email) }));
+  }
+
+  /** Puts an email on the guest list. False when it is not an email address. */
+  invite(email: string): boolean {
+    const e = email.trim().toLowerCase();
+    if (!EMAIL.test(e)) return false;
+    this.invited.add(e);
+    void this.save();
+    return true;
+  }
+
+  /** Takes an email off the guest list. False when it was not on it, or is there by the server's settings. Somebody who has already joined keeps their account. */
+  uninvite(email: string): boolean {
+    const e = email.trim().toLowerCase();
+    if (this.fixedInvites.has(e) || !this.invited.delete(e)) return false;
+    void this.save();
+    return true;
+  }
+
+  /** Signs a person out of every game and browser they are signed in on. Returns how many sign-ins that was. */
+  signOutEverywhere(personId: string): number {
+    let n = 0;
+    for (const [hash, t] of this.tokens) if (t.personId === personId) { this.tokens.delete(hash); n++; }
+    if (n) void this.save();
+    return n;
+  }
+
+  /** Shuts a person out (they cannot sign in, and are signed out everywhere), or lets them back in. False when there is no such person. */
+  block(personId: string, blocked: boolean): boolean {
+    const p = this.people.get(personId);
+    if (!p) return false;
+    if (blocked) { p.blocked = true; this.signOutEverywhere(personId); } else delete p.blocked;
+    void this.save();
+    return true;
   }
 
   get(id: string): PersonRecord | null {

@@ -806,6 +806,7 @@ async function command(name, arg) {
     notice("    (\"Go to a place...\" in the menu, Tab, finds the place and then asks which: there at once, or flown there)");
     notice("/join <name>   go to someone        /who   who is online and where");
     notice("/home   make where you stand your home (or /home <place>); you start there next time");
+    notice("/suggest <what you would like>   tell the people who make EarthWalk what you would like in it");
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
     notice("    (your passport, P, has the six animals to choose from too: \"Your animal\")");
     notice("/invite   get a link to send to someone        /where   show your coordinates");
@@ -952,6 +953,22 @@ async function command(name, arg) {
     notice(key === "avatar" ? `You are ${/^[aeiou]/.test(hello.avatar) ? "an" : "a"} ${hello.avatar} now.` : "Saved. Reconnecting...");
     if (key === "avatar" && riding.mine) riding.off(); // step down first: the change is a quick leaving and coming back
     meetup.connect(hello);
+  } else if (name === "suggest") {
+    // The suggestions box: what a player would like in the game, sent to whoever runs the server (who is
+    // told who said it, and where they stood). With nothing typed after it, the box that asks.
+    if (!arg) return void menuAction("suggest");
+    const here = world.sceneToGeo(player.position);
+    try {
+      const res = await fetch("/v1/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(world.code ? { Authorization: `Bearer ${world.code}` } : {}) },
+        body: JSON.stringify({ text: arg, name: account?.name || $("name").value.trim(), client: "browser", lat: here.lat, lon: here.lon }),
+      });
+      const said = await res.json().catch(() => ({}));
+      notice(res.ok ? "Thank you. Your suggestion has gone to the people who make EarthWalk." : said.error || "The suggestion could not be sent just now. Try again in a moment.");
+    } catch {
+      notice("The suggestion could not be sent just now. Try again in a moment.");
+    }
   } else if (name === "where") {
     const here = world.sceneToGeo(player.position);
     notice(`You are at ${here.lat.toFixed(6)}, ${here.lon.toFixed(6)}, ${Math.round(here.alt)} m above sea level.`);

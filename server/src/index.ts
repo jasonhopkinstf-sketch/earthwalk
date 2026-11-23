@@ -13,12 +13,20 @@ import { keepShowsBuilt } from "./showcase.ts";
 import { keepOvertureComing, onOverture, overtureOn } from "./overture.ts";
 import { coverOn, keepCoverComing, onCover } from "./cover.ts";
 import { CHUNK_Z } from "./geo.ts";
+import { RecentLog } from "./admin.ts";
+import { SuggestionBox } from "./suggestions.ts";
+import { mailerFromSettings } from "./mail.ts";
+import { VERSION } from "./app.ts";
 
 // One thing going wrong for one player must never stop the world for everyone. Left alone, Node ends the
 // process when a promise fails with nobody waiting on it, or an error escapes a timer; here it is written down
 // (where the host's log shows it) and the server carries on.
 process.on("unhandledRejection", (err) => console.error("carrying on after a failure nobody caught:", err));
 process.on("uncaughtException", (err) => console.error("carrying on after an error nobody caught:", err));
+
+// What the server writes in its log is kept as well (the last few hundred lines), for the admin screen.
+const adminLog = new RecentLog();
+adminLog.capture();
 
 const PORT = Number(process.env.PORT ?? 8787);
 const accessCode = process.env.EARTHWALK_ACCESS_CODE ?? "";
@@ -32,8 +40,16 @@ const accounts = await AccountDirectory.open(path.join(CACHE_DIR, "people", "peo
 const homes = new Homes(new FileHomesStore(path.join(CACHE_DIR, "people", "homes.json")));
 await homes.open();
 
+// The suggestions box is kept beside the accounts too. An email goes out about each new one when the settings say how (mail.ts).
+const mailer = mailerFromSettings();
+const suggestions = await SuggestionBox.open(path.join(CACHE_DIR, "people", "suggestions.json"), { mailer, version: VERSION, site: process.env.EARTHWALK_BASE_URL?.replace(/\/+$/, "") });
+// Who may see the admin screen (/admin.html): emails of Google accounts, separated by commas.
+const admins = (process.env.EARTHWALK_ADMINS ?? "").split(/[,\s]+/).filter(Boolean);
+
 const app = createApp({
   accessCode,
+  admins, adminLog, suggestions,
+  memoryLimitMb: Number(process.env.EARTHWALK_MEMORY_MB) || 512,
   trustProxy: process.env.EARTHWALK_TRUST_PROXY === "1",
   accounts,
   // Journals live beside the accounts, one pair of files a person.
@@ -90,4 +106,6 @@ app.server.listen(PORT, () => {
   console.log(`EarthWalk world server on http://localhost:${PORT}`);
   console.log(accessCode ? "An access code is required to join." : "No access code set: anyone who can reach this address can join.");
   console.log(clientId && clientSecret ? `Google sign-in is on (${accounts.list().length} people known).` : "Google sign-in is off (set EARTHWALK_GOOGLE_CLIENT_ID and _SECRET to turn it on).");
+  console.log(admins.length ? `The admin screen is at /admin.html for ${admins.length === 1 ? "one admin" : `${admins.length} admins`}.` : "Nobody can see the admin screen (set EARTHWALK_ADMINS to the email you sign in with).");
+  console.log(mailer ? "An email goes out about each new suggestion." : "No email is sent about suggestions (set EARTHWALK_RESEND_KEY and EARTHWALK_MAIL_TO to send one).");
 });

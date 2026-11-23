@@ -29,6 +29,14 @@ import { LookAhead } from "./ahead.ts";
 import { SHOWS } from "./showcase.ts";
 import { newsSince } from "./news.ts";
 import { claudeGuide, Guide, sightsOf, type ChunkSights, type GuideAsk } from "./guide.ts";
+import { BuildTimes, LoadHistory, postedJson, RecentLog, serveAdmin, type AdminContext } from "./admin.ts";
+import { SuggestionBox } from "./suggestions.ts";
+import type { Mailer } from "./mail.ts";
+import { CACHE_DIR } from "./cache.ts";
+import { freeBytes } from "./prune.ts";
+import { extrasOwed } from "./osm.ts";
+import { overtureOn, overtureOwed } from "./overture.ts";
+import { coverOn, coverOwed } from "./cover.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -107,13 +115,25 @@ export interface AppOptions {
   guideAsk?: GuideAsk | null;
   /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
   taxiRemarkMs?: [number, number];
+  /**
+   * The admin screen (admin.ts): the emails of those who may see it ("local" as well lets in whoever asks from
+   * this machine itself, where there is no proxy); the server's recent log lines to show there; and how much
+   * memory the machine has, in megabytes, to draw the load against.
+   */
+  admins?: string[];
+  adminLog?: RecentLog;
+  memoryLimitMb?: number;
+  /** The suggestions box (suggestions.ts). One that lasts only as long as the server runs when not given. */
+  suggestions?: SuggestionBox;
+  /** Sends the email about a new suggestion, when no box is given. */
+  mailer?: Mailer | null;
 }
 
 /** The server version, from package.json, shown by clients so a deploy can be told apart. */
 export const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
 export interface App {
-  server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; journals: Journals; close(): void;
+  server: Server; rooms: Rooms; accounts: AccountDirectory; presence: Presence; journals: Journals; suggestions: SuggestionBox; close(): void;
   /** Builds one chunk (mesh and labels) into the cache if it is not there: for keeping the showcase ready. */
   prepare(x: number, y: number): Promise<void>;
   /** Drops what was built for one chunk (mesh, labels, the insides of its houses) from the cache, so the next visit builds it again. */
@@ -166,8 +186,16 @@ export function createApp(options: AppOptions = {}): App {
   const findPlace = options.findPlace ?? geocode;
   const findAround = options.findAround ?? (options.findPlace ? (query: string) => findPlace(query) : geocodeAround);
   const elevation = new Elevation();
-  const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
-  const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
+  // How long each piece of the world takes to build is kept, for the admin screen.
+  const builds = new BuildTimes();
+  const timed = (build: (x: number, y: number) => Promise<Buffer>) => async (x: number, y: number): Promise<Buffer> => {
+    const began = Date.now();
+    const built = await build(x, y);
+    builds.record(Date.now() - began); // (only what was built: one that failed took no time worth knowing)
+    return built;
+  };
+  const buildChunk = timed(options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation)));
+  const buildLabels = timed(options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation)));
   // The inside of a building: a home's rooms, or a shop's, an office's, a mall's, with who is in there (venues.ts).
   const buildInside = options.buildInside ?? (options.buildInterior
     ? async (x: number, y: number, id: number) => { const mesh = await options.buildInterior!(x, y, id); return mesh ? { mesh, who: null } : null; }
@@ -278,13 +306,16 @@ export function createApp(options: AppOptions = {}): App {
   const mbOf = (bytes: number): number => Math.round(bytes / 1048576);
   const partsOf = (m: NodeJS.MemoryUsage): Record<string, number> => ({ rss: mbOf(m.rss), heap: mbOf(m.heapTotal), used: mbOf(m.heapUsed), outside: mbOf(m.external) });
   let memTop: Record<string, number> = {};
+  const load = new LoadHistory();
   const memNow = (): number => {
     const m = process.memoryUsage();
     const mb = mbOf(m.rss);
     if (mb > memMost) { memMost = mb; memTop = partsOf(m); }
+    load.note(mb);
     return mb;
   };
-  setInterval(memNow, 500).unref();
+  const memTimer = setInterval(memNow, 500);
+  memTimer.unref();
   const memSet = { args: process.execArgv.join(" "), arenas: process.env.MALLOC_ARENA_MAX ?? null, node: process.version, platform: process.platform };
   const building = new InFlight<Buffer>();
   // A game arriving somewhere new asks for fifty pieces at once (25 chunks and their labels). Built all
@@ -293,6 +324,8 @@ export function createApp(options: AppOptions = {}): App {
   // they take no longer in all: there is one processor, and they were only ever taking turns on it.
   const buildsAtOnce = new Gate(Math.max(1, Number(process.env.EARTHWALK_BUILDS_AT_ONCE) || options.buildsAtOnce || 2));
   const coldBuilds = new Map<string, number[]>(); // caller address -> times of recent uncached builds
+  // A reading of the load a minute, for the admin screen's picture of the last day.
+  load.start(() => ({ t: Date.now(), mem: memNow(), people: rooms.stats().people, building: buildsAtOnce.busy, waiting: buildsAtOnce.queued }));
 
   const callerOf = (req: IncomingMessage): string => {
     const forwarded = options.trustProxy ? String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() : "";
@@ -415,6 +448,36 @@ export function createApp(options: AppOptions = {}): App {
     return false;
   };
 
+  // ---- the admin screen and the suggestions box
+  const startedAt = Date.now();
+  const suggestions = options.suggestions ?? new SuggestionBox(undefined, { mailer: options.mailer ?? null, version: VERSION, site: options.baseUrl?.replace(/\/+$/, "") });
+  const adminCtx: AdminContext = {
+    admins: (options.admins ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean),
+    trustProxy: !!options.trustProxy,
+    accounts, presence, rooms, suggestions, load,
+    log: options.adminLog ?? new RecentLog(),
+    me: (req) => accounts.byToken(tokenOf(req)),
+    googleSignIn: !!google,
+    accessCodeSet: !!accessCode,
+    now: async () => {
+      const day = 86400_000, at = Date.now();
+      const all = accounts.list();
+      const free = await freeBytes(CACHE_DIR);
+      const boxed = suggestions.list();
+      return {
+        version: VERSION, startedAt, upSeconds: Math.round((at - startedAt) / 1000), node: process.version, revs: { world: GENERATOR_REV, labels: LABELS_REV },
+        mem: { now: memNow(), most: memMost, limit: options.memoryLimitMb ?? 512, parts: partsOf(process.memoryUsage()) },
+        people: { ...rooms.stats(), accounts: all.length, today: all.filter((p) => at - p.lastSeen < day).length, week: all.filter((p) => at - p.lastSeen < 7 * day).length, guests: rooms.listMembers().filter((m) => !m.personId).length },
+        building: { now: buildsAtOnce.busy, waiting: buildsAtOnce.queued, ...builds.lastHour(at) },
+        disk: { freeMb: free === null ? null : Math.round(free / 1048576) },
+        ai: { live: talker.live, guide: guide.live, model: talker.modelName, ...talker.allowance },
+        map: { owed: { extras: extrasOwed(), overture: overtureOn() ? overtureOwed() : null, cover: coverOn() ? coverOwed() : null } },
+        suggestions: { waiting: boxed.filter((s) => s.status === "new").length, all: boxed.length, mails: suggestions.mails },
+        homes: homes.list().length,
+      };
+    },
+  };
+
   /** Building a new part of the world costs downloads from shared public services, so cap it per caller. */
   const mayBuild = (caller: string): boolean => {
     const now = Date.now();
@@ -522,6 +585,19 @@ export function createApp(options: AppOptions = {}): App {
         if (!made) return json(res, 422, { error: read.raw ? "No rooms could be made out on that picture" : "That does not look like the floor plan of a house", left });
         res.setHeader("Cache-Control", "no-store");
         return json(res, 200, { plan: made.plan, notes: made.notes, lines: describePlan(made.plan), left });
+      }
+      if (await serveAdmin(adminCtx, req, res, url)) return;
+      if (req.method === "POST" && p === "/v1/suggest") {
+        // The suggestions box: from anybody who may play here. A person signed in is known by their account;
+        // a guest by the name they give, and counted by where they call from.
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        const body = await postedJson(req, 4096);
+        if (!body) return json(res, 400, { error: "A suggestion is sent as JSON: { \"text\": \"...\" }" });
+        const me = accounts.byToken(tokenOf(req));
+        const taken = suggestions.add(body, me ? { personId: me.id, name: me.name, email: me.email, key: `p:${me.id}` } : { personId: null, name: typeof body.name === "string" ? body.name : "", email: null, key: `a:${callerOf(req)}` });
+        res.setHeader("Cache-Control", "no-store");
+        if (!taken.ok) return json(res, taken.status, { error: taken.error });
+        return json(res, 200, { ok: true, id: taken.suggestion.id });
       }
       if (req.method !== "GET" && !(req.method === "POST" && p === "/auth/logout")) return json(res, 405, { error: "method not allowed" });
       if (await serveAccounts(req, res, url)) return;
@@ -634,5 +710,5 @@ export function createApp(options: AppOptions = {}): App {
     rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req));
   });
 
-  return { server, rooms, accounts, presence, journals, prepare, forget, close: () => { presence.close(); rooms.close(); void journals.close(); server.close(); } };
+  return { server, rooms, accounts, presence, journals, suggestions, prepare, forget, close: () => { load.stop(); clearInterval(memTimer); presence.close(); rooms.close(); void journals.close(); server.close(); } };
 }

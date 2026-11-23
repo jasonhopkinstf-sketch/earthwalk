@@ -30,6 +30,13 @@ export class Gate {
   constructor(size: number) {
     this.size = size;
   }
+  /** How many jobs are running now, and how many are waiting their turn. */
+  get busy(): number {
+    return this.running;
+  }
+  get queued(): number {
+    return this.waiting.length;
+  }
   async run<T>(job: () => Promise<T>): Promise<T> {
     if (this.running >= this.size) await new Promise<void>((go) => this.waiting.push(go));
     else this.running++;

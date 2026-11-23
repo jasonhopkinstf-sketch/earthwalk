@@ -63,6 +63,11 @@ export class Late<T> {
     this.listeners.push(listener);
   }
 
+  /** How many blocks are owed their data now (as far as this run of the server knows). */
+  get owedCount(): number {
+    return this.owed.size;
+  }
+
   /** True while a block is owed its data. */
   owes(bx: number, by: number): boolean {
     return this.owed.has(`${bx}/${by}`);

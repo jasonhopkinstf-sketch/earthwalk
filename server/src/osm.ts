@@ -650,6 +650,8 @@ const readOwed = (): Promise<void> => (owedRead ??= cacheRead(OWED_REL).then((bu
 let owedWritten: Promise<void> = Promise.resolve();
 const writeOwed = (): Promise<void> => (owedWritten = owedWritten.then(() => cacheWrite(OWED_REL, JSON.stringify([...owed].slice(-4000)))));
 const arrived: ((bx: number, by: number) => void)[] = [];
+/** How many blocks are waiting for their extras (for the admin screen). */
+export const extrasOwed = (): number => owed.size;
 /** Asks to be told when the extras of a block come after something was built there without them. */
 export function onExtras(listener: (bx: number, by: number) => void): void {
   arrived.push(listener);

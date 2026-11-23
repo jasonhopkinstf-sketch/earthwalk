@@ -222,6 +222,8 @@ export async function fetchCover(dx: number, dy: number): Promise<Cover | null> 
 export function onCover(listener: (bx: number, by: number) => void): void {
   late.onArrive(listener);
 }
+/** How many blocks are waiting for their ground cover (for the admin screen). */
+export const coverOwed = (): number => late.owedCount;
 export function keepCoverComing(everyMs?: number): void {
   late.keepComing(everyMs);
 }

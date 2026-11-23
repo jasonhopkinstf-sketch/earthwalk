@@ -67,6 +67,7 @@ export const ACTIONS = [
   row("strip", "The game", "Buttons on, or off", "The row of buttons along the bottom of the screen.", "Z"),
   row("news", "The game", "What's new", "What has been added to EarthWalk lately."),
   row("help", "The game", "Every typed command", "Lists the slash commands in the chat window, for those who like typing.", "", "help"),
+  own("suggest", "The game", "Suggest something...", "Tell the people who make EarthWalk what you would like in it.", "", "suggest", "What would you like to see in the game?", "more animals to ride"),
 ];
 
 /**
