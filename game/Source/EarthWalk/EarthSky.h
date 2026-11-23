@@ -56,8 +56,8 @@ public:
 	 * the haze begins FogNearM off and is whole by FogFarM; Flash is a flash of lightning, sinking back to 0.
 	 */
 	void PaintHour(const EarthSkyMath::FLight& Light, const FVector& ToSun, const FVector* ToMoon, double Clouds, double DriftAt, double FogNearM, double FogFarM, double Flash);
-	/** What falls: every streak of rain and flake of snow, where it is now (engine units, in the world), and the rain's colour. Empty lists for none. */
-	void SetFall(const TArray<FTransform>& Rain, const TArray<FTransform>& Snow, const FLinearColor& RainColour, const FLinearColor& SnowColour);
+	/** What falls or blows: every streak of rain, flake of snow and leaf on the wind, where it is now (engine units, in the world), and their colours. Empty lists for none. */
+	void SetFall(const TArray<FTransform>& Rain, const TArray<FTransform>& Snow, const TArray<FTransform>& Leaves, const FLinearColor& RainColour, const FLinearColor& SnowColour, const FLinearColor& LeafColour);
 
 	/** Far enough to lie behind everything, the photographic world from the air included. */
 	static constexpr double RadiusCm = 20000000.0;
@@ -76,6 +76,12 @@ private:
 	TObjectPtr<UInstancedStaticMeshComponent> SnowShapes;
 
 	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> LeafShapes;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> LeafPaint;
+
+	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> RainPaint;
 
 	UPROPERTY()
@@ -91,4 +97,5 @@ private:
 	float FogStart = 0.f;
 	int32 RainShown = 0;
 	int32 SnowShown = 0;
+	int32 LeavesShown = 0;
 };

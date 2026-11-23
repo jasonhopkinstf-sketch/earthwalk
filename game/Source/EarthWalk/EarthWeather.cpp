@@ -208,6 +208,8 @@ void UEarthWeather::Work(double Ms, double Lat, double Lon, float DeltaSeconds)
 	Ease(Now.WindSouth, Want.WindSouth);
 	Ease(Now.Drift, Want.Drift);
 	Ease(Now.RainSound, Want.RainSound);
+	Ease(Now.Sway, Want.Sway);
+	Now.Leaves = Want.Leaves;
 	Ease(Now.WindSound, Want.WindSound);
 	Now.RainCount = Want.RainCount;
 	Now.RainSpeed = Want.RainSpeed;
@@ -267,6 +269,20 @@ void UEarthWeather::Work(double Ms, double Lat, double Lon, float DeltaSeconds)
 	if (AEarthWalkGameMode* Mode = Screen->GetWorld()->GetAuthGameMode<AEarthWalkGameMode>())
 	{
 		Mode->SetAir(Now.Mist, Now.FogNear, Now.FogFar, Light.Night, Light.Hour);
+	}
+	// Lamps come on behind the windows as it gets dark, and the trees lean with the wind: the way it blows, and as far
+	// as it blows hard (a fine day's breeze leans them 0.078 m, which is what their own sway was made for).
+	if (AEarthWorld* Earth = AEarthWorld::Get(Screen->GetWorld()))
+	{
+		const double Dark = FMath::SmoothStep(0.35, 0.75, Light.Night);
+		FVector2D Blows(-Now.WindSouth, Now.WindEast);
+		if (!Blows.Normalize())
+		{
+			Blows = FVector2D(0.8, 0.6);
+		}
+		// (-EWGale=<times> blows that much harder in the trees than the weather says, to see them lean in a picture.)
+		static const double GaleTest = []() { double Value = 1.0; FParse::Value(FCommandLine::Get(), TEXT("-EWGale="), Value); return Value; }();
+		Earth->SetAir(static_cast<float>(Dark), Blows, static_cast<float>(Now.Sway / 0.078 * GaleTest));
 	}
 
 	// Under a roof or in a tunnel nothing falls: is there anything over the player's head?
@@ -332,9 +348,23 @@ void UEarthWeather::Fall(float DeltaSeconds)
 			Snow[i] = FTransform(Tipped, FVector(X, Y, Z) * 100.0, bNear ? FVector::ZeroVector : Size);
 		}
 	}
+	// Leaves on a very windy day: small flat scraps carried along at nine tenths of the wind, sinking slowly, wandering and tumbling.
+	const int32 LeafCount = bUnderCover ? 0 : Now.Leaves;
+	Leaves.SetNum(LeafCount, EAllowShrinking::No);
+	for (int32 i = 0; i < LeafCount; ++i)
+	{
+		const double Wander = 0.6 * FMath::Sin(T * 2.2 * (0.5 + Own(i, 4)) + Own(i, 5) * 40.0);
+		const double X = InBox(Own(i, 1) * BoxWide + WindNorth * 0.9 * T + Wander * 0.5, Camera.X, BoxWide);
+		const double Y = InBox(Own(i, 2) * BoxWide + WindEast * 0.9 * T + Wander * 0.5, Camera.Y, BoxWide);
+		const double Z = InBox(Own(i, 3) * BoxHigh - 0.5 * T + Wander, Camera.Z, BoxHigh);
+		const bool bNear = FMath::Square(X - Camera.X) + FMath::Square(Y - Camera.Y) + FMath::Square(Z - Camera.Z) < 1.5 * 1.5;
+		const FRotator Tumble(T * 190.0 * (0.5 + Own(i, 6)), T * 140.0 * (0.5 + Own(i, 7)), Own(i, 8) * 360.0);
+		Leaves[i] = FTransform(Tumble.Quaternion(), FVector(X, Y, Z) * 100.0, bNear ? FVector::ZeroVector : FVector(0.2, 0.13, 0.012));
+	}
 	// The rain is dimmed to two fifths at night, the snow to a moonlit blue.
 	const float Dim = static_cast<float>(FMath::Lerp(1.0, 0.4, LastNight));
-	Sky->SetFall(Rain, Snow, FLinearColor(0.62f, 0.74f, 0.92f) * Dim, FLinearColor::LerpUsingHSV(FLinearColor(1.f, 1.f, 1.f), FLinearColor(0.55f, 0.62f, 0.85f), static_cast<float>(LastNight)));
+	Sky->SetFall(Rain, Snow, Leaves, FLinearColor(0.62f, 0.74f, 0.92f) * Dim, FLinearColor::LerpUsingHSV(FLinearColor(1.f, 1.f, 1.f), FLinearColor(0.55f, 0.62f, 0.85f), static_cast<float>(LastNight)),
+		FLinearColor(0.50f, 0.42f, 0.10f) * Dim);
 }
 
 /**

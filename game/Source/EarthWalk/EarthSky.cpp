@@ -56,6 +56,7 @@ AEarthSky::AEarthSky()
 	};
 	RainShapes = Shapes(TEXT("Rain"));
 	SnowShapes = Shapes(TEXT("Snow"));
+	LeafShapes = Shapes(TEXT("Leaves"));
 }
 
 AEarthSky* AEarthSky::Get(UWorld* World)
@@ -153,7 +154,7 @@ void AEarthSky::PaintHour(const EarthSkyMath::FLight& L, const FVector& ToSun, c
 	}
 }
 
-void AEarthSky::SetFall(const TArray<FTransform>& Rain, const TArray<FTransform>& Snow, const FLinearColor& RainColour, const FLinearColor& SnowColour)
+void AEarthSky::SetFall(const TArray<FTransform>& Rain, const TArray<FTransform>& Snow, const TArray<FTransform>& Leaves, const FLinearColor& RainColour, const FLinearColor& SnowColour, const FLinearColor& LeafColour)
 {
 	const auto Show = [this](UInstancedStaticMeshComponent* Shapes, TObjectPtr<UMaterialInstanceDynamic>& Paint2, const TArray<FTransform>& Where, int32& Shown, const FLinearColor& Colour, float Opacity)
 	{
@@ -192,6 +193,7 @@ void AEarthSky::SetFall(const TArray<FTransform>& Rain, const TArray<FTransform>
 	};
 	Show(RainShapes, RainPaint, Rain, RainShown, RainColour, 0.8f);
 	Show(SnowShapes, SnowPaint, Snow, SnowShown, SnowColour, 0.95f);
+	Show(LeafShapes, LeafPaint, Leaves, LeavesShown, LeafColour, 1.f);
 }
 
 AEarthSky* AEarthSky::Make(UWorld* World, const FVector& SunTravels)

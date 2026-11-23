@@ -184,6 +184,9 @@ float3 petal = hue < 0.34 ? float3(0.90, 0.20, 0.22) : hue < 0.67 ? float3(0.98,
 c = lerp(c, float3(0.50, 0.31, 0.18), trough * hasFlowers * home);
 c = lerp(c, float3(0.25, 0.55, 0.22), leaves * hasFlowers * home);
 c = lerp(c, petal, bloom * hasFlowers * home);
+// After dark a lamp is lit behind two windows in three (Night: 0 by day to 1 after dark, set by UEarthWeather).
+float lampPick = frac(sin(bay * 12.9898 + storey * 78.233 + Span.y * 3.7) * 43758.5453);
+Lamp = float3(1.0, 0.74, 0.30) * win * Win * (1.0 - bars * detail) * step(0.34, lampPick) * Night * 2.6;
 WorldNormal = n;
 Rough = 0.9;
 return saturate(c);
@@ -301,7 +304,8 @@ return saturate(c);
 float phase = Time * 1.7 + WorldPos.x * 0.0045 + WorldPos.y * 0.0033;
 float gust = sin(phase) + 0.45 * sin(phase * 2.3 + 1.7);
 float lift = saturate(0.5 + Local.z / 100.0);
-return float3(0.8, 0.6, 0.0) * gust * Sway * lift * lift;
+// Wind: which way it blows (a step of one along the ground). Gale: how hard, against a fine day's breeze (UEarthWeather sets both).
+return float3(Wind.x, Wind.y, 0.0) * gust * Sway * Gale * lift * lift;
 )HLSL");
 
 	/**
@@ -602,12 +606,22 @@ return saturate(c);
 			Inputs.Add(TEXT("Homely"));
 			Inputs.Add(TEXT("RowShift"));
 			Inputs.Add(TEXT("Span"));
+			Inputs.Add(TEXT("Night"));
 		}
 		else
 		{
 			Inputs.Add(TEXT("Pattern"));
 		}
 		UMaterialExpressionCustom* Custom = CustomNode(Material, Code, Inputs);
+		if (bWall)
+		{
+			// The light of lamps behind the windows after dark: it shines of itself, whatever lights the wall.
+			FCustomOutput Lamp;
+			Lamp.OutputName = TEXT("Lamp");
+			Lamp.OutputType = CMOT_Float3;
+			Custom->AdditionalOutputs.Add(Lamp);
+			Custom->RebuildOutputs();
+		}
 
 		UMaterialExpressionVectorParameter* Tint = Node<UMaterialExpressionVectorParameter>(Material, -900, 0);
 		Tint->ParameterName = TEXT("Color");
@@ -627,6 +641,8 @@ return saturate(c);
 			UMaterialExpressionTextureCoordinate* Span = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 450);
 			Span->CoordinateIndex = 1;
 			Connect(Span, Custom, TEXT("Span"));
+			Connect(Scalar(Material, TEXT("Night"), 0.f, 550), Custom, TEXT("Night"));
+			UMaterialEditingLibrary::ConnectMaterialProperty(Custom, TEXT("Lamp"), MP_EmissiveColor);
 		}
 		else
 		{
@@ -730,7 +746,7 @@ return saturate(c);
 		Wind->Description = TEXT("EarthWalk wind");
 		Wind->OutputType = CMOT_Float3;
 		Wind->Inputs.Reset();
-		for (const TCHAR* Name : { TEXT("WorldPos"), TEXT("Local"), TEXT("Time"), TEXT("Sway") })
+		for (const TCHAR* Name : { TEXT("WorldPos"), TEXT("Local"), TEXT("Time"), TEXT("Sway"), TEXT("Wind"), TEXT("Gale") })
 		{
 			FCustomInput Input;
 			Input.InputName = Name;
@@ -747,6 +763,11 @@ return saturate(c);
 		Connect(Local, Wind, TEXT("Local"));
 		Connect(Node<UMaterialExpressionTime>(Material, -900, 800), Wind, TEXT("Time"));
 		Connect(Scalar(Material, TEXT("Sway"), 0.f, 900), Wind, TEXT("Sway"));
+		UMaterialExpressionVectorParameter* Blows = Node<UMaterialExpressionVectorParameter>(Material, -900, 1000);
+		Blows->ParameterName = TEXT("Wind");
+		Blows->DefaultValue = FLinearColor(0.8f, 0.6f, 0.f); // as it always blew, until the weather says
+		Connect(Blows, Wind, TEXT("Wind"));
+		Connect(Scalar(Material, TEXT("Gale"), 1.f, 1150), Wind, TEXT("Gale"));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Wind, TEXT(""), MP_WorldPositionOffset);
 		Material->bUsedWithInstancedStaticMeshes = true;
 		FinishMaterial(Material, Custom);

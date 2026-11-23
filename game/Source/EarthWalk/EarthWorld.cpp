@@ -1245,6 +1245,32 @@ namespace
 	}
 }
 
+void AEarthWorld::PaintAir(UMaterialInstanceDynamic* Material) const
+{
+	if (Material)
+	{
+		// (A material with no such dial takes no notice: walls have Night, leaves and tufts Wind and Gale.)
+		Material->SetScalarParameterValue(TEXT("Night"), AirNight);
+		Material->SetScalarParameterValue(TEXT("Gale"), AirGale);
+		Material->SetVectorParameterValue(TEXT("Wind"), FLinearColor(AirWind.X, AirWind.Y, 0.f));
+	}
+}
+
+void AEarthWorld::SetAir(float Night, const FVector2D& Wind, float Gale)
+{
+	if (FMath::Abs(Night - AirNight) < 0.01f && FMath::Abs(Gale - AirGale) < 0.02f && Wind.Equals(AirWind, 0.02))
+	{
+		return;
+	}
+	AirNight = Night;
+	AirWind = Wind;
+	AirGale = Gale;
+	for (const TPair<uint64, TObjectPtr<UMaterialInstanceDynamic>>& Pair : SurfaceMaterials)
+	{
+		PaintAir(Pair.Value);
+	}
+}
+
 void AEarthWorld::ApplyLook()
 {
 	for (const TPair<uint64, TObjectPtr<UMaterialInstanceDynamic>>& Pair : SurfaceMaterials)
@@ -1273,6 +1299,7 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForSurface(uint32 SurfaceId, uint
 	if (Material)
 	{
 		PaintForLook(Material, SurfaceId, Rgba);
+		PaintAir(Material);
 		Material->SetScalarParameterValue(TEXT("Pattern"), Style->Pattern);
 		Material->SetScalarParameterValue(TEXT("Windows"), Style->Windows);
 		Material->SetScalarParameterValue(TEXT("Bricks"), Style->Bricks);
@@ -1303,6 +1330,7 @@ UMaterialInstanceDynamic* AEarthWorld::MaterialForFoliage(uint32 Rgba, float Flu
 		Material->SetScalarParameterValue(TEXT("Sway"), static_cast<float>(SwayCm));
 		Material->SetScalarParameterValue(TEXT("Sheen"), bSmall ? 0.02f : 0.08f);
 		EarthLook::PaintSurface(Material);
+		PaintAir(Material);
 	}
 	SurfaceMaterials.Add(Key, Material);
 	return Material;

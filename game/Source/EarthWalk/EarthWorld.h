@@ -257,6 +257,12 @@ public:
 
 	/** Repaints every material already made for the look in use (EarthLook.h); /look calls it. */
 	void ApplyLook();
+	/**
+	 * The hour and the wind, for everything already drawn and everything drawn from now on (UEarthWeather): Night is
+	 * how far lamps are lit behind windows (0 by day to 1 after dark), Wind which way the trees lean (a step of one,
+	 * north and east), Gale how far, against a fine day's breeze.
+	 */
+	void SetAir(float Night, const FVector2D& Wind, float Gale);
 
 	int32 NumLoadedChunks() const { return Chunks.Num(); }
 	const FString& GetLastError() const { return LastError; }
@@ -287,6 +293,10 @@ private:
 
 	UPROPERTY()
 	TMap<uint64, TObjectPtr<UMaterialInstanceDynamic>> SurfaceMaterials;
+	float AirNight = 0.f;
+	FVector2D AirWind = FVector2D(0.8, 0.6);
+	float AirGale = 1.f;
+	void PaintAir(UMaterialInstanceDynamic* Material) const;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BaseMaterial;

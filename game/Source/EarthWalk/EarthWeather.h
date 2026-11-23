@@ -89,6 +89,7 @@ private:
 	double LastNight = 0.0;
 	TArray<FTransform> Rain;
 	TArray<FTransform> Snow;
+	TArray<FTransform> Leaves;
 
 	// What is heard.
 	UPROPERTY()
