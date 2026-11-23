@@ -21,11 +21,20 @@ const out = join(here, "..", "Source", "EarthWalk", "EarthModels.gen.inl");
 // Which model stands in for which of the game's own vehicles (the names in liferigs.js), and how much
 // bigger than the file it is drawn: the kit's cars are about 2.6 units long, ours about 3.9 metres, and
 // they are wider and taller for their length, so they are not blown up all the way.
+// `plain`: it keeps the kit's own colours all over (a police car is not painted like the car next door).
 const SCALE = 1.35;
 const MODELS = [
   { rig: "car", file: "sedan.glb" },
   { rig: "van", file: "van.glb" },
   { rig: "taxi", file: "taxi.glb" },
+  { rig: "hatch", file: "hatchback-sports.glb" },
+  { rig: "suv", file: "suv.glb" },
+  { rig: "pickup", file: "truck.glb" },
+  { rig: "delivery", file: "delivery.glb" },
+  { rig: "police", file: "police.glb", plain: true },
+  { rig: "ambulance", file: "ambulance.glb", plain: true },
+  { rig: "firetruck", file: "firetruck.glb", plain: true },
+  { rig: "tractor", file: "tractor.glb" },
 ];
 
 /** A PNG as { width, height, at(x, y) -> [r, g, b] }: eight bits a channel, plain or with a palette. */
@@ -134,6 +143,7 @@ const forBrowser = [];
 const base64 = (typed) => Buffer.from(typed.buffer, typed.byteOffset, typed.byteLength).toString("base64");
 for (const model of MODELS) {
   const parts = readGlb(join(folder, model.file));
+  const scale = SCALE * (model.scale ?? 1);
   // The car's main paint: the most-used strongly coloured swatch on its body.
   const area = new Map();
   for (const part of parts.filter((p) => p.name === "body")) {
@@ -145,7 +155,7 @@ for (const model of MODELS) {
       if (saturation(colourAt(mid)) > 0.4) area.set(swatchOf(mid), (area.get(swatchOf(mid)) ?? 0) + size);
     }
   }
-  const paint = [...area.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? -1;
+  const paint = model.plain ? -1 : [...area.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? -1;
 
   // Stand it on the ground in the middle, then into the engine's axes. The file has x to the car's left,
   // y up and z to its front; the engine wants X forward, Y right, Z up. That is a mirror image, and the
@@ -157,10 +167,10 @@ for (const model of MODELS) {
   const P = [], N = [], C = [], I = [], seen = new Map();
   for (const part of parts) {
     const ids = part.corners.map((c) => {
-      const p = [(c.p[2] - mid[2]) * SCALE * 1000, -(c.p[0] - mid[0]) * SCALE * 1000, (c.p[1] - mid[1]) * SCALE * 1000].map(Math.round);
+      const p = [(c.p[2] - mid[2]) * scale * 1000, -(c.p[0] - mid[0]) * scale * 1000, (c.p[1] - mid[1]) * scale * 1000].map(Math.round);
       const len = Math.hypot(...c.n) || 1;
       const n = [c.n[2] / len, -c.n[0] / len, c.n[1] / len].map((v) => Math.round(v * 127));
-      const col = [...colourAt(c.uv), part.name === "body" && swatchOf(c.uv) === paint ? 255 : 0];
+      const col = [...colourAt(c.uv), (part.name === "body" || part.name.startsWith("door")) && swatchOf(c.uv) === paint ? 255 : 0]; // (a delivery van has its doors as parts of their own)
       const key = [...p, ...n, ...col].join(",");
       if (!seen.has(key)) { seen.set(key, P.length / 3); P.push(...p); N.push(...n); C.push(...col); }
       return seen.get(key);
@@ -177,7 +187,7 @@ for (const model of MODELS) {
   // The browser's axes are x east, y up, z south with the car facing north: the engine's (Y, Z, -X).
   const turned = (v) => v.flatMap((_, k) => (k % 3 === 0 ? [v[k + 1], v[k + 2], -v[k]] : []));
   forBrowser.push(`  ${model.rig}: {\n    p: "${base64(Int16Array.from(turned(P)))}",\n    n: "${base64(Int8Array.from(turned(N)))}",\n    c: "${base64(Uint8Array.from(C))}",\n    i: "${base64(Uint16Array.from(I))}",\n  },`);
-  const size = [0, 1, 2].map((k) => ((hi[k] - lo[k]) * SCALE).toFixed(2));
+  const size = [0, 1, 2].map((k) => ((hi[k] - lo[k]) * scale).toFixed(2));
   console.log(`${model.rig} <- ${model.file}: ${P.length / 3} corners, ${I.length / 3} triangles, ${size[2]} m long, ${size[0]} wide, ${size[1]} high, own paint on swatch ${paint} (${paint >= 0 ? colourAt([((paint % 8) + 0.25) / 8, (Math.floor(paint / 8) + 0.5) / 4]) : "none"})`);
 }
 text += `static const FModel Models[] = {\n${table.join("\n")}\n};\n`;

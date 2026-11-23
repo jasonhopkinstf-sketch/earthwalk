@@ -185,9 +185,9 @@ test("built-in answers: a place by name, how far, whether a road goes there, and
   assert.deepEqual(beach.go, [{ act: "taxi", label: "Call a taxi" }, { act: "jump", label: "Go there now" }]);
   assert.deepEqual([looked, routed.length], [["beach"], 1]);
 
-  // Too far to drive along the roads: no road is looked for, and the jump is offered.
+  // A long drive: no road is looked for ahead of time, and the jump is offered beside the taxi.
   const tower = await guide.answer(asker(), "How far is the Sky Tower?");
-  assert.match(tower.text, /^Sky Tower, Victoria Street West is 3\.\d km to the south-west\. That is too far to drive along the roads, but a taxi can still take you, or you can go there now\.$/);
+  assert.match(tower.text, /^Sky Tower, Victoria Street West is 3\.\d km to the south-west\. That is a long drive: a taxi takes you along the roads as far as they go, or you can go there now\.$/);
   assert.equal(tower.place?.road, undefined);
   assert.deepEqual(tower.go.map((g) => g.act), ["taxi", "jump"]);
   assert.equal(routed.length, 1);

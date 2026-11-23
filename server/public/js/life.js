@@ -81,7 +81,8 @@ function modelGeometry(model) {
 }
 if (new URLSearchParams(globalThis.location?.search ?? "").get("models") !== "ours") {
   for (const [name, model] of Object.entries(MODELS)) {
-    if (VEHICLES[name]) VEHICLES[name].model = { key: `model:${name}`, geometry: modelGeometry(model) };
+    const rig = VEHICLES[name] ?? RIGS[name]; // a car of the streets, or a machine of the farm (the tractor)
+    if (rig) rig.model = { key: `model:${name}`, geometry: modelGeometry(model) };
   }
 }
 
@@ -131,7 +132,7 @@ export class Life {
         shader.vertexShader = "attribute float own;\n" + shader.vertexShader.replace("#include <color_vertex>", "#include <color_vertex>\n#ifdef USE_INSTANCING_COLOR\n\tvColor.xyz = mix( color.xyz, instanceColor.xyz, own );\n#endif");
       },
     });
-    for (const rig of Object.values(VEHICLES)) {
+    for (const rig of [...Object.values(VEHICLES), ...Object.values(RIGS)]) {
       if (!rig.model) continue;
       const mesh = new THREE.InstancedMesh(rig.model.geometry, modelMaterial, MODEL_CAPACITY);
       mesh.frustumCulled = false;

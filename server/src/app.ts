@@ -11,7 +11,8 @@ import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
 import { generateLabels, LABELS_REV, partialLabels } from "./labels.ts";
 import { geocode, geocodeAround, geocodeNear, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
-import { planRoute, type Route } from "./route.ts";
+import { laned, planRoute, type Route } from "./route.ts";
+import { drivesLeft } from "./traffic.ts";
 import { planCourse } from "./race.ts";
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
 import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./people.ts";
@@ -102,7 +103,7 @@ export interface AppOptions {
   findAround?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
   findNear?: (query: string, lat: number, lon: number) => Promise<Place | null>;
-  planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
+  planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number, far?: boolean) => Promise<Route | null>;
   /** The model behind the guide's fuller answers (guide.ts). Defaults to Claude when ANTHROPIC_API_KEY is set, and to nothing (built-in answers only) when it is not; null turns it off. */
   guideAsk?: GuideAsk | null;
   /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
@@ -197,16 +198,21 @@ export function createApp(options: AppOptions = {}): App {
   const talker = options.talker ?? new Talker();
   const journals = new Journals({ store: options.journalStore ?? null, startCoins: options.startCoins, placeDetail, planHunt: options.planHunt ?? ((lat, lon, day) => planHunt(lat, lon, day)) });
   const findNear = options.findNear ?? geocodeNear;
-  const routeBetween = options.planRoute ?? planRoute;
-  /** Where a rider asked to go, and for a car or tractor the way there by road when it is close. Slow map downloads are not waited for. */
+  const routeBetween: (fromLat: number, fromLon: number, toLat: number, toLon: number, far?: boolean) => Promise<Route | null> =
+    options.planRoute ?? ((fromLat, fromLon, toLat, toLon, far) => planRoute(fromLat, fromLon, toLat, toLon, undefined, far));
+  /**
+   * Where a rider asked to go, and for a car or tractor the way there by road: all of it when it is close, the
+   * first leg of it when it is a long drive (`more`). Slow map downloads are not waited for.
+   */
   const wayTo = async (lat: number, lon: number, place: string, sp: string, at?: { lat: number; lon: number }) => {
     // (`at`: the game asking knows where the place is already, from an answer of the guide.)
     const found = at ? { name: place, lat: at.lat, lon: at.lon } : await findNear(place, lat, lon);
     if (!found) return null;
     const driven = sp === "car" || sp === "tractor" || sp === "taxi"
-      ? await Promise.race([routeBetween(lat, lon, found.lat, found.lon).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 12_000).unref())])
+      ? await Promise.race([routeBetween(lat, lon, found.lat, found.lon, true).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 12_000).unref())])
       : null;
-    return { name: found.name.split(",").slice(0, 2).join(","), lat: found.lat, lon: found.lon, ...(driven ? { path: driven.path } : {}) };
+    // (Driven on the car's own side of the road, not down the middle of it.)
+    return { name: found.name.split(",").slice(0, 2).join(","), lat: found.lat, lon: found.lon, ...(driven ? { path: laned(driven, drivesLeft(lat, lon)), ...(driven.more ? { more: true } : {}) } : {}) };
   };
   /** A taxi for someone at a position who wants to go to a place: the place, and a road for the taxi to come along from a few streets away. */
   const cab = async (lat: number, lon: number, place: string, at?: { lat: number; lon: number }) => {
@@ -218,7 +224,7 @@ export function createApp(options: AppOptions = {}): App {
       if (Date.now() > gaveUp) break;
       const from = [lat + (260 / 111_320) * Math.cos((k * Math.PI) / 4), lon + (260 / (111_320 * Math.cos((lat * Math.PI) / 180))) * Math.sin((k * Math.PI) / 4)];
       const way = await routeBetween(from[0], from[1], lat, lon).catch(() => null);
-      if (way && way.metres >= 100 && way.metres <= 900) { pickup = way.path; break; }
+      if (way && way.metres >= 100 && way.metres <= 900) { pickup = laned(way, drivesLeft(lat, lon)); break; }
     }
     return { dest, pickup };
   };

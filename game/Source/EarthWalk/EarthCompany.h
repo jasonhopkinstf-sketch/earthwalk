@@ -252,6 +252,7 @@ private:
 		double Held = 0.0;
 		int32 Hops = 0; // times it was lifted past something in the way
 		double Age = 0.0; // seconds since it set off
+		bool bMore = false; // a long drive: Path is one leg of it, and the server sends the next as its end comes near
 	};
 	FTrip Trip;
 	bool bRemount = false;

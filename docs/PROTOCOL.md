@@ -709,7 +709,7 @@ What is to be done comes as `order`:
 | `stay` | the room | It waits at `lat`/`lon`. |
 | `home` | the room | It goes back to its timetable: forget any order for it. Also sent when whoever gave the order leaves, when someone hops on the thing, and when one player has more than six things under orders (the oldest goes home). |
 | `trick`, `noise` | the room | Done once, now, wherever each client has the thing: a jump and a spin with its noise, or the noise alone. Not remembered. |
-| `goto` | the asker alone | Only for a thing the asker is riding (seat 0). `name`, `lat`, `lon` are the place, found near the rider first and then anywhere; `path`, when present, is the way there by road as `[lat, lon]` points about 8 m apart (cars and tractors, places within 2.5 km). The way starts and ends on a proper street when one is within reach, not up a driveway or a car park aisle, which often end against a wall; a taxi waits at that same point of the street. The rider's own client carries them: along `path`, or straight across country on an animal when the place is within 1.5 km, or in one jump (hop off, travel, hop on again). Friends see it through `ride` and the positions already shared. |
+| `goto` | the asker alone | Only for a thing the asker is riding (seat 0). `name`, `lat`, `lon` are the place, found near the rider first and then anywhere; `path`, when present, is the way there by road as `[lat, lon]` points about 8 m apart, on the car's own side of the road (cars, taxis and tractors). A place within 2.5 km is given the whole way. A place further off, up to 10 km, is a long drive and comes a leg at a time: `more: true` says `path` ends on the way to the place and not at it, and as the rider comes within 400 m of that end the server sends another `goto` for the same thing, marked `onward: true`, whose `path` carries on from there (with `more` again, until the last). A client that is no longer being driven by that thing (the rider took the wheel) ignores an `onward` order; one that reaches the end of a `more` path with nothing further (no road goes on: water, or a map that is slow to come) waits there a few seconds and does the rest in one jump. The way starts and ends on a proper street when one is within reach, not up a driveway or a car park aisle, which often end against a wall; a taxi waits at that same point of the street. The rider's own client carries them: along `path`, or straight across country on an animal when the place is within 1.5 km, or in one jump (hop off, travel, hop on again). Friends see it through `ride` and the positions already shared. |
 
 `welcome` carries `orders`: the `follow`, `come` and `stay` orders still in force. Clients draw a thing
 under orders where the order puts it and not where its timetable would (as they do a ridden thing).
@@ -789,7 +789,7 @@ Server to client:
   (a train stops there), `door` (a house that can be gone into), `ride` (an animal, a tractor, a boat
   or a parked car to hop on), `animal`, `found` (a place looked up by name) or `show` (one of
   "Things to show"). `road` is how far it is by road in metres, present only when the server found a
-  way (places within 2.5 km: `server/src/route.ts`).
+  way (places within 2.5 km: `server/src/route.ts`; a place further off, up to 10 km, is driven a leg at a time and its road is not worked out ahead for the guide).
 - `go` is the buttons to put under the answer, in order, each with the words to show. What each `act`
   means for a game:
 

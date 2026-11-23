@@ -5,8 +5,20 @@
 import { CHUNK_Z, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { DATA_Z, loadFeatures, type Features } from "./osm.ts";
 
-/** As the crow flies, the furthest a route is looked for; and the most data tiles it may need. */
+/** As the crow flies, the furthest a route is looked for in one go; and the most data tiles it may need. */
 export const ROUTE_MAX_M = 2500;
+/**
+ * A drive to somewhere farther off than that is made in legs, as far as this. A leg is the way by road
+ * to the point nearest the place that the roads round the car reach: the map for the whole way is never
+ * wanted at once, only what the world is about to show anyway. Beyond this nobody is driven.
+ */
+export const ROUTE_FAR_M = 10_000;
+/** How far towards the place a leg looks for roads; and how much nearer the place it must end to be worth driving. */
+const LEG_M = 2200;
+const LEG_GAIN_M = 400;
+/** A leg would sooner end on a main road than up a side street this much nearer the place. */
+const MAIN_PULL_M = 250;
+const isMain = (hw: string | undefined): boolean => /^(motorway|trunk|primary|secondary|tertiary)(_link)?$/.test(hw ?? "");
 const TILE_CAP = 12;
 /** A start or an end must be this near a road. */
 const SNAP_M = 200;
@@ -21,7 +33,45 @@ const LANE_SHY_M = 80;
 const LANE_COST = 2.5;
 const isLane = (hw: string | undefined): boolean => hw === "service" || hw === "pedestrian";
 
-export interface Route { path: [number, number][]; metres: number }
+/**
+ * `widths`: how wide the road is at each point of `path`, in metres (for keeping to a lane; not sent to anybody).
+ * `more`: this is a leg of a long drive: it ends on the way to the place, not at it.
+ */
+export interface Route { path: [number, number][]; metres: number; widths?: number[]; more?: boolean }
+
+/** A car keeps this far from the kerb at the least, and a lane is never wider than this from the middle of the road. */
+const KERB_CLEAR_M = 0.95;
+const LANE_MOST_M = 2.4;
+
+/**
+ * The way a car drives a route: not down the middle of the road, which is what a route is, but on its
+ * own side of it, the left where the country drives on the left. Each point moves sideways by a quarter
+ * of the road's width (less on a road too narrow for two cars to pass), eased where the width changes.
+ */
+export function laned(route: Route, left: boolean): [number, number][] {
+  const n = route.path.length;
+  if (n < 2) return route.path;
+  const [lat0, lon0] = route.path[0];
+  const mLat = 111_320, mLon = 111_320 * Math.cos((lat0 * Math.PI) / 180);
+  const east = route.path.map(([, lon]) => (lon - lon0) * mLon), north = route.path.map(([lat]) => (lat - lat0) * mLat);
+  const lane = (i: number): number => {
+    const w = route.widths?.[i] ?? 6;
+    return Math.max(0, Math.min(w / 4, w / 2 - KERB_CLEAR_M, LANE_MOST_M));
+  };
+  const out: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+    const de = east[b] - east[a], dn = north[b] - north[a];
+    const len = Math.hypot(de, dn);
+    if (len < 1e-6) { out.push(route.path[i]); continue; }
+    let over = 0, count = 0;
+    for (let k = Math.max(0, i - 3); k <= Math.min(n - 1, i + 3); k++) { over += lane(k); count++; }
+    over = (over / count) * (left ? -1 : 1);
+    // To the right of the way it is going: east of a car heading north.
+    out.push([+(lat0 + (north[i] - (de / len) * over) / mLat).toFixed(6), +(lon0 + (east[i] + (dn / len) * over) / mLon).toFixed(6)]);
+  }
+  return out;
+}
 
 /** A small binary heap of [cost, node]. */
 class Heap {
@@ -61,15 +111,22 @@ class Heap {
  * The shortest way by road between two positions, as latitude and longitude points a few metres
  * apart, or null when they are too far apart, not near roads, or not joined by roads this server
  * can see. One-way streets are driven either way: nobody is hurt and the car gets there.
+ *
+ * `far`: a place farther off than ROUTE_MAX_M (and no farther than ROUTE_FAR_M) is not given up on:
+ * the answer is then the first leg of the drive (`more`), and the next is asked for from where it ends.
  */
-export async function planRoute(fromLat: number, fromLon: number, toLat: number, toLon: number, load: (dx: number, dy: number) => Promise<Features> = loadFeatures): Promise<Route | null> {
+export async function planRoute(fromLat: number, fromLon: number, toLat: number, toLon: number, load: (dx: number, dy: number) => Promise<Features> = loadFeatures, far = false): Promise<Route | null> {
   const fx = lonToX(fromLon), fy = latToY(fromLat), tx = lonToX(toLon), ty = latToY(toLat);
   const S = metersPerTile((fy + ty) / 2, CHUNK_Z);
-  if (Math.hypot(tx - fx, ty - fy) * S > ROUTE_MAX_M) return null;
+  const crow = Math.hypot(tx - fx, ty - fy) * S;
+  const leg = crow > ROUTE_MAX_M;
+  if (leg && (!far || crow > ROUTE_FAR_M)) return null;
+  // A leg looks for roads only as far as a point on the way to the place.
+  const ax = leg ? fx + ((tx - fx) * LEG_M) / crow : tx, ay = leg ? fy + ((ty - fy) * LEG_M) / crow : ty;
   const shift = CHUNK_Z - DATA_Z;
   const pad = 250 / S;
-  const dx0 = Math.floor(Math.min(fx, tx) - pad) >> shift, dx1 = Math.floor(Math.max(fx, tx) + pad) >> shift;
-  const dy0 = Math.floor(Math.min(fy, ty) - pad) >> shift, dy1 = Math.floor(Math.max(fy, ty) + pad) >> shift;
+  const dx0 = Math.floor(Math.min(fx, ax) - pad) >> shift, dx1 = Math.floor(Math.max(fx, ax) + pad) >> shift;
+  const dy0 = Math.floor(Math.min(fy, ay) - pad) >> shift, dy1 = Math.floor(Math.max(fy, ay) + pad) >> shift;
   if ((dx1 - dx0 + 1) * (dy1 - dy0 + 1) > TILE_CAP) return null;
   const tiles: Promise<Features>[] = [];
   for (let dy = dy0; dy <= dy1; dy++) for (let dx = dx0; dx <= dx1; dx++) tiles.push(load(dx, dy));
@@ -78,12 +135,13 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
   // told apart by where they are, so the pieces join up.
   const ids = new Map<string, number>();
   const xs: number[] = [], ys: number[] = [];
-  const next: [number, number][][] = []; // node -> [neighbour, metres as the route counts them]
+  const next: [number, number, number][][] = []; // node -> [neighbour, metres as the route counts them, the road's width]
   const street: boolean[] = []; // node -> a proper street runs through it
+  const main: boolean[] = []; // node -> a main road does
   const node = (x: number, y: number): number => {
     const key = `${x},${y}`;
     let id = ids.get(key);
-    if (id === undefined) { ids.set(key, (id = xs.length)); xs.push(x); ys.push(y); next.push([]); street.push(false); }
+    if (id === undefined) { ids.set(key, (id = xs.length)); xs.push(x); ys.push(y); next.push([]); street.push(false); main.push(false); }
     return id;
   };
   const seen = new Set<number>();
@@ -97,10 +155,11 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
       for (let i = 0; i + 1 < road.pts.length; i++) {
         const a = node(road.pts[i][0], road.pts[i][1]), b = node(road.pts[i + 1][0], road.pts[i + 1][1]);
         if (!lane) street[a] = street[b] = true;
+        if (isMain(road.hw)) main[a] = main[b] = true;
         const m = Math.hypot(xs[b] - xs[a], ys[b] - ys[a]) * S * (lane ? LANE_COST : 1);
         if (a === b || m === 0) continue;
-        next[a].push([b, m]);
-        next[b].push([a, m]);
+        next[a].push([b, m, road.width]);
+        next[b].push([a, m, road.width]);
       }
     }
   }
@@ -134,26 +193,49 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
     }
     return out;
   };
-  const starts = nearestIn(fx, fy), ends = nearestIn(tx, ty);
-  let start = -1, end = -1, least = Infinity;
-  for (const [net, [node0, d0]] of starts) {
-    const there = ends.get(net);
-    if (there && d0 + there[1] < least) { least = d0 + there[1]; start = node0; end = there[0]; }
-  }
-  if (start < 0 || end < 0 || start === end) return null;
-
-  const cost = new Float64Array(xs.length).fill(Infinity);
-  const from = new Int32Array(xs.length).fill(-1);
-  const heap = new Heap();
-  cost[start] = 0;
-  heap.push([0, start]);
-  while (heap.size) {
-    const [c, n] = heap.pop();
-    if (c > cost[n]) continue;
-    if (n === end) break;
-    for (const [m, len] of next[n]) {
-      if (c + len < cost[m]) { cost[m] = c + len; from[m] = n; heap.push([c + len, m]); }
+  const starts = nearestIn(fx, fy);
+  const cost = new Float64Array(xs.length);
+  const from = new Int32Array(xs.length);
+  /** The cheapest way from a point to every other it reaches, or only as far as `end`. */
+  const spread = (start: number, end: number): void => {
+    cost.fill(Infinity);
+    from.fill(-1);
+    const heap = new Heap();
+    cost[start] = 0;
+    heap.push([0, start]);
+    while (heap.size) {
+      const [c, n] = heap.pop();
+      if (c > cost[n]) continue;
+      if (n === end) break;
+      for (const [m, len] of next[n]) {
+        if (c + len < cost[m]) { cost[m] = c + len; from[m] = n; heap.push([c + len, m]); }
+      }
     }
+  };
+  let start = -1, end = -1;
+  if (leg) {
+    // Whichever of the networks beside the car gets nearest the place: the roads of a car park get nowhere.
+    let best = Infinity;
+    for (const [node0, d0] of [...starts.values()].sort((a, b) => a[1] - b[1]).slice(0, 4)) {
+      spread(node0, -1);
+      for (let i = 0; i < xs.length; i++) {
+        if (!street[i] || !Number.isFinite(cost[i])) continue;
+        const left = Math.hypot(tx - xs[i], ty - ys[i]) * S;
+        const score = left - (main[i] ? MAIN_PULL_M : 0) + d0 * S;
+        if (score < best && crow - left >= LEG_GAIN_M) { best = score; start = node0; end = i; }
+      }
+    }
+    if (end < 0) return null;
+    spread(start, end);
+  } else {
+    const ends = nearestIn(tx, ty);
+    let least = Infinity;
+    for (const [net, [node0, d0]] of starts) {
+      const there = ends.get(net);
+      if (there && d0 + there[1] < least) { least = d0 + there[1]; start = node0; end = there[0]; }
+    }
+    if (start < 0 || end < 0 || start === end) return null;
+    spread(start, end);
   }
   if (!Number.isFinite(cost[end])) return null;
   const nodes: number[] = [];
@@ -162,7 +244,15 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
 
   // A point every 8 m or so along the way, so a client can follow it without knowing the roads.
   const path: [number, number][] = [];
-  const add = (x: number, y: number): void => { path.push([+yToLat(y).toFixed(6), +xToLon(x).toFixed(6)]); };
+  const widths: number[] = [];
+  /** The road between two neighbours on the way: the one the route counted, the cheapest. */
+  const widthOf = (a: number, b: number): number => {
+    let best = 6, least = Infinity;
+    for (const [m, len, w] of next[a]) if (m === b && len < least) { least = len; best = w; }
+    return best;
+  };
+  let wide = nodes.length > 1 ? widthOf(nodes[0], nodes[1]) : 6;
+  const add = (x: number, y: number): void => { path.push([+yToLat(y).toFixed(6), +xToLon(x).toFixed(6)]); widths.push(wide); };
   add(xs[nodes[0]], ys[nodes[0]]);
   let metres = 0;
   for (let i = 1; i < nodes.length; i++) metres += Math.hypot(xs[nodes[i]] - xs[nodes[i - 1]], ys[nodes[i]] - ys[nodes[i - 1]]) * S;
@@ -170,7 +260,8 @@ export async function planRoute(fromLat: number, fromLon: number, toLat: number,
   for (let i = 1; i < nodes.length; i++) {
     const ax = xs[nodes[i - 1]], ay = ys[nodes[i - 1]], bx = xs[nodes[i]], by = ys[nodes[i]];
     const steps = Math.max(1, Math.round((Math.hypot(bx - ax, by - ay) * S) / spacing));
+    wide = widthOf(nodes[i - 1], nodes[i]);
     for (let k = 1; k <= steps; k++) add(ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps);
   }
-  return { path, metres: Math.round(metres) };
+  return { path, metres: Math.round(metres), widths, ...(leg ? { more: true } : {}) };
 }

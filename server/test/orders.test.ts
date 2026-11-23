@@ -7,7 +7,7 @@ import { latToY, lonToX, metersPerTile, xToLon, yToLat } from "../src/geo.ts";
 import type { Features } from "../src/osm.ts";
 import { GuestDirectory } from "../src/people.ts";
 import { Rooms, type Way } from "../src/rooms.ts";
-import { planRoute } from "../src/route.ts";
+import { laned, planRoute } from "../src/route.ts";
 import { deedsOf, persona, systemPrompt, Talker, wishFrom, type Ask, type Deed, type Wish } from "../src/talk.ts";
 
 type Msg = Record<string, any>;
@@ -127,6 +127,143 @@ test("the way by road: along the streets, round the corners, and only where ther
   assert.equal(await planRoute(aLat, aLon, ...at(4000, 300), load), null, "too far to look for a way");
   assert.equal(await planRoute(aLat, aLon, ...at(250, 1200), load), null, "nowhere near a road");
   assert.equal(await planRoute(aLat, aLon, bLat, bLon, async () => ({ ...features, roads: [] })), null, "no roads, no way");
+});
+
+test("the way by road: a car keeps to its own side of it, the left where the country drives on the left", async () => {
+  const { features, at } = grid(52.01, 4.71);
+  const x0 = lonToX(4.71), y0 = latToY(52.01), S = metersPerTile(y0);
+  // East along a street six metres wide, then north up another: a quarter of the width from the middle.
+  const route = (await planRoute(...at(5, 2), ...at(300, 200), async () => features))!;
+  const east = (p: number[]): number => (lonToX(p[1]) - x0) * S, north = (p: number[]): number => (y0 - latToY(p[0])) * S;
+  for (const [left, hand] of [[false, 1], [true, -1]] as const) {
+    const path = laned(route, left);
+    assert.equal(path.length, route.path.length, "a point for a point");
+    let along = 0, up = 0;
+    for (let i = 4; i < path.length - 4; i++) {
+      const mid = route.path[i], p = path[i];
+      const before = route.path[i - 4], after = route.path[i + 4];
+      const side = Math.hypot(east(p) - east(mid), north(p) - north(mid));
+      if (Math.abs(north(before) - north(after)) < 0.3) {
+        // Heading east: its right is the south.
+        assert.ok(Math.abs(north(p) - north(mid) + 1.5 * hand) < 0.25 && Math.abs(east(p) - east(mid)) < 0.25, `heading east, 1.5 m to the ${left ? "left" : "right"} (${(north(p) - north(mid)).toFixed(2)})`);
+        along++;
+      } else if (Math.abs(east(before) - east(after)) < 0.3) {
+        // Heading north: its right is the east.
+        assert.ok(Math.abs(east(p) - east(mid) - 1.5 * hand) < 0.25 && Math.abs(north(p) - north(mid)) < 0.25, `heading north, 1.5 m to the ${left ? "left" : "right"} (${(east(p) - east(mid)).toFixed(2)})`);
+        up++;
+      } else assert.ok(side > 1 && side < 1.7, `round a corner it stays on its side (${side.toFixed(2)} m)`);
+    }
+    assert.ok(along > 5 && up > 5, `both streets were driven (${along} points east, ${up} north, of ${path.length})`);
+  }
+  // A lane too narrow for two cars: it keeps clear of the kerb, which leaves it near the middle.
+  const narrow = laned({ path: route.path, metres: route.metres, widths: route.path.map(() => 3) }, false);
+  const off = Math.hypot(east(narrow[10]) - east(route.path[10]), north(narrow[10]) - north(route.path[10]));
+  assert.ok(off > 0.4 && off < 0.7, `on a narrow lane, ${off.toFixed(2)} m from the middle`);
+});
+
+test("the way by road: a long drive comes a leg at a time, each ending nearer the place", async () => {
+  const x0 = lonToX(4.71), y0 = latToY(52.01), S = metersPerTile(y0);
+  const at = (e: number, n: number): [number, number] => [yToLat(y0 - n / S), xToLon(x0 + e / S)];
+  // A main road six kilometres east, in pieces 100 m long, and a side street off its start that runs the other way.
+  const roads: Features["roads"] = [];
+  for (let k = 0; k < 60; k++) roads.push({ id: k + 1, cls: "road", width: 8, hw: "primary", pts: [[x0 + (k * 100) / S, y0], [x0 + ((k + 1) * 100) / S, y0]] });
+  const side = { id: 900, cls: "road" as const, width: 6, hw: "residential", pts: [[x0, y0], [x0 - 300 / S, y0]] as [number, number][] };
+  roads.push(side);
+  // Each data tile holds only the pieces that start in it, as the map does: a leg never sees the whole road.
+  const asked = new Set<string>();
+  const tiles = (all: Features["roads"]) => async (dx: number, dy: number): Promise<Features> => {
+    asked.add(`${dx}/${dy}`);
+    return { buildings: [], roads: all.filter((r) => Math.floor(r.pts[0][0]) >> 1 === dx && Math.floor(r.pts[0][1]) >> 1 === dy), areas: [], trees: [], addresses: [], coast: [] } as Features;
+  };
+  const load = tiles(roads);
+  const to = at(6000, 0);
+  const left = (p: number[]): number => Math.hypot((p[0] - to[0]) * 111_320, (p[1] - to[1]) * 111_320 * Math.cos((52.01 * Math.PI) / 180));
+  assert.equal(await planRoute(...at(5, 0), ...to, load), null, "not unless a long drive is asked for");
+  let from = at(5, 0), legs = 0, driven = 0;
+  for (;;) {
+    const leg = await planRoute(from[0], from[1], to[0], to[1], load, true);
+    assert.ok(leg, `leg ${legs + 1} was found`);
+    legs++;
+    driven += leg.metres;
+    const end = leg.path.at(-1)!;
+    if (!leg.more) { assert.ok(left(end) < 10, `the last leg ends at the place (${left(end).toFixed(0)} m off)`); break; }
+    assert.ok(left(from) - left(end) >= 400, `leg ${legs} ends ${(left(from) - left(end)).toFixed(0)} m nearer`);
+    assert.ok(leg.metres < 4000, `a leg is a few kilometres at most (${leg.metres} m)`);
+    assert.ok(legs < 8, "it gets there in a few legs");
+    from = end as [number, number];
+  }
+  assert.ok(legs >= 2 && legs <= 5, `two to five legs (${legs})`);
+  assert.ok(Math.abs(driven - 6000) < 60, `six kilometres driven in all (${driven} m)`);
+  assert.ok(asked.size < 30, `only the map along the way was wanted (${asked.size} tiles)`);
+  assert.equal(await planRoute(...at(5, 0), ...at(12_000, 0), load, true), null, "beyond ten kilometres nobody is driven");
+  assert.equal(await planRoute(...at(5, 0), ...to, tiles([side]), true), null, "roads that lead no nearer are no leg");
+});
+
+test("in a room: a long drive is sent a leg at a time, the next as the rider nears the end of each", async () => {
+  const talker = {
+    greet: () => ({ name: "Dot", text: "Toot.", ai: false }),
+    reply: async () => ({ name: "Dot", text: "Right you are.", ai: false, wish: { deed: "goto", place: "the lake" } as Wish }),
+  };
+  const lake = { lat: -36.25, lon: 174.8 };
+  const asked: string[] = [];
+  const wayTo = async (lat: number, lon: number, place: string, sp: string, at?: { lat: number; lon: number }): Promise<Way | null> => {
+    asked.push(`${lat.toFixed(3)},${lon.toFixed(3)}|${place}|${sp}|${at ? "known" : "looked up"}`);
+    if (!at) return { name: "The Lake", ...lake, path: [[-36.3, 174.8], [-36.285, 174.8]], more: true };
+    if (lat > -36.27) return null; // from the end of the second leg, no road goes on
+    // (The map for the second leg is slow to come: the first asking gets nothing.)
+    if (asked.filter((a) => a.startsWith("-36.285")).length < 2) return null;
+    return lat > -36.29 ? { name: place, ...lake, path: [[-36.285, 174.8], [-36.268, 174.8]], more: true } : null;
+  };
+  const rooms = new Rooms(new GuestDirectory(""), { talker, wayTo, placeName: async () => "Leigh", onwardAgainMs: 150 });
+  const server = createServer();
+  server.on("upgrade", (req, socket, head) => rooms.wss.handleUpgrade(req, socket, head, (ws) => rooms.wss.emit("connection", ws, req)));
+  await new Promise<void>((r) => server.listen(0, r));
+  const ws = new WebSocket(`ws://localhost:${(server.address() as AddressInfo).port}/v1/ws`);
+  const inbox: Msg[] = [];
+  ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
+  await new Promise<void>((r) => ws.on("open", () => r()));
+  const next = async (t: string, wait = 300): Promise<Msg | null> => {
+    for (let i = 0; i < wait; i++) {
+      const at = inbox.findIndex((m) => m.t === t);
+      if (at >= 0) return inbox.splice(at, 1)[0];
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return null;
+  };
+  const pos = (lat: number): void => ws.send(JSON.stringify({ t: "pos", lat, lon: 174.8, alt: 0, yaw: 0 }));
+  try {
+    ws.send(JSON.stringify({ t: "hello", name: "Mum", room: "family", avatar: "fox" }));
+    await next("welcome");
+    pos(-36.3);
+    ws.send(JSON.stringify({ t: "ride", thing: 77, sp: "car" }));
+    assert.ok(await next("ride"), "aboard");
+    ws.send(JSON.stringify({ t: "talk", thing: 77, sp: "car", text: "to the lake", lat: -36.3, lon: 174.8 }));
+    const first = (await next("order"))!;
+    assert.deepEqual([first.act, first.name, first.lat, first.more, first.onward, first.path.at(-1)], ["goto", "The Lake", -36.25, true, undefined, [-36.285, 174.8]], "the first leg, and word that there is more");
+
+    // Half way along the leg: nothing yet, though the next leg has been worked out ahead (at the second asking).
+    // Nearly at its end: the next leg, from where the first ends.
+    pos(-36.293);
+    assert.equal(await next("order", 40), null, "not before the end of the leg is near");
+    assert.deepEqual(asked.slice(1), ["-36.285,174.800|The Lake|car|known", "-36.285,174.800|The Lake|car|known"], "worked out ahead of time, and asked again when nothing came");
+    pos(-36.2875);
+    const second = (await next("order"))!;
+    assert.deepEqual([second.thing, second.name, second.lat, second.more, second.onward, second.path[0], second.path.at(-1)], [77, "The Lake", -36.25, true, true, [-36.285, 174.8], [-36.268, 174.8]], "the next leg, marked as carrying on");
+    pos(-36.2874);
+    assert.equal(await next("order", 40), null, "one leg at a time");
+
+    // The end of the second leg: no road goes on, so nothing is sent; it was asked for five times and no more.
+    pos(-36.2685);
+    assert.equal(await next("order", 60), null, "no road, no leg: the game does the rest itself");
+    await new Promise((r) => setTimeout(r, 900));
+    pos(-36.2684);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(asked.filter((a) => a.startsWith("-36.268")).length, 5, "and the way is not asked for for ever");
+  } finally {
+    ws.close();
+    rooms.close();
+    await new Promise((r) => server.close(r));
+  }
 });
 
 test("the way by road: it starts and ends on a street, not up a driveway, and a driveway is no short cut", async () => {

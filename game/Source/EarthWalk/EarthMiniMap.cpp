@@ -3,6 +3,7 @@
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "EarthCompany.h"
+#include "EarthFlight.h"
 #include "EarthGroundCover.h"
 #include "EarthLife.h"
 #include "EarthSky.h"
@@ -207,7 +208,14 @@ public:
 			{
 				continue;
 			}
-			const FVector2f At = Middle + Away * ((Reach - 11.f) / Most);
+			FVector2f At = Middle + Away * ((Reach - 11.f) / Most);
+			// Clear of the line along the foot of the map that names the place, and of the M in its corner.
+			const float FootLine = Edge + Side - (V.Going.IsEmpty() ? 0.f : 22.f);
+			At.Y = FMath::Min(At.Y, FootLine - 11.f);
+			if (At.Y > FootLine - 36.f && At.X < Edge + 36.f)
+			{
+				At.X = Edge + 36.f;
+			}
 			const FVector2f Along = Away.GetSafeNormal();
 			const FVector2f Across(-Along.Y, Along.X);
 			const TArray<FVector2f> Arrow = { At - Along * 5.f + Across * 6.f, At + Along * 5.f, At - Along * 5.f - Across * 6.f };
@@ -256,7 +264,7 @@ public:
 			FString Where = FString::Printf(TEXT("To %s"), *Name);
 			if (Goal)
 			{
-				Where += FString::Printf(TEXT("  ·  %s"), *Far(FMath::Sqrt(FMath::Square(Goal->X - V.MeX) + FMath::Square(Goal->Z - V.MeZ))));
+				Where += FString::Printf(TEXT("  ·  %s"), V.GoingFar >= 0.0 ? *EarthFlightSums::FarWords(V.GoingFar) : *Far(FMath::Sqrt(FMath::Square(Goal->X - V.MeX) + FMath::Square(Goal->Z - V.MeZ))));
 			}
 			Text(Layer + 16, FVector2f(Middle.X, Foot + 4.f), Where, Plain, Gold, 0);
 		}
@@ -591,6 +599,22 @@ void UEarthMiniMap::Frame(float DeltaSeconds)
 	if (const UEarthCompany* Company = Earth->GetCompany())
 	{
 		Company->MapMarks(View->Marks, View->Way, View->Going);
+	}
+	// Being flown somewhere: the place, on the map or pointed to from its edge, and how far is left.
+	View->GoingFar = -1.0;
+	double FlightX = 0.0, FlightZ = 0.0, FlightLeft = 0.0;
+	FString FlightName;
+	if (const UEarthFlight* Flight = Hud.IsValid() ? Hud->GetFlight() : nullptr; Flight && Flight->MapGoal(FlightX, FlightZ, FlightName, FlightLeft))
+	{
+		View->Marks.RemoveAll([](const FEarthMapMark& Mark) { return Mark.Kind == FEarthMapMark::EKind::Goal; });
+		FEarthMapMark& Mark = View->Marks.AddDefaulted_GetRef();
+		Mark.Kind = FEarthMapMark::EKind::Goal;
+		Mark.X = FlightX;
+		Mark.Z = FlightZ;
+		Mark.Label = FlightName;
+		View->Way.Reset();
+		View->Going = FlightName;
+		View->GoingFar = FlightLeft;
 	}
 
 	// -EWMapTripShot=<file>: a picture of the screen four seconds into being taken somewhere (or -EWMapTripShotAt=<seconds>), for tests: a trip starts when it starts.

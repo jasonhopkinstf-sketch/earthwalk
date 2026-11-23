@@ -45,6 +45,8 @@ struct FEarthOrder
 	double Until = 0.0; // when it lapses
 	FString Name;       // goto: the place
 	TArray<FVector2D> Path; // goto: the way there by road, as latitude and longitude
+	bool bMore = false;   // goto: a long drive, and Path is one leg of it: it ends on the way to the place, not at it
+	bool bOnward = false; // goto: the next leg of the drive already under way
 };
 
 /** A taxi on its way to whoever called it, or waiting for them (docs/PROTOCOL.md, "Taxis"). */

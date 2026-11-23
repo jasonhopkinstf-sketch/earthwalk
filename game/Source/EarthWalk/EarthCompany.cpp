@@ -45,7 +45,7 @@ namespace
 		{ TEXT("lion"), 9.0, 1.05, TEXT("lion"), 0.0, false },
 		{ TEXT("panda"), 3.0, 0.95, TEXT("panda"), 0.0, false },
 		{ TEXT("tortoise"), 0.6, 0.3, TEXT("tortoise"), 0.0, false },
-		{ TEXT("tractor"), 5.0, 1.35, TEXT("tractor"), 4.0, false, 9.0, 3.5, 3.2, 9.0, 2.3, 10.0 },
+		{ TEXT("tractor"), 5.0, 2.12, TEXT("tractor"), 4.0, false, 9.0, 3.5, 3.2, 9.0, 2.3, 10.0 },
 		{ TEXT("car"), 13.0, 1.5, TEXT("car"), 3.5, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 }, // up on the roof, where the view is not all bonnet
 		{ TEXT("taxi"), 13.0, 1.5, TEXT("taxi"), 4.0, false, 27.0, 7.0, 7.5, 17.0, 2.6, 7.0 },
 		{ TEXT("boat"), 2.5, 0.3, TEXT("rowing boat"), 4.0, true },
@@ -365,7 +365,13 @@ void UEarthCompany::MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutW
 		{
 			OutWay.Add(Trip.Path[K]);
 		}
-		Add(FEarthMapMark::EKind::Goal, Trip.Path.Last().X, Trip.Path.Last().Y, Trip.Name);
+		// (On a long drive the road is known a leg at a time: the place itself is marked, wherever the leg ends.)
+		double Gx = Trip.Path.Last().X, Gz = Trip.Path.Last().Y;
+		if (Trip.bMore)
+		{
+			GeoToScene(Trip.EndLat, Trip.EndLon, Gx, Gz);
+		}
+		Add(FEarthMapMark::EKind::Goal, Gx, Gz, Trip.Name);
 	}
 }
 
@@ -1147,6 +1153,36 @@ void UEarthCompany::SetOff(const FEarthOrder& Order)
 	GeoToScene(Order.Lat, Order.Lon, Tx, Tz);
 	const double Far = std::hypot(Tx - Px, Tz - Pz);
 	const bool bByRoad = Order.Path.Num() > 1;
+	if (Order.bOnward)
+	{
+		// The next leg of a long drive: it carries on from the last, for whoever is still being driven (not for
+		// somebody who has taken the wheel since).
+		if (!Trip.bOn || Trip.Thing != Order.Thing || !Trip.bMore || !bByRoad)
+		{
+			return;
+		}
+		Trip.Path.Reset();
+		for (const FVector2D& Point : Order.Path)
+		{
+			double X = 0.0, Z = 0.0;
+			GeoToScene(Point.X, Point.Y, X, Z);
+			Trip.Path.Add(FVector2D(X, Z));
+		}
+		Trip.I = 0;
+		for (int32 K = 1; K < Trip.Path.Num(); ++K)
+		{
+			if (std::hypot(Trip.Path[K].X - Px, Trip.Path[K].Y - Pz) < std::hypot(Trip.Path[Trip.I].X - Px, Trip.Path[Trip.I].Y - Pz))
+			{
+				Trip.I = K;
+			}
+		}
+		Trip.bMore = Order.bMore;
+		Trip.bHasBest = false;
+		Trip.Held = 0.0;
+		Trip.Hops = 0;
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: trip: the next leg to %s, %d points%s"), *Trip.Name, Trip.Path.Num(), Trip.bMore ? TEXT(", and more to come") : TEXT(", the last"));
+		return;
+	}
 	// A car keeps to roads, so without a way by road it jumps; an animal or a tractor can cut across country.
 	if (bByRoad || (Far <= CrossCountryM && !MineMount->bAfloat && Mine.Sp != TEXT("car") && Mine.Sp != TEXT("taxi")))
 	{
@@ -1157,6 +1193,7 @@ void UEarthCompany::SetOff(const FEarthOrder& Order)
 		Trip.Name = Order.Name;
 		Trip.EndLat = Order.Lat;
 		Trip.EndLon = Order.Lon;
+		Trip.bMore = bByRoad && Order.bMore;
 		if (bByRoad)
 		{
 			for (const FVector2D& Point : Order.Path)
@@ -1184,7 +1221,8 @@ void UEarthCompany::SetOff(const FEarthOrder& Order)
 	{
 		// Too far to go by road in this lifetime: one jump, and back on at the other end.
 		Notice(FString::Printf(TEXT("Off to %s!"), *Order.Name));
-		bRemount = true;
+		// (A taxi's ride is over once its fare gets out, and it is gone: there is nothing to get back on at the other end.)
+		bRemount = Order.Sp != TEXT("taxi");
 		RemountThing = Order.Thing;
 		RemountSp = Order.Sp;
 		Off();
@@ -1269,7 +1307,9 @@ void UEarthCompany::Steer(double Dt)
 	{
 		Trip.Held = 2.0;
 	}
-	if (Trip.Held > 1.5 && Trip.Path.Num() > 1 && Trip.Hops < 12)
+	// (Standing at the end of a leg of a long drive, the next not yet come: that is a wait, and nothing is in the way.)
+	const bool bLegEnd = Trip.bMore && Trip.I == Trip.Path.Num() - 1 && std::hypot(Ahead.X - Px, Ahead.Y - Pz) < ArrivedM;
+	if (Trip.Held > 1.5 && Trip.Path.Num() > 1 && Trip.Hops < 12 && !bLegEnd)
 	{
 		int32 J = Trip.I;
 		while (J < Trip.Path.Num() - 1 && std::hypot(Trip.Path[J].X - Px, Trip.Path[J].Y - Pz) < 10.0)
@@ -1295,7 +1335,7 @@ void UEarthCompany::Steer(double Dt)
 		const FTrip Was = Trip;
 		Trip.bOn = false;
 		Notice(FString::Printf(TEXT("The road gave out. Off to %s the quick way!"), *Was.Name));
-		bRemount = true;
+		bRemount = Was.Sp != TEXT("taxi");
 		RemountThing = Was.Thing;
 		RemountSp = Was.Sp;
 		Off();
@@ -1311,6 +1351,10 @@ void UEarthCompany::Steer(double Dt)
 	const double Dx = Aim.X - Px, Dz = Aim.Y - Pz;
 	const double Left = std::hypot(Dx, Dz);
 	const bool bLast = Trip.I == Trip.Path.Num() - 1;
+	if (bLast && Left < ArrivedM && Trip.bMore)
+	{
+		return; // the end of a leg: here it waits for the next, and after five seconds goes the quick way
+	}
 	if (bLast && Left < ArrivedM)
 	{
 		Trip.bOn = false;
@@ -1322,7 +1366,7 @@ void UEarthCompany::Steer(double Dt)
 		return;
 	}
 	// East and south in the browser's terms; north and east in the engine's.
-	Me->SetAutopilot(FVector2D(-Dz / Left, Dx / Left), Left < 20.0 && bLast ? 0.4 : 0.8);
+	Me->SetAutopilot(FVector2D(-Dz / Left, Dx / Left), Left < 20.0 && bLast && !Trip.bMore ? 0.4 : 0.8);
 	// Turn to face the way we are going, a little each frame, so the view follows the road.
 	if (PC)
 	{

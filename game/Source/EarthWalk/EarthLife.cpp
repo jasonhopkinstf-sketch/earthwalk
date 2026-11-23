@@ -154,9 +154,13 @@ AEarthLife::AEarthLife()
 
 AEarthLife::FLooks AEarthLife::LooksOf(uint32 Id)
 {
-	// One car in six is a van. Its paint and size come from its identity, so they are the same for everyone.
+	// A car's body, paint and size come from its identity, so they are the same for everyone. The bodies are
+	// the lots of liferigs.js (BODIES): mostly ordinary cars, and one in sixty a police car, an ambulance or a fire engine.
+	static const TCHAR* const Bodies[] = {
+#include "EarthLifeBodies.gen.inl"
+	};
 	FLooks Looks;
-	Looks.Rig = EarthRigs::Find(EarthLife::Hash32(Id, SaltPaint) % 6 == 0 ? TEXT("van") : TEXT("car"));
+	Looks.Rig = EarthRigs::Find(Bodies[EarthLife::Hash32(Id, SaltPaint) % UE_ARRAY_COUNT(Bodies)]);
 	Looks.Coat = Looks.Rig ? EarthLife::Hash32(Id, SaltPaint + 1) % Looks.Rig->Coats.Num() : 0;
 	Looks.Size = 0.94 + 0.12 * EarthLife::Unit(Id, SaltPaint + 2);
 	return Looks;

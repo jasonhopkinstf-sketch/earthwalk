@@ -613,6 +613,32 @@ void UEarthFlight::LowPart(double Dt)
 	}
 }
 
+bool UEarthFlight::MapGoal(double& X, double& Z, FString& OutName, double& OutLeft) const
+{
+	if (!bOn)
+	{
+		return false;
+	}
+	OutName = EarthFlightSums::ShortName(Name);
+	OutLeft = Left;
+	if (Going.bLow)
+	{
+		X = AimX;
+		Z = AimZ;
+	}
+	else if (Part == EPart::Up)
+	{
+		X = EndX; // the world's origin is still where the flight set off from
+		Z = EndZ;
+	}
+	else
+	{
+		X = bLand ? Land.X : 0.0; // the origin has moved to the place
+		Z = bLand ? Land.Z : 0.0;
+	}
+	return true;
+}
+
 void UEarthFlight::UpPart()
 {
 	const double U = FMath::Clamp(T / Going.Up, 0.0, 1.0);

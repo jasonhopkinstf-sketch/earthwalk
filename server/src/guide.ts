@@ -17,7 +17,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { CHUNK_Z, latToY, lonToX, xToLon, yToLat } from "./geo.ts";
 import type { Place, PlaceDetail } from "./geocode.ts";
 import type { LabelsJson } from "./labels.ts";
-import { ROUTE_MAX_M, type Route } from "./route.ts";
+import { ROUTE_FAR_M, ROUTE_MAX_M, type Route } from "./route.ts";
 import type { Show } from "./showcase.ts";
 import { aKind, deedsOf, TALKABLE } from "./talk.ts";
 
@@ -295,7 +295,8 @@ function advice(place: GuidePlace & { noRoad?: boolean }, go: GuideGo[], riding:
   if (place.metres < 30) return "You are right beside it.";
   const acts = go.map((g) => g.act);
   if (acts.includes("take")) return `Your ${kindWord(riding ?? "horse")} can take you there.`;
-  if (acts.includes("taxi")) return typeof place.road === "number" ? "A taxi can drive you there." : place.metres > ROUTE_MAX_M ? "That is too far to drive along the roads, but a taxi can still take you, or you can go there now." : "A taxi can take you there.";
+  if (acts.includes("taxi")) return typeof place.road === "number" ? "A taxi can drive you there." : place.metres > ROUTE_FAR_M ? "That is too far to drive along the roads, but a taxi can still take you, or you can go there now."
+    : place.metres > ROUTE_MAX_M ? "That is a long drive: a taxi takes you along the roads as far as they go, or you can go there now." : "A taxi can take you there.";
   if (acts.includes("jump")) return "That is too far to walk or drive: you can go there now, in one jump.";
   return "You can walk there from here.";
 }
@@ -444,7 +445,8 @@ How to answer:
 function roadFact(p: { metres: number; road?: number; noRoad?: boolean }): string {
   if (typeof p.road === "number") return `; by road it is ${far(p.road)}, and a taxi or a ride can drive there`;
   if (p.noRoad) return "; no road was found that goes all the way there";
-  if (p.metres > ROUTE_MAX_M) return "; too far to drive along the roads (more than 2.5 km), so a taxi or a ride jumps there";
+  if (p.metres > ROUTE_FAR_M) return "; too far to drive along the roads (more than 10 km), so a taxi or a ride jumps there";
+  if (p.metres > ROUTE_MAX_M) return "; a long drive: a taxi or a ride follows the roads as far as they go towards it, and jumps the rest if they give out";
   return "";
 }
 

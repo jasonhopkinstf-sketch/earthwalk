@@ -59,7 +59,7 @@ export const ACTIONS = [
   row("login", "Me", "Sign in with Google", "Keeps your passport, coins and home.", "", "login"),
   row("myhouse", "Me", "My house", "Inside a house nobody lives in, makes it yours. Inside your own, the furniture, paint and garden. Anywhere else, takes you home.", "H"),
   row("lunch", "Me", "My lunch box", "Your five hearts and the food you carry. Beside a real shop or café, what it sells.", "B"),
-  own("invite", "Me", "Invite somebody", "Copies a link to send to them: it brings them into your room.", "", "invite"),
+  row("invite", "Me", "Invite somebody", "Copies a link to send to them: it brings them into your room.", "", "invite"),
 
   row("look", "The game", "Switch the look", "Between the painted look and the flat cartoon look."),
   row("sound", "The game", "Sounds on, or off", "The animals' voices, car horns and train whistles."),

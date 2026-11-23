@@ -1428,3 +1428,141 @@
 		{ EEarthShape::Box, 0xf3ecd9, { 0.0, 1.33, 0.25 }, { 0.62, 0.2, 0.26 }, EEarthRole::None, 0.0 },
 	};
 }
+{
+	FEarthRig& R = Add(TEXT("hatch"), true);
+	R.Coats = { { 0xd94a3a, 0xbfe0ee }, { 0x3f7fd0, 0xbfe0ee }, { 0xf2c94c, 0xbfe0ee }, { 0x4caf6a, 0xbfe0ee }, { 0xf4f1ea, 0xbfe0ee }, { 0x8f9aa6, 0xbfe0ee }, { 0xf08a3c, 0xbfe0ee }, { 0x2f8f8a, 0xbfe0ee }, { 0x7a4f9a, 0xbfe0ee }, { 0x2f3b55, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.52, 0.0 }, { 1.7, 0.5, 3.9 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.98, 0.25 }, { 1.5, 0.46, 2.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.54, 0.3, 1.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.3, 0.3, 2.04 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, -1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, 1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("suv"), true);
+	R.Coats = { { 0xd94a3a, 0xbfe0ee }, { 0x3f7fd0, 0xbfe0ee }, { 0xf2c94c, 0xbfe0ee }, { 0x4caf6a, 0xbfe0ee }, { 0xf4f1ea, 0xbfe0ee }, { 0x8f9aa6, 0xbfe0ee }, { 0xf08a3c, 0xbfe0ee }, { 0x2f8f8a, 0xbfe0ee }, { 0x7a4f9a, 0xbfe0ee }, { 0x2f3b55, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 1.15, 0.45 }, { 1.85, 1.6, 3.4 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.8, -1.75 }, { 1.85, 0.9, 1.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -1.3 }, { 1.7, 0.55, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -0.95 }, { 1.89, 0.5, 0.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.38, -2.27 }, { 1.75, 0.14, 0.08 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("pickup"), true);
+	R.Coats = { { 0xd94a3a, 0xbfe0ee }, { 0x3f7fd0, 0xbfe0ee }, { 0xf2c94c, 0xbfe0ee }, { 0x4caf6a, 0xbfe0ee }, { 0xf4f1ea, 0xbfe0ee }, { 0x8f9aa6, 0xbfe0ee }, { 0xf08a3c, 0xbfe0ee }, { 0x2f8f8a, 0xbfe0ee }, { 0x7a4f9a, 0xbfe0ee }, { 0x2f3b55, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.52, 0.0 }, { 1.7, 0.5, 3.9 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.98, 0.25 }, { 1.5, 0.46, 2.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.54, 0.3, 1.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.3, 0.3, 2.04 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, -1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, 1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("delivery"), true);
+	R.Coats = { { 0xd94a3a, 0xbfe0ee }, { 0x3f7fd0, 0xbfe0ee }, { 0xf2c94c, 0xbfe0ee }, { 0x4caf6a, 0xbfe0ee }, { 0xf4f1ea, 0xbfe0ee }, { 0x8f9aa6, 0xbfe0ee }, { 0xf08a3c, 0xbfe0ee }, { 0x2f8f8a, 0xbfe0ee }, { 0x7a4f9a, 0xbfe0ee }, { 0x2f3b55, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 1.15, 0.45 }, { 1.85, 1.6, 3.4 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.8, -1.75 }, { 1.85, 0.9, 1.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -1.3 }, { 1.7, 0.55, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -0.95 }, { 1.89, 0.5, 0.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.38, -2.27 }, { 1.75, 0.14, 0.08 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("police"), true);
+	R.Coats = { { 0xf4f1ea, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.52, 0.0 }, { 1.7, 0.5, 3.9 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.98, 0.25 }, { 1.5, 0.46, 2.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.54, 0.3, 1.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.0, 0.25 }, { 1.3, 0.3, 2.04 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, -1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.82, 0.33, 1.2 }, { 0.14, 0.33, 0.33 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.6, 0.6, -1.95 }, { 0.14, 0.1, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.6, 0.6, 1.95 }, { 0.14, 0.08, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, -1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.32, 1.97 }, { 1.6, 0.12, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x2f5fa8, { 0.0, 1.3, 0.25 }, { 0.9, 0.14, 0.26 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("ambulance"), true);
+	R.Coats = { { 0xf4f1ea, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 1.15, 0.45 }, { 1.85, 1.6, 3.4 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.8, -1.75 }, { 1.85, 0.9, 1.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -1.3 }, { 1.7, 0.55, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -0.95 }, { 1.89, 0.5, 0.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.38, -2.27 }, { 1.75, 0.14, 0.08 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0xd23a2e, { 0.0, 2.0, 0.45 }, { 0.5, 0.14, 0.3 }, EEarthRole::None, 0.0 },
+	};
+}
+{
+	FEarthRig& R = Add(TEXT("firetruck"), true);
+	R.Coats = { { 0xd0382e, 0xbfe0ee } };
+	R.Parts = {
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 1.15, 0.45 }, { 1.85, 1.6, 3.4 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatA, { 0.0, 0.8, -1.75 }, { 1.85, 0.9, 1.0 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -1.3 }, { 1.7, 0.55, 0.14 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, FEarthRigPart::CoatB, { 0.0, 1.45, -0.95 }, { 1.89, 0.5, 0.7 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, -1.5 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { -0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0x2a2b2e, { 0.9, 0.36, 1.4 }, { 0.14, 0.36, 0.36 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { -0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xf3ecd9, { 0.65, 0.75, -2.25 }, { 0.15, 0.11, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { -0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Sphere, 0xd23a2e, { 0.7, 0.8, 2.15 }, { 0.12, 0.14, 0.05 }, EEarthRole::None, 0.0 },
+		{ EEarthShape::Box, 0x55595e, { 0.0, 0.38, -2.27 }, { 1.75, 0.14, 0.08 }, EEarthRole::None, 0.0 },
+	};
+}

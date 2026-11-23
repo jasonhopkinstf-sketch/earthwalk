@@ -893,6 +893,8 @@ namespace
 		Out.bHasAt = Json.TryGetNumberField(TEXT("lat"), Out.Lat) && Json.TryGetNumberField(TEXT("lon"), Out.Lon);
 		Json.TryGetNumberField(TEXT("at"), Out.At);
 		Json.TryGetNumberField(TEXT("until"), Out.Until);
+		Json.TryGetBoolField(TEXT("more"), Out.bMore);
+		Json.TryGetBoolField(TEXT("onward"), Out.bOnward);
 		const TArray<TSharedPtr<FJsonValue>>* To = nullptr;
 		if (Json.TryGetArrayField(TEXT("to"), To) && To->Num() >= 2 && (*To)[0].IsValid() && (*To)[1].IsValid())
 		{

@@ -24,6 +24,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/PlayerController.h"
 #include "GenericPlatform/GenericPlatformHttp.h"
+#include "HAL/PlatformApplicationMisc.h"
 #include "HttpModule.h"
 #include "InputCoreTypes.h"
 #include "Misc/CommandLine.h"
@@ -3394,6 +3395,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/login   sign in with Google (opens your browser)        /logout   forget this sign-in"), NoticeColor);
 		AddLine(TEXT("/home   make where you stand your home (or /home <place>); you start there next time"), NoticeColor);
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
+		AddLine(TEXT("/invite   copy a link to send to someone: it brings them into your room, in their browser"), NoticeColor);
 		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
 		AddLine(TEXT("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look"), NoticeColor);
 		AddLine(TEXT("/world auto   ours on foot, Google's photographic 3D world from the air (needs /mapskey <key>)"), NoticeColor);
@@ -3457,6 +3459,27 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		{
 			Net->BeginLogin();
 		}
+	}
+	else if (Command == TEXT("invite"))
+	{
+		// A link that brings whoever opens it into this room, in the browser game: copied, to paste into a message.
+		// It carries the access code, as it must; the chat window shows it without, for whoever is looking on.
+		FString Link = FEarthWalkConfig::ServerUrl();
+		while (Link.EndsWith(TEXT("/")))
+		{
+			Link.LeftChopInline(1);
+		}
+		const FString RoomNow = Net && !Net->GetRoom().IsEmpty() ? Net->GetRoom() : FEarthWalkConfig::Room();
+		Link += FString::Printf(TEXT("/?room=%s"), *FGenericPlatformHttp::UrlEncode(RoomNow));
+		const FString Shown = Link;
+		const FString Code = FEarthWalkConfig::SharedCode();
+		if (!Code.IsEmpty())
+		{
+			Link += FString::Printf(TEXT("&code=%s"), *FGenericPlatformHttp::UrlEncode(Code));
+		}
+		FPlatformApplicationMisc::ClipboardCopy(*Link);
+		AddLine(FString::Printf(TEXT("Invite link copied: %s%s. Paste it into a message to somebody: it brings them into your room, in their browser."),
+			*Shown, Code.IsEmpty() ? TEXT("") : TEXT(" (and the access code, not shown here)")), NoticeColor);
 	}
 	else if (Command == TEXT("logout"))
 	{

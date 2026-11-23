@@ -7,7 +7,7 @@
 
 import * as THREE from "three";
 import { hash32 } from "./lifemotion.js";
-import { VEHICLES } from "./liferigs.js";
+import { BODIES, VEHICLES } from "./liferigs.js";
 import { headingAt, liftAt, pointAt, prepare, stopsAlong, trainPose, tripPose } from "./trafficmotion.js";
 
 const SHOW_M = 220;
@@ -28,10 +28,10 @@ function turn(from, to) {
   if (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
-/** One car in six is a van. Its paint and size come from its identity, so they are the same for everyone. */
+/** A car's body (liferigs.js, BODIES), paint and size come from its identity, so they are the same for everyone. */
 function looks(id, sp = "car") {
   if (sp === "taxi") return { rig: VEHICLES.taxi, coat: VEHICLES.taxi.palette[0], size: 1 };
-  const rig = VEHICLES[hash32(id, SALT_PAINT) % 6 === 0 ? "van" : "car"];
+  const rig = VEHICLES[BODIES[hash32(id, SALT_PAINT) % BODIES.length]];
   return { rig, coat: rig.palette[hash32(id, SALT_PAINT + 1) % rig.palette.length], size: 0.94 + 0.12 * unit(id, SALT_PAINT + 2) };
 }
 

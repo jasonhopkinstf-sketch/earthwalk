@@ -62,6 +62,7 @@ namespace
 		{ TEXT("login"), TEXT("Me"), TEXT("Sign in with Google"), TEXT("Opens your browser. Keeps your passport, coins and home."), TEXT(""), TEXT("login"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("myhouse"), TEXT("Me"), TEXT("My house"), TEXT("Inside a house nobody lives in, makes it yours. Inside your own, the furniture, paint and garden. Anywhere else, takes you home."), TEXT("H"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("lunch"), TEXT("Me"), TEXT("My lunch box"), TEXT("Your five hearts and the food you carry. Beside a real shop or café, what it sells."), TEXT("B"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("invite"), TEXT("Me"), TEXT("Invite somebody"), TEXT("Copies a link to send to them: it brings them into your room."), TEXT(""), TEXT("invite"), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("look"), TEXT("The game"), TEXT("Switch the look"), TEXT("Between the painted look and the flat cartoon look."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("sound"), TEXT("The game"), TEXT("Sounds on, or off"), TEXT("The animals' voices, car horns and train whistles."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },

@@ -81,8 +81,14 @@ interface Member {
   guideTurns: [string, string][];
   /** When they last had their ride take them to the place of an answer. */
   guideTakeAt: number;
+  /**
+   * A long drive they are on: the thing driving them, the place, where the leg they were last sent ends,
+   * the leg after it once that has been worked out, and how many times it has been asked for.
+   */
+  onward: Onward | null;
 }
 interface Ride { thing: number; sp: string; seat: number }
+interface Onward { thing: number; sp: string; name: string; lat: number; lon: number; endLat: number; endLon: number; next: Way | null; tries: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
 interface Left { thing: number; sp: string; lat: number; lon: number; alt: number; yaw: number; until: number }
 /**
@@ -96,7 +102,20 @@ interface ChatLine { id: string; name: string; text: string; ts: number }
 interface OwnCar { id: string; thing: number; body: string; paint: number; lat: number; lon: number; yaw: number }
 interface Room { members: Map<string, Member>; history: ChatLine[]; left: Map<number, Left>; orders: Map<number, Order>; taxis: Map<number, Taxi>; cars: Map<string, OwnCar>; race: Race | null; raceMaking: boolean; play: Play | null }
 /** Where a named place is, and the way there by road when there is one. */
-export interface Way { name: string; lat: number; lon: number; path?: [number, number][] }
+export interface Way {
+  name: string; lat: number; lon: number; path?: [number, number][];
+  /** A long drive: `path` is only its first leg, and ends on the way to the place. */
+  more?: boolean;
+}
+/** A rider nearer than this to the end of a leg of a long drive is sent the next leg. */
+const ONWARD_NEAR_M = 400;
+/**
+ * The next leg is worked out as soon as a leg is sent, not when it is wanted: the map for it may have
+ * to be downloaded first. An asking that comes to nothing is tried again this many times, this far
+ * apart, since what was being downloaded has often come by then.
+ */
+const ONWARD_TRIES = 5;
+const ONWARD_AGAIN_MS = 6000;
 /** A taxi somebody called: where it is coming from (`path`, ending beside them), where it will take them, and who is aboard. */
 interface Taxi { thing: number; by: string; name: string; path: [number, number][]; at: number; until: number; dest: Way; aboard: string | null; remarks: number; nextRemark: number }
 /** What `cab` finds for a caller: where they want to go, and the road the taxi comes along. */
@@ -181,6 +200,8 @@ export interface RoomsOptions {
   taxiRemarkMs?: [number, number];
   /** Finds a place a rider has asked to be taken to, near where they are, with the way there by road if it is close. */
   wayTo?: (lat: number, lon: number, place: string, sp: string, at?: Spot) => Promise<Way | null>;
+  /** How long before the next leg of a long drive is asked for again when it could not be found. For tests. */
+  onwardAgainMs?: number;
   /** Answers questions about where a player is and how to get somewhere (guide.ts). Without one, nobody is there to ask. */
   guide?: { hello(): GuideAnswer; answer(asker: Asker, question: string): Promise<GuideAnswer> };
   /** Makes a race course along the roads near a position (race.ts). Without it there are no races. */
@@ -339,7 +360,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0, lesson: null, trickAt: 0, guideLast: null, guideTurns: [], guideTakeAt: 0,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0, lesson: null, trickAt: 0, guideLast: null, guideTurns: [], guideTakeAt: 0, onward: null,
         };
         clearTimeout(helloTimer);
         send({
@@ -387,6 +408,8 @@ export class Rooms {
           this.journal?.moved(me.id, me.lat, me.lon);
           this.options.moved?.(me.id, me.lat, me.lon);
         }
+        // On a long drive, and nearly at the end of the leg they were sent: the next one.
+        if (me.onward) this.carryOn(me);
         // In a race, this may take them through their next gate, or over the line.
         const race = room?.race;
         if (race && room) {
@@ -432,8 +455,7 @@ export class Rooms {
           // `ride` above: their game must know it is aboard before it is told where to drive.)
           taxi.aboard = me.id;
           taxi.nextRemark = Date.now() + (this.options.taxiRemarkMs?.[0] ?? 9000);
-          const way = taxi.dest;
-          send({ t: "order", thing, sp, act: "goto", name: way.name, lat: +way.lat.toFixed(7), lon: +way.lon.toFixed(7), ...(way.path ? { path: way.path } : {}) });
+          this.sendWay(me, thing, sp, taxi.dest);
         }
       } else if (msg.t === "talk" && room) {
         // Say hello to a thing (no `text`), or say something to it. Everyone nearby hears the answer.
@@ -523,7 +545,7 @@ export class Rooms {
           if (!way) { send({ t: "error", code: "nowhere", text: `No way to ${name} could be found` }); return; }
           // The ride says so, for everyone near to hear, as when it is told itself ("Doing as asked").
           this.hear(room, me, { t: "say", thing: reins.thing, sp: reins.sp, name: persona(reins.thing, reins.sp).name, text: doingLine({ deed: "goto", place: name }, hash32(reins.thing, now & 0x7fffffff)), by: me.id, lat: +me.lat.toFixed(7), lon: +me.lon.toFixed(7) });
-          send({ t: "order", thing: reins.thing, sp: reins.sp, act: "goto", name: way.name, lat: +way.lat.toFixed(7), lon: +way.lon.toFixed(7), ...(way.path ? { path: way.path } : {}) });
+          this.sendWay(me, reins.thing, reins.sp, way);
           return;
         }
         // Questions share the pace of talking to things: each may cost a lookup, and with the AI a little money.
@@ -913,6 +935,48 @@ export class Rooms {
   }
 
   /**
+   * Tells a rider's game to carry them to a place: by the road it is given, or in one jump when it is
+   * given none. A long drive is sent a leg at a time (`more`: the road ends on the way there), and the
+   * next leg follows as they near the end of each (carryOn), marked `onward`.
+   */
+  private sendWay(m: Member, thing: number, sp: string, way: Way, onward = false): void {
+    const end = way.more && way.path?.length ? way.path[way.path.length - 1] : null;
+    m.onward = end ? { thing, sp, name: way.name, lat: way.lat, lon: way.lon, endLat: end[0], endLon: end[1], next: null, tries: 0 } : null;
+    if (m.onward) this.lookAhead(m, m.onward);
+    if (m.ws.readyState !== m.ws.OPEN) return;
+    m.ws.send(JSON.stringify({
+      t: "order", thing, sp, act: "goto", name: way.name, lat: +way.lat.toFixed(7), lon: +way.lon.toFixed(7),
+      ...(way.path ? { path: way.path } : {}), ...(end ? { more: true } : {}), ...(onward ? { onward: true } : {}),
+    }));
+  }
+
+  /** On a long drive: works out the leg after the one just sent, from where that one ends, and keeps it until it is wanted. */
+  private lookAhead(m: Member, o: Onward): void {
+    if (!this.options.wayTo) return;
+    void this.options.wayTo(o.endLat, o.endLon, o.name, o.sp, { lat: o.lat, lon: o.lon }).catch(() => null).then((way) => {
+      if (m.onward !== o || m.ws.readyState !== m.ws.OPEN) return; // told to go somewhere else, got off or left, meanwhile
+      if (way?.path) {
+        o.next = way;
+        this.carryOn(m); // they may be at the end of the leg already, waiting
+      } else if (++o.tries < ONWARD_TRIES) {
+        // No road, or a map that was slow to come: once more in a while. When it never comes, their game
+        // waits at the end of the leg a moment and does the rest in one jump.
+        setTimeout(() => { if (m.onward === o) this.lookAhead(m, o); }, this.options.onwardAgainMs ?? ONWARD_AGAIN_MS).unref();
+      }
+    });
+  }
+
+  /** On a long drive: once the rider is nearly at the end of the leg they were sent, sends the next. */
+  private carryOn(m: Member): void {
+    const o = m.onward;
+    if (!o) return;
+    if (!m.ride || m.ride.thing !== o.thing || m.ride.seat !== 0) { m.onward = null; return; }
+    if (!o.next) return;
+    const near = Math.hypot((m.lat - o.endLat) * 111_320, (m.lon - o.endLon) * 111_320 * Math.cos((m.lat * Math.PI) / 180));
+    if (near <= ONWARD_NEAR_M) this.sendWay(m, o.thing, o.sp, { ...o.next, name: o.name }, true);
+  }
+
+  /**
    * Takes a member off whatever they are riding and tells the room. When the driver gets off, the
    * passengers get off too, and the thing stays where it is for a minute (a train just carries on).
    */
@@ -920,6 +984,7 @@ export class Rooms {
     const ride = m.ride;
     if (!ride) return;
     m.ride = null;
+    m.onward = null;
     this.journal?.rode(m.id, null);
     this.broadcast(room, { t: "ride", id: m.id });
     if (ride.seat !== 0 || ride.sp === "train") return;
@@ -1098,7 +1163,7 @@ export class Rooms {
       const send = (obj: unknown): void => { if (m.ws.readyState === m.ws.OPEN) m.ws.send(JSON.stringify(obj)); };
       const way = this.options.wayTo && wish.place ? await this.options.wayTo(m.lat, m.lon, wish.place, sp).catch(() => null) : null;
       if (!way) return send({ t: "error", code: "nowhere", text: `${said.name} could not find "${wish.place ?? "that place"}"` });
-      return send({ t: "order", thing, sp, act: "goto", name: way.name, lat: round(way.lat), lon: round(way.lon), ...(way.path ? { path: way.path } : {}) });
+      return this.sendWay(m, thing, sp, way);
     }
     for (const [id, o] of room.orders) {
       if (o.until > now) continue;

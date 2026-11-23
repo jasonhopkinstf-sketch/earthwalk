@@ -78,6 +78,12 @@ public:
 	const FString& GetHead() const { return Head; }
 	const FString& GetSub() const { return Sub; }
 	FString GetHint() const { return bOn ? FString(TEXT("Esc takes over   ·   V looks from above")) : FString(); }
+	/**
+	 * For the little map: where the flight ends, in the scene (metres east and south of the world's origin), the
+	 * place's name and how far there is still to go. While a high flight climbs out the place is far off the map,
+	 * and is pointed to from its edge. False when nobody is being flown.
+	 */
+	bool MapGoal(double& X, double& Z, FString& OutName, double& OutLeft) const;
 
 private:
 	enum class EPart : uint8 { Low, Up, Over, Wait, Down, Settle };

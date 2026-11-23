@@ -73,17 +73,30 @@ export class Orders {
     const target = this.world.geoToScene(o.lat, o.lon);
     const far = Math.hypot(target.x - p.position.x, target.z - p.position.z);
     const path = Array.isArray(o.path) && o.path.length > 1 ? o.path.map(([lat, lon]) => this.world.geoToScene(lat, lon)) : null;
+    const nearest = (pts) => {
+      let i = 0;
+      for (let k = 1; k < pts.length; k++) if (Math.hypot(pts[k].x - p.position.x, pts[k].z - p.position.z) < Math.hypot(pts[i].x - p.position.x, pts[i].z - p.position.z)) i = k;
+      return i;
+    };
+    if (o.onward) {
+      // The next leg of a long drive: it carries on from the last, for whoever is still being driven (not for
+      // somebody who has taken the wheel since).
+      const trip = this.trip;
+      if (!trip || trip.thing !== o.thing || !trip.more || !path) return;
+      Object.assign(trip, { path, i: nearest(path), more: !!o.more, best: undefined, held: 0 });
+      return;
+    }
     // A car keeps to roads, so without a way by road it jumps; an animal or a tractor can cut across country.
     if (path || (far <= CROSS_COUNTRY_M && !mine.mount.afloat && mine.sp !== "car" && mine.sp !== "taxi")) {
       // Join the way at its nearest point: whoever boards a taxi before it has pulled up is not driven back to where they called it.
-      let i = 0;
-      if (path) for (let k = 1; k < path.length; k++) if (Math.hypot(path[k].x - p.position.x, path[k].z - p.position.z) < Math.hypot(path[i].x - p.position.x, path[i].z - p.position.z)) i = k;
-      this.trip = { thing: o.thing, sp: o.sp, name: o.name, path: path ?? [target], i, end: { lat: o.lat, lon: o.lon } };
+      // (`more`: a long drive, of which this is the first leg; the server sends the next as its end comes near.)
+      this.trip = { thing: o.thing, sp: o.sp, name: o.name, path: path ?? [target], i: path ? nearest(path) : 0, end: { lat: o.lat, lon: o.lon }, more: !!(path && o.more) };
       this.say(`${path ? "Driving" : "Riding"} to ${o.name}. Steer (WASD) to take over.`);
     } else {
       // Too far to go by road in this lifetime: one jump, and back on at the other end.
       this.say(`Off to ${o.name}!`);
-      this.remount = { thing: o.thing, sp: o.sp };
+      // (A taxi's ride is over once its fare gets out, and it is gone: there is nothing to get back on at the other end.)
+      this.remount = o.sp === "taxi" ? null : { thing: o.thing, sp: o.sp };
       this.riding.off();
       p.travelTo(o.lat, o.lon);
     }
@@ -119,7 +132,7 @@ export class Orders {
     if (trip.held > 5 && trip.end) {
       this.trip = null;
       this.say(`The road gave out. Off to ${trip.name} the quick way!`);
-      this.remount = { thing: trip.thing, sp: trip.sp };
+      this.remount = trip.sp === "taxi" ? null : { thing: trip.thing, sp: trip.sp };
       this.riding.off();
       p.travelTo(trip.end.lat, trip.end.lon);
       return;
@@ -129,12 +142,14 @@ export class Orders {
     const aim = trip.path[trip.i];
     const dx = aim.x - p.position.x, dz = aim.z - p.position.z;
     const left = Math.hypot(dx, dz);
+    // (The end of a leg of a long drive, and the next has not come: it waits here, and after five seconds goes the quick way.)
+    if (trip.more && trip.i === trip.path.length - 1 && left < ARRIVED_M) return;
     if (trip.i === trip.path.length - 1 && left < ARRIVED_M) {
       this.trip = null;
       this.say(`Here we are: ${trip.name}.`);
       return;
     }
-    p.autopilot = { dx: dx / left, dz: dz / left, pace: left < 20 && trip.i === trip.path.length - 1 ? 0.4 : 0.8 };
+    p.autopilot = { dx: dx / left, dz: dz / left, pace: left < 20 && trip.i === trip.path.length - 1 && !trip.more ? 0.4 : 0.8 };
     // Turn to face the way we are going, a little each frame, so the view follows the road.
     const want = Math.atan2(dx, -dz);
     const turn = ((want - p.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;

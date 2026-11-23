@@ -785,3 +785,21 @@ VEHICLES.taxi = {
     ["box", CREAM, [0, 1.33, 0.25], [0.62, 0.2, 0.26]],
   ],
 };
+// More bodies for the cars of the streets. Each is drawn from a ready-made model (models.gen.js); the
+// shapes here only stand in for it where the models are turned off.
+VEHICLES.hatch = { coats: PAINTS, parts: VEHICLES.car.parts };
+VEHICLES.suv = { coats: PAINTS, parts: VEHICLES.van.parts };
+VEHICLES.pickup = { coats: PAINTS, parts: VEHICLES.car.parts };
+VEHICLES.delivery = { coats: PAINTS, parts: VEHICLES.van.parts };
+VEHICLES.police = { coats: [[WHITE, GLASS]], parts: [...VEHICLES.car.parts, ["box", 0x2f5fa8, [0, 1.3, 0.25], [0.9, 0.14, 0.26]]] };
+VEHICLES.ambulance = { coats: [[WHITE, GLASS]], parts: [...VEHICLES.van.parts, ["box", RED, [0, 2.0, 0.45], [0.5, 0.14, 0.3]]] };
+VEHICLES.firetruck = { coats: [[0xd0382e, GLASS]], parts: VEHICLES.van.parts };
+/**
+ * Which body each car of the streets has: sixty lots, and a car's is lot hash32(id, salt) % 60 in both
+ * games, so everybody sees the same car as the same thing. Mostly ordinary cars; one in sixty is a
+ * police car, an ambulance or a fire engine.
+ */
+export const BODIES = [
+  ...Array(24).fill("car"), ...Array(8).fill("hatch"), ...Array(8).fill("suv"), ...Array(7).fill("van"), ...Array(6).fill("pickup"),
+  ...Array(4).fill("delivery"), "police", "ambulance", "firetruck",
+];

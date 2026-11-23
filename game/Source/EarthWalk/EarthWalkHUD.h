@@ -92,6 +92,8 @@ public:
 	void GuideAsk(const FString& Question);
 	/** One of the buttons under the guide's answer that start the trip: take me there, call a taxi, go there now, show me. */
 	void GuideGo(int32 Index);
+	/** Being flown somewhere, for the little map; null before the world is up. */
+	const UEarthFlight* GetFlight() const { return Flight; }
 
 private:
 

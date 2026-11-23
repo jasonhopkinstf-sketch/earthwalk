@@ -47,6 +47,7 @@ struct FEarthMapView
 	TArray<FEarthMapMark> Marks;
 	TArray<FVector2D> Way; // the road to where the player is being taken, from where they are
 	FString Going;         // the name of that place; empty when going nowhere
+	double GoingFar = -1.0; // how far it is, when that is not the distance on the map (a flight across the world); below 0, measured on the map
 };
 
 /**

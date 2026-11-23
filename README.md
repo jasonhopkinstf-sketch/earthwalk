@@ -131,7 +131,7 @@ Chat commands:
 | `/who` | List who is in your room and, when signed in, everyone with an account: online or not, which room, and where on Earth |
 | `/login`, `/logout` | Sign in with Google (the game opens your browser; the browser version has a button on its join screen) and forget the sign-in |
 | `/home`, `/home <place>` | Signed in only: make where you stand (or a place) your home. You start there next time, on any device |
-| `/invite` | Browser only: copy a link that lets someone join your room |
+| `/invite` | Copy a link that lets someone join your room, in their browser. Both games; "Invite somebody" in the Tab menu. The link carries the access code when the server has one, and the Windows game's chat window shows it without |
 | `/name`, `/animal`, `/room` | Set your name, animal and room (saved on your account when signed in). The passport has the six animals to choose from too |
 | `/show`, `/show <words>` | The list of things to show somebody (the `G` key), or straight to one: `/show train` |
 | `/server`, `/code` | Unreal only: server address and access code (the browser asks on its join screen) |
@@ -680,11 +680,15 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
 is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMapTripShotAt=<seconds>` moves that picture. `-EWNewsSeen=<version>` shows the "What's new" card as if those were the last notes read (9.9.9 for no card). `-EWRun` takes several commands with a plus between them, and `wait_3` among them holds the rest up three seconds (`-EWDoor -EWRun=myhouse+wait_4+piece_sofa_royal` goes into a house, makes it mine and swaps the sofa; a comma ends the switch, so name places, not coordinates); the preview server `earthwalk-coins` (port 8793, in `.claude/launch.json`) starts everybody with 3000 coins for trying things that cost. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
 table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_underscores>` then answers that box as if typed. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
-(`look_flat`, `quit`). Cars, vans and taxis are ready-made
-models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
+(`look_flat`, `quit`). Cars, taxis and the farm tractor are ready-made
+models (eleven from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
 `EarthModels.gen.inl` and `server/public/js/models.gen.js` by `node game/Tools/gen-models.mjs`),
 each still in its own paint; `-EWModels=ours` (and `?models=ours` in the browser) draws the game's
-own shapes as before. `-EWRide=<kind>`
+own shapes as before. Which body a car of the streets has (saloon, hatchback, SUV, van, pickup,
+delivery van, and one in sixty a police car, an ambulance or a fire engine) comes from its identity by
+one table, `BODIES` in `server/public/js/liferigs.js`, which `node game/Tools/gen-life-rigs.mjs`
+copies into `EarthLifeBodies.gen.inl`: run both generators and build the Windows game after changing
+it. The emergency vehicles keep the kit's own colours. `-EWRide=<kind>`
 hops on the nearest thing of that kind (`cow`, `car`, `train`...) a few seconds after landing,
 `-EWTalk=<kind>` walks up to the nearest and says hello, `-EWSay=<words_with_underscores>` then
 says that to it, and `-EWPassport` opens the passport. `-EWRace` sets a race up and starts it, `-EWCar` calls the player's own car, `-EWWalk` holds the accelerator down when driving and
@@ -705,5 +709,5 @@ Terrain from the Terrain Tiles open dataset on AWS (Mapzen/Tilezen; sources incl
 SRTM, USGS 3DEP and others). The game shows the OpenStreetMap credit on screen; keep
 it there if you change the interface.
 
-The car, van and taxi models are from Kenney's Car Kit (www.kenney.nl), public
+The car, taxi and tractor models are from Kenney's Car Kit (www.kenney.nl), public
 domain (Creative Commons CC0); the licence is beside them in `game/Models/kenney-car-kit`.
