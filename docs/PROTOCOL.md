@@ -187,7 +187,7 @@ cars and trains to life from it (see "Life" below).
 | Field | Meaning |
 | --- | --- |
 | `rev` | Placement revision; bumps when the server lays labels out differently. |
-| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives), `car` (a parked car), `route` (a trip a car makes) or `train`. A client skips kinds it does not know. |
+| `kind` | `house` (a letterbox plate), `street` (a sign post), `tree`, or `home` (where a herd or flock lives), `car` (a parked car), `route` (a trip a car makes) or `train`; `door` (a front door that opens: "Inside houses"), `entry` (a door of a shop, an office, a mall...: "Inside other buildings") and `sign` (a name board). A client skips kinds it does not know. |
 | `w`, `left`, `da`, `db`, `pts`, `lift` | Routes; see "Traffic". Trains have `da`, `db`, `pts` and `lift` too; see "Trains". Cars, routes and trains also carry an `id`. At most 60 cars and 14 routes per chunk. |
 | `sp`, `n`, `r`, `id` | Homes only: the animal (one of those listed under "Life"), how many, the radius in metres of the circle they roam in (for `bird`, of the ring the flock flies), and the home's identity (a whole number from 1 to 4294967295, the same on every visit). Per chunk, at most 40 farm homes with 150 animals, 40 other homes with 120 animals, and one flock. A client skips animals it does not know. |
 | `text`, `text2` | The plate text (absent on trees and homes). A `street` item at a crossing has two plates, `text2` being the second street; a street with no crossing nearby has only `text`. |
@@ -405,7 +405,8 @@ player in by putting them about a metre inside the door at height `h`, and out b
 little beyond it on the ground; the walls are in the way otherwise. Anything hung over the door
 outside, such as a sign saying that it opens, goes by `g`, not `h`.
 
-This route gives the inside of home `id` of chunk `x`, `y`: 404 when the chunk has no such home. The
+This route gives the inside of building `id` of chunk `x`, `y` (a home's rooms, or what a shop, an
+office or a mall has inside: next section): 404 when the chunk has no such building to walk into. The
 answer is in the chunk format above, placed in the same chunk coordinates, so it sits inside the
 house's real walls and players inside are where their positions say they are. Its surfaces have ids
 of their own:
@@ -423,6 +424,88 @@ Walls and ceilings are single sheets, so draw these surfaces from both sides. Th
 thirty layouts (`LAYOUTS` in `server/src/interior.ts`) stretched to the house; which layout, the
 paints and the furniture all follow from the building's identity, so a house is the same inside
 for everyone. Only the ground floor is built.
+
+## Inside other buildings: `entry` items and `GET /v1/inside/16/{x}/{y}/{id}`
+
+Shops, cafés, offices, malls, blocks of flats and hotels open too, and can be walked through: each has
+its door on the street and, wherever one of its other walls is free, a second door on another side
+(`server/src/venues.ts` chooses the buildings and the doors, `server/src/venue.ts` lays out the inside).
+
+**Which buildings.** Not homes, not buildings mapped in 3D pieces, not sheds, garages, barns, churches,
+schools, hospitals, factories or warehouses, and nothing under 35 m2. Of the rest:
+
+| `use` | The building | Its room, at most | Inside |
+| --- | --- | --- | --- |
+| `cafe` | somewhere to eat or drink | 14 by 12 m | a counter with a barista, tables and chairs, guests |
+| `shop` | a shop, a supermarket, a bank | 16 by 16 m | a counter with a shopkeeper, shelves round the walls and in rows, shoppers |
+| `mall` | a shop of 2500 m2 or more, one called a mall, an arcade or a market, one with three or more shops mapped inside it; and one in three of the big buildings the map says nothing about | 40 by 60 m | a walk from door to door with shops down both sides (the shops the map names inside it first, then made-up ones), benches, planters, a tree under a skylight |
+| `office` | `building=office`, `commercial`, `government`, `civic` or `public`; and two in three of the big buildings (400 m2 or more, or 13 m or taller) the map says nothing about | 30 by 24 m | a front desk, desks in pairs, meeting rooms and a kitchen in the corners |
+| `lobby` | `apartments`, `dormitory`, `residential`, `hotel`, or a building with a hotel mapped inside it | 12 by 10 m | an entrance hall: a lift, letterboxes and a caretaker (flats) or a desk, keys and luggage (a hotel), a sofa |
+
+As for a house, the room is the largest rectangle that fits inside the real walls behind the front door,
+up to the size above; its floor is level with the highest ground under it, and it opens only if the
+ground under it drops less than 6 m and the walls stand at least 2.3 m above the floor. A courtyard is
+left out. At most 40 such buildings open in a chunk, those with a name first.
+
+**The doors** are label items of kind `entry`, one for each door:
+
+```json
+{"kind": "entry", "id": 25412345, "use": "office", "text": "Harbour Works", "u": 0.41, "v": 0.52, "h": 14.2, "g": 13.9, "yaw": 180,
+ "iu": 0.4102, "iv": 0.5231, "iyaw": 90}
+```
+
+`id` is the building (the same number on each of its doors; negative for a building mapped as a
+relation), `use` what it is, `u`, `v` the door on the real wall, `g` the ground outside it, `h` the
+floor inside, `yaw` the compass heading out of the door. `text`, on the first door of a building, is
+its name. **`iu`, `iv`, `iyaw`** are there only when the door inside is not just behind the door
+outside: they are that door on the wall of the room, and the heading out through it. (The room is a
+rectangle and the building may not be, and a mall's back door is always at the end of its walk; so going
+in at such a door moves a player a few metres.) A game lets a player in by putting them 0.9 m inside
+the door inside (at `iu`, `iv` moved against `iyaw`; or `u`, `v` against `yaw`) at height `h`, facing in;
+and out, when they are within reach of the door inside, by putting them 1.4 m outside the door outside on
+the ground. Nothing is drawn on the outside wall by the server for these doors, except where `drawn` is 1
+(the front door of a block of flats, which the mesh has always had): a game draws a door there itself
+(ours: glass double doors 1.7 m wide and 2.2 m high in a white frame), and a board over every one of
+them with `text`, or with what the place is.
+
+A small shop, café, office or hotel that already opened as a house keeps its `door` item, which now
+carries `use` (and `text`, its name) as well: it has that inside, not rooms, and nobody can make it
+their home (a `house` claim on it is refused with the error `nohome`). Its second door is an `entry`.
+
+**The inside** comes from the same route as a house's, `GET /v1/interior/16/{x}/{y}/{id}`, in the same
+format with the same six surfaces (40 to 45); a ceiling is 3 m up, or up to 4.2 m in a mall. It weighs
+40 KB for a café to about 400 KB for the biggest mall (a house is 36 KB).
+
+**Who is inside**, what is written up in there and where food is sold come from
+`GET /v1/inside/16/{x}/{y}/{id}` (same access rules; 404 for a house or a building that is shut):
+
+```json
+{"x": 33185, "y": 22545, "id": 25412345, "rev": 1, "use": "cafe", "name": "Kettle & Crumb", "size": 13.45,
+ "people": [
+   {"id": 2863311530, "sp": "rabbit", "role": "barista", "pose": "stand", "u": 0.4101, "v": 0.5212, "h": 14.2, "yaw": 90},
+   {"id": 771239001, "sp": "bear", "role": "guest", "pose": "sit", "seat": 0.45, "u": 0.4105, "v": 0.5217, "h": 14.2, "yaw": 180},
+   {"id": 99120034, "sp": "fox", "role": "shopper", "pose": "walk", "u": 0.4103, "v": 0.5214, "h": 14.2, "yaw": 0, "pts": [0.4103, 0.5214, 0.4103, 0.5221]}],
+ "signs": [{"text": "MENU", "u": 0.41, "v": 0.5213, "h": 16.4, "yaw": 90, "w": 1.6}],
+ "tills": [{"u": 0.4102, "v": 0.5212, "use": "food", "text": "Kettle & Crumb"}]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `size` | The room from corner to corner, in metres: a player is "in" the building while within that of one of its doors and within 6 m of its floor. |
+| `people` | The animals inside: at most 20 in an office, 4 in a shop, 10 in a café, 25 in a mall, 4 in a hall. `sp` is one of the six animals a player can be (fox, bear, rabbit, cat, owl, frog), so a game draws them with the figure it already has. `id` is the same every visit: it is what a player talks to (below). `role`: `worker`, `meeting`, `reception`, `keeper`, `barista`, `shopper`, `guest`, `caretaker`, `resident`. |
+| `pose` | `sit`: seated at `u`, `v`, facing `yaw`, on a seat `seat` metres above the floor `h`. `stand`: standing there, facing `yaw`. `walk`: strolling the path `pts` (`u`, `v` pairs) there and back for ever. |
+| `signs` | Lettering to draw on a board: its middle (`h` in metres above the sea), the heading it faces, and how wide it may be. A shop's name over its front in a mall, `KITCHEN`, `ROOM 1`, `LIFT`, `MENU`. |
+| `tills` | Where food is sold inside: within 4 m of one, a player's lunch box shows what the place sells, as beside a shop's name board outside (`use` is `food` or `shop`, `text` the shop's name: "Food and hearts"). |
+
+A stroller's place is worked out from the shared clock, so everybody sees them in the same place: with
+`L` the length of the path in metres, a pace of 0.9 m/s and a wait of 4 s at each end, one round takes
+`P = 2 × (L / 0.9 + 4)` seconds, and at shared time `t` the stroller is `τ = (t + unit(id, 0x57414c4b) × P) mod P`
+into it: walking out for `L / 0.9` s, standing 4 s, walking back, standing 4 s. Someone sitting or
+standing only fidgets, as each game likes.
+
+Everybody inside can be talked to like any animal: `talk` with `thing` their `id` and `sp` their animal,
+and with `role` and `at` (the building's `x`, `y`, `id`) so that they know what they do there
+("Talking").
 
 ## Things to show: `GET /v1/showcase`
 
@@ -599,6 +682,14 @@ the same somebody for everyone, on every visit. Clients learn a thing's `name` w
   was typed, attributed to the player's animal ("A fox says: ..."), never to their name.
 
 The key is T in both games; while talking to a thing, what is typed goes to it instead of to the room.
+
+Somebody inside a shop, an office or a mall ("Inside other buildings") is talked to in the same way, with
+two more fields: `{"t": "talk", "thing": 2863311530, "sp": "rabbit", "role": "barista", "at": {"x": 33185, "y": 22545, "id": 25412345}}`.
+`role` is theirs from `GET /v1/inside`, and `at` the building. With a `role` the server knows (any other is
+ignored, and they answer as the animal they are), their hello and their stock lines are about what they do
+there (`ROLES` in `server/src/talk.ts`), the AI is told of it, and the place is called by its name, which the
+server reads from what it kept when it built that inside (never from the message). `owl` can be talked to
+as well, being one of the six.
 
 ### Doing as asked
 

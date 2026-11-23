@@ -17,7 +17,7 @@ export const CALLED = {
   tortoise: "tortoise", crab: "crab", beaver: "beaver", otter: "otter", swan: "swan", heron: "heron", seagull: "seagull", sparrow: "sparrow",
   flamingo: "flamingo", seal: "seal", butterfly: "butterfly", bee: "bee", dragonfly: "dragonfly", ladybird: "ladybird", ant: "ant",
   grasshopper: "grasshopper", elephant: "elephant", giraffe: "giraffe", zebra: "zebra", lion: "lion", monkey: "monkey", panda: "panda",
-  koala: "koala", bear: "bear", moose: "moose", bison: "bison", reindeer: "reindeer", capybara: "capybara", marmot: "marmot",
+  koala: "koala", bear: "bear", owl: "owl", moose: "moose", bison: "bison", reindeer: "reindeer", capybara: "capybara", marmot: "marmot",
   tractor: "tractor", boat: "rowing boat", sailboat: "sailing boat", car: "car", taxi: "taxi", train: "train", tree: "tree", house: "house",
 };
 /** How high above the ground its speech bubble floats, and how near you must be to talk to it. */
@@ -101,7 +101,7 @@ export class Talk {
   begin() {
     if (!this.near || !this.meetup.joined) return false;
     this.to = { ...this.near };
-    this.meetup.sendTalk(this.to.thing, this.to.sp);
+    this.meetup.sendTalk(this.to.thing, this.to.sp, undefined, undefined, this.to.job);
     this.changed();
     return true;
   }
@@ -120,7 +120,7 @@ export class Talk {
 
   /** Something typed while talking to a thing goes to it. */
   say(text) {
-    if (this.to) this.meetup.sendTalk(this.to.thing, this.to.sp, text, this.world.sceneToGeo({ x: this.to.x, y: 0, z: this.to.z }));
+    if (this.to) this.meetup.sendTalk(this.to.thing, this.to.sp, text, this.world.sceneToGeo({ x: this.to.x, y: 0, z: this.to.z }), this.to.job);
   }
 
   stop() {
@@ -144,6 +144,7 @@ export class Talk {
     }
     if (best) return best;
     for (const c of this.life.nearby) if (c.thing === thing && c.sp === sp) return c;
+    for (const c of this.people?.nearby ?? []) if (c.thing === thing && c.sp === sp) return c; // somebody in the shop or the office I am in
     return null;
   }
 
@@ -160,6 +161,7 @@ export class Talk {
       if (this.to && this.to.thing === c.thing && this.to.sp === c.sp) { this.to.x = c.x; this.to.z = c.z; } // it may have wandered
     };
     for (const c of this.life.nearby) consider(c);
+    for (const c of this.people?.nearby ?? []) consider(c);
     for (const c of this.traffic.rideable) consider(c);
     for (const m of this.riding.mounts) consider(m);
     // Trees and houses stand still, so they yield to anything livelier that is just as close.
@@ -200,7 +202,8 @@ export class Talk {
         b.sprite.material.opacity = Math.min(1, (b.until - now) / 600);
         // The bubble goes along with whoever is speaking.
         const at = this.whereIs(thing, b.sp, b.sprite.position);
-        const ground = at ? this.world.groundHeight(at.x, at.z) : null;
+        // (Somebody indoors stands on a floor, which says how high it is.)
+        const ground = at ? at.y ?? this.world.groundHeight(at.x, at.z) : null;
         if (ground !== null) b.sprite.position.set(at.x, ground + b.lift, at.z);
       }
     }
@@ -222,12 +225,12 @@ export class Talk {
       at = { x: spot.x, z: spot.z };
     }
     if (!at) return;
-    const ground = world.groundHeight(at.x, at.z);
+    const ground = at.y ?? world.groundHeight(at.x, at.z);
     if (ground === null) return;
     const old = this.bubbles.get(msg.thing);
     if (old) this.scene.remove(old.sprite);
     const sprite = bubble(msg.name, msg.text);
-    const lift = BUBBLE_AT[msg.sp] ?? 1.5;
+    const lift = at.lift ?? BUBBLE_AT[msg.sp] ?? 1.5;
     sprite.position.set(at.x, ground + lift, at.z);
     this.scene.add(sprite);
     this.bubbles.set(msg.thing, { sprite, sp: msg.sp, lift, until: performance.now() + (BUBBLE_SECONDS + msg.text.length * 0.04) * 1000 });

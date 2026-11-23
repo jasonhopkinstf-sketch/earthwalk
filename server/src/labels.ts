@@ -13,15 +13,16 @@ import { placeTraffic } from "./traffic.ts";
 import { trainsFor, type Train } from "./rail.ts";
 import { DATA_Z, loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 import { heightOn, liftAt, prepareSpans, type Profile, rampsOf, spansOf, SURFACE_M } from "./spans.ts";
+import { venuesOf } from "./venues.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 16;
+export const LABELS_REV = 17;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "door" | "sign";
+  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "door" | "sign" | "entry";
   /** Plate text; absent on trees and homes. */
   text?: string;
   /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
@@ -47,6 +48,16 @@ export interface LabelItem {
   /** Doors: the height of the ground outside the door (`h` is the floor inside), and 1 if the door has a porch. */
   g?: number;
   porch?: number;
+  /**
+   * Entries (a door of a shop, an office, a mall...): what the building is; and, where the door inside is not
+   * just behind the door outside, where that is and the heading out through it. A `door` that is a shop's has `use` too.
+   */
+  use?: string;
+  /** Entries: 1 where the mesh already draws a door at this spot (a block of flats' front door), so a game adds none of its own. */
+  drawn?: number;
+  iu?: number;
+  iv?: number;
+  iyaw?: number;
   /** Second plate of a street sign at a crossing. */
   text2?: string;
   u: number;
@@ -260,12 +271,34 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
   // ---- front doors that open: `id` is the building, `h` its floor, `g` the ground at the door (on a
   // hillside the floor can be well above it), `porch` 1 where a porch roof covers the door, `yaw` the way
   // out (docs/PROTOCOL.md, "Inside houses")
+  const venues = venuesOf(cx, cy, features, elev);
+  const shopAt = new Map(venues.filter((v) => v.home).map((v) => [v.id, v]));
   const doors: LabelItem[] = homesOf(cx, cy, features, elev).map((home) => ({
     kind: "door", id: home.id, u: r7(home.x / S), v: r7(-home.y / S), h: Math.round(home.floor * 100) / 100,
     g: Math.round(elev.surfaceHeight(cx + home.x / S, cy - home.y / S) * 100) / 100,
     ...(home.porch ? { porch: 1 } : {}),
     yaw: r1(((Math.atan2(home.out[0], home.out[1]) * 180) / Math.PI + 360) % 360),
+    // A shop or a café that opens like a house is one inside (venues.ts), and is nobody's to live in.
+    ...(shopAt.has(home.id) ? { use: shopAt.get(home.id)!.kind, ...(shopAt.get(home.id)!.name ? { text: shopAt.get(home.id)!.name } : {}) } : {}),
   }));
+
+  // ---- the doors of shops, cafés, offices, malls, flats and hotels: `use` is what the building is, the
+  // rest as for a front door. Each building has one or two; the first of a building carries its name.
+  // (docs/PROTOCOL.md, "Inside other buildings")
+  const entries: LabelItem[] = [];
+  const compass = (o: [number, number]): number => r1(((Math.atan2(o[0], o[1]) * 180) / Math.PI + 360) % 360);
+  for (const venue of venues) {
+    venue.doors.forEach((d, n) => {
+      if (n === 0 && venue.home) return; // listed above, as the front door it has always been
+      const apart = Math.hypot(d.ix - d.x, d.iy - d.y) > 0.8 || d.iout[0] * d.out[0] + d.iout[1] * d.out[1] < 0.98;
+      entries.push({
+        kind: "entry", id: venue.id, use: venue.kind, u: r7(d.x / S), v: r7(-d.y / S), h: Math.round(venue.floor * 100) / 100, g: d.g, yaw: compass(d.out),
+        ...(apart ? { iu: r7(d.ix / S), iv: r7(-d.iy / S), iyaw: compass(d.iout) } : {}),
+        ...(d.drawn ? { drawn: 1 } : {}),
+        ...(n === 0 && venue.name ? { text: venue.name } : {}),
+      });
+    });
+  }
 
   // ---- name signs: what a building is called, on a board on its front wall. `h` is the middle of the
   // board, `yaw` the way it faces, `w` how wide it may be (docs/PROTOCOL.md, "Name signs")
@@ -316,6 +349,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     ...trees,
     ...homes,
     ...doors,
+    ...entries,
     ...signs,
     ...cars,
     ...routes,

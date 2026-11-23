@@ -243,6 +243,8 @@ test("labels: letterboxes face the street and signs stand at crossings", async (
   assert.ok(Math.abs(apart(signs[0].yaw, signs[0].yaw2!) - 90) < 5, `plates ${signs[0].yaw}/${signs[0].yaw2} face across their streets`);
 
   for (const it of items) {
+    // (A door's `h` is the floor inside, which is level; the ground outside it is `g`. The big building is an office or a row of shops now.)
+    if (it.kind === "entry") { assert.ok(it.h >= it.g! && it.use); continue; }
     assert.ok(Math.abs(it.h - elev.surfaceHeight(CX + it.u, CY + it.v)) < 1e-6, `${it.text} stands on the terrain`);
     assert.ok(it.u >= -0.05 && it.u <= 1.05 && it.v >= -0.05 && it.v <= 1.05, `${it.text} is inside the chunk`);
   }

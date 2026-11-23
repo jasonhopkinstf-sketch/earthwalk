@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
-import { aKind, deedsOf, doingLine, persona, STORY_PARTS, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
+import { aKind, deedsOf, doingLine, jobOf, persona, STORY_PARTS, TALKABLE, Talker, type Job, type Said, type Wish } from "./talk.ts";
 import type { Asker, GuideAnswer, GuidePlace } from "./guide.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { agilityCourse, COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
@@ -171,8 +171,8 @@ export interface RoomsOptions {
   peopleList?: () => unknown[];
   /** Speaks for the things players talk to. Without one, things answer from their stock lines. */
   talker?: {
-    greet(thing: number, sp: string): Said;
-    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean, notes?: string[], plain?: boolean): Promise<Said>;
+    greet(thing: number, sp: string, job?: Job | null): Said;
+    reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean, notes?: string[], plain?: boolean, job?: Job | null): Promise<Said>;
     muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number, ride?: number): Promise<Said>;
   };
   /** Finds where a caller wants a taxi to take them, and a road for the taxi to arrive by. */
@@ -195,6 +195,8 @@ export interface RoomsOptions {
   /** Who lives where (home.ts), and a way to find a house that opens: its measurements, its door on Earth, the way out. */
   homes?: Homes;
   findHome?: (x: number, y: number, id: number) => Promise<{ home: HomeDoor; lat: number; lon: number; yaw: number } | null>;
+  /** What a shop, an office or a mall is and is called, for whoever is talked to inside it; null for a building that has nobody in it. */
+  insideOf?: (x: number, y: number, id: number) => Promise<{ use?: string; name?: string } | null>;
   /** The making of the world the houses are measured in (GENERATOR_REV). */
   worldRev?: number;
   /** For tests: a lesson may be answered at once, without the time its beats take. */
@@ -451,6 +453,13 @@ export class Rooms {
         me.talkTimes.push(now);
         me.helloLast = !text;
         const thing = msg.thing;
+        // Somebody inside a shop, an office or a mall: the game says what they do there and which building it is,
+        // and the server looks up what the building is called (venues.ts). Only a role there is a list of counts.
+        const where = msg.at as { x?: unknown; y?: unknown; id?: unknown } | undefined;
+        const inside = typeof msg.role === "string" && where && typeof where === "object" && [where.x, where.y, where.id].every(Number.isSafeInteger)
+          ? await this.options.insideOf?.(where.x as number, where.y as number, where.id as number).catch(() => null) ?? null : null;
+        const job = jobOf(msg.role, inside);
+        if (!room.members.has(me.id)) return;
         // Favours: this talk may bring one home, and the thing may ask one of its own (favours.ts).
         const asked = !!text && offersHelp(text);
         const favours = this.journal?.beforeTalk?.(me.id, thing, sp, persona(thing, sp).name, asked) ?? null;
@@ -459,8 +468,8 @@ export class Rooms {
           const place = me.hasPos && this.options.placeName ? await this.options.placeName(me.lat, me.lon).catch(() => null) : null;
           said = await this.talker.reply(roomName, thing, sp, text, me.avatar, place, me.ride?.thing === thing && me.ride.sp === sp, favours ? favourNotes(favours, aKind) : [],
             // In the middle of a round-up "follow me" is answered at once, in plain words: there is a clock running.
-            room.play?.kind === "herd" && room.play.state === "go" && /^\s*follow me\W*$/i.test(text));
-        } else said = this.talker.greet(thing, sp);
+            room.play?.kind === "herd" && room.play.state === "go" && /^\s*follow me\W*$/i.test(text), job);
+        } else said = this.talker.greet(thing, sp, job);
         // Without an AI to put it in the thing's own words, the favour is asked, and thanked for, in plain ones.
         if (favours && !said.ai && !said.wish) said = { ...said, text: favourWords(said.text, favours, asked, aKind) };
         if (!room.members.has(me.id)) return; // left while it was thinking

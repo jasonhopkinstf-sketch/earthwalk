@@ -17,7 +17,8 @@ import { AccountDirectory, type GoogleIdentity, type PeopleDirectory } from "./p
 import { Talker } from "./talk.ts";
 import { Journals, type JournalStore } from "./journal.ts";
 import { type HuntStop, planHunt } from "./hunt.ts";
-import { findHome, furnishedInterior, generateInterior, INTERIOR_REV } from "./interior.ts";
+import { findHome, furnishedInterior, INTERIOR_REV } from "./interior.ts";
+import { generateInside, VENUES_REV } from "./venues.ts";
 import { Homes } from "./home.ts";
 import { describePlan, normalisePlan } from "./plan.ts";
 import { claudePlanReader, PLAN_MAX_BYTES, PLAN_MEDIA, type ReadPlan } from "./planreader.ts";
@@ -86,6 +87,8 @@ export interface AppOptions {
   buildLabels?: (x: number, y: number) => Promise<Buffer>;
   /** The inside of a home, or null when the chunk has no such home to walk into. */
   buildInterior?: (x: number, y: number, id: number) => Promise<Buffer | null>;
+  /** The same with who is inside (a shop, an office, a mall); when given, it is used and not `buildInterior`. */
+  buildInside?: (x: number, y: number, id: number) => Promise<{ mesh: Buffer; who: Buffer | null } | null>;
   /** Who lives where (home.ts); without one, houses are kept only while the server runs. And a way to measure a house, for tests. */
   homes?: Homes;
   findHome?: (x: number, y: number, id: number) => ReturnType<typeof findHome>;
@@ -162,7 +165,19 @@ export function createApp(options: AppOptions = {}): App {
   const elevation = new Elevation();
   const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
-  const buildInterior = options.buildInterior ?? ((x, y, id) => generateInterior(x, y, id, elevation));
+  // The inside of a building: a home's rooms, or a shop's, an office's, a mall's, with who is in there (venues.ts).
+  const buildInside = options.buildInside ?? (options.buildInterior
+    ? async (x: number, y: number, id: number) => { const mesh = await options.buildInterior!(x, y, id); return mesh ? { mesh, who: null } : null; }
+    : (x: number, y: number, id: number) => generateInside(x, y, id, elevation));
+  const interiorRel = (x: number, y: number, id: number): string => `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}/${CHUNK_Z}/${x}/${y}/${id}.ewc`;
+  const whoRel = (x: number, y: number, id: number): string => `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}/${CHUNK_Z}/${x}/${y}/${id}.who${VENUES_REV}.json`;
+  /** Builds the inside of a building and keeps both halves of it; null when there is no such building to walk into. */
+  const insides = new InFlight<{ mesh: Buffer; who: Buffer | null } | null>();
+  const makeInside = (x: number, y: number, id: number): Promise<{ mesh: Buffer; who: Buffer | null } | null> => insides.get(`${x}/${y}/${id}`, async () => {
+    const built = await buildInside(x, y, id);
+    if (built) await Promise.all([writeCache(interiorRel(x, y, id), built.mesh), ...(built.who ? [writeCache(whoRel(x, y, id), built.who)] : [])]);
+    return built;
+  });
   const homes = options.homes ?? new Homes();
   const readPlan: ReadPlan | null = options.readPlan !== undefined ? options.readPlan : process.env.ANTHROPIC_API_KEY ? claudePlanReader() : null;
   const plansPerDay = options.plansPerDay ?? 3;
@@ -171,6 +186,7 @@ export function createApp(options: AppOptions = {}): App {
   const measureHome = options.findHome ?? ((x: number, y: number, id: number) => findHome(x, y, id, elevation));
   /** The insides of lived-in houses, as last built: a few, by house and by how often it has changed. */
   const furnished = new Map<string, Buffer>();
+  const insideNames = new Map<string, { use?: string; name?: string } | null>();
   const accounts = options.accounts ?? new AccountDirectory(undefined, { accessCode, invited: options.invited });
   const placeName = options.placeName ?? reversePlace;
   const givenName = options.placeName;
@@ -230,6 +246,18 @@ export function createApp(options: AppOptions = {}): App {
   });
   const rooms = new Rooms(options.people ?? accounts, { placeName, talker, journal: journals, wayTo, cab, guide, taxiRemarkMs: options.taxiRemarkMs,
     homes, findHome: measureHome, worldRev: GENERATOR_REV,
+    // What the building somebody is talked to in is called: from what was kept when its inside was built (nothing is built for this).
+    insideOf: async (x, y, id) => {
+      const key = `${x}/${y}/${id}`;
+      let known = insideNames.get(key);
+      if (known === undefined) {
+        const who = await readCache(whoRel(x, y, id));
+        try { const j = who ? JSON.parse(who.toString("utf8")) as { use?: unknown; name?: unknown } : null; known = j ? { ...(typeof j.use === "string" ? { use: j.use } : {}), ...(typeof j.name === "string" ? { name: j.name.slice(0, 40) } : {}) } : null; } catch { known = null; }
+        if (insideNames.size >= 200) insideNames.delete(insideNames.keys().next().value!);
+        insideNames.set(key, known);
+      }
+      return known;
+    },
     ...(ahead ? { moved: (id: string, lat: number, lon: number) => ahead.moved(id, lat, lon) } : {}),
     course: (lat, lon, seed) => planCourse(lat, lon, seed, (aLat, aLon, bLat, bLon) => routeBetween(aLat, aLon, bLat, bLon)),
   });
@@ -483,7 +511,7 @@ export function createApp(options: AppOptions = {}): App {
       if (labels) {
         return await serveBuilt(req, res, url, labels, labelsRel, buildLabels, "application/json; charset=utf-8", keepLabels);
       }
-      const interior = /^\/v1\/interior\/(\d+)\/(\d+)\/(\d+)\/(\d+)$/.exec(p);
+      const interior = /^\/v1\/interior\/(\d+)\/(\d+)\/(\d+)\/(-?\d+)$/.exec(p);
       if (interior) {
         // The inside of one home: built the first time someone walks in, and kept.
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
@@ -506,20 +534,36 @@ export function createApp(options: AppOptions = {}): App {
           res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": inside.length, "Cache-Control": "no-store" });
           return void res.end(inside);
         }
-        const rel = `interiors/v${FORMAT_VERSION}.${GENERATOR_REV}.${INTERIOR_REV}/${CHUNK_Z}/${x}/${y}/${id}.ewc`;
-        let data = await readCache(rel);
+        let data = await readCache(interiorRel(x, y, id));
         if (!data) {
           if (!mayBuild(callerOf(req))) {
             res.setHeader("Retry-After", "30");
             return json(res, 429, { error: "exploring too fast; try again shortly" });
           }
-          const built = await buildInterior(x, y, id);
+          const built = await makeInside(x, y, id);
           if (!built) return json(res, 404, { error: "no home to walk into there" });
-          await writeCache(rel, built);
-          data = built;
+          data = built.mesh;
         }
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": data.length, "Cache-Control": "private, max-age=86400" });
         return void res.end(data);
+      }
+      const inside = /^\/v1\/inside\/(\d+)\/(\d+)\/(\d+)\/(-?\d+)$/.exec(p);
+      if (inside) {
+        // Who is in a shop, an office, a mall: its people, its lettering and its tills, as JSON (venues.ts).
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        const [z, x, y, id] = [Number(inside[1]), Number(inside[2]), Number(inside[3]), Number(inside[4])];
+        if (z !== CHUNK_Z || x >= 2 ** CHUNK_Z || y >= 2 ** CHUNK_Z || !Number.isSafeInteger(id)) return json(res, 400, { error: `buildings exist only at zoom ${CHUNK_Z}` });
+        let who = await readCache(whoRel(x, y, id));
+        if (!who) {
+          if (!mayBuild(callerOf(req))) {
+            res.setHeader("Retry-After", "30");
+            return json(res, 429, { error: "exploring too fast; try again shortly" });
+          }
+          who = (await makeInside(x, y, id))?.who ?? null;
+          if (!who) return json(res, 404, { error: "nobody is in there" });
+        }
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": who.length, "Cache-Control": "private, max-age=86400" });
+        return void res.end(who);
       }
       if (p === "/v1/showcase") {
         // Things to show people, each with a place where it is right there (showcase.ts).

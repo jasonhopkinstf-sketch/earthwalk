@@ -120,9 +120,10 @@ export class Meetup extends EventTarget {
   }
 
   /** Says hello to a thing (no text), or says something to it. Its answer comes as a "say" event. */
-  sendTalk(thing, sp, text, at) {
-    // `at` is where I see the thing, in case it is asked to do something from there.
-    this.send({ t: "talk", thing, sp, ...(text ? { text } : {}), ...(at ? { lat: +at.lat.toFixed(7), lon: +at.lon.toFixed(7) } : {}) });
+  sendTalk(thing, sp, text, at, job) {
+    // `at` is where I see the thing, in case it is asked to do something from there. `job`, for somebody inside a
+    // shop, an office or a mall: what they do there, and which building it is (people.js).
+    this.send({ t: "talk", thing, sp, ...(text ? { text } : {}), ...(at ? { lat: +at.lat.toFixed(7), lon: +at.lon.toFixed(7) } : {}), ...(job ? { role: job.role, at: job.at } : {}) });
   }
 
   /** Sets my home: to the given place, or (with no arguments) to where I am standing now. */

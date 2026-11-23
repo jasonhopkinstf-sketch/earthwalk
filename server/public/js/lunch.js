@@ -7,6 +7,8 @@
 // helpings at a time. And anything in it can be given to a friend who is standing by.
 
 const ICON = { fruit: "🍎", veg: "🥕", grain: "🍞", protein: "🥚", dairy: "🥛" };
+/** How near a counter inside a shop you must stand to buy there. */
+const TILL_M = 4;
 /** How near a shop's name board you must stand to buy there. */
 const SHOP_M = 14;
 /** How near a friend must stand to be given something. */
@@ -83,6 +85,14 @@ export class Lunch {
             const x = (chunk.x + sign.u - world.originX) * world.tileM, z = (chunk.y + sign.v - world.originY) * world.tileM;
             const d = Math.hypot(x - p.position.x, z - p.position.z);
             if (d < bestD) { bestD = d; best = sign; }
+          }
+          // Inside a shop, a café or a mall: the counter where food is sold (docs/PROTOCOL.md, "Inside other buildings").
+          for (const inside of chunk?.interiors?.values() ?? []) {
+            for (const till of inside.who?.tills ?? []) {
+              const x = (chunk.x + till.u - world.originX) * world.tileM, z = (chunk.y + till.v - world.originY) * world.tileM;
+              const d = Math.hypot(x - p.position.x, z - p.position.z);
+              if (d < Math.min(bestD, TILL_M) && typeof till.text === "string") { bestD = d; best = till; }
+            }
           }
         }
       }

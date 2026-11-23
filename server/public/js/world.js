@@ -149,6 +149,19 @@ function nameSignMaterial(text, width) {
   nameSigns.set(key, material);
   return material;
 }
+/**
+ * The glass doors of a shop, an office, a mall, a block of flats: a white frame 1.9 m wide, two leaves of glass
+ * with a bar across each, and a mat. Unit shapes, shared by every door (docs/PROTOCOL.md, "Inside other buildings").
+ */
+const ENTRY_FRAME = new THREE.BoxGeometry(1.9, 2.7, 0.16);
+const ENTRY_GLASS = new THREE.BoxGeometry(0.8, 2.12, 0.05);
+const ENTRY_BAR = new THREE.BoxGeometry(0.62, 0.07, 0.05);
+const ENTRY_MAT = new THREE.BoxGeometry(1.7, 0.5, 0.9);
+const ENTRY_WHITE = paint({ color: 0xf4f1e6 }, { world: true });
+const ENTRY_BLUE = paint({ color: 0x7fb7d6 }, { world: true });
+const ENTRY_DARK = paint({ color: 0x4a4640 }, { world: true });
+/** What goes over the door of a place the map gives no name. */
+export const PLACE_WORDS = { office: "OFFICE", shop: "SHOP", cafe: "CAFÉ", mall: "SHOPS", lobby: "COME IN" };
 const BARK = paint({ color: 0x5a3d2a }, { world: true });
 const LEAF = paint({ color: 0x3f8a2f, flatShading: true }, { world: true });
 const NEEDLE = paint({ color: 0x2f6b2f, flatShading: true }, { world: true });
@@ -374,6 +387,30 @@ export class World {
   }
 
   /**
+   * Who is in a shop, an office or a mall, and what is written up in there (`GET /v1/inside`), kept with its
+   * inside: the lettering goes up on boards now, and leaves with the inside. people.js brings the people.
+   */
+  addInsideWho(chunk, id, who) {
+    const inside = chunk.interiors?.get(id);
+    if (!inside || inside.who) return;
+    inside.who = who;
+    const S = this.tileM;
+    for (const sign of who.signs ?? []) {
+      if (typeof sign.text !== "string" || !sign.text) continue;
+      const width = Math.min(6, Math.max(0.5, Number(sign.w) || 1));
+      const tall = Math.min(0.42, Math.max(0.2, width * 0.3));
+      // (The paint is made for a board of the usual height: the same picture, on a smaller board.)
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(width, tall), nameSignMaterial(sign.text, Math.round((width / tall) * NAME_SIGN_M * 10) / 10));
+      const yaw = THREE.MathUtils.degToRad(sign.yaw || 0);
+      board.rotation.set(0, Math.PI - yaw, 0);
+      board.position.set(sign.u * S + Math.sin(yaw) * 0.02, sign.h, sign.v * S - Math.cos(yaw) * 0.02);
+      chunk.group.add(board);
+      board.updateMatrixWorld(true);
+      inside.meshes.push(board);
+    }
+  }
+
+  /**
    * The houses somebody lives in (net.js `homes`): each gets its owner's name on a board over the door, above
    * the COME IN board. Called when the list changes, and for each chunk when its doors arrive.
    */
@@ -539,16 +576,17 @@ export class World {
       if (this.chunks.get(key) !== chunk || chunk.trees) return; // unloaded (or reloaded) meanwhile
       chunk.trees = true;
       chunk.treeItems = items.filter((it) => it.kind === "tree"); // kept so that trees, and
-      chunk.doors = items.filter((it) => it.kind === "door"); // front doors that open (houses.js)
+      chunk.doors = items.filter((it) => it.kind === "door" || it.kind === "entry"); // doors that open: houses' front doors, and those of shops, offices, malls (houses.js)
       chunk.houses = items.filter((it) => it.kind === "house"); // the houses with a number, can be talked to (talk.js)
       chunk.homes = items.filter((it) => it.kind === "home"); // where herds live; life.js brings them to life
       chunk.routes = items.filter((it) => it.kind === "route"); // the trips cars make, and
       chunk.cars = items.filter((it) => it.kind === "car"); // the cars parked at the kerb; traffic.js drives them
       chunk.trains = items.filter((it) => it.kind === "train"); // and the trains, each sent with every chunk on its run
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
-      this.signDoors(chunk, chunk.doors);
+      this.signDoors(chunk, chunk.doors.filter((it) => it.kind === "door" && !it.use));
       this.nameHomesOf(chunk);
       this.nameBuildings(chunk, items.filter((it) => it.kind === "sign"));
+      this.entryDoors(chunk, chunk.doors.filter((it) => it.kind === "entry" || it.use), items.filter((it) => it.kind === "sign"));
       chunk.shops = items.filter((it) => it.kind === "sign" && (it.use === "shop" || it.use === "food") && typeof it.text === "string"); // where food is sold (lunch.js)
     } catch {
       if (tries > 1) setTimeout(() => { if (this.chunks.get(key) === chunk) this.requestTrees(x, y, key, tries - 1); }, LABEL_RETRY_MS);
@@ -574,6 +612,71 @@ export class World {
     boards.instanceMatrix.needsUpdate = true;
     chunk.group.add(boards);
     boards.updateMatrixWorld(true);
+  }
+
+  /** What a shop, an office or a mall is called, for the board over its doors and for the hint: its name, or what it is. */
+  placeName(chunk, door) {
+    const named = door.text ?? chunk.doors?.find((d) => d.id === door.id && typeof d.text === "string")?.text;
+    return typeof named === "string" && named ? named : PLACE_WORDS[door.use] ?? "COME IN";
+  }
+
+  /**
+   * The doors of shops, offices, malls, flats and hotels: glass doors on the wall (the server draws none there),
+   * and over each a board with the building's name, or what it is. A small shop that has a house's front door
+   * in the mesh keeps that, and gets only the board. No board where the building's name is already on the wall
+   * right there.
+   */
+  entryDoors(chunk, doors, signs) {
+    if (doors.length === 0) return;
+    const S = this.tileM;
+    const glazed = doors.filter((d) => d.kind === "entry" && !d.drawn); // (the mesh has a door of its own where `drawn` is 1)
+    const make = (geometry, material, count) => {
+      const mesh = new THREE.InstancedMesh(geometry, material, count);
+      mesh.frustumCulled = false; // spread over the whole chunk, like the trees
+      return mesh;
+    };
+    const frames = glazed.length ? make(ENTRY_FRAME, ENTRY_WHITE, glazed.length) : null;
+    const glass = glazed.length ? make(ENTRY_GLASS, ENTRY_BLUE, glazed.length * 2) : null;
+    const bars = glazed.length ? make(ENTRY_BAR, ENTRY_WHITE, glazed.length * 2) : null;
+    const mats = glazed.length ? make(ENTRY_MAT, ENTRY_DARK, glazed.length) : null;
+    const part = new THREE.Object3D();
+    glazed.forEach((door, i) => {
+      const yaw = THREE.MathUtils.degToRad(door.yaw || 0); // the way out, as a compass heading
+      const ox = Math.sin(yaw), oz = -Math.cos(yaw); // out of the building
+      const ax = Math.cos(yaw), az = Math.sin(yaw); // along the wall
+      const x = door.u * S, z = door.v * S, g = door.g ?? door.h;
+      const put = (mesh, n, along, out, up) => {
+        part.rotation.set(0, Math.PI - yaw, 0);
+        part.position.set(x + ax * along + ox * out, g + up, z + az * along + oz * out);
+        part.updateMatrix();
+        mesh.setMatrixAt(n, part.matrix);
+      };
+      put(frames, i, 0, 0.02, 0.95); // (it goes 40 cm into the ground, for a street that slopes)
+      put(glass, i * 2, -0.43, 0.09, 1.1);
+      put(glass, i * 2 + 1, 0.43, 0.09, 1.1);
+      put(bars, i * 2, -0.43, 0.13, 1.05);
+      put(bars, i * 2 + 1, 0.43, 0.13, 1.05);
+      put(mats, i, 0, 0.5, -0.2);
+    });
+    for (const mesh of [frames, glass, bars, mats]) {
+      if (!mesh) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      chunk.group.add(mesh);
+      mesh.updateMatrixWorld(true);
+    }
+    for (const door of doors) {
+      const text = this.placeName(chunk, door);
+      const yaw = THREE.MathUtils.degToRad(door.yaw || 0);
+      if (signs.some((s) => s.text === text && Math.hypot((s.u - door.u) * S, (s.v - door.v) * S) < 4.5 && Math.abs(((s.yaw - door.yaw + 540) % 360) - 180) < 30)) continue;
+      const width = Math.min(3.4, Math.max(1.3, 0.2 * text.length + 0.5));
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(width, NAME_SIGN_M), nameSignMaterial(text, width));
+      board.rotation.set(0, Math.PI - yaw, 0);
+      const glass = door.kind === "entry" && !door.drawn;
+      const out = glass ? 0.13 : door.porch ? 1.03 : 0.11, up = glass ? 2.62 : door.porch ? 3.06 : 2.81;
+      board.position.set(door.u * S + Math.sin(yaw) * out, (door.g ?? door.h) + up, door.v * S - Math.cos(yaw) * out);
+      chunk.group.add(board);
+      board.updateMatrixWorld(true);
+    }
   }
 
   /** Puts each named building's name on a board on its front wall. */

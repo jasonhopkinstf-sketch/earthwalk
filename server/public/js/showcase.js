@@ -147,7 +147,7 @@ export class Showcase {
     for (const chunk of world.chunks.values()) {
       const ox = (chunk.x - world.originX) * S;
       const oz = (chunk.y - world.originY) * S;
-      const items = show.find === "home" ? chunk.homes : show.find === "car" ? chunk.cars : show.find === "door" ? chunk.doors : null;
+      const items = show.find === "home" ? chunk.homes : show.find === "car" ? chunk.cars : show.find === "door" ? chunk.doors?.filter((d) => d.kind === "door" && !d.use) : null;
       for (const it of items ?? []) {
         if (![it.u, it.v].every(Number.isFinite)) continue;
         if (show.find === "home" && !(show.sp ?? []).includes(it.sp)) continue;

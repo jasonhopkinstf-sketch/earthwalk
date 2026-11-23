@@ -3,6 +3,11 @@
 // with its chunk (docs/PROTOCOL.md, "Inside houses"). The rooms are inside the real walls, so friends
 // who go in together see each other there, and nobody outside can see in.
 //
+// Shops, cafés, offices, malls, flats and hotels open too (label items of kind "entry", and a "door" with a
+// `use`): each has a door on the street and, where it can, a second one on another side, so it can be walked
+// through. Nobody lives in those; their people, lettering and tills come with the inside (docs/PROTOCOL.md,
+// "Inside other buildings").
+//
 // E beside a door goes in; E just inside it goes out again. H is the home key: inside a house nobody
 // lives in it makes the house yours, inside your own it opens the furnishing panel (decor.js), and
 // anywhere else it takes you home. A house somebody lives in is furnished their way, and is fetched
@@ -16,6 +21,8 @@ const REACH_OUT_M = 2.2;
 const REACH_IN_M = 1.7;
 /** Further than this from the door of the house you went into, you are no longer in it. */
 const HOUSE_M = 45;
+/** What a place the map gives no name is called in a hint. */
+const PLACE_TITLES = { office: "the office", shop: "the shop", cafe: "the café", mall: "the shops", lobby: "the entrance hall" };
 
 const wrap = (x) => ((x % TILES) + TILES) % TILES;
 /** A house's name on the server: its chunk and its number there. */
@@ -66,6 +73,24 @@ export class Houses {
     return !!mine && !!this.inside && this.inside.key === `${mine.x}/${mine.y}/${mine.id}`;
   }
 
+  /** Is this the door of a shop, an office, a mall: somewhere nobody lives? (One that somebody made their home before it was a shop is still theirs.) */
+  isPlace(chunk, door) {
+    return (door.kind === "entry" || !!door.use) && !this.meetup.homes.has(houseKey(chunk, door.id));
+  }
+
+  /** What such a place is called: its name, or what it is. */
+  placeTitle(chunk, door) {
+    const named = door.text ?? chunk.doors?.find((d) => d.id === door.id && typeof d.text === "string")?.text;
+    return typeof named === "string" && named ? named : PLACE_TITLES[door.use] ?? "the building";
+  }
+
+  /** The same door seen from inside: where it is on the wall of the room (in a shop or a mall, sometimes a few steps from the door outside), and the heading out through it. */
+  insideAt(chunk, door) {
+    const { world } = this;
+    const u = Number.isFinite(door.iu) ? door.iu : door.u, v = Number.isFinite(door.iv) ? door.iv : door.v;
+    return { x: (chunk.x + u - world.originX) * world.tileM, z: (chunk.y + v - world.originY) * world.tileM, yaw: ((Number.isFinite(door.iyaw) ? door.iyaw : door.yaw) * Math.PI) / 180 };
+  }
+
   /** Every frame: which door, if any, is within reach? */
   frame(dt) {
     if ((this.sinceScan += dt) < 0.15) return;
@@ -80,16 +105,24 @@ export class Houses {
           const chunk = world.chunks.get(`${here.cx + dx}/${here.cy + dy}`);
           for (const door of chunk?.doors ?? []) {
             const { x, z } = this.doorAt(chunk, door);
-            const d = Math.hypot(x - p.position.x, z - p.position.z);
-            if (d >= bestD || d > REACH_OUT_M) continue;
             const yaw = (door.yaw * Math.PI) / 180; // the way out, as a compass heading
             const ox = Math.sin(yaw), oz = -Math.cos(yaw);
-            const side = (p.position.x - x) * ox + (p.position.z - z) * oz;
-            const inside = side < 0;
-            if (inside && (d > REACH_IN_M || Math.abs(p.position.y - door.h - this.liftOf(chunk, door)) > 1.5)) continue;
-            if (!inside && Math.abs(p.position.y - (door.g ?? door.h)) > 6) continue; // (upstairs in a house of one's own plan, above somebody's door)
-            bestD = d;
-            best = { chunk, door, x, z, ox, oz, inside };
+            // From the street: the door on the wall. (Not the doors of the building I am in: in one of an awkward shape, a room can come close behind another wall.)
+            const d = Math.hypot(x - p.position.x, z - p.position.z);
+            const amIn = this.inside?.chunk === chunk && this.inside.door.id === door.id;
+            if (!amIn && d < bestD && d <= REACH_OUT_M && (p.position.x - x) * ox + (p.position.z - z) * oz >= 0
+              && Math.abs(p.position.y - (door.g ?? door.h)) <= 6) { // (not from upstairs in a house of one's own plan, above somebody's door)
+              bestD = d;
+              best = { chunk, door, x, z, ox, oz, inside: false };
+            }
+            // From inside: the door of the room.
+            const inn = this.insideAt(chunk, door);
+            const di = Math.hypot(inn.x - p.position.x, inn.z - p.position.z);
+            if (di < bestD && di <= REACH_IN_M && (p.position.x - inn.x) * Math.sin(inn.yaw) - (p.position.z - inn.z) * Math.cos(inn.yaw) < 0
+              && Math.abs(p.position.y - door.h - this.liftOf(chunk, door)) <= 1.5) {
+              bestD = di;
+              best = { chunk, door, x, z, ox, oz, inside: true };
+            }
           }
         }
       }
@@ -101,13 +134,13 @@ export class Houses {
       const door = this.doorAt(at.chunk, at.door);
       const lift = this.liftOf(at.chunk, at.door);
       const gone = p.waitingForGround || world.chunks.get(`${at.chunk.x}/${at.chunk.y}`) !== at.chunk
-        || Math.hypot(door.x - p.position.x, door.z - p.position.z) > HOUSE_M || Math.abs(p.position.y - at.door.h - lift) > (lift ? 9 : 4);
+        || Math.hypot(door.x - p.position.x, door.z - p.position.z) > (at.reach ?? HOUSE_M) || Math.abs(p.position.y - at.door.h - lift) > (lift ? 9 : at.place ? 6 : 4);
       if (gone && lift && !p.waitingForGround && p.position.y > at.door.h + 20) this.setDown(at); // out of a house in the sky: not a three-kilometre fall
       if (gone) this.left();
     }
     const whose = best && !best.inside ? this.meetup.homes.get(houseKey(best.chunk, best.door.id)) : null;
-    this.hint(best ? (best.inside ? "E: go out" : whose ? `E: go into ${doorName(whose.name)}` : "E: go in")
-      : this.inside ? (this.mine() ? "H: furnish your house" : this.meetup.homes.has(this.inside.key) ? "" : "H: make this your house") : "");
+    this.hint(best ? (best.inside ? "E: go out" : whose ? `E: go into ${doorName(whose.name)}` : this.isPlace(best.chunk, best.door) ? `E: go into ${this.placeTitle(best.chunk, best.door)}` : "E: go in")
+      : this.inside ? (this.inside.place ? "" : this.mine() ? "H: furnish your house" : this.meetup.homes.has(this.inside.key) ? "" : "H: make this your house") : "");
   }
 
   /** Every front door that opens within `reach` metres of a spot (east and south of it at most that far), in the scene. */
@@ -162,8 +195,8 @@ export class Houses {
   /** Stands the player just inside a door, facing in: on the floor of the house, wherever that is. */
   setInside(at) {
     const { player: p } = this;
-    const door = this.doorAt(at.chunk, at.door);
-    const yaw = (at.door.yaw * Math.PI) / 180;
+    const door = this.insideAt(at.chunk, at.door);
+    const yaw = door.yaw;
     p.flying = false;
     p.position.x = door.x - Math.sin(yaw) * 0.9;
     p.position.z = door.z + Math.cos(yaw) * 0.9;
@@ -186,6 +219,13 @@ export class Houses {
     if (world.chunks.get(`${chunk.x}/${chunk.y}`) !== chunk) return false; // the chunk went away meanwhile
     world.addInterior(chunk, door.id, data, rev);
     chunk.interiors.get(door.id).lift = lived?.lift ?? 0;
+    if (this.isPlace(chunk, door)) {
+      // Who is in there, what is written up, and where food is sold. The rooms are worth going into without them.
+      try {
+        const who = await fetch(`/v1/inside/${CHUNK_Z}/${wrap(chunk.x)}/${chunk.y}/${door.id}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
+        if (who.ok && world.chunks.get(`${chunk.x}/${chunk.y}`) === chunk) world.addInsideWho(chunk, door.id, await who.json());
+      } catch { /* an empty shop */ }
+    }
     return true;
   }
 
@@ -233,9 +273,16 @@ export class Houses {
       const whose = this.meetup.homes.get(key);
       if (at.chunk.interiors?.get(at.door.id)?.rev !== (whose?.rev ?? 0) && !(await this.fetchInside(at.chunk, at.door))) return;
       this.setInside(at);
-      this.inside = { chunk: at.chunk, door: at.door, key };
+      const place = this.isPlace(at.chunk, at.door);
+      const who = at.chunk.interiors?.get(at.door.id)?.who;
+      this.inside = { chunk: at.chunk, door: at.door, key, place, ...(place ? { reach: (who?.size ?? 40) + 10 } : {}) };
       const mine = this.meetup.house;
-      if (this.mine()) this.say("Welcome home. Press H to change the furniture.");
+      if (place) {
+        const through = at.chunk.doors.filter((d) => d.id === at.door.id).length > 1;
+        const what = { office: "an office", shop: "a shop", cafe: "a café", mall: "shops", lobby: "an entrance hall" }[who?.use ?? at.door.use] ?? "";
+        const title = this.placeTitle(at.chunk, at.door);
+        this.say(`${/^the /.test(title) ? `You are in ${what || title}` : `${title}${what ? `: ${what}` : ""}`}. ${through ? "There is another door on another side: you can walk right through." : "The way out is the way you came in."}${who?.people?.length ? " Press T beside anyone to talk to them." : ""}`);
+      } else if (this.mine()) this.say("Welcome home. Press H to change the furniture.");
       else if (whose) this.say(`This is ${doorName(whose.name)}.`);
       else this.say(mine ? "Nobody lives here. Press H twice to move in here, and your furniture comes with you." : "Nobody lives here. Press H to make it your house.");
     } catch (err) {
@@ -251,6 +298,7 @@ export class Houses {
     const mine = meetup.house;
     const at = this.inside;
     if (at && this.mine()) return void this.decor.toggle();
+    if (at?.place) return this.say("Nobody lives in a shop or an office. A house with a COME IN board over its door can be yours.");
     if (at) {
       const whose = meetup.homes.get(at.key);
       if (whose) return this.say(`${doorName(whose.name)}: it is theirs to furnish. Yours is a press of H away, once you are outside.`);
