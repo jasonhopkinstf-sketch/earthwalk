@@ -108,7 +108,8 @@ async function load() {
     }).catch(() => { failed++; }).finally(() => { status.textContent = `${done}/${jobs.length} chunks${failed ? `, ${failed} failed` : ""} · ${lat.toFixed(5)}, ${lon.toFixed(5)}`; }));
   }
   await Promise.all(jobs);
-  const y = groundY ?? 0;
+  // `up` looks at a point so many metres above the lowest ground of the middle chunk (a bridge, a rooftop).
+  const y = (groundY ?? 0) + parseFloat(params.get("up") ?? "0");
   controls.target.set(0, y, 0);
   const tilt = parseFloat(params.get("tilt") ?? "0.75"), dist = parseFloat(params.get("dist") ?? "520");
   const az = parseFloat(params.get("az") ?? "0.5");

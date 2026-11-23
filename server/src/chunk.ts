@@ -11,11 +11,13 @@ import { CHUNK_Z, hash32, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { Elevation, GRID } from "./elevation.ts";
 import { type Building, DATA_MARGIN, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
 import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
+import { prepareSpans, rampsOf, spansOf } from "./spans.ts";
+import { drawSpans } from "./spanmesh.ts";
 
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 12;
+export const GENERATOR_REV = 13;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -31,12 +33,22 @@ export const MATERIALS = {
   paved: { id: 6, color: rgb(0x8d8d8d), collision: true },
   water: { id: 7, color: rgb(0x3f7fb5), collision: true },
   rock: { id: 8, color: rgb(0x8c857b), collision: true },
+  /** Ground that is not on the terrain's grid: what is left round the mouth of a tunnel, where the grid was cut away. */
+  cut: { id: 9, color: rgb(0x8a9a5b), collision: true },
   road: { id: 10, color: rgb(0x4a4a4e), collision: false },
   path: { id: 11, color: rgb(0xc9b28a), collision: false },
   rail: { id: 12, color: rgb(0x5b4a3f), collision: false },
   stream: { id: 13, color: rgb(0x3f7fb5), collision: false },
   pavement: { id: 14, color: rgb(0xd2cab8), collision: false },
   marking: { id: 15, color: rgb(0xf4f1e6), collision: false },
+  /** A road, path or railway that is not on the ground: the top of a bridge, a ramp up to one, the floor of a tunnel. Stood and driven on, at whatever height it is; its colour is that of what it carries. */
+  deck: { id: 16, color: rgb(0x4a4a4e), collision: true },
+  /** What holds a bridge up and in: piers, the sides and underside of the deck, solid side walls, arches. */
+  structure: { id: 17, color: rgb(0xb9bec4), collision: true },
+  /** Railings and cables: thin things with the sky between them. */
+  railing: { id: 18, color: rgb(0xf4f1e6), collision: true },
+  /** The inside of a tunnel and its mouth: walls and ceiling. */
+  lining: { id: 19, color: rgb(0x9a9ea6), collision: true },
   wall0: { id: 20, color: rgb(0xd9cdb8), collision: true },
   wall1: { id: 21, color: rgb(0xc4a48a), collision: true },
   wall2: { id: 22, color: rgb(0xb9bec4), collision: true },
@@ -1099,7 +1111,10 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       }
     }
   };
-  for (const road of features.roads) ribbon(road);
+  // A stretch on a bridge is not on the ground: it is drawn as a bridge, at the height worked out for it (spans.ts).
+  const spans = spansOf(features, elev);
+  for (const road of features.roads) if (!spans.profiles.has(road.id)) ribbon(road);
+  drawSpans({ cx, cy, S, sec, ground, mats: MATERIALS, painted }, features, spans, rampsOf(features, spans));
 
   // ---- buildings: extruded footprints, owned by the chunk containing their centroid
   // Road points near this chunk (chunk-local metres), for finding the wall that faces the street.
@@ -1656,15 +1671,21 @@ export function encodeChunk(cx: number, cy: number, mesh: ChunkMesh): Buffer {
 }
 
 /** Features for the data tile containing a chunk (data tiles are fetched with a margin, so border features are whole). */
-export async function featuresForChunk(cx: number, cy: number, load = loadFeatures): Promise<Features> {
+/**
+ * Given the heights of the ground as well (`elev`), the heights of the tile's bridges and tunnels are
+ * worked out before it is handed back, which whatever builds a chunk's mesh from it needs (spans.ts).
+ */
+export async function featuresForChunk(cx: number, cy: number, load = loadFeatures, elev?: Elevation): Promise<Features> {
   const shift = CHUNK_Z - DATA_Z;
   const dx = cx >> shift;
   const dy = cy >> shift;
-  return load(dx, dy);
+  const features = await load(dx, dy);
+  if (elev) await prepareSpans(dx, dy, features, elev, load);
+  return features;
 }
 
 export async function generateChunk(cx: number, cy: number, elev: Elevation, load = loadFeatures): Promise<Buffer> {
-  const features = await featuresForChunk(cx, cy, load);
+  const features = await featuresForChunk(cx, cy, load, elev);
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
   return encodeChunk(cx, cy, buildChunkMesh(cx, cy, features, elev));
 }

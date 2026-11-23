@@ -320,7 +320,7 @@ export async function generateLabels(
   // With the map swapped out (tests), the railways are not fetched either.
   trains: (cx: number, cy: number) => Promise<Train[]> = load === loadFeatures ? trainsFor : async () => [],
 ): Promise<Buffer> {
-  const features = await featuresForChunk(cx, cy, load);
+  const features = await featuresForChunk(cx, cy, load, elev);
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
   // The railways come from a download of their own. If it fails, everything else is still worth sending.
   let railway: Train[] = [];

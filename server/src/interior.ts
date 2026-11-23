@@ -773,7 +773,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
 
 /** The home `id` of a chunk, with where its front door is on Earth and the heading that leads out of it; null when there is none to walk into. */
 export async function findHome(cx: number, cy: number, id: number, elev: Elevation, load: (dx: number, dy: number) => Promise<Features> = loadFeatures): Promise<{ home: HomeDoor; lat: number; lon: number; yaw: number } | null> {
-  const features = await featuresForChunk(cx, cy, load);
+  const features = await featuresForChunk(cx, cy, load, elev);
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
   const home = homesOf(cx, cy, features, elev).find((h) => h.id === id);
   if (!home) return null;
@@ -791,7 +791,7 @@ export function furnishedInterior(cx: number, cy: number, home: HomeDoor, decor:
 
 /** The inside of home `id` of a chunk, in the chunk format; null when that chunk has no such home to walk into. */
 export async function generateInterior(cx: number, cy: number, id: number, elev: Elevation, load: (dx: number, dy: number) => Promise<Features> = loadFeatures): Promise<Buffer | null> {
-  const features = await featuresForChunk(cx, cy, load);
+  const features = await featuresForChunk(cx, cy, load, elev);
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
   const home = homesOf(cx, cy, features, elev).find((h) => h.id === id);
   if (!home) return null;

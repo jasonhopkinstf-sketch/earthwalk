@@ -50,7 +50,7 @@ Then `sectionCount` sections, each:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| materialId | u32 | 0–8 ground types, 10–15 roads/paths/rail/streams/pavements/markings, 20–28 buildings, 30 trees, 32–33 hedges and fences |
+| materialId | u32 | 0–8 ground types, 9 ground cut round a tunnel's mouth, 10–15 roads/paths/rail/streams/pavements/markings, 16–19 bridges and tunnels, 20–29 buildings, 30 trees, 32–33 hedges and fences |
 | color | u32 | `0xRRGGBBAA`, sRGB |
 | flags | u32 | bit 0: the player collides with this section |
 | vertexCount | u32 | |
@@ -85,6 +85,37 @@ or buildings stand within about 40 m, a little lower than the road so that cross
 them; 15 road markings; 32 hedges and 33 fences round front gardens, whose paths are ordinary
 path sections (11). Where gardens have low walls, those are woodwork (27) in the colour of the
 house. None of these collide.
+
+### Bridges
+
+A road, path or railway on a bridge is not drawn on the ground. It is drawn at a height the server
+works out (`server/src/spans.ts`; the map hardly ever says how high a bridge is): straight from the
+ground at one end to the ground at the other, a little arched (much more over the sea), and lifted
+to clear whatever road, railway, path or river passes under it. Where that leaves an end of it in
+the air, the roads that meet it there climb to it on a ramp, at most 70 m long.
+
+| Id | What it is | Collides |
+| --- | --- | --- |
+| 16 | A way that is not on the ground: the top of a bridge's deck, the top of a ramp up to one. Its colour is that of what it carries (road grey, a railway's brown, a path's gravel, boards). Players, cars and trains stand on it **at its own height**, whatever the ground is under it. | yes |
+| 17 | What holds a bridge up and in: the sides and underside of the deck, solid side walls about 1 m high, piers, the walls of a ramp. | yes |
+| 18 | Railings: thin things with the sky between them. | yes |
+
+Nothing about the ground changes for a bridge: the terrain sections (0–8) under it are whole, and a
+road that passes under it is an ordinary road section. So a client has to keep two levels apart at
+such a place. What is asked of it:
+
+- **Standing.** The floor under a player (or a car, a train, an animal) is the highest of the terrain
+  and the surfaces 16 that is not above their feet by more than a step (about 1.2 m). On a bridge that
+  is the deck; under it, the road. The browser does this with a ray cast straight down from head
+  height against the colliding sections.
+- **Not falling off, not walking through.** Sections 17 and 18 stop a player sideways as walls do.
+  A deck's side walls are waist high; its underside is well over head height wherever something
+  passes under it (5.2 m over a road, 6 m over a railway, 3 m over a path).
+- **Water.** A car on a bridge is over water, not in it: "is this water?" has to be asked of the
+  floor the car is on, not of the terrain below.
+
+A bridge is drawn into every chunk it passes through, and overlaps the chunk's edges a little, as
+roads do. Piers belong to the chunk they stand in.
 
 ## Labels: `GET /v1/labels/16/{x}/{y}`
 
