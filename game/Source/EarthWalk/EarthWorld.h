@@ -162,6 +162,17 @@ public:
 	AEarthLife* GetLife() const { return Life; }
 	/** The front doors that open within reach of a spot (metres east and south of the origin). */
 	void DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const;
+	/** Bumped whenever the world's origin moves: something that began before a move can tell. */
+	int32 GetGeneration() const { return Generation; }
+	/** A chunk's size at the origin's latitude, in metres. */
+	double TileMeters() const { return TileCm / 100.0; }
+	/**
+	 * A flight is on (EarthFlight.h), or over. With bFocus the world is asked for round Focus and not round
+	 * the player; with bGeo the room is told the flyer is at Lat, Lon, which is where they really are while
+	 * the scene cannot say (crossing in the haze). While it is on every position sent says "flown", so the
+	 * server counts none of it as walking and downloads no map ahead of it.
+	 */
+	void SetFlight(bool bOn, bool bFocus, const FVector& Focus, bool bGeo, double Lat, double Lon);
 	/** Every door of the building a door belongs to (one or two), each with the building's name on it. */
 	void DoorsOf(const FEarthDoor& Door, TArray<FEarthDoor>& Out) const;
 	/** The shops and places to eat within reach of a spot: food is bought beside one. */
@@ -308,6 +319,12 @@ private:
 	double OriginLat = 0.0;
 	double OriginLon = 0.0;
 	double TileCm = 1.0; // engine units per chunk at the origin's latitude
+	bool bFlightOn = false;
+	bool bFlightFocus = false;
+	FVector FlightFocus = FVector::ZeroVector;
+	bool bFlightGeo = false;
+	double FlightLat = 0.0;
+	double FlightLon = 0.0;
 	int32 Generation = 0; // bumped by SetOrigin so late replies for the old area are ignored
 	float ChunkTimer = 0.f;
 	float SendTimer = 0.f;

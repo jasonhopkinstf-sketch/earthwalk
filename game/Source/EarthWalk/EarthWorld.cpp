@@ -440,6 +440,16 @@ void AEarthWorld::OpenInside(const FEarthDoor& Door)
 	Request->ProcessRequest();
 }
 
+void AEarthWorld::SetFlight(bool bOn, bool bFocus, const FVector& Focus, bool bGeo, double Lat, double Lon)
+{
+	bFlightOn = bOn;
+	bFlightFocus = bOn && bFocus;
+	FlightFocus = Focus;
+	bFlightGeo = bOn && bGeo;
+	FlightLat = Lat;
+	FlightLon = Lon;
+}
+
 void AEarthWorld::DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const
 {
 	for (const TPair<FIntPoint, TArray<FEarthDoor>>& Pair : Doors)
@@ -749,7 +759,7 @@ void AEarthWorld::Tick(float DeltaSeconds)
 	if (ChunkTimer <= 0.f)
 	{
 		ChunkTimer = 0.25f;
-		UpdateChunks(Player->GetActorLocation());
+		UpdateChunks(bFlightOn && bFlightFocus ? FlightFocus : Player->GetActorLocation());
 		UpdateAerial(Player);
 		if (GroundCover && !bAerial)
 		{
@@ -769,7 +779,12 @@ void AEarthWorld::Tick(float DeltaSeconds)
 			const FVector Feet = Player->GetActorLocation() - FVector(0, 0, Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - (Rider ? Rider->SeatLiftCm() : 0.0));
 			double Lat, Lon, Alt;
 			WorldToGeo(Feet, Lat, Lon, Alt);
-			Net->SendPosition(Lat, Lon, Alt, Rider ? Rider->FacingYaw() : Controller->GetControlRotation().Yaw);
+			if (bFlightOn && bFlightGeo)
+			{
+				Lat = FlightLat; // crossing in the haze: where the flyer really is
+				Lon = FlightLon;
+			}
+			Net->SendPosition(Lat, Lon, Alt, Rider ? Rider->FacingYaw() : Controller->GetControlRotation().Yaw, bFlightOn);
 		}
 	}
 

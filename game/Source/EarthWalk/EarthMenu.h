@@ -68,6 +68,11 @@ public:
 	/** Puts the question of an action up (null takes it away). */
 	void ShowAsk(const FEarthAction* Action, const TArray<FString>& Choices = TArray<FString>());
 	void ShowStrip(bool bShow);
+	/**
+	 * The choice once a place is found: there at once (Enter), or flown there to watch (F). Title is the
+	 * place, Sub how far it is, FlyAbout what the flight will be like.
+	 */
+	void ShowChoice(bool bShow, const FString& Title = FString(), const FString& Sub = FString(), const FString& FlyAbout = FString());
 	TSharedPtr<SEditableTextBox> GetAskInput() const { return AskInput; }
 
 	/**
@@ -107,6 +112,7 @@ private:
 	TSharedPtr<class SWrapBox> AskChoices;
 	TSharedPtr<SWidget> Strip;
 	TSharedPtr<SBorder> NewsPanel;
+	TSharedPtr<SBorder> ChoicePanel;
 	TSharedPtr<SBorder> TalkPanel;
 	TSharedPtr<STextBlock> TalkName;
 	TSharedPtr<STextBlock> TalkWords;

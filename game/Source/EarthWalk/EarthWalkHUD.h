@@ -8,6 +8,7 @@
 class SEarthMenu;
 class UEarthMiniMap;
 class UEarthLunch;
+class UEarthFlight;
 class UEarthHome;
 class UEarthCare;
 class SEarthWalkOverlay;
@@ -82,6 +83,8 @@ public:
 	void CloseNews();
 	/** Esc on the bubble's line: the conversation is over. */
 	void EndTalk() { CloseTalk(true); }
+	/** The choice once a place is found was made: 0 go there now, 1 be flown there and watch; anything else is a change of mind. */
+	void ChoiceDone(int32 Which);
 	/** Asks the guide something in plain words (Q, the menu, "/guide ..."): the answer comes in the bubble at the foot of the screen. */
 	void GuideAsk(const FString& Question);
 	/** One of the buttons under the guide's answer that start the trip: take me there, call a taxi, go there now, show me. */
@@ -95,7 +98,15 @@ private:
 	/** Z: the strip of buttons along the bottom, on or off, and remembered. */
 	void ToggleStrip();
 	/** Typing into the chat box or into the box that asks "where to?": the keys are letters, not commands. */
-	bool Typing() const { return bChatOpen || bAskOpen || bTalkOpen; }
+	bool Typing() const { return bChatOpen || bAskOpen || bTalkOpen || bChoiceOpen; }
+	/** "Go to a place..." from the menu: finds it, and offers to go at once or to be flown there (EarthFlight.h). */
+	void GoChoose(const FString& Query);
+	/** Looks a place up and flies there at once: "/flyto ...". */
+	void FlyToPlace(const FString& Query);
+	bool bChoiceOpen = false;
+	FString ChoiceName;
+	double ChoiceLat = 0.0;
+	double ChoiceLon = 0.0;
 	/** The conversation with a thing, in its bubble at the foot of the screen (EarthMenu.h): T starts one. */
 	void OpenTalk();
 	void CloseTalk(bool bStopTalking);
@@ -121,6 +132,9 @@ private:
 	/** Food and hearts: the five hearts in the corner and the lunch box (EarthLunch.h). B opens and closes it. */
 	UPROPERTY()
 	TObjectPtr<UEarthLunch> Lunch;
+	/** Being flown to a place and watching (EarthFlight.h). */
+	UPROPERTY()
+	TObjectPtr<UEarthFlight> Flight;
 	/** A house of your own: the names over doors and the furnishing panel (EarthHome.h). H is the home key. */
 	UPROPERTY()
 	TObjectPtr<UEarthHome> House;

@@ -216,7 +216,7 @@ void UEarthWalkNet::SendJson(const TSharedRef<FJsonObject>& Object)
 	Socket->Send(Out);
 }
 
-void UEarthWalkNet::SendPosition(double Lat, double Lon, double Alt, double Yaw)
+void UEarthWalkNet::SendPosition(double Lat, double Lon, double Alt, double Yaw, bool bFlown)
 {
 	if (!bJoined)
 	{
@@ -228,6 +228,10 @@ void UEarthWalkNet::SendPosition(double Lat, double Lon, double Alt, double Yaw)
 	Message->SetNumberField(TEXT("lon"), Lon);
 	Message->SetNumberField(TEXT("alt"), Alt);
 	Message->SetNumberField(TEXT("yaw"), Yaw);
+	if (bFlown)
+	{
+		Message->SetBoolField(TEXT("flown"), true); // being flown somewhere: not a walk, and no map is wanted ahead of it
+	}
 	SendJson(Message);
 }
 

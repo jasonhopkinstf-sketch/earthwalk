@@ -330,6 +330,15 @@ void SEarthMenu::Construct(const FArguments&, AEarthWalkHUD* InOwner)
 				]
 			]
 		]
+		// The choice once a place is found: there at once, or flown there to watch.
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.f, 170.f, 0.f, 0.f)
+		[
+			SAssignNew(ChoicePanel, SBorder)
+			.BorderImage(&PanelBrush)
+			.BorderBackgroundColor(PanelColor)
+			.Padding(FMargin(22.f, 16.f, 22.f, 16.f))
+			.Visibility(EVisibility::Collapsed)
+		]
 	];
 	// The pointer passes through to the game everywhere but on a button.
 	SetVisibility(EVisibility::SelfHitTestInvisible);
@@ -424,6 +433,60 @@ void SEarthMenu::ShowNews(bool bShow, const TArray<FEarthNewsEntry>& Entries, co
 					]
 				]
 			]
+		]);
+}
+
+void SEarthMenu::ShowChoice(bool bShow, const FString& Title, const FString& Sub, const FString& FlyAbout)
+{
+	ChoicePanel->SetVisibility(bShow ? EVisibility::Visible : EVisibility::Collapsed);
+	if (!bShow)
+	{
+		return;
+	}
+	const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+	const auto Option = [this, Hud](int32 Which, const FString& Key, const FString& Label, const FString& About)
+	{
+		return SNew(SButton)
+			.IsFocusable(false)
+			.ButtonStyle(&RowButton)
+			.ContentPadding(FMargin(14.f, 10.f))
+			.OnClicked_Lambda([Hud, Which]()
+			{
+				if (AEarthWalkHUD* Screen = Hud.Get())
+				{
+					Screen->ChoiceDone(Which);
+				}
+				return FReply::Handled();
+			})
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 12.f, 0.f)
+				[
+					SNew(SBox).MinDesiredWidth(52.f).HAlign(HAlign_Center)
+					[
+						SNew(SBorder).BorderImage(&KeyBrush).BorderBackgroundColor(FLinearColor::White).Padding(FMargin(7.f, 2.f))
+						[
+							Line(Key, TEXT("Bold"), 11, FLinearColor(FColor(38, 34, 31)))
+						]
+					]
+				]
+				+ SHorizontalBox::Slot().FillWidth(1.f)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()[Line(Label, TEXT("Bold"), 16, FLinearColor::White)]
+					+ SVerticalBox::Slot().AutoHeight()[Line(About, TEXT("Regular"), 11, DimColor, 440.f)]
+				]
+			];
+	};
+	ChoicePanel->SetContent(
+		SNew(SBox).WidthOverride(540.f)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight()[Line(Title, TEXT("Bold"), 20, FLinearColor::White, 540.f)]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 2.f, 0.f, 12.f)[Line(Sub, TEXT("Regular"), 13, DimColor, 540.f)]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)[Option(0, TEXT("Enter"), TEXT("Go there now"), TEXT("You land there at once."))]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)[Option(1, TEXT("F"), TEXT("Fly there and watch"), FlyAbout)]
+			+ SVerticalBox::Slot().AutoHeight()[Line(TEXT("Click one, or press its yellow key. Esc to change your mind."), TEXT("Regular"), 11, DimColor)]
 		]);
 }
 

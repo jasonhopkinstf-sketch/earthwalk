@@ -3,6 +3,7 @@
 #include "EarthMenu.h"
 #include "EarthMiniMap.h"
 #include "EarthLunch.h"
+#include "EarthFlight.h"
 #include "EarthHome.h"
 #include "EarthCare.h"
 #include "EarthAnimalFigure.h"
@@ -1343,6 +1344,12 @@ void AEarthWalkHUD::BeginPlay()
 		MiniMap->Setup(this);
 		Lunch = NewObject<UEarthLunch>(this);
 		Lunch->Setup(this);
+		Flight = NewObject<UEarthFlight>(this);
+		Flight->Setup(this);
+		if (FParse::Param(FCommandLine::Get(), TEXT("EWFlightCheck")))
+		{
+			EarthFlightSums::Check(); // the plans of four known flights, to hold against the browser's
+		}
 		House = NewObject<UEarthHome>(this);
 		House->Setup(this);
 		Care = NewObject<UEarthCare>(this);
@@ -1603,6 +1610,28 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 				FSlateApplication::Get().SetKeyboardFocus(Menu->GetTalkInput(), EFocusCause::SetDirectly);
 			}
 		}
+	}
+	else if (bChoiceOpen && Menu.IsValid())
+	{
+		// The choice once a place is found: Enter goes at once, F flies, Esc is a change of mind.
+		if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			ChoiceDone(-1);
+			bMenuTookEsc = true;
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Enter))
+		{
+			ChoiceDone(0);
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::F))
+		{
+			ChoiceDone(1);
+		}
+	}
+	// Being flown somewhere: the flight puts the player where it has got to, and a movement key or Esc takes over.
+	if (Flight && Flight->Frame(DeltaSeconds, !Typing() && !bMenuOpen))
+	{
+		bMenuTookEsc = true;
 	}
 	if (!Typing())
 	{
@@ -1891,6 +1920,10 @@ void AEarthWalkHUD::UpdateCompany(APlayerController* PC)
 		if (Care && !Care->GetHint().IsEmpty())
 		{
 			Hints += (Hints.IsEmpty() ? TEXT("") : TEXT("      ")) + Care->GetHint();
+		}
+		if (Flight && Flight->IsOn())
+		{
+			Hints = Flight->GetHint(); // nothing else can be done from up here
 		}
 		Overlay->SetHint(Hints);
 	}
@@ -2626,10 +2659,111 @@ void AEarthWalkHUD::AskDone(const FString& Typed)
 			AddLine(TEXT("Hop on something first (E beside an animal or a car), then ask it to take you. Or call a taxi: it comes to you."), NoticeColor);
 		}
 	}
+	else if (Id == TEXT("goto") && !Typed.IsEmpty())
+	{
+		// From the menu's box the place is found first, and then there is a choice: there at once, or flown there to watch.
+		// (In a car or on an animal it is said to that, as "/goto" is.)
+		const UEarthCompany* Friends = Company();
+		if (Friends && Friends->IsRiding())
+		{
+			RunCommand(Action->Command, Typed);
+		}
+		else
+		{
+			GoChoose(Typed);
+		}
+	}
 	else if (Action && !Typed.IsEmpty())
 	{
 		RunCommand(Action->Command, Typed);
 	}
+}
+
+void AEarthWalkHUD::GoChoose(const FString& Query)
+{
+	LookUpPlace(Query, [this](const FString& Name, double Lat, double Lon)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+		FEarthFlightPlan Plan;
+		if (!Character || !Menu.IsValid())
+		{
+			return;
+		}
+		if (!Flight || !Flight->Plan(Lat, Lon, Plan))
+		{
+			// Too near to fly to, or nowhere to take off from yet: there at once.
+			AddLine(FString::Printf(TEXT("Travelling to %s"), *Name), NoticeColor);
+			Character->TeleportToGeo(Lat, Lon);
+			return;
+		}
+		CloseShows();
+		ClosePassport();
+		CloseMenu();
+		bChoiceOpen = true;
+		ChoiceName = Name;
+		ChoiceLat = Lat;
+		ChoiceLon = Lon;
+		Character->bTyping = true;
+		PC->bShowMouseCursor = true;
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PC->SetInputMode(Mode);
+		Menu->ShowChoice(true, EarthFlightSums::ShortName(Name), FString::Printf(TEXT("%s from here. How would you like to get there?"), *EarthFlightSums::FarWords(Plan.Metres)),
+			Plan.bLow ? FString::Printf(TEXT("You are carried over the rooftops, %s."), *EarthFlightSums::TimeWords(Plan.Seconds))
+				: FString::Printf(TEXT("Up over where you are, across high in the haze, and down over it, %s. The land in between is not drawn."), *EarthFlightSums::TimeWords(Plan.Seconds)));
+	}, /*bFromHere*/ true);
+}
+
+void AEarthWalkHUD::ChoiceDone(int32 Which)
+{
+	if (!bChoiceOpen)
+	{
+		return;
+	}
+	bChoiceOpen = false;
+	ChatClosedAt = FPlatformTime::Seconds(); // the Enter that chose is not also "open the chat"
+	if (Menu.IsValid())
+	{
+		Menu->ShowChoice(false);
+	}
+	APlayerController* PC = GetOwningPlayerController();
+	AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+	if (PC)
+	{
+		if (Character)
+		{
+			Character->bTyping = bShowsOpen;
+		}
+		ApplyGameInputMode(PC);
+	}
+	if (!Character)
+	{
+		return;
+	}
+	if (Which == 1 && Flight && Flight->Start(ChoiceName, ChoiceLat, ChoiceLon))
+	{
+		return;
+	}
+	if (Which == 0 || Which == 1)
+	{
+		AddLine(FString::Printf(TEXT("Travelling to %s"), *ChoiceName), NoticeColor);
+		Character->TeleportToGeo(ChoiceLat, ChoiceLon);
+	}
+}
+
+void AEarthWalkHUD::FlyToPlace(const FString& Query)
+{
+	LookUpPlace(Query, [this](const FString& Name, double Lat, double Lon)
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+		if (Character && !(Flight && Flight->Start(Name, Lat, Lon)))
+		{
+			AddLine(FString::Printf(TEXT("%s is too near to fly to, so: travelling there."), *Name), NoticeColor);
+			Character->TeleportToGeo(Lat, Lon);
+		}
+	}, /*bFromHere*/ true);
 }
 
 void AEarthWalkHUD::OpenTalk()
@@ -2883,6 +3017,16 @@ void AEarthWalkHUD::UpdateWhere()
 	const AEarthWorld* Earth = AEarthWorld::Get(this);
 	if (!Earth || !Character || !Overlay.IsValid())
 	{
+		return;
+	}
+	if (Flight && Flight->IsOn())
+	{
+		// Being flown: where to, and how far there is to go, in place of where this is.
+		WhereName.Reset();
+		WhereCountry.Reset();
+		WhereKey.Reset();
+		WhereAskAt = 0.0;
+		Overlay->SetWhere(Flight->GetHead(), Flight->GetSub());
 		return;
 	}
 	if (Character->IsWaitingForGround())
@@ -3176,6 +3320,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
 		AddLine(TEXT("C   your car comes to you (not while flying, when C is down)        X   a taxi: it asks where to, comes to you, and drives you there"), NoticeColor);
 		AddLine(TEXT("Q   ask the guide in plain words: where am I, what is near here, how do I get to the beach? Or type /guide and your question."), NoticeColor);
+		AddLine(TEXT("/flyto <place>   be flown there and watch the world go by: over the rooftops across a town, and for further up through the haze and down again."), NoticeColor);
 		AddLine(TEXT("K   tricks: what your companion knows (a click has it do one), a lesson in the next, and an agility course to set up."), NoticeColor);
 		AddLine(TEXT("H   the home key: inside a house nobody lives in, make it yours; inside your own, furnish it; anywhere else, go home."), NoticeColor);
 		AddLine(TEXT("B   your lunch box: your five hearts, the food you carry (a click eats it), and beside a shop or a caf\u00e9 what it sells."), NoticeColor);
@@ -3228,6 +3373,14 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		{
 			GoToPlace(Argument);
 		}
+	}
+	else if (Command == TEXT("flyto") && !Argument.IsEmpty())
+	{
+		FlyToPlace(Argument); // be flown there and watch the world go by
+	}
+	else if (Command == TEXT("choose"))
+	{
+		ChoiceDone(Argument == TEXT("fly") ? 1 : Argument == TEXT("now") ? 0 : -1); // the box that offers to fly: for tests
 	}
 	else if (Command == TEXT("join") && !Argument.IsEmpty())
 	{

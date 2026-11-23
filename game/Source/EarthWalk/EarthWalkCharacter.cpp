@@ -753,8 +753,8 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		Motion.Speed = bWaitingForGround ? 0.f : static_cast<float>(GetVelocity().Size2D());
 		Motion.Turn = DeltaSeconds > 0.f ? FMath::FindDeltaAngleDegrees(FigureYaw, Yaw) / DeltaSeconds : 0.f;
 		FigureYaw = Yaw;
-		Motion.bSeated = Mount != nullptr || bCarried;
-		Motion.bFlying = bFlying && !bWaitingForGround;
+		Motion.bSeated = (Mount != nullptr || bCarried) && !bFlown;
+		Motion.bFlying = (bFlying || bFlown) && !bWaitingForGround;
 		Motion.bInAir = !bWaitingForGround && !Motion.bSeated && GetCharacterMovement()->IsFalling();
 		Figure->Animate(DeltaSeconds, Motion);
 	}
@@ -796,8 +796,9 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 
-	// Never fall through a part of the world that has not arrived yet.
-	if (!bFlying)
+	// Never fall through a part of the world that has not arrived yet. (Not while being flown somewhere: a flight
+	// goes where nothing has arrived, on purpose, and puts the player where it has got to.)
+	if (!bFlying && !bFlown)
 	{
 		const AEarthWorld* Earth = AEarthWorld::Get(this);
 		if ((Earth && !Earth->HasChunkAt(GetActorLocation())) || GetActorLocation().Z < -60000.0)

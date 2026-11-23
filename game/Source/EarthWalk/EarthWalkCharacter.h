@@ -72,6 +72,8 @@ public:
 	/** Carried by a train or by the friend who is steering: the player is put where that has got to, every frame. */
 	void SetCarried(bool bInCarried);
 	bool IsCarried() const { return bCarried; }
+	/** Being flown to a place (EarthFlight.h): carried, but drawn stretched out to fly and not seated. */
+	void SetFlown(bool bInFlown) { bFlown = bInFlown; }
 	/**
 	 * At the wheel of a car, a taxi or a tractor: W and S are the pedals, A and D the steering, Space
 	 * the handbrake, and the camera sits behind the car, swung round by the mouse.
@@ -155,6 +157,7 @@ private:
 	double WantVz = 0.0;
 	bool bDriveFriction = false;
 	bool bCarried = false;
+	bool bFlown = false;
 	bool bSteering = false;
 	bool bPep = false;
 	bool bAutopilot = false;

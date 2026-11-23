@@ -286,7 +286,7 @@ public:
 	const FEarthHome& GetHome() const { return Home; }
 	const TArray<FEarthPerson>& GetPeople() const { return People; }
 
-	void SendPosition(double Lat, double Lon, double Alt, double Yaw);
+	void SendPosition(double Lat, double Lon, double Alt, double Yaw, bool bFlown = false);
 	void SendChat(const FString& Text);
 	/** Sets my home to where I am standing (the server names the place). */
 	void SendHome();
