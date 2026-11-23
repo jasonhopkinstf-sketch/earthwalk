@@ -244,6 +244,88 @@ export function doingLine(wish: Wish, n: number): string {
 
 /** What a taxi is told on top of who it is: taxis talk, and say things nobody asked for. */
 const CABBY = "You are a taxi with a passenger aboard, and taxis talk. When nobody has spoken for a while you say something of your own: one or two short sentences that sound odd at first and turn out to have something true and wise in them. It can be about the road, maps, time, weather, how people are, or the place you are driving through (a real fact about it is welcome). Never ask a question that needs an answer, never say the same thing twice, and keep it gentle: a small child may be listening.";
+/**
+ * A taxi tells one story a ride, about a fare it once carried, in this many parts: a part each time it
+ * speaks of its own accord, and after the story its musings. Jason asked for it on 2026-11-23: "the
+ * taxi driver should tell a little story about a previous ride while the car drives along".
+ */
+export const STORY_PARTS = 4;
+const STORYTELLER = `On each ride you also tell ONE little story about a passenger you once carried: made up, kind, fit for a child to hear, with something a little odd in it and a small surprise or a warm thought at the end. You tell it in ${STORY_PARTS} short parts, one part each time you are asked for it, one or two sentences a part, each carrying on from the last. Do not ask whether they want to hear it, and do not say which part it is.`;
+/** The stories a taxi tells when there is no AI to ask: each in STORY_PARTS parts. */
+const STORIES: string[][] = [
+  [
+    "That reminds me of a fare I had once. A boy with a goldfish in a bag of water. The boy paid, but the goldfish was the one paying attention.",
+    "Every time I turned a corner, the fish swam to that side of the bag to look out. Left turn, left side. Right turn, right side.",
+    "The boy said it had never seen anything but a shop window. So I took the long way round, by the water, and went slowly.",
+    "When they got out, the fish swam one slow loop. I have decided that means thank you. Nobody has told me otherwise.",
+  ],
+  [
+    "I once carried a lady with a trombone. The trombone would not fit, so the long end of it rode out of the window.",
+    "She said it seemed a waste to have it out there doing nothing. So she played it, all the way down the street.",
+    "By the second corner every dog in the neighbourhood was singing along. Badly, but with great feeling.",
+    "She told me it was the best audience she had ever had. Nobody clapped. But nobody left, either.",
+  ],
+  [
+    "A man got in once and said: nowhere in particular, please. Just round and back again.",
+    "I asked him why. He said his armchair had been taking him for granted, and needed a chance to miss him.",
+    "So we drove once round the town. He looked out at everything as if he were on holiday.",
+    "When I dropped him at his own door he went in very quietly, to surprise the chair. I think about that chair sometimes.",
+  ],
+  [
+    "The most careful drive of my life was a wedding cake. Three layers, sitting on the back seat with the seat belt on.",
+    "I went so slowly that a snail would have looked at its watch. Every bump, the baker and I both held our breath.",
+    "By the time we got there, forty cars were queued up behind me. I was sure they were cross.",
+    "The cake arrived with every layer standing. And all forty drivers got out and clapped. They were the wedding guests, you see.",
+  ],
+  [
+    "A girl flagged me down once holding a single glove. Not hers. She had found it on a bench and wanted to take it home.",
+    "The glove's home, she meant. So we drove to every bench in town and asked who had lost one.",
+    "At the very last bench sat an old man wearing one glove. The other hand was in his pocket, keeping warm.",
+    "He had come back to that bench every day for a year, in case the glove did. He said gloves are like that. You have to give them time.",
+  ],
+  [
+    "A woman got in one evening and said: to the moon, please. I told her I only go as far as the roads do.",
+    "She said that would be fine, as far as the roads go. So I took her up the highest hill I know.",
+    "We got to the top just as the moon came up over the edge of it, enormous, close enough to knock on.",
+    "She looked for a long time and said: near enough. She paid me with a map of the stars. I keep it for emergencies.",
+  ],
+  [
+    "A farmer once brought a lamb to the vet in the back of me. The lamb sat up straight and looked out of the window like a very small duchess.",
+    "Whenever we passed a field of sheep she said one loud baa at them. Just the one. Like someone waving from a car.",
+    "The vet looked her over, nose to tail, and could find nothing wrong with her at all.",
+    "The farmer worked it out on the way home. She had not been ill. She had only wanted to go out for a drive. I let her ride in the front.",
+  ],
+  [
+    "Twin sisters got in once, arguing. One said the quickest way home was by the bridge. The other said by the hill.",
+    "They could not agree, so I offered to try both. There by the bridge, and back again by the hill, and I would time it.",
+    "They held one stopwatch each and watched each other like hawks the whole way.",
+    "The two ways took exactly the same time, to the second. They were furious for a moment. Then they laughed so much that I had to pull over.",
+  ],
+  [
+    "One bright sunny day a man sat in my back seat with his umbrella up. Inside. I asked him why.",
+    "He said it rains wherever he goes, so he likes to be ready. I looked at the sky. Blue from one end to the other.",
+    "Halfway down the street it rained. Only on our street. Only on us, I think. He was not even surprised.",
+    "He gave me the umbrella when he got out. It has not rained on me since. I do not know what to make of that, so I am just grateful.",
+  ],
+  [
+    "A grandmother got in once in a great hurry. Follow that school bus, she said, and then get in front of it.",
+    "Her grandson was on the bus. She wanted to be standing at the gate when it arrived, as if she had been there all afternoon.",
+    "I am not a fast taxi, but I know a short cut past the duck pond. The ducks did not mind.",
+    "We beat the bus by one lamp post. She was at the gate, perfectly calm, a little out of breath. He never suspected a thing.",
+  ],
+  [
+    "There was a small boy once who did not say one word the whole ride. He just drew, in a little book, looking up now and then.",
+    "I tried the weather. I tried football. I tried a joke about a zebra crossing. Nothing. Scribble, scribble.",
+    "When we stopped he tore the page out and left it on the seat, and ran off before I could say anything.",
+    "It was a drawing of me. A taxi, with a smile I did not know I had. I have tried to deserve it ever since.",
+  ],
+  [
+    "A gentleman rode with me on his birthday once. All by himself. He said he had only wanted to hear somebody ask: where to?",
+    "That seemed a small thing to want on a birthday. So I asked him again at every corner. Where to? Where to?",
+    "Then I played him a birthday tune on my horn, which I am not supposed to do.",
+    "People on the pavement joined in and sang. A whole street of strangers. He said it was the best party he had never planned.",
+  ],
+];
 /** What a taxi says of its own accord when there is no AI to ask. */
 const MUSINGS = [
   "Every road is somebody's way home. I drive politely, in case it is yours.",
@@ -341,7 +423,8 @@ export class Talker {
   private readonly dailyUsd: number;
   private readonly now: () => number;
   private readonly spendFile: string | null;
-  private readonly history = new Map<string, { at: number; turns: Anthropic.MessageParam[]; said: number }>();
+  /** `tale`: who is telling the story a taxi tells on a ride, the AI or the taxi's own stock of them. */
+  private readonly history = new Map<string, { at: number; turns: Anthropic.MessageParam[]; said: number; tale?: "ai" | "stock" }>();
   private spend = { day: "", usd: 0 };
   private loaded: Promise<void> | null = null;
   private warned = false;
@@ -424,10 +507,14 @@ export class Talker {
    * What a thing with a passenger says of its own accord: remark number `n` of the ride, through
    * `place` on the way to `dest`. It is part of the same conversation as anything said to it.
    */
-  async muse(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number): Promise<Said> {
+  async muse(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number, ride = 0): Promise<Said> {
     const p = persona(thing, sp);
-    const stock = (): Said => ({ name: p.name, text: MUSINGS[(hash32(thing, 0x4d555345) + n) % MUSINGS.length], ai: false });
-    if (!this.ask || !(await this.canSpend())) return stock();
+    // A taxi's first few remarks of a ride are its story, a part at a time; `ride` tells one ride from the next, so the next fare hears another.
+    const part = sp === "taxi" && n < STORY_PARTS ? n : -1;
+    const stock = (): Said => ({
+      name: p.name, ai: false,
+      text: part >= 0 ? STORIES[(hash32(thing, 0x53544f52) + ride) % STORIES.length][part] : MUSINGS[(hash32(thing, 0x4d555345) + n) % MUSINGS.length],
+    });
     const key = `${room}/${sp}/${thing}`;
     const now = this.now();
     let talk = this.history.get(key);
@@ -435,18 +522,27 @@ export class Talker {
     talk.at = now;
     this.history.delete(key);
     this.history.set(key, talk);
-    const line = `(Nobody has spoken for a little while. You are driving your passenger${place ? ` through ${place}` : ""}${dest ? ` on the way to ${dest}` : ""}. Say something of your own now.)`;
+    // A story is told through by whoever began it: one of the taxi's own is not finished by the AI, nor the other way about.
+    if (part === 0) talk.tale = this.ask && (await this.canSpend()) ? "ai" : "stock";
+    if (part >= 0 && talk.tale !== "ai") return stock();
+    const lost = (): Said => (part > 0 ? { name: p.name, ai: false, text: "And the rest of it has gone clean out of my head. The road does that. It will come back to me at a red light." } : stock());
+    if (!this.ask || !(await this.canSpend())) return lost();
+    const going = `You are driving your passenger${place ? ` through ${place}` : ""}${dest ? ` on the way to ${dest}` : ""}.`;
+    const line = part === 0 ? `(Nobody has spoken for a little while. ${going} Begin your story now, as if something on the road had reminded you of it: the first part, one or two sentences.)`
+      : part === STORY_PARTS - 1 ? "(Finish your story now: the last part, one or two sentences, with its small surprise or warm thought.)"
+      : part > 0 ? "(Carry on with your story: the next part, one or two sentences. Do not end it yet.)"
+      : `(Nobody has spoken for a little while. ${going} Say something of your own now.)`;
     try {
-      const answer = await this.ask(this.model, `${systemPrompt(p, place, sp)}\n${CABBY}`, [...talk.turns, { role: "user", content: line }]);
+      const answer = await this.ask(this.model, `${systemPrompt(p, place, sp)}\n${CABBY}${part >= 0 ? `\n${STORYTELLER}` : ""}`, [...talk.turns, { role: "user", content: line }]);
       await this.spent(answer.inputTokens, answer.outputTokens);
-      if (!answer.text) return stock();
+      if (!answer.text) return lost();
       const text = answer.text.replace(/\s+/g, " ").slice(0, 400);
       talk.turns.push({ role: "user", content: line }, { role: "assistant", content: text });
       if (talk.turns.length > HISTORY_TURNS * 2) talk.turns.splice(0, talk.turns.length - HISTORY_TURNS * 2);
       return { name: p.name, text, ai: true };
     } catch (err) {
       this.complain(err instanceof Error ? err.message : String(err));
-      return stock();
+      return lost();
     }
   }
 

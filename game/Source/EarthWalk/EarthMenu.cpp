@@ -57,6 +57,7 @@ namespace
 		{ TEXT("sound"), TEXT("The game"), TEXT("Sounds on, or off"), TEXT("The animals' voices, car horns and train whistles."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("map"), TEXT("The game"), TEXT("The little map: bigger, or hidden"), TEXT("The map in the corner: friends, doors, trains, cars and where you are going."), TEXT("M"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("strip"), TEXT("The game"), TEXT("Buttons on, or off"), TEXT("The row of buttons along the bottom of the screen."), TEXT("Z"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("news"), TEXT("The game"), TEXT("What's new"), TEXT("What has been added to EarthWalk lately."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("help"), TEXT("The game"), TEXT("Every typed command"), TEXT("Lists the slash commands in the chat window, for those who like typing."), TEXT(""), TEXT("help"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("quit"), TEXT("The game"), TEXT("Leave EarthWalk"), TEXT("Where you are is remembered for next time."), TEXT("Esc Esc"), TEXT("quit"), TEXT(""), TEXT(""), TEXT("") },
 	};
@@ -231,6 +232,18 @@ void SEarthMenu::Construct(const FArguments&, AEarthWalkHUD* InOwner)
 				]
 			]
 		]
+		// What is new since the player was last here.
+		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+		[
+			SAssignNew(NewsPanel, SBorder)
+			.BorderImage(&PanelBrush)
+			.BorderBackgroundColor(PanelColor)
+			.Padding(FMargin(28.f, 20.f, 28.f, 20.f))
+			.Visibility(EVisibility::Collapsed)
+			[
+				SNew(SBox).WidthOverride(640.f)
+			]
+		]
 		// The conversation with a thing: a speech bubble at the foot of the screen.
 		+ SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0.f, 0.f, 0.f, 84.f)
 		[
@@ -315,6 +328,93 @@ void SEarthMenu::Construct(const FArguments&, AEarthWalkHUD* InOwner)
 void SEarthMenu::ShowMenu(bool bShow)
 {
 	MenuPanel->SetVisibility(bShow ? EVisibility::Visible : EVisibility::Collapsed);
+}
+
+void SEarthMenu::ShowNews(bool bShow, const TArray<FEarthNewsEntry>& Entries, const FString& Foot)
+{
+	NewsPanel->SetVisibility(bShow ? EVisibility::Visible : EVisibility::Collapsed);
+	if (!bShow)
+	{
+		return;
+	}
+	// The heading and the button stay put; what is between them scrolls when there is a lot of it.
+	const TSharedRef<SScrollBox> Body = SNew(SScrollBox);
+	for (const FEarthNewsEntry& Entry : Entries)
+	{
+		// A release that is all in the other game says so once, under its title, not on every line.
+		bool bAllElsewhere = Entry.Items.Num() > 0;
+		for (const TPair<FString, FString>& Item : Entry.Items)
+		{
+			bAllElsewhere = bAllElsewhere && !Item.Value.IsEmpty() && Item.Value == Entry.Items[0].Value;
+		}
+		Body->AddSlot().Padding(0.f, 12.f, 0.f, 4.f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.f)[Line(Entry.Title, TEXT("Bold"), 16, GoldColor, 540.f)]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Bottom).Padding(0.f, 0.f, 14.f, 0.f)[Line(Entry.Version, TEXT("Regular"), 10, DimColor)]
+		];
+		if (bAllElsewhere)
+		{
+			Body->AddSlot().Padding(0.f, 0.f, 0.f, 4.f)[Line(Entry.Items[0].Value, TEXT("Italic"), 11, DimColor, 600.f)];
+		}
+		for (const TPair<FString, FString>& Item : Entry.Items)
+		{
+			const TSharedRef<SVerticalBox> Words = SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight()[Line(Item.Key, TEXT("Regular"), 13, FLinearColor::White, 590.f)];
+			if (!Item.Value.IsEmpty() && !bAllElsewhere)
+			{
+				Words->AddSlot().AutoHeight()[Line(Item.Value, TEXT("Italic"), 10, DimColor, 590.f)];
+			}
+			Body->AddSlot().Padding(0.f, 3.f, 0.f, 3.f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(4.f, 0.f, 10.f, 0.f)[Line(TEXT("\u2022"), TEXT("Bold"), 13, GoldColor)]
+				+ SHorizontalBox::Slot().FillWidth(1.f)[Words]
+			];
+		}
+	}
+	const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+	NewsPanel->SetContent(
+		SNew(SBox).WidthOverride(640.f)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().FillWidth(1.f)[Line(TEXT("What's new"), TEXT("Bold"), 26, FLinearColor::White)]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Line(TEXT("Esc to close"), TEXT("Regular"), 10, DimColor)]
+			]
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SBox).MaxDesiredHeight(430.f)
+				[
+					Body
+				]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 14.f, 0.f, 0.f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(0.f, 0.f, 16.f, 0.f)[Line(Foot, TEXT("Italic"), 11, DimColor, 480.f)]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					SNew(SButton)
+					.IsFocusable(false)
+					.ButtonStyle(&StripButton)
+					.ContentPadding(FMargin(22.f, 8.f))
+					.OnClicked_Lambda([Hud]()
+					{
+						if (AEarthWalkHUD* Screen = Hud.Get())
+						{
+							Screen->CloseNews();
+						}
+						return FReply::Handled();
+					})
+					[
+						Line(TEXT("Got it"), TEXT("Bold"), 14, FLinearColor::White)
+					]
+				]
+			]
+		]);
 }
 
 void SEarthMenu::ShowStrip(bool bShow)

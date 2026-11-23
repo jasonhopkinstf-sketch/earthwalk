@@ -824,6 +824,23 @@ void UEarthCompany::TalkFrame(double Dt)
 	}
 	const double Now = FPlatformTime::Seconds();
 	Bubbles.RemoveAll([Now](const FBubble& Bubble) { return Now > Bubble.Until; });
+	// What a thing said goes along with it when it is on the move here: a taxi telling its story as it
+	// drives would otherwise leave each part of it standing in the road behind.
+	for (FBubble& Bubble : Bubbles)
+	{
+		for (const FEarthThing& Mount : Mounts)
+		{
+			if (Mount.Thing != Bubble.Thing)
+			{
+				continue;
+			}
+			if (const FCalled* Row = CalledRow(Mount.Sp))
+			{
+				Bubble.Where = SceneToEngine(Mount.X, Mount.Y + Row->BubbleAt, Mount.Z);
+			}
+			break;
+		}
+	}
 }
 
 /** A thing has spoken: to me, or to somebody near me. */

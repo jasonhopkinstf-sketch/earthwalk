@@ -432,6 +432,11 @@ public:
 				Shown.Add(Entry);
 			}
 		}
+		// A bubble goes along with a thing on the move (a taxi talking as it drives): where each is, afresh every frame.
+		for (int32 i = 0; i < Shown.Num() && i < Bubbles.Num(); ++i)
+		{
+			Shown[i].Where = Bubbles[i].Where;
+		}
 		const double Now = FPlatformTime::Seconds();
 		for (FShownBubble& Entry : Shown)
 		{
@@ -1555,7 +1560,12 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	}
 	if (!Typing())
 	{
-		if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
+		if (bNewsOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			CloseNews();
+			bMenuTookEsc = true;
+		}
+		else if (bMenuOpen && PC->WasInputKeyJustPressed(EKeys::Escape))
 		{
 			CloseMenu();
 			bMenuTookEsc = true;
@@ -1584,6 +1594,13 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			AskDone(Answer.Replace(TEXT("_"), TEXT(" ")));
 		}
 	}
+	// What is new since last time, a few seconds after arriving: once the world is on the screen, and not over anything else.
+	if (!bNewsChecked && FPlatformTime::Seconds() - StartedAt > 8.0 && !Typing() && !bMenuOpen && !bPassportOpen && !bShowsOpen)
+	{
+		bNewsChecked = true;
+		OpenNews(true);
+	}
+
 	// -EWMenu opens the menu by itself a few seconds in, for pictures.
 	if (!bMenuTested && FPlatformTime::Seconds() - StartedAt > 11.0)
 	{
@@ -2114,6 +2131,126 @@ void AEarthWalkHUD::CloseMenu()
 	}
 }
 
+namespace
+{
+	/** Below zero when version A ("0.2.44") is older than B. */
+	int32 CompareVersions(const FString& A, const FString& B)
+	{
+		TArray<FString> PartsA, PartsB;
+		A.ParseIntoArray(PartsA, TEXT("."));
+		B.ParseIntoArray(PartsB, TEXT("."));
+		for (int32 i = 0; i < FMath::Max(PartsA.Num(), PartsB.Num()); ++i)
+		{
+			const int32 Difference = (PartsA.IsValidIndex(i) ? FCString::Atoi(*PartsA[i]) : 0) - (PartsB.IsValidIndex(i) ? FCString::Atoi(*PartsB[i]) : 0);
+			if (Difference != 0)
+			{
+				return Difference;
+			}
+		}
+		return 0;
+	}
+}
+
+void AEarthWalkHUD::OpenNews(bool bOnlyNew)
+{
+	// The version whose notes this player has read (NewsSeen in the settings; -EWNewsSeen=0.2.41 for one run).
+	FString Seen;
+	const bool bSeen = FEarthWalkConfig::HasOverride(TEXT("NewsSeen"), Seen);
+	FString Url = FString::Printf(TEXT("%s/v1/news"), *FEarthWalkConfig::ServerUrl());
+	if (bOnlyNew && bSeen)
+	{
+		Url += FString::Printf(TEXT("?since=%s"), *FGenericPlatformHttp::UrlEncode(Seen));
+	}
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(Url);
+	Request->SetVerb(TEXT("GET"));
+	Request->SetTimeout(20.f);
+	if (const FString Code = FEarthWalkConfig::AccessCode(); !Code.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + Code);
+	}
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this, bOnlyNew, bSeen](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		TSharedPtr<FJsonObject> Json;
+		const TArray<TSharedPtr<FJsonValue>>* List = nullptr;
+		if (!bConnected || !Response.IsValid() || Response->GetResponseCode() != 200
+			|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Response->GetContentAsString()), Json) || !Json.IsValid()
+			|| !Json->TryGetArrayField(TEXT("news"), List))
+		{
+			// An older server has no notes: on arriving that is nothing to mention.
+			if (!bOnlyNew)
+			{
+				AddLine(TEXT("Could not fetch what is new just now."), ErrorColor);
+			}
+			return;
+		}
+		TArray<FEarthNewsEntry> Entries;
+		for (const TSharedPtr<FJsonValue>& Value : *List)
+		{
+			const TSharedPtr<FJsonObject>* Row = nullptr;
+			const TArray<TSharedPtr<FJsonValue>>* Items = nullptr;
+			FEarthNewsEntry Entry;
+			if (!Value.IsValid() || !Value->TryGetObject(Row) || !(*Row)->TryGetStringField(TEXT("version"), Entry.Version)
+				|| !(*Row)->TryGetStringField(TEXT("title"), Entry.Title) || !(*Row)->TryGetArrayField(TEXT("items"), Items))
+			{
+				continue;
+			}
+			for (const TSharedPtr<FJsonValue>& ItemValue : *Items)
+			{
+				const TSharedPtr<FJsonObject>* Item = nullptr;
+				FString Text, In;
+				if (ItemValue.IsValid() && ItemValue->TryGetObject(Item) && (*Item)->TryGetStringField(TEXT("text"), Text))
+				{
+					(*Item)->TryGetStringField(TEXT("in"), In);
+					Entry.Items.Emplace(Text, In == TEXT("browser") ? FString(TEXT("In the browser game so far; coming to this one.")) : FString());
+				}
+			}
+			Entries.Add(MoveTemp(Entry));
+		}
+		FString Latest;
+		Json->TryGetStringField(TEXT("latest"), Latest);
+		// Somebody new here is told of the newest things only, not of everything there ever was.
+		if (bOnlyNew && !bSeen && Entries.Num() > 1)
+		{
+			Entries.SetNum(1);
+		}
+		if (!Latest.IsEmpty())
+		{
+			FEarthWalkConfig::Save(TEXT("NewsSeen"), Latest);
+		}
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: news: %d releases to tell of, the newest %s"), Entries.Num(), *Latest);
+		if (Entries.Num() == 0)
+		{
+			if (!bOnlyNew)
+			{
+				AddLine(TEXT("Nothing new to tell of just now."), NoticeColor);
+			}
+			return;
+		}
+		if (!Menu.IsValid() || (bOnlyNew && (Typing() || bMenuOpen || bPassportOpen || bShowsOpen)))
+		{
+			return; // busy with something else by now: it is in the menu when wanted
+		}
+		const FString Mine = GameVersion();
+		const FString Foot = !Latest.IsEmpty() && Mine != TEXT("dev") && CompareVersions(Mine, Latest) < 0
+			? FString::Printf(TEXT("You are playing EarthWalk %s, and the newest is %s. Some of this needs the newest: install it from where you got this one."), *Mine, *Latest)
+			: FString();
+		CloseMenu();
+		Menu->ShowNews(true, Entries, Foot);
+		bNewsOpen = true;
+	});
+	Request->ProcessRequest();
+}
+
+void AEarthWalkHUD::CloseNews()
+{
+	if (bNewsOpen && Menu.IsValid())
+	{
+		bNewsOpen = false;
+		Menu->ShowNews(false);
+	}
+}
+
 void AEarthWalkHUD::CycleMap()
 {
 	if (MiniMap)
@@ -2196,6 +2333,10 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	else if (Id == TEXT("map"))
 	{
 		CycleMap();
+	}
+	else if (Id == TEXT("news"))
+	{
+		OpenNews(false);
 	}
 	else if (Id == TEXT("look"))
 	{
@@ -2554,6 +2695,10 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("map"))
 	{
 		CycleMap();
+	}
+	else if (Command == TEXT("news"))
+	{
+		OpenNews(false);
 	}
 	else if (Command == TEXT("do"))
 	{

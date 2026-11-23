@@ -317,9 +317,16 @@ passing train to hop on, and E again to hop off. You steer what you ride; a frie
 you; a train carries you along its line. `server/public/js/riding.js` does it, the rooms keep track of
 who is on what (`server/src/rooms.ts`), and docs/PROTOCOL.md, "Riding", has the messages.
 
+What's new: the release notes, in plain words, are `NEWS` in `server/src/news.ts`, newest first;
+a release adds an entry at the top (a test fails when the version in `package.json` has none). The
+Windows game asks for the ones since the version its player last read (`NewsSeen` in its settings)
+a few seconds after arriving and shows them on a card; "What's new" in the Tab menu shows the newest
+three again. docs/PROTOCOL.md, "What is new". The browser game does not show them yet.
+
 Taxis: `/taxi the beach` calls one. A yellow cab comes along the road from a
 few streets away and waits; hop on with E and it drives you there, by road when the place is close
-and in one jump when it is not, saying odd and thoughtful things as it goes. Friends can share it.
+and in one jump when it is not, saying odd and thoughtful things as it goes: first a little story in
+four parts about somebody it once drove, then remarks. Friends can share it.
 It waits on the nearest proper street, not up a driveway (the little map shows where), and a car
 being driven somewhere that meets something in its way is set down ten metres farther along its
 road (Windows; `-EWTripLog` writes the trip to the log each second, `-EWTripHop` holds it up once).
@@ -551,7 +558,7 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
-is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMapTripShotAt=<seconds>` moves that picture. `-EWNewsSeen=<version>` shows the "What's new" card as if those were the last notes read (9.9.9 for no card). `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
 table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_underscores>` then answers that box as if typed. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
 (`look_flat`, `quit`). Cars, vans and taxis are ready-made
 models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into

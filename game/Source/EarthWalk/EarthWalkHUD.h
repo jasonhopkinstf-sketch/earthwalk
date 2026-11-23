@@ -75,6 +75,8 @@ public:
 	void AskDone(const FString& Typed);
 	/** Says something to the thing being talked to: typed on the bubble's line, or one of its buttons. */
 	void TalkSay(const FString& Text);
+	/** Puts the "What's new" card away: its button, or Esc. */
+	void CloseNews();
 	/** Esc on the bubble's line: the conversation is over. */
 	void EndTalk() { CloseTalk(true); }
 
@@ -97,6 +99,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<UEarthMiniMap> MiniMap;
 	void CycleMap();
+
+	/**
+	 * "What's new": asks the server what has been added since the version this player last saw the
+	 * notes of, and shows it on a card. bOnlyNew is the look on arriving, which shows nothing when
+	 * nothing is new; otherwise (from the menu) the newest few are shown whatever was seen.
+	 */
+	void OpenNews(bool bOnlyNew);
+	bool bNewsOpen = false;
+	bool bNewsChecked = false;
 
 	TSharedPtr<SEarthMenu> Menu;
 	bool bMenuOpen = false;

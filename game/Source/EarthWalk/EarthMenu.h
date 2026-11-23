@@ -36,6 +36,15 @@ struct FEarthAction
 	const TCHAR* Strip;   // its short name on the strip, or "" when it is not on it
 };
 
+/** One release on the "What's new" card: what it was about, and what came with it, a line each. */
+struct FEarthNewsEntry
+{
+	FString Version;
+	FString Title;
+	/** What is new, and beside it "" or a few words on where it is ("In the browser game so far"). */
+	TArray<TPair<FString, FString>> Items;
+};
+
 namespace EarthMenu
 {
 	TConstArrayView<FEarthAction> Actions();
@@ -73,6 +82,12 @@ public:
 	void SetTalkMine(const FString& Text);
 	TSharedPtr<SEditableTextBox> GetTalkInput() const { return TalkInput; }
 
+	/**
+	 * "What's new": a card in the middle of the screen with what has been added since the player was
+	 * last here, newest first, a line under it (`Foot`, or nothing) and a button that puts it away.
+	 */
+	void ShowNews(bool bShow, const TArray<FEarthNewsEntry>& Entries = TArray<FEarthNewsEntry>(), const FString& Foot = FString());
+
 private:
 	TSharedRef<SWidget> ActionButton(const FEarthAction& Action, bool bOnStrip);
 	void HandleAsked(const FText& Text, ETextCommit::Type How);
@@ -84,6 +99,7 @@ private:
 	TSharedPtr<STextBlock> AskTitle;
 	TSharedPtr<SEditableTextBox> AskInput;
 	TSharedPtr<SWidget> Strip;
+	TSharedPtr<SBorder> NewsPanel;
 	TSharedPtr<SBorder> TalkPanel;
 	TSharedPtr<STextBlock> TalkName;
 	TSharedPtr<STextBlock> TalkWords;

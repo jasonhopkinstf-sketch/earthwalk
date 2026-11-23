@@ -363,6 +363,23 @@ A game may use a thing of the same kind that is already near its player, and not
 `title`, `text` (what will be seen) and `how` (what to press) are for showing to the player. A game
 should skip a show whose `find` it does not know.
 
+## What is new: `GET /v1/news?since=0.2.42`
+
+The release notes in plain words, for a card that a game shows on arriving
+(`server/src/news.ts`). Needs the access code or a player token. `since` is the version whose
+notes the player last saw: the answer has the releases after it, newest first, three at most. With
+no `since` it has the newest three. `latest` is the newest version there are notes for; a game
+keeps it as what its player has seen.
+
+```json
+{ "latest": "0.2.45",
+  "news": [ { "version": "0.2.45", "date": "2026-11-23", "title": "Easier to find your way about",
+              "items": [ { "text": "Taxis tell you a story on the way.", "in": "windows" } ] } ] }
+```
+
+`in`, when present, says that only one of the two games (`browser` or `windows`) has the thing
+so far: the other game says so beside it.
+
 ## Place search: `GET /v1/geocode?q=...`
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.
@@ -522,9 +539,12 @@ somewhere else.
   waiting), whoever takes seat 0 is the fare: after the `ride` message they are sent an `order` with
   `act` `goto` for the place asked for, and their client carries them there as for any "take me to"
   ("Doing as asked"). Friends who hop on too ride along.
-- While the fare is aboard the taxi says something of its own about every half minute, ten times at
-  most: a `say` with no `q`, heard like any other. With the AI these come from the same character
-  that answers when it is talked to; without it, from a stock of remarks.
+- While the fare is aboard the taxi says something of its own, ten times at most: a `say` with no
+  `q`, heard like any other. The first four, about a quarter of a minute apart, are the parts of
+  one story about a fare it once carried (a different story each ride); the rest, about every half
+  minute, are remarks. With the AI these come from the same character that answers when it is talked
+  to; without it, from a stock of twelve stories and of remarks (`server/src/talk.ts`). A game
+  should keep such a bubble with the taxi as it drives.
 - When the fare gets out the ride is over: the taxi stands where it stopped for a minute, like
   anything a rider has left, and is then gone. A taxi nobody boards, or whose caller leaves or calls
   another, goes with `gone`.

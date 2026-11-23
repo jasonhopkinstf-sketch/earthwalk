@@ -593,13 +593,14 @@ void UEarthMiniMap::Frame(float DeltaSeconds)
 		Company->MapMarks(View->Marks, View->Way, View->Going);
 	}
 
-	// -EWMapTripShot=<file>: a picture of the screen four seconds into being taken somewhere, for tests (a trip starts when it starts).
+	// -EWMapTripShot=<file>: a picture of the screen four seconds into being taken somewhere (or -EWMapTripShotAt=<seconds>), for tests: a trip starts when it starts.
 	static const FString TripShot = []() { FString File; FParse::Value(FCommandLine::Get(), TEXT("-EWMapTripShot="), File); return File; }();
 	static double TripFor = 0.0;
 	if (!TripShot.IsEmpty() && TripFor >= 0.0 && !View->Going.IsEmpty())
 	{
 		TripFor += DeltaSeconds;
-		if (TripFor > 4.0)
+		static const float TripShotAt = []() { float At = 4.f; FParse::Value(FCommandLine::Get(), TEXT("-EWMapTripShotAt="), At); return At; }();
+		if (TripFor > TripShotAt)
 		{
 			TripFor = -1.0;
 			FScreenshotRequest::RequestScreenshot(TripShot, true, false);

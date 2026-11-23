@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
-import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
+import { aKind, persona, STORY_PARTS, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
 import { agilityCourse, COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
@@ -28,6 +28,8 @@ const TAXI_WAIT_MS = 5 * 60_000;
 const TAXI_EVERY_MS = 15_000;
 const TAXI_REMARKS = 10;
 const TAXI_REMARK_MS = 24_000;
+/** The parts of the story a taxi tells come closer together than its other remarks: a ride of a minute hears most of one. */
+const TAXI_STORY_MS = 16_000;
 /** A driver and up to three passengers. A train takes any number, all passengers. */
 const SEATS = 4;
 /** How long something stays where its rider left it before it goes home, and how many a room remembers. */
@@ -159,7 +161,7 @@ export interface RoomsOptions {
   talker?: {
     greet(thing: number, sp: string): Said;
     reply(room: string, thing: number, sp: string, said: string, speaker: string, place: string | null, riding?: boolean, notes?: string[], plain?: boolean): Promise<Said>;
-    muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number): Promise<Said>;
+    muse?(room: string, thing: number, sp: string, place: string | null, dest: string | null, n: number, ride?: number): Promise<Said>;
   };
   /** Finds where a caller wants a taxi to take them, and a road for the taxi to arrive by. */
   cab?: (lat: number, lon: number, place: string) => Promise<Cab | null>;
@@ -941,10 +943,11 @@ export class Rooms {
         if (!fare || fare.ride?.thing !== x.thing) { room.taxis.delete(x.thing); continue; }
         if (now < x.nextRemark || x.remarks >= TAXI_REMARKS || !this.talker.muse) continue;
         const n = x.remarks++;
-        x.nextRemark = now + (this.options.taxiRemarkMs ? this.options.taxiRemarkMs[1] : TAXI_REMARK_MS + (hash32(x.thing, n) % 9000));
+        x.nextRemark = now + (this.options.taxiRemarkMs ? this.options.taxiRemarkMs[1] : n + 1 < STORY_PARTS ? TAXI_STORY_MS + (hash32(x.thing, n) % 4000) : TAXI_REMARK_MS + (hash32(x.thing, n) % 9000));
         void (async () => {
           const place = fare.hasPos && this.options.placeName ? await this.options.placeName(fare.lat, fare.lon).catch(() => null) : null;
-          const said = await this.talker.muse!(roomName, x.thing, "taxi", place, x.dest.name, n);
+          // When it was called tells this ride from the taxi's others: each ride has a story of its own.
+          const said = await this.talker.muse!(roomName, x.thing, "taxi", place, x.dest.name, n, Math.floor(x.at / 1000) % 1_000_000);
           if (fare.ride?.thing !== x.thing) return; // they got out while it was thinking
           const out = JSON.stringify({ t: "say", thing: x.thing, sp: "taxi", name: said.name, text: said.text, by: fare.id, ...(fare.hasPos ? { lat: +fare.lat.toFixed(7), lon: +fare.lon.toFixed(7) } : {}) });
           for (const m of room.members.values()) {
