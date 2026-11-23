@@ -23,8 +23,8 @@ export interface SpanWay {
   id: number; kind: "bridge" | "tunnel"; cls: RoadClass; width: number; layer: number; hw?: string; form?: string; oneway?: boolean; name?: string;
   pts: Pt[];
 }
-/** Something that passes under a bridge without meeting it. `clear` is the room it needs, `half` half its width, both in metres. */
-export interface Crossing { way: number; at: Pt; other: number; span: boolean; clear: number; half: number }
+/** Something that passes under a bridge without meeting it: what it is, the room it needs (`clear`) and half its width, in metres; `span` when it is itself a bridge. */
+export interface Crossing { way: number; at: Pt; other: number; cls: RoadClass; span: boolean; clear: number; half: number }
 /** What one piece of the map knows about the stretches that leave the ground in and round it. */
 export interface SpanKit {
   ways: SpanWay[];
@@ -46,6 +46,10 @@ export interface Profile {
   ends: [SpanEnd, SpanEnd];
   /** Bridges: how many metres of it are over the sea, and how long its whole run is from ground to ground. */
   sea: number; run: number;
+  /** Which run it is part of: the least id of the stretches joined into it. */
+  runOf: number;
+  /** Bridges: true when the run is one line from ground to ground (no forks), which is what `along` needs. */
+  simple: boolean;
   /** Bridges: how far each point is, in metres along the run, from the start of the run (the end nearer the west). */
   along: number[];
 }
@@ -131,7 +135,7 @@ export function kitOf(features: Features): SpanKit {
           const t = crossAt(w.pts[i], w.pts[i + 1], r.pts[j], r.pts[j + 1]);
           if (t < 0) continue;
           const at: Pt = [w.pts[i][0] + (w.pts[i + 1][0] - w.pts[i][0]) * t, w.pts[i][1] + (w.pts[i + 1][1] - w.pts[i][1]) * t];
-          kit.crossings.push({ way: w.id, at, other: r.id, span, clear, half: r.width / 2 });
+          kit.crossings.push({ way: w.id, at, other: r.id, cls: r.cls, span, clear, half: r.width / 2 });
         }
       }
     }
@@ -275,6 +279,8 @@ export function solveSpans(kit: SpanKit, elev: Elevation): Spans {
     const along = new Float64Array(nodes.length);
     const runSea = new Float64Array(runs.length);
     const runLength = new Float64Array(runs.length);
+    const runSimple = new Uint8Array(runs.length);
+    const runId = runs.map((members) => members.reduce((least, n) => Math.min(least, nodes[n].way.id), Infinity));
     const passes = kind === "bridge" ? 3 : 1;
     for (let pass = 0; pass < passes; pass++) {
       /** How high whatever passes under a bridge is, there. */
@@ -341,6 +347,7 @@ export function solveSpans(kit: SpanKit, elev: Elevation): Spans {
           const rise = simple ? Math.min(Math.max(0.012 * span, 0.055 * sea), 32, (0.075 * span) / Math.PI) : 0;
           runSea[r] = sea;
           runLength[r] = simple ? span : length;
+          runSimple[r] = simple ? 1 : 0;
           // The run is measured from its western end, so that every stretch of it counts the same way.
           const west = simple && (nodes[anchors[0]].x < nodes[anchors[1]].x || (nodes[anchors[0]].x === nodes[anchors[1]].x && nodes[anchors[0]].y < nodes[anchors[1]].y)) ? 0 : 1;
           const raw = new Float64Array(sub.length);
@@ -383,6 +390,7 @@ export function solveSpans(kit: SpanKit, elev: Elevation): Spans {
         way: w, pts: line.map((n) => [nodes[n].x, nodes[n].y] as Pt), d, h: line.map((n) => height[n]), g: line.map((n) => nodes[n].g),
         ends: [end(line[0]), end(line[line.length - 1])],
         sea: runSea[run[line[0]]] ?? 0, run: runLength[run[line[0]]] ?? 0, along: line.map((n) => along[n]),
+        runOf: runId[run[line[0]]], simple: runSimple[run[line[0]]] === 1,
       });
     }
     if (kind === "bridge") {
