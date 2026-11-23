@@ -3,6 +3,18 @@
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Dom/JsonObject.h"
 #include "EarthCompany.h"
+#include "EarthFilePick.h"
+#include "EarthWalkSettings.h"
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
+#include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Widgets/SLeafWidget.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkHUD.h"
 #include "EarthWalkNet.h"
@@ -100,6 +112,177 @@ namespace
 		return SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle(Face, Size)).ColorAndOpacity(Colour).WrapTextAt(Wrap).Text(FText::FromString(Text));
 	}
 }
+
+/**
+ * A plan drawn small, a floor beside a floor, as seen from above with the front door at the bottom
+ * (drawPlan in server/public/js/decor.js): each room in the colour of its kind with its name, the
+ * stairs with their treads, the front door in red.
+ */
+class SEarthPlanView : public SLeafWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SEarthPlanView) {}
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments&, const TSharedPtr<FJsonObject>& Plan)
+	{
+		static const TMap<FString, FColor> Hex = {
+			{ TEXT("L"), FColor(0xe9, 0xd9, 0xb5) }, { TEXT("K"), FColor(0xd9, 0xe6, 0xea) }, { TEXT("B"), FColor(0xd7, 0xe3, 0xf2) }, { TEXT("T"), FColor(0xcf, 0xe6, 0xdd) }, { TEXT("H"), FColor(0xef, 0xe6, 0xcf) },
+			{ TEXT("D"), FColor(0xf0, 0xdc, 0xc6) }, { TEXT("S"), FColor(0xe3, 0xdc, 0xef) }, { TEXT("P"), FColor(0xf3, 0xe2, 0xea) }, { TEXT("U"), FColor(0xde, 0xde, 0xde) },
+		};
+		const TArray<TSharedPtr<FJsonValue>>* Floors = nullptr;
+		if (!Plan.IsValid() || !Plan->TryGetArrayField(TEXT("floors"), Floors))
+		{
+			return;
+		}
+		double A0 = 1e9, A1 = -1e9, B0 = 1e9, B1 = -1e9;
+		for (int32 n = 0; n < Floors->Num(); ++n)
+		{
+			const TSharedPtr<FJsonObject>* Floor = nullptr;
+			const TArray<TSharedPtr<FJsonValue>>* Rooms = nullptr;
+			if (!(*Floors)[n]->TryGetObject(Floor) || !(*Floor)->TryGetArrayField(TEXT("rooms"), Rooms))
+			{
+				continue;
+			}
+			for (const TSharedPtr<FJsonValue>& Value : *Rooms)
+			{
+				const TSharedPtr<FJsonObject>* Room = nullptr;
+				if (!Value->TryGetObject(Room))
+				{
+					continue;
+				}
+				FPart& Part = Parts.AddDefaulted_GetRef();
+				Part.Floor = n;
+				Part.A0 = (*Room)->GetNumberField(TEXT("a0"));
+				Part.A1 = (*Room)->GetNumberField(TEXT("a1"));
+				Part.B0 = (*Room)->GetNumberField(TEXT("b0"));
+				Part.B1 = (*Room)->GetNumberField(TEXT("b1"));
+				Part.Name = (*Room)->GetStringField(TEXT("name"));
+				if (Part.Name.Len() > 14)
+				{
+					Part.Name = Part.Name.Left(13) + TEXT("…");
+				}
+				const FColor* Colour = Hex.Find((*Room)->GetStringField(TEXT("kind")));
+				Part.Colour = FLinearColor(Colour ? *Colour : FColor(0xee, 0xee, 0xee));
+				A0 = FMath::Min(A0, Part.A0);
+				A1 = FMath::Max(A1, Part.A1);
+				B0 = FMath::Min(B0, Part.B0);
+				B1 = FMath::Max(B1, Part.B1);
+			}
+		}
+		NumFloors = Floors->Num();
+		if (Parts.Num() == 0 || NumFloors == 0 || A1 - A0 < 0.1 || B1 - B0 < 0.1)
+		{
+			Parts.Reset();
+			return;
+		}
+		const TSharedPtr<FJsonObject>* Up = nullptr;
+		if (Plan->TryGetObjectField(TEXT("stairs"), Up))
+		{
+			bStairs = true;
+			Stairs.A0 = (*Up)->GetNumberField(TEXT("a0"));
+			Stairs.A1 = (*Up)->GetNumberField(TEXT("a1"));
+			Stairs.B0 = (*Up)->GetNumberField(TEXT("b0"));
+			Stairs.B1 = (*Up)->GetNumberField(TEXT("b1"));
+			bAlongB = (*Up)->GetStringField(TEXT("along")) == TEXT("b");
+		}
+		Left = A0;
+		Top = B1;
+		K = FMath::Min(26.0, (340.0 - Pad * 2.0 - Gap * (NumFloors - 1)) / ((A1 - A0) * NumFloors));
+		Wide = (A1 - A0) * K;
+		High = (B1 - B0) * K;
+		Size = FVector2D(Pad * 2.0 + Wide * NumFloors + Gap * (NumFloors - 1), Pad * 2.0 + High + 16.0);
+	}
+
+	virtual FVector2D ComputeDesiredSize(float) const override
+	{
+		return Size;
+	}
+
+	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& Geo, const FSlateRect& Culling, FSlateWindowElementList& Out, int32 Layer, const FWidgetStyle& Style, bool bParentEnabled) const override
+	{
+		if (Parts.Num() == 0)
+		{
+			return Layer;
+		}
+		const FSlateBrush* White = FCoreStyle::Get().GetBrush("WhiteBrush");
+		const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+		const FLinearColor Ink(FColor(0x2b, 0x26, 0x20)), Wood(FColor(0x5a, 0x3a, 0x24));
+		const auto Fill = [&](int32 At, double X, double Y, double W, double H, const FLinearColor& Colour)
+		{
+			FSlateDrawElement::MakeBox(Out, At, Geo.ToPaintGeometry(FVector2f(W, H), FSlateLayoutTransform(FVector2f(X, Y))), White, ESlateDrawEffect::None, Colour);
+		};
+		const auto Line = [&](int32 At, double X0, double Y0, double X1, double Y1, const FLinearColor& Colour)
+		{
+			FSlateDrawElement::MakeLines(Out, At, Geo.ToPaintGeometry(), TArray<FVector2f>{ FVector2f(X0, Y0), FVector2f(X1, Y1) }, ESlateDrawEffect::None, Colour, true, 1.5f);
+		};
+		const auto Words = [&](int32 At, const FString& Text, const FSlateFontInfo& Font, double MidX, double MidY, const FLinearColor& Colour)
+		{
+			const FVector2f Took(Measure->Measure(Text, Font));
+			FSlateDrawElement::MakeText(Out, At, Geo.ToPaintGeometry(Took, FSlateLayoutTransform(FVector2f(MidX - Took.X * 0.5f, MidY - Took.Y * 0.5f))), Text, Font, ESlateDrawEffect::None, Colour);
+		};
+		Fill(Layer, 0.0, 0.0, Size.X, Size.Y, FLinearColor(FColor(0xff, 0xfa, 0xf0)));
+		for (int32 n = 0; n < NumFloors; ++n)
+		{
+			const double Off = Pad + n * (Wide + Gap);
+			const auto X = [&](double A) { return Off + (A - Left) * K; };
+			const auto Y = [&](double B) { return Pad + (Top - B) * K; }; // into the house is up the page
+			for (const FPart& Part : Parts)
+			{
+				if (Part.Floor != n)
+				{
+					continue;
+				}
+				const double W = (Part.A1 - Part.A0) * K, H = (Part.B1 - Part.B0) * K;
+				Fill(Layer + 1, X(Part.A0), Y(Part.B1), W, H, Part.Colour);
+				FSlateDrawElement::MakeLines(Out, Layer + 2, Geo.ToPaintGeometry(), TArray<FVector2f>{ FVector2f(X(Part.A0), Y(Part.B1)), FVector2f(X(Part.A1), Y(Part.B1)), FVector2f(X(Part.A1), Y(Part.B0)), FVector2f(X(Part.A0), Y(Part.B0)), FVector2f(X(Part.A0), Y(Part.B1)) },
+					ESlateDrawEffect::None, Ink, true, 1.5f);
+				Words(Layer + 4, Part.Name, FCoreStyle::GetDefaultFontStyle("Regular", FMath::Clamp(FMath::FloorToInt32(W / 9.0), 6, 8)), X((Part.A0 + Part.A1) / 2.0), Y((Part.B0 + Part.B1) / 2.0), Ink);
+			}
+			if (bStairs)
+			{
+				Fill(Layer + 3, X(Stairs.A0), Y(Stairs.B1), (Stairs.A1 - Stairs.A0) * K, (Stairs.B1 - Stairs.B0) * K, FLinearColor(FColor(138, 90, 58)).CopyWithNewOpacity(0.55f));
+				for (int32 i = 1; i < 7; ++i)
+				{
+					if (bAlongB)
+					{
+						const double B = Stairs.B0 + ((Stairs.B1 - Stairs.B0) * i) / 7.0;
+						Line(Layer + 4, X(Stairs.A0), Y(B), X(Stairs.A1), Y(B), Wood);
+					}
+					else
+					{
+						const double A = Stairs.A0 + ((Stairs.A1 - Stairs.A0) * i) / 7.0;
+						Line(Layer + 4, X(A), Y(Stairs.B0), X(A), Y(Stairs.B1), Wood);
+					}
+				}
+			}
+			if (n == 0)
+			{
+				Fill(Layer + 4, X(-0.45), Y(0.0) - 2.0, 0.9 * K, 5.0, FLinearColor(FColor(0xb5, 0x37, 0x2e))); // the front door, in the front wall of the room behind it
+			}
+			Words(Layer + 4, NumFloors == 1 ? TEXT("front door at the bottom, in red") : n == 0 ? TEXT("ground floor (door in red)") : TEXT("upstairs"), FCoreStyle::GetDefaultFontStyle("Regular", 7), Off + Wide / 2.0, Pad + High + 9.0,
+				FLinearColor(FColor(0x6b, 0x5d, 0x45)));
+		}
+		return Layer + 4;
+	}
+
+private:
+	struct FPart
+	{
+		int32 Floor = 0;
+		double A0 = 0.0, A1 = 0.0, B0 = 0.0, B1 = 0.0;
+		FLinearColor Colour;
+		FString Name;
+	};
+	static constexpr double Pad = 10.0, Gap = 14.0;
+	TArray<FPart> Parts;
+	FPart Stairs;
+	bool bStairs = false;
+	bool bAlongB = false;
+	int32 NumFloors = 0;
+	double Left = 0.0, Top = 0.0, K = 1.0, Wide = 0.0, High = 0.0;
+	FVector2D Size = FVector2D::ZeroVector;
+};
 
 /** The names over the doors of houses that are lived in, and the furnishing panel in the middle of the screen. */
 class SEarthHomeView : public SCompoundWidget
@@ -540,6 +723,171 @@ void UEarthHome::MoveOut()
 	Close();
 }
 
+void UEarthHome::ChoosePlan()
+{
+	UEarthWalkNet* Net = Room();
+	AEarthWalkHUD* Screen = Hud.Get();
+	if (!Net || !Screen || bReadingPlan)
+	{
+		return;
+	}
+	const FLinearColor Notice(0.75f, 0.9f, 1.f);
+	if (!Net->GetMyHouse().IsValid())
+	{
+		Screen->AddLine(TEXT("You need a house of your own first: go into a house nobody lives in and press H."), Notice);
+		return;
+	}
+	if (!Net->IsSignedIn())
+	{
+		Screen->AddLine(TEXT("Uploading a plan is for people signed in with their own account."), Notice);
+		return;
+	}
+	// (-EWPlanFile=<file> names the picture, for a test with nobody there to choose one.)
+	FString File;
+	if (!FParse::Value(FCommandLine::Get(), TEXT("-EWPlanFile="), File) || File.IsEmpty())
+	{
+		if (!EarthPickFile(TEXT("Choose a picture of a floor plan"), TEXT("Pictures and PDFs|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.pdf|All files|*.*"), File))
+		{
+			return;
+		}
+	}
+	UploadPlan(File);
+}
+
+void UEarthHome::UploadPlan(const FString& File)
+{
+	static const TMap<FString, FString> Media = {
+		{ TEXT("png"), TEXT("image/png") }, { TEXT("jpg"), TEXT("image/jpeg") }, { TEXT("jpeg"), TEXT("image/jpeg") }, { TEXT("webp"), TEXT("image/webp") }, { TEXT("gif"), TEXT("image/gif") }, { TEXT("pdf"), TEXT("application/pdf") },
+	};
+	PlanRead.Reset();
+	const FString* Type = Media.Find(FPaths::GetExtension(File).ToLower());
+	TArray<uint8> Picture;
+	if (!Type)
+	{
+		PlanError = TEXT("A plan is a picture (PNG, JPEG, WebP or GIF) or a PDF.");
+	}
+	else if (!FFileHelper::LoadFileToArray(Picture, *File))
+	{
+		PlanError = TEXT("That file could not be opened.");
+	}
+	else if (Picture.Num() > 4 * 1024 * 1024)
+	{
+		PlanError = TEXT("That picture is too big: four megabytes at most.");
+	}
+	else
+	{
+		PlanError.Reset();
+	}
+	if (!PlanError.IsEmpty())
+	{
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: home: plan: %s"), *PlanError);
+		bShowPlan = true;
+		Redraw();
+		return;
+	}
+	bReadingPlan = true;
+	bShowPlan = true;
+	Redraw();
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: home: plan: sending a picture of %d bytes (%s) to be read"), Picture.Num(), **Type);
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(FEarthWalkConfig::ServerUrl() + TEXT("/v1/plan"));
+	Request->SetVerb(TEXT("POST"));
+	Request->SetTimeout(180.f); // reading a plan can take a minute
+	Request->SetHeader(TEXT("Content-Type"), *Type);
+	Request->SetHeader(TEXT("Authorization"), TEXT("Bearer ") + FEarthWalkConfig::PlayerToken());
+	Request->SetContent(MoveTemp(Picture));
+	Request->OnProcessRequestComplete().BindWeakLambda(this, [this](FHttpRequestPtr, FHttpResponsePtr Response, bool bConnected)
+	{
+		bReadingPlan = false;
+		TSharedPtr<FJsonObject> Got;
+		if (Response.IsValid())
+		{
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+			FJsonSerializer::Deserialize(Reader, Got);
+		}
+		const TSharedPtr<FJsonObject>* Plan = nullptr;
+		if (bConnected && Response.IsValid() && Response->GetResponseCode() == 200 && Got.IsValid() && Got->TryGetObjectField(TEXT("plan"), Plan))
+		{
+			PlanRead = Got;
+			const TArray<TSharedPtr<FJsonValue>>* Floors = nullptr;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: home: plan: read, %d floors, %d tries left today"), (*Plan)->TryGetArrayField(TEXT("floors"), Floors) ? Floors->Num() : 0, static_cast<int32>(HomeNum(Got, TEXT("left"))));
+		}
+		else
+		{
+			FString Error = Got.IsValid() ? HomeStr(Got, TEXT("error")) : FString();
+			if (Error.IsEmpty())
+			{
+				Error = Response.IsValid() ? TEXT("That did not work. Try again in a moment.") : TEXT("The picture could not be sent. Are you still connected?");
+			}
+			double TriesLeft = 0.0;
+			if (Got.IsValid() && Got->TryGetNumberField(TEXT("left"), TriesLeft))
+			{
+				const int32 N = static_cast<int32>(TriesLeft);
+				Error += FString::Printf(TEXT(" (%s left today)"), N == 0 ? TEXT("no tries") : N == 1 ? TEXT("1 try") : *FString::Printf(TEXT("%d tries"), N));
+			}
+			PlanError = Error;
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: home: plan: not read (%d): %s"), Response.IsValid() ? Response->GetResponseCode() : 0, *Error);
+		}
+		if (bOpen)
+		{
+			bShowPlan = true;
+			Redraw();
+		}
+	});
+	Request->ProcessRequest();
+}
+
+void UEarthHome::BuildPlan()
+{
+	UEarthWalkNet* Net = Room();
+	const TSharedPtr<FJsonObject>* Plan = nullptr;
+	if (!Net || !PlanRead.IsValid() || !PlanRead->TryGetObjectField(TEXT("plan"), Plan))
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetObjectField(TEXT("plan"), *Plan);
+	Net->SendHouse(Body);
+	PlanRead.Reset();
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: home: plan: asked for the house to be built from it"));
+	bShowPlan = true;
+	Redraw();
+}
+
+void UEarthHome::DropPlan()
+{
+	UEarthWalkNet* Net = Room();
+	if (!Net || !Net->GetMyHouse().IsValid())
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetField(TEXT("plan"), MakeShared<FJsonValueNull>());
+	Net->SendHouse(Body);
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: home: plan: asked for the house's own rooms back"));
+}
+
+void UEarthHome::PlanCommand(const FString& Word)
+{
+	AEarthWalkHUD* Screen = Hud.Get();
+	if (Word == TEXT("build"))
+	{
+		if (!PlanRead.IsValid() && Screen)
+		{
+			Screen->AddLine(TEXT("No plan has been read yet: /plan chooses a picture of one."), FLinearColor(0.75f, 0.9f, 1.f));
+		}
+		BuildPlan();
+	}
+	else if (Word == TEXT("back"))
+	{
+		DropPlan();
+	}
+	else
+	{
+		ChoosePlan();
+	}
+}
+
 void UEarthHome::Frame(float DeltaSeconds)
 {
 	UEarthWalkNet* Net = Room();
@@ -852,21 +1200,80 @@ void UEarthHome::Redraw()
 	}
 	Body->AddSlot()[Shelf];
 
-	// A plan of one's own, and the garden: the browser game's so far.
+	// A plan of one's own (planBox in decor.js).
 	TArray<FString> Planned;
 	House->TryGetStringArrayField(TEXT("planned"), Planned);
-	Heading(TEXT("A plan of your own"));
+	const TSharedRef<SWidget> PlanHeading = HomeLine(TEXT("A PLAN OF YOUR OWN"), TEXT("Bold"), 11, HomeGold);
+	Body->AddSlot().Padding(2.f, 14.f, 0.f, 6.f)[PlanHeading];
+	const auto PlanButton = [&Body, this](const FString& Word, TFunction<void()> Do)
+	{
+		Body->AddSlot().HAlign(HAlign_Left).Padding(2.f, 4.f, 0.f, 4.f)[View->Small(Word, true, MoveTemp(Do))];
+	};
 	if (Planned.Num() > 0)
 	{
-		Note(TEXT("This house is built from your own floor plan. The browser game shows it at its real size; this game shows its ordinary rooms for now."));
+		Note(TEXT("This house is built from your own plan, at its real size. The front door leads to it; from the street the house looks as it always did."));
 		for (const FString& Floor : Planned)
 		{
 			Note(Floor);
 		}
+		PlanButton(TEXT("Go back to the house's own rooms"), [Self]()
+		{
+			if (UEarthHome* Home = Self.Get())
+			{
+				Home->DropPlan();
+			}
+		});
 	}
 	else
 	{
-		Note(TEXT("In the browser game you can upload a picture of a real floor plan and have the inside of your house built from it. Not in this game yet."));
+		Note(TEXT("Upload a picture of the floor plan of a real house (a photo, a screenshot or a PDF, up to two floors) and the inside of your house is built from it, at its real size, with stairs you can walk up. The outside stays as the map has it."));
+	}
+	if (!Net->IsSignedIn())
+	{
+		Note(TEXT("Uploading a plan is for people signed in with their own account."));
+	}
+	else if (bReadingPlan)
+	{
+		Body->AddSlot().Padding(2.f, 4.f, 0.f, 4.f)[HomeLine(TEXT("Reading your plan... this can take a minute."), TEXT("Bold"), 11, HomeGold, 640.f)];
+	}
+	else
+	{
+		if (!PlanError.IsEmpty())
+		{
+			Body->AddSlot().Padding(2.f, 2.f, 0.f, 4.f)[HomeLine(PlanError, TEXT("Regular"), 11, FLinearColor(1.f, 0.62f, 0.55f), 640.f)];
+		}
+		if (PlanRead.IsValid())
+		{
+			Note(TEXT("This is what was read off your picture:"));
+			Body->AddSlot().HAlign(HAlign_Left).Padding(2.f, 2.f, 0.f, 6.f)[SNew(SEarthPlanView, HomeObj(PlanRead, TEXT("plan")))];
+			TArray<FString> Lines, Notes;
+			PlanRead->TryGetStringArrayField(TEXT("lines"), Lines);
+			PlanRead->TryGetStringArrayField(TEXT("notes"), Notes);
+			for (const FString& One : Lines)
+			{
+				Note(One);
+			}
+			for (const FString& One : Notes)
+			{
+				Body->AddSlot().Padding(2.f, 2.f, 0.f, 4.f)[HomeLine(One, TEXT("Italic"), 11, HomeGold, 640.f)];
+			}
+			PlanButton(TEXT("Build my house from this"), [Self]()
+			{
+				if (UEarthHome* Home = Self.Get())
+				{
+					Home->BuildPlan();
+				}
+			});
+		}
+		PlanButton(PlanRead.IsValid() ? TEXT("Try another picture") : Planned.Num() > 0 ? TEXT("Upload another plan") : TEXT("Choose a picture of a floor plan"), [Self]()
+		{
+			if (UEarthHome* Home = Self.Get())
+			{
+				Home->ChoosePlan();
+			}
+		});
+		Note(FString::Printf(TEXT("Three tries a day%s. Your picture is sent to the AI service to be read and is not kept by the game."),
+			PlanRead.IsValid() ? *FString::Printf(TEXT(": %d left today"), static_cast<int32>(HomeNum(PlanRead, TEXT("left")))) : TEXT("")));
 	}
 	Note(TEXT("Your furniture and prizes stay yours if you move. Friends can walk in and look round."));
 	Body->AddSlot().HAlign(HAlign_Left).Padding(0.f, 6.f, 0.f, 0.f)
@@ -880,4 +1287,9 @@ void UEarthHome::Redraw()
 		})
 	];
 	Body->SetScrollOffset(Scrolled);
+	if (bShowPlan)
+	{
+		bShowPlan = false;
+		Body->ScrollDescendantIntoView(PlanHeading, false, EDescendantScrollDestination::TopOrLeft);
+	}
 }

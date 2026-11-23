@@ -328,13 +328,16 @@ lasts for the visit. The catalogue and who lives where are `server/src/home.ts` 
 not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
 things on a developer's own machine; it is not set on the live server.
 
-A house from a plan of your own (the plan is given in the browser; both games walk in the house built
-from it): at the bottom of the browser's house panel (H) somebody
+A house from a plan of your own (both games give the plan and walk in the house built
+from it): at the bottom of the house panel (H) somebody
 signed in can choose a picture of a floor plan (a photo, a screenshot or a PDF, four megabytes at
 most). `POST /v1/plan` has it read by Claude (`server/src/planreader.ts`: one request with the picture
 and a form to fill in, `output_config.format`), three tries a person a day and within the daily AI
 allowance of the talking things; the picture is not kept. The panel shows what was read (a small
 drawing, the rooms in words, notes on what had to be changed) and "Build my house from this".
+In the Windows game the picture is chosen in the box Windows itself has for it (`EarthFilePick.h`), and
+`/plan`, `/plan build` and `/plan back` do what the three buttons do; `-EWPlanFile=<file>` names the
+picture with nobody there to choose one, for a test.
 `EARTHWALK_PLAN_MODEL` chooses the model (default `claude-opus-5-5`). Without `ANTHROPIC_API_KEY` on
 the server the upload says that plans cannot be read. The plan itself, and the house built from it: a house that is
 lived in can be given a floor plan (`server/src/plan.ts`): up to two floors of rectangular rooms in

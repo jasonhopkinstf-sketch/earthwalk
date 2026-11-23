@@ -3391,6 +3391,14 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 			House->MoveOut();
 		}
 	}
+	else if (Command == TEXT("plan"))
+	{
+		// "/plan" asks for a picture of a floor plan for my house and has it read; "/plan build" builds the house from what was read, "/plan back" goes back to the rooms it came with.
+		if (House)
+		{
+			House->PlanCommand(Argument.TrimStartAndEnd().ToLower());
+		}
+	}
 	else if (Command == TEXT("piece"))
 	{
 		// "/piece sofa royal" swaps a piece of my house; "/piece sofa" puts back what it came with. For those who type, and for tests.

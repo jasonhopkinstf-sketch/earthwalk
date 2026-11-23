@@ -20,6 +20,12 @@ public class EarthWalk : ModuleRules
 			"HTTP", "WebSockets", "Json", "Slate", "SlateCore", "MeshDescription", "StaticMeshDescription", "ApplicationCore"
 		});
 
+		// The box Windows has for choosing a file (EarthFilePick.h: a picture of a floor plan).
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			PublicSystemLibraries.Add("comdlg32.lib");
+		}
+
 		// The photographic world (EarthPhotoWorld.h) needs the Cesium for Unreal plugin, which is optional:
 		// without it the game builds as before and stays on the generated world.
 		string[] PluginRoots =

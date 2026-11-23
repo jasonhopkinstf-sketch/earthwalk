@@ -24,8 +24,10 @@ class UEarthWalkNet;
  * The garden: up to four young animals before the front door, bought with coins, fed once a day from
  * the lunch box until they are grown, and giving something every day after that.
  *
- * Not here yet: uploading a floor plan (the browser game does it), and walking in a house built from a
- * plan (this game shows such a house with its ordinary rooms).
+ * A plan of one's own (docs/PROTOCOL.md, "A plan of one's own"): somebody signed in chooses a picture
+ * of a real floor plan, the server reads it (POST /v1/plan), the panel shows the rooms that were read,
+ * and a click has the inside of the house built from them. "/plan", "/plan build" and "/plan back" do
+ * the same for those who type; -EWPlanFile=<file> names the picture without the box that asks for it.
  */
 UCLASS()
 class UEarthHome : public UObject
@@ -53,6 +55,13 @@ public:
 	/** How: 0 puts it down a step in front of where I stand, 1 turns it a quarter round, 2 sends it back to a wall. */
 	void Place(const FString& Id, int32 How);
 	void MoveOut();
+	/** A plan of one's own: asks for a picture of a floor plan and sends it to be read. */
+	void ChoosePlan();
+	/** Has the house built from the plan that was read; or goes back to the rooms the house came with. */
+	void BuildPlan();
+	void DropPlan();
+	/** "/plan", "/plan build", "/plan back". */
+	void PlanCommand(const FString& Word);
 	/** The garden: "adopt" a young animal (Sp: chicken, sheep, pig or cow), or "feed", "gather" from or "release" the one at a place. */
 	void Garden(const FString& Verb, const FString& Sp, int32 Index);
 
@@ -60,6 +69,7 @@ private:
 	void Toggle();
 	void Redraw();
 	void GoHome();
+	void UploadPlan(const FString& File);
 	UEarthWalkNet* Room() const;
 	/** The key of my own house ("x/y/id"), or empty when I have none. */
 	FString MyKey() const;
@@ -89,4 +99,9 @@ private:
 	double SinceScan = 0.0;
 	bool bArriving = false; // sent home, and to be stood on the ground before the door once the world there has come
 	int32 TagsLogged = -1;
+	// A plan of one's own: a picture is being read, what went wrong last time, and the server's answer (plan, lines, notes, left).
+	bool bReadingPlan = false;
+	FString PlanError;
+	TSharedPtr<FJsonObject> PlanRead;
+	bool bShowPlan = false; // the panel is to be rolled to the part about a plan the next time it is drawn: there is news there
 };
