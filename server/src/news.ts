@@ -11,15 +11,28 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.48", date: "2026-11-23", title: "The Windows game catches up",
+    items: [
+      { text: "Windows game: shops, cafés, offices, malls, flats and hotels open. Walk in and through, and talk to the animals who work there." },
+      { text: "Windows game: ask the guide (Q) in plain words. Its answer has buttons that take you there." },
+      { text: "Windows game: after \"Go to\" you can choose to be flown there, and watch the world go by on the way." },
+      { text: "Windows game: tag, hide and seek, and the round-up. They are in the Tab menu; R joins a game a friend has set up." },
+      { text: "Windows game: a house built from a floor plan can be walked in, up the stairs and all." },
+      { text: "Windows game: a warm light indoors and in tunnels, and a real ball and hoop when your companion does its tricks." },
+      { text: "The animals at work in a shop or an office no longer ask you to carry them somewhere." },
+      { text: "The world keeps arriving while a big city is being built: the server no longer runs short of memory." },
+    ],
+  },
+  {
     version: "0.2.47", date: "2026-11-23", title: "Bridges, tunnels, and doors that open",
     items: [
       { text: "Bridges are bridges and tunnels are tunnels: walk, drive and ride over and through them. Trains run under the city now." },
       { text: "\"Go to\" finds the place nearest you: the beach down the road, not one across the world. In a car or on an animal, it drives you there." },
       { text: "C calls your car, and X calls a taxi." },
       { text: "\"Take me to...\" works again. A ride told where to go used to say hello and stay where it was." },
-      { text: "Shops, cafés, offices, malls, flats and hotels open: walk in and through, and talk to the animals who work there.", in: "browser" },
-      { text: "Ask the guide (Q) in plain words: where am I, what is near, how do I get to the beach? Its answer has buttons that take you there.", in: "browser" },
-      { text: "After \"Go to\" you can choose to be flown there, and watch the world go by on the way.", in: "browser" },
+      { text: "Shops, cafés, offices, malls, flats and hotels open: walk in and through, and talk to the animals who work there." },
+      { text: "Ask the guide (Q) in plain words: where am I, what is near, how do I get to the beach? Its answer has buttons that take you there." },
+      { text: "After \"Go to\" you can choose to be flown there, and watch the world go by on the way." },
     ],
   },
   {
