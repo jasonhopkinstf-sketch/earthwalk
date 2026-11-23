@@ -209,9 +209,14 @@ export class Player {
     const wall = this.hit(eye, reach.clone().divideScalar(far), far + 0.4);
     if (wall) at.copy(eye).addScaledVector(reach, Math.max(0.15, (wall.distance - 0.4) / far));
     const ground = this.world.groundHeight(at.x, at.z);
-    if (ground !== null && at.y < ground + 0.6) at.y = ground + 0.6;
+    if (ground !== null && at.y < ground + 0.6 && !this.inTunnel()) at.y = ground + 0.6;
     this.camera.position.copy(at);
     this.camera.lookAt(this.position.x + Math.sin(car.heading) * 2, this.position.y + 0.7, this.position.z - Math.cos(car.heading) * 2);
+  }
+
+  /** Is the player under the ground, in a tunnel? (The cameras that keep above the ground must not, then.) */
+  inTunnel() {
+    return this.world.underGround(this.position.x, this.position.z, this.position.y - (this.mount ? this.mount.seat : 0));
   }
 
   /** Which way the ride is going, from where it was a frame ago. */
@@ -260,7 +265,7 @@ export class Player {
     if (this.boom) this.boom.lerp(want, 1 - Math.exp(-5 * dt)); else this.boom = want;
     const at = eye.clone().add(this.boom);
     const ground = this.world.groundHeight(at.x, at.z);
-    if (ground !== null && at.y < ground + 1.2) at.y = ground + 1.2;
+    if (ground !== null && at.y < ground + 1.2 && !this.inTunnel()) at.y = ground + 1.2;
     this.camera.position.copy(at);
     this.camera.lookAt(eye);
   }
@@ -310,11 +315,16 @@ export class Player {
         }
         // A boat keeps to the water, and everything else keeps off it.
         const wet = this.world.waterAt(this.position.x, this.position.z);
-        let ground = this.world.groundHeight(this.position.x, this.position.z);
+        const feet = from.y - m.seat;
+        let ground = this.world.floorAt(this.position.x, this.position.z, feet);
+        // On a bridge the water is under the wheels, not round them. (And a boat does not sail up on to one.)
+        const land = this.world.groundHeight(this.position.x, this.position.z);
+        const onDeck = ground !== null && land !== null && ground > land + 0.4;
+        if (m.afloat && onDeck) ground = land;
         // (Being driven along a road, a bridge is a bridge, whatever lies under it.)
-        if (ground === null || (!auto && wet !== null && wet !== !!m.afloat)) {
+        if (ground === null || (!auto && !(onDeck && !m.afloat) && wet !== null && wet !== !!m.afloat)) {
           this.position.copy(from);
-          ground = this.world.groundHeight(from.x, from.z) ?? from.y - m.seat;
+          ground = this.world.floorAt(from.x, from.z, feet) ?? feet;
           if (car) car.vx = car.vz = car.speed = 0; // the water's edge, or the edge of the world so far
         }
         if (car && auto) {
@@ -345,7 +355,7 @@ export class Player {
         if (move.lengthSq() > 1) move.normalize();
         this.moveHorizontally(move.multiplyScalar(speed));
 
-        const ground = this.world.groundHeight(this.position.x, this.position.z);
+        const ground = this.world.floorAt(this.position.x, this.position.z, this.position.y);
         if (ground === null) {
           this.waitingForGround = true; // walked into a part of the world that has not arrived yet
         } else {
