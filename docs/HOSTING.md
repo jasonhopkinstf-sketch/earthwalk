@@ -101,6 +101,8 @@ If you would rather not use the Dockerfile, choose the Node runtime instead and 
 
 - **Build Command**: `npm ci --omit=dev`
 - **Start Command**: `npm start`
+- an environment variable `MALLOC_ARENA_MAX` = `2` (the Dockerfile sets it; it keeps the memory the
+  server holds on Linux much nearer to what it uses)
 - Environment variables as above, plus `NODE_VERSION` = `24`,
   `EARTHWALK_TRUST_PROXY` = `1` and `EARTHWALK_CACHE` = `/data`.
 

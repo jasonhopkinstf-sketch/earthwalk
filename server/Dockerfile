@@ -17,6 +17,10 @@ VOLUME /data
 
 # Hosting providers put their own proxy in front, so take the caller's address from it.
 ENV EARTHWALK_TRUST_PROXY=1
+# On Linux the C library keeps a pool of memory for each thread that asks for some (Node reads files on
+# four), and gives little of it back: a process whose JavaScript heap is 200 MB can hold 450. Two pools at
+# most. (The live machine reached 470 MB of its 512 on 2026-11-23 with the heap capped at 192.)
+ENV MALLOC_ARENA_MAX=2
 ENV PORT=8787
 EXPOSE 8787
 

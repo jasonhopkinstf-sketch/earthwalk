@@ -271,13 +271,21 @@ export function createApp(options: AppOptions = {}): App {
   const links = new Map<string, { token: string; name: string; avatar: string; created: number }>(); // game link code -> token waiting to be collected
   // How much memory the process holds, in megabytes, and the most it has held since it started: on /health,
   // because the live machine stops the server at 512 and nothing else says how near that is.
+  // (memParts says where it is: the JavaScript heap as set aside and as in use, and what lies outside it in
+  // buffers; memTop the same at the moment of the most; memSet how the process was started. On this PC the
+  // heap was the whole story and on the live machine it was not, which is what these are for.)
   let memMost = 0;
+  const mbOf = (bytes: number): number => Math.round(bytes / 1048576);
+  const partsOf = (m: NodeJS.MemoryUsage): Record<string, number> => ({ rss: mbOf(m.rss), heap: mbOf(m.heapTotal), used: mbOf(m.heapUsed), outside: mbOf(m.external) });
+  let memTop: Record<string, number> = {};
   const memNow = (): number => {
-    const mb = Math.round(process.memoryUsage().rss / 1048576);
-    memMost = Math.max(memMost, mb);
+    const m = process.memoryUsage();
+    const mb = mbOf(m.rss);
+    if (mb > memMost) { memMost = mb; memTop = partsOf(m); }
     return mb;
   };
-  setInterval(memNow, 2000).unref();
+  setInterval(memNow, 500).unref();
+  const memSet = { args: process.execArgv.join(" "), arenas: process.env.MALLOC_ARENA_MAX ?? null, node: process.version, platform: process.platform };
   const building = new InFlight<Buffer>();
   // A game arriving somewhere new asks for fifty pieces at once (25 chunks and their labels). Built all
   // together, each holds its half-made meshes while the others take their turns, and the memory that
@@ -609,7 +617,7 @@ export function createApp(options: AppOptions = {}): App {
         // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
       }
-      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, guide: guide.live, ...rooms.stats(), mem: memNow(), memMost });
+      if (p === "/health") return json(res, 200, { ok: true, version: VERSION, chunkZoom: CHUNK_Z, format: FORMAT_VERSION, codeRequired: !!accessCode, googleSignIn: !!google, talking: talker.live, guide: guide.live, ...rooms.stats(), mem: memNow(), memMost, memParts: partsOf(process.memoryUsage()), memTop, memSet });
       if (p === "/") return sendFile(res, PUBLIC, "play.html");
       const vendor = /^\/vendor\/([a-z-]+)\/(.+)$/.exec(p);
       if (vendor && VENDOR[vendor[1]]) return sendFile(res, VENDOR[vendor[1]], vendor[2]);
