@@ -531,6 +531,13 @@ somewhere else.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
 
+**Agility.** `{"t":"race","make":"agility"}` sets up, for a player with a companion, an agility course
+where they stand: a race whose `kind` is `"agility"`, with nine `gates` in a ring some twenty metres
+across before them, `reach` (3.2 m: how near a gate counts as passing it) and `obstacles`, what each
+gate is: `start`, `jump`, `hoop`, `weave`, `tunnel`, `table`, `finish`. Everything else is as for a
+race (join, go, stop, the countdown, gates in order). A finished round is paid for and the quickest
+kept; the journal's `agility` has `runs` and `bestSeconds`. Clients are expected to draw each obstacle.
+
 ### Tag, and hide and seek
 
 A room has at most one of these at a time, and not while a race is on (`server/src/play.ts`). `play`

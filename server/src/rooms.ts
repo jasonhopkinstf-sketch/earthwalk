@@ -8,7 +8,7 @@ import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
 import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
-import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
+import { agilityCourse, COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
 import type { TalkNews } from "./journal.ts";
 import { breedOf, BREEDS, cleanDecor, gardenView, GARDEN_MAX, type Homes, isGrown, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
@@ -126,6 +126,8 @@ export interface JournalKeeper {
   carOf?(key: string): { body: string; paint: number };
   /** A race finished: where they came among how many, and their time in milliseconds. */
   raced?(key: string, place: number, of: number, ms: number): void;
+  /** An agility round finished with a companion: the same. */
+  agility?(key: string, place: number, of: number, ms: number): void;
   /** A game of tag or of hide and seek over: how it came out for this player. */
   played?(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void;
   /** A piece for a house of their own: theirs already, or bought now. */
@@ -365,7 +367,7 @@ export class Rooms {
         const race = room?.race;
         if (race && room) {
           const got = passed(race, me.id, me.lat, me.lon, Date.now());
-          if (got === "finish") this.journal?.raced?.(me.id, placeOf(race, me.id), race.runners.length, race.runners.find((r) => r.id === me!.id)?.time ?? 0);
+          if (got === "finish") (race.kind === "agility" ? this.journal?.agility : this.journal?.raced)?.call(this.journal, me.id, placeOf(race, me.id), race.runners.length, race.runners.find((r) => r.id === me!.id)?.time ?? 0);
           if (got) this.broadcast(room, { t: "race", race });
         }
         // In a game of tag or of hide and seek, this may be a touch, a find, or a step off the field.
@@ -694,7 +696,14 @@ export class Rooms {
         const now = Date.now();
         if (room.race && stale(room.race, now)) room.race = null;
         const race = room.race;
-        if (msg.make === true) {
+        if (msg.make === "agility") {
+          // An agility course (race.ts): obstacles in a ring before me, for me and my companion. No roads are needed.
+          if (race && race.state !== "over") { send({ t: "error", code: "locked", text: `${race.byName} has a race set up already` }); return; }
+          if (room.play && room.play.state !== "over") { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          if (!me.pet) { send({ t: "error", code: "locked", text: "Agility is for you and a companion: solve a riddle to win one, and choose it in your passport" }); return; }
+          room.race = newRace(me.id, me.name, agilityCourse(me.lat, me.lon, me.yaw, hash32(parseInt(me.id, 16) | 0, now & 0x7fffffff)), now);
+        } else if (msg.make === true) {
           if (race && race.state !== "over") { send({ t: "error", code: "locked", text: `${race.byName} has a race set up already` }); return; }
           if (room.play && room.play.state !== "over") { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
           if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }

@@ -19,7 +19,7 @@ const AFTER_MS = 700;
 export class Train {
   /**
    * @param {{ panel: HTMLElement, bar: HTMLElement, meetup: import("./net.js").Meetup,
-   *   player: import("./player.js").Player, say: (text: string) => void }} parts
+   *   player: import("./player.js").Player, agility: () => void, say: (text: string) => void }} parts
    */
   constructor(parts) {
     Object.assign(this, parts);
@@ -162,6 +162,12 @@ export class Train {
       else if (next) b.addEventListener("click", () => this.teach());
       list.append(b);
     }
+    const course = el("button", "trick next", "");
+    course.type = "button";
+    const best = this.journal?.agility?.bestSeconds;
+    course.append(el("b", "", "Agility course"), el("span", "small", best ? `Set one up · best ${best} s` : "Set one up here"));
+    course.addEventListener("click", () => { this.close(); this.agility?.(); });
+    list.append(course);
     box.append(list, el("p", "small", "A lesson is a game of timing: press Space as each paw print reaches the ring. One slip is forgiven."));
     this.panel.replaceChildren(box);
   }

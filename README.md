@@ -251,6 +251,13 @@ helpings at a time. Three are known from the start, and each one cooked for the 
 the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
 lunch box has a button to give it to them.
 
+Agility (in the browser so far): `/agility` (or the button under the tricks, K) sets up nine obstacles
+in a ring before you: a start, jumps, a hoop, weave poles, a tunnel, a table and a finish. R starts
+it; run them in order with your companion at your heels (it leaps at the jumps), and the round is
+timed. A clear round pays twelve coins, your quickest is kept, and friends can press R to join and
+run it against you. It is a race of another kind (`agilityCourse` in `server/src/race.ts`): no roads
+are needed, only a companion.
+
 The garden (in the browser so far): the house panel (H, indoors or by your own front door) has a
 garden too. A chick, a lamb, a piglet or a calf is bought with coins and lives before the front door,
 where everybody sees it. It is fed once a day from your lunch box (plain vegetables, bread or fruit)

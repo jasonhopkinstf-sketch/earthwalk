@@ -165,6 +165,11 @@ export class Meetup extends EventTarget {
     this.send({ t: "race", [what]: true });
   }
 
+  /** Sets up an agility course before me, for me and my companion (it is a race of another kind: join, go and stop as for a race). */
+  sendAgility() {
+    this.send({ t: "race", make: "agility" });
+  }
+
   /** Tag, and hide and seek: { make: "tag" | "hide" } sets one up where I stand; { join }, { go } (its maker) and { stop } as for a race. */
   sendPlay(what) {
     this.send({ t: "play", ...what });

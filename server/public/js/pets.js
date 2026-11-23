@@ -33,12 +33,19 @@ export class Pets {
     Object.assign(this, parts);
     this.poses = new Map(); // thing -> { x, z, yaw, d }
     this.acts = new Map(); // thing -> the trick it is doing: { trick, start, prop }
+    this.hops = new Map(); // thing -> when it took off: a leap in its stride, over a jump of an agility course (race.js)
     this.riding.extras.push((dt) => this.frame(dt));
     this.meetup.addEventListener("trick", (e) => {
       if (!TRICK_S[e.detail.trick]) return;
       this.drop(e.detail.thing);
       this.acts.set(e.detail.thing, { trick: e.detail.trick, start: performance.now() / 1000, prop: null, said: false });
     });
+  }
+
+  /** The companion of a member of the room leaps as it runs: it has come to a jump. */
+  hop(memberId) {
+    const pet = memberId === this.meetup.me?.id ? this.meetup.me?.pet : this.meetup.peers.get(memberId)?.pet;
+    if (pet) this.hops.set(pet.thing, performance.now() / 1000);
   }
 
   /** Ends a trick, and takes away the ball or the hoop it was done with. */
@@ -145,7 +152,10 @@ export class Pets {
       }
       const y = world.groundHeight(pose.x, pose.z);
       riding.hidden.add(pet.thing);
-      if (y !== null) riding.mounts.push({ key: "", thing: pet.thing, sp: pet.sp, x: pose.x, z: pose.z, y, yaw: pose.yaw, gait: pose.d, moving });
+      const took = this.hops.get(pet.thing);
+      const air = took === undefined ? 1 : (performance.now() / 1000 - took) / 0.7;
+      if (air >= 1) this.hops.delete(pet.thing);
+      if (y !== null) riding.mounts.push({ key: "", thing: pet.thing, sp: pet.sp, x: pose.x, z: pose.z, y: y + (air < 1 ? Math.sin(air * Math.PI) * 0.9 : 0), yaw: pose.yaw, gait: pose.d, moving });
     };
     if (!player.waitingForGround) keep(meetup.me?.pet, player.position);
     for (const [id, peer] of meetup.peers) keep(peer.pet, avatars.shown.get(id)?.group.position);

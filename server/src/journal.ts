@@ -97,6 +97,9 @@ export interface JournalDoc {
   tricks: Record<string, string[]>;
   /** How many hungry animals they have fed (public/js/care.js). */
   caredFor: number;
+  /** Agility courses run with a companion, and the quickest in milliseconds. */
+  agilityRuns: number;
+  agilityBest: number | null;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -139,6 +142,8 @@ export interface JournalView {
   garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
   /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
   house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
+  /** Agility courses run, and the quickest round in seconds (null before the first). */
+  agility: { runs: number; bestSeconds: number | null };
   /** Hungry animals: how many they have fed, those fed today (as "cow:918398760"), the coins for each, and the companion that feeding more will win. */
   care: { fed: number; today: string[]; coins: number; next: { at: number; pet: string } | null };
   /** The companion at their side (null for none), every trick there is with whether it knows it, and the one it could learn next. */
@@ -310,6 +315,7 @@ const STAMPS: StampRule[] = [
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
   { id: "halves", title: "Both halves", unit: "", steps: [1], count: (d) => (d.north !== null && d.south !== null && d.north > 0 && d.south < 0 ? 1 : 0), say: () => "You have stood on both halves of the world" },
   { id: "north", title: "Far north", unit: "", steps: [1], count: (d) => (d.north !== null && d.north > 66.5 ? 1 : 0), say: () => "You have been north of the Arctic Circle" },
+  { id: "agility", title: "Agility rounds", unit: "rounds", steps: [1, 5, 20, 50], count: (d) => d.agilityRuns ?? 0, say: (n) => `You have run ${one(n, "agility round")} with your companion` },
   { id: "cared", title: "Animals fed", unit: "animals", steps: [1, 3, 8, 15, 25, 50, 100], count: (d) => d.caredFor ?? 0, say: (n) => `You have fed ${one(n, "hungry animal")}` },
   { id: "tricks", title: "Tricks taught", unit: "tricks", steps: [1, 3, 7, 14, 30], count: (d) => Object.values(d.tricks ?? {}).reduce((n, list) => n + list.length, 0), say: (n) => `You have taught ${one(n, "trick")}` },
   { id: "cooked", title: "Meals cooked", unit: "meals", steps: [1, 5, 20, 50], count: (d) => Object.values(d.cooked ?? {}).reduce((a, b) => a + b, 0), say: (n) => `You have cooked ${one(n, "meal")}` },
@@ -335,7 +341,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {}, tricks: {}, caredFor: 0,
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {}, tricks: {}, caredFor: 0, agilityRuns: 0, agilityBest: null,
   };
 }
 
@@ -404,6 +410,7 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
       bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
     }))(d.car ?? emptyGarage()),
+    agility: { runs: d.agilityRuns ?? 0, bestSeconds: d.agilityBest == null ? null : Math.round(d.agilityBest / 100) / 10 },
     care: { fed: d.caredFor ?? 0, today: today.cared ?? [], coins: CARE_COINS, next: CARE_PETS.find((c) => c.at > (d.caredFor ?? 0)) ?? null },
     tricks: ((pet) => ({ pet, ...tricksView(pet ? (d.tricks ?? {})[pet] ?? [] : []), coins: TRICK_COINS }))(passengerOf(d) ?? (d.pet && petsOf(d).includes(d.pet) ? d.pet : null)),
     food: ((ate, larder) => ({
@@ -950,6 +957,23 @@ export class Journals {
     this.change(key, w, (d) => {
       d.races = (d.races ?? 0) + 1;
       if (won) d.racesWon = (d.racesWon ?? 0) + 1;
+      d.coins += coins;
+    });
+  }
+
+  /** An agility round finished with a companion: paid for, and the quickest kept. Nothing is lost by a slow one. */
+  agility(key: string, place: number, of: number, ms: number): void {
+    const w = this.walkers.get(key);
+    if (!w) return;
+    const best = w.open.doc.agilityBest ?? null;
+    const record = best === null || ms < best;
+    const won = place === 1 && of > 1;
+    const coins = 12 + (won ? 8 : 0) + (record && best !== null ? 5 : 0);
+    this.note(w.open, "agility", { place, of, ms });
+    this.tell(key, { kind: "race", title: won ? "You and your companion won!" : record && best !== null ? "Your quickest round yet!" : "A clear round", text: `${clock(ms)}: ${coins} coins` });
+    this.change(key, w, (d) => {
+      d.agilityRuns = (d.agilityRuns ?? 0) + 1;
+      if (record) d.agilityBest = ms;
       d.coins += coins;
     });
   }

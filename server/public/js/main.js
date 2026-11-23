@@ -94,11 +94,11 @@ const orders = new Orders({ world, player, meetup, avatars, life, traffic, ridin
 const taxis = new Taxis({ world, meetup, riding, say: (text) => notice(text) });
 const pets = new Pets({ scene, world, player, meetup, avatars, riding });
 const care = new CareBubbles({ scene, world, player, meetup, life, hint: (text) => { if (hints.care !== text) { hints.care = text; showHints(); } } });
-const train = new Train({ panel: $("train"), bar: $("lesson"), meetup, player, say: (text) => notice(text) });
+const train = new Train({ panel: $("train"), bar: $("lesson"), meetup, player, agility: () => races.agility(), say: (text) => notice(text) });
 const garage = new Garage({ world, meetup, riding, traffic });
 const garden = new Garden({ world, player, meetup, riding });
 const play = new Play({ scene, world, meetup, player, avatars, talk, panel: $("play"), banner: $("playcount"), blind: $("blind"), say: (text) => notice(text) });
-const races = new Races({ scene, world, meetup, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
+const races = new Races({ scene, world, meetup, pets, panel: $("race"), banner: $("countdown"), say: (text) => notice(text) });
 // "Show me...": straight to a train, a horse, a car to drive, for showing the world to somebody (G).
 const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, riding, meetup, say: (text) => notice(text), problem: (text) => problem(text) });
 $("showme").addEventListener("click", (e) => { e.currentTarget.blur(); void showcase.toggle(); });
@@ -482,6 +482,8 @@ async function command(name, arg) {
     notice("E   at the front door of a house: go in, and E again just inside it to come out");
     notice("    an animal with a thought bubble over it is hungry: talk to it (T) with that food in your lunch box and it is fed;");
     notice("    feeding hungry animals wins new companions");
+    notice("/agility   an agility course of nine obstacles in a ring before you, for you and your companion: R starts it,");
+    notice("    run it in order (the light shows the next), and your best time is kept; friends can press R to join in");
     notice("K   tricks for the companion at your side: teach it the next one (a game of timing: Space as each paw print");
     notice("    reaches the ring), and have it do the ones it knows (or /trick spin, /teach)");
     notice("B   your lunch box and your five hearts: eat one of each kind of good food (fruit, vegetables, bread, protein, dairy)");
@@ -523,6 +525,8 @@ async function command(name, arg) {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     if (arg.toLowerCase() === "stop") play.stop();
     else play.make(name);
+  } else if (name === "agility") {
+    races.agility();
   } else if (name === "race") {
     if (!meetup.joined) return problem("Not connected to the meetup server.");
     races.key(arg.toLowerCase());
