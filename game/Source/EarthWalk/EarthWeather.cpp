@@ -26,6 +26,9 @@ namespace
 {
 	// The box round the camera that rain and snow fall through, in metres (FALL_BOX in weatherdata.js): across, up and down, across.
 	constexpr double BoxWide = 30.0, BoxHigh = 20.0;
+	// The squares of ground that are looked down on for roofs: so many metres across each, so many each way (they cover the box), so many a frame.
+	constexpr double CoverCellM = 1.25;
+	constexpr int32 CoverCells = 24, CoverPerFrame = 48;
 	// How often the server is asked again, and how soon after it had nothing to give: seconds.
 	constexpr double AskEveryS = 600.0, AskAfterFailS = 120.0;
 
@@ -298,6 +301,46 @@ void UEarthWeather::Work(double Ms, double Lat, double Lon, float DeltaSeconds)
 	}
 }
 
+void UEarthWeather::LookForCover(const FVector& CameraM)
+{
+	const AEarthWalkHUD* Screen = Hud.Get();
+	UWorld* World = Screen ? Screen->GetWorld() : nullptr;
+	if (!World)
+	{
+		return;
+	}
+	if (Cover.Num() != CoverCells * CoverCells)
+	{
+		Cover.Init(FCover(), CoverCells * CoverCells);
+	}
+	const APlayerController* PC = Screen->GetOwningPlayerController();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(EarthWeatherCover), false, PC ? PC->GetPawn() : nullptr);
+	const int32 BaseX = FMath::FloorToInt32(CameraM.X / CoverCellM) - CoverCells / 2, BaseY = FMath::FloorToInt32(CameraM.Y / CoverCellM) - CoverCells / 2;
+	for (int32 i = 0; i < CoverPerFrame; ++i)
+	{
+		CoverNext = (CoverNext + 1) % (CoverCells * CoverCells);
+		const int32 X = BaseX + CoverNext % CoverCells, Y = BaseY + CoverNext / CoverCells;
+		FCover& Square = Cover[((X % CoverCells) + CoverCells) % CoverCells + (((Y % CoverCells) + CoverCells) % CoverCells) * CoverCells];
+		// Straight down from far above the tallest tower to well below the camera: the first thing met is what the rain lands on.
+		const FVector From((X + 0.5) * CoverCellM * 100.0, (Y + 0.5) * CoverCellM * 100.0, (CameraM.Z + 400.0) * 100.0);
+		FHitResult Hit;
+		Square.X = X;
+		Square.Y = Y;
+		Square.Top = World->LineTraceSingleByChannel(Hit, From, From - FVector(0.0, 0.0, 46000.0), ECC_Visibility, Params) ? static_cast<float>(Hit.ImpactPoint.Z / 100.0) : -1.0e6f;
+	}
+}
+
+bool UEarthWeather::Covered(double X, double Y, double Z) const
+{
+	if (Cover.Num() != CoverCells * CoverCells)
+	{
+		return false;
+	}
+	const int32 Ix = FMath::FloorToInt32(X / CoverCellM), Iy = FMath::FloorToInt32(Y / CoverCellM);
+	const FCover& Square = Cover[((Ix % CoverCells) + CoverCells) % CoverCells + (((Iy % CoverCells) + CoverCells) % CoverCells) * CoverCells];
+	return Square.X == Ix && Square.Y == Iy && Z < Square.Top - 0.15; // (a square not looked at yet is open sky)
+}
+
 /** Rain and snow: each streak and flake has a place of its own in the world, wrapped into a box that stays round the camera. */
 void UEarthWeather::Fall(float DeltaSeconds)
 {
@@ -310,6 +353,11 @@ void UEarthWeather::Fall(float DeltaSeconds)
 	}
 	const FVector Camera = PC->PlayerCameraManager->GetCameraLocation() / 100.0; // metres: X north, Y east, Z up
 	const int32 RainCount = bUnderCover ? 0 : Now.RainCount, SnowCount = bUnderCover ? 0 : Now.SnowCount;
+	// Beside a building, under a petrol station's canopy or a bridge, nothing falls where a roof is over it.
+	if (RainCount > 0 || SnowCount > 0 || (!bUnderCover && Now.Leaves > 0))
+	{
+		LookForCover(Camera);
+	}
 	const double T = Clock;
 	const double WindNorth = -Now.WindSouth, WindEast = Now.WindEast;
 
@@ -330,8 +378,32 @@ void UEarthWeather::Fall(float DeltaSeconds)
 			const double Z = InBox(Own(i, 3) * BoxHigh + Going.Z * Pace * T, Camera.Z, BoxHigh);
 			// None right in front of the eyes.
 			const bool bNear = FMath::Square(X - Camera.X) + FMath::Square(Y - Camera.Y) + FMath::Square(Z - Camera.Z) < 1.8 * 1.8;
-			Rain[i] = FTransform(Lean, FVector(X, Y, Z) * 100.0, bNear ? FVector::ZeroVector : Size);
+			Rain[i] = FTransform(Lean, FVector(X, Y, Z) * 100.0, bNear || Covered(X, Y, Z) ? FVector::ZeroVector : Size);
 		}
+	}
+	// (-EWCoverLog writes to the log, every few seconds of rain, how many streaks a roof is keeping off.)
+	static const bool bCoverLog = FParse::Param(FCommandLine::Get(), TEXT("EWCoverLog"));
+	static int32 CoverLogIn = 0;
+	if (bCoverLog && RainCount > 0 && --CoverLogIn < 0)
+	{
+		CoverLogIn = 240;
+		int32 Kept = 0, Known = 0;
+		float Highest = -1.0e6f, Lowest = 1.0e6f;
+		for (const FTransform& Streak : Rain)
+		{
+			const FVector At = Streak.GetLocation() / 100.0;
+			Kept += Covered(At.X, At.Y, At.Z) ? 1 : 0;
+		}
+		for (const FCover& Square : Cover)
+		{
+			if (Square.X != MAX_int32 && Square.Top > -1.0e5f)
+			{
+				++Known;
+				Highest = FMath::Max(Highest, Square.Top);
+				Lowest = FMath::Min(Lowest, Square.Top);
+			}
+		}
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: weather: a roof keeps off %d of %d streaks of rain; %d squares looked at, tops from %.1f to %.1f m, the camera at %.1f"), Kept, RainCount, Known, Lowest, Highest, Camera.Z);
 	}
 	Snow.SetNum(SnowCount, EAllowShrinking::No);
 	if (SnowCount > 0)
@@ -345,7 +417,7 @@ void UEarthWeather::Fall(float DeltaSeconds)
 			const double Y = InBox(Own(i, 2) * BoxWide + WindEast * 0.6 * T + Wander * 0.6, Camera.Y, BoxWide);
 			const double Z = InBox(Own(i, 3) * BoxHigh - Now.SnowSpeed * (0.8 + 0.4 * Own(i, 6)) * T, Camera.Z, BoxHigh);
 			const bool bNear = FMath::Square(X - Camera.X) + FMath::Square(Y - Camera.Y) + FMath::Square(Z - Camera.Z) < 2.2 * 2.2;
-			Snow[i] = FTransform(Tipped, FVector(X, Y, Z) * 100.0, bNear ? FVector::ZeroVector : Size);
+			Snow[i] = FTransform(Tipped, FVector(X, Y, Z) * 100.0, bNear || Covered(X, Y, Z) ? FVector::ZeroVector : Size);
 		}
 	}
 	// Leaves on a very windy day: small flat scraps carried along at nine tenths of the wind, sinking slowly, wandering and tumbling.
@@ -359,7 +431,7 @@ void UEarthWeather::Fall(float DeltaSeconds)
 		const double Z = InBox(Own(i, 3) * BoxHigh - 0.5 * T + Wander, Camera.Z, BoxHigh);
 		const bool bNear = FMath::Square(X - Camera.X) + FMath::Square(Y - Camera.Y) + FMath::Square(Z - Camera.Z) < 1.5 * 1.5;
 		const FRotator Tumble(T * 190.0 * (0.5 + Own(i, 6)), T * 140.0 * (0.5 + Own(i, 7)), Own(i, 8) * 360.0);
-		Leaves[i] = FTransform(Tumble.Quaternion(), FVector(X, Y, Z) * 100.0, bNear ? FVector::ZeroVector : FVector(0.2, 0.13, 0.012));
+		Leaves[i] = FTransform(Tumble.Quaternion(), FVector(X, Y, Z) * 100.0, bNear || Covered(X, Y, Z) ? FVector::ZeroVector : FVector(0.2, 0.13, 0.012));
 	}
 	// The rain is dimmed to two fifths at night, the snow to a moonlit blue.
 	const float Dim = static_cast<float>(FMath::Lerp(1.0, 0.4, LastNight));

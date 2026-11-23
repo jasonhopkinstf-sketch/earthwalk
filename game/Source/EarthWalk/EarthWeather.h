@@ -51,6 +51,10 @@ private:
 	void Ask(double Lat, double Lon);
 	void Work(double NowMs, double Lat, double Lon, float DeltaSeconds);
 	void Fall(float DeltaSeconds);
+	/** Looks down on a few more squares of the ground round the camera, to learn how high the roof (or the ground) is there. */
+	void LookForCover(const FVector& CameraM);
+	/** Whether a drop at this place (metres) is under a roof, a bridge or the ground: nothing falls there. */
+	bool Covered(double X, double Y, double Z) const;
 	void Sound(float DeltaSeconds);
 	const EarthSkyMath::FWeather& Showing() const;
 	double NowMs() const;
@@ -90,6 +94,15 @@ private:
 	TArray<FTransform> Rain;
 	TArray<FTransform> Snow;
 	TArray<FTransform> Leaves;
+	// The top of whatever stands on each square of ground round the camera (a roof, a tree, the ground itself), found a few squares a frame.
+	struct FCover
+	{
+		int32 X = MAX_int32; // which square of the world this was found for
+		int32 Y = MAX_int32;
+		float Top = 0.f;     // metres
+	};
+	TArray<FCover> Cover;
+	int32 CoverNext = 0;
 
 	// What is heard.
 	UPROPERTY()
