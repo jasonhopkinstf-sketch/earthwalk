@@ -8,7 +8,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "start": "node --max-old-space-size=240 src/index.ts",
+    "start": "node --max-old-space-size=192 --max-semi-space-size=8 src/index.ts",
     "dev": "node --watch src/index.ts",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
