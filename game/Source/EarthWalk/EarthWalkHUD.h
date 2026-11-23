@@ -82,6 +82,10 @@ public:
 	void CloseNews();
 	/** Esc on the bubble's line: the conversation is over. */
 	void EndTalk() { CloseTalk(true); }
+	/** Asks the guide something in plain words (Q, the menu, "/guide ..."): the answer comes in the bubble at the foot of the screen. */
+	void GuideAsk(const FString& Question);
+	/** One of the buttons under the guide's answer that start the trip: take me there, call a taxi, go there now, show me. */
+	void GuideGo(int32 Index);
 
 private:
 
@@ -97,6 +101,18 @@ private:
 	void CloseTalk(bool bStopTalking);
 	bool bTalkOpen = false;
 	FString TalkNameShown;
+	// The guide has the bubble (bTalkOpen is true as well): the question now up, and what its answer's buttons do.
+	void OnGuideAnswer(const struct FEarthGuideAnswer& Answer);
+	bool bGuideOpen = false;
+	bool bGuideWaiting = false;
+	FString GuideQuestion;
+	FString GuidePlace;
+	double GuideLat = 0.0;
+	double GuideLon = 0.0;
+	TArray<FString> GuideActs;  // for each button shown: "take", "taxi", "jump" or "show"
+	TArray<FString> GuideShows; // and for "show", which Show me place
+	FDelegateHandle GuideHandle;
+	FDelegateHandle ErrorHandle;
 
 	/** The little map in the top right corner (EarthMiniMap.h). M makes it large, hides it, and brings it back. */
 	UPROPERTY()

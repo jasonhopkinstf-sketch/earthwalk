@@ -1861,12 +1861,12 @@ void UEarthCompany::GarageFrame()
 	}
 }
 
-void UEarthCompany::CallTaxi(const FString& Place)
+void UEarthCompany::CallTaxi(const FString& Place, bool bAt, double Lat, double Lon)
 {
 	if (UEarthWalkNet* Room = Net.Get())
 	{
 		Notice(FString::Printf(TEXT("Calling a taxi to take you to %s..."), *Place));
-		Room->SendTaxi(Place);
+		Room->SendTaxi(Place, bAt, Lat, Lon);
 	}
 }
 

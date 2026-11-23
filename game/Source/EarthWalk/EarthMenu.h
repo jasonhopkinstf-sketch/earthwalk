@@ -66,7 +66,7 @@ public:
 
 	void ShowMenu(bool bShow);
 	/** Puts the question of an action up (null takes it away). */
-	void ShowAsk(const FEarthAction* Action);
+	void ShowAsk(const FEarthAction* Action, const TArray<FString>& Choices = TArray<FString>());
 	void ShowStrip(bool bShow);
 	TSharedPtr<SEditableTextBox> GetAskInput() const { return AskInput; }
 
@@ -81,6 +81,12 @@ public:
 	void SetTalkWords(const FString& Text);
 	void SetTalkMine(const FString& Text);
 	TSharedPtr<SEditableTextBox> GetTalkInput() const { return TalkInput; }
+	/**
+	 * The guide's answer, in the same bubble: what it says, the question under it, the buttons that start
+	 * the trip (`Go`, drawn as the main buttons) and questions to ask next with one click (`Ask`).
+	 * The typing line takes the next question.
+	 */
+	void ShowGuide(const FString& Words, const FString& Mine, const TArray<FString>& Go, const TArray<FString>& Ask);
 
 	/**
 	 * "What's new": a card in the middle of the screen with what has been added since the player was
@@ -98,6 +104,7 @@ private:
 	TSharedPtr<SBorder> AskPanel;
 	TSharedPtr<STextBlock> AskTitle;
 	TSharedPtr<SEditableTextBox> AskInput;
+	TSharedPtr<class SWrapBox> AskChoices;
 	TSharedPtr<SWidget> Strip;
 	TSharedPtr<SBorder> NewsPanel;
 	TSharedPtr<SBorder> TalkPanel;
@@ -111,6 +118,12 @@ private:
 	FButtonStyle ReplyButton = FButtonStyle()
 		.SetNormal(FSlateRoundedBoxBrush(FLinearColor(FColor(38, 34, 31, 28)), 9.f))
 		.SetHovered(FSlateRoundedBoxBrush(FLinearColor(FColor(245, 197, 24, 255)), 9.f))
+		.SetPressed(FSlateRoundedBoxBrush(FLinearColor(FColor(220, 170, 10, 255)), 9.f));
+
+	// The buttons under an answer of the guide that take you somewhere: yellow, as the keys are.
+	FButtonStyle GoButton = FButtonStyle()
+		.SetNormal(FSlateRoundedBoxBrush(FLinearColor(FColor(245, 197, 24, 255)), 9.f))
+		.SetHovered(FSlateRoundedBoxBrush(FLinearColor(FColor(255, 216, 77, 255)), 9.f))
 		.SetPressed(FSlateRoundedBoxBrush(FLinearColor(FColor(220, 170, 10, 255)), 9.f));
 
 	FSlateRoundedBoxBrush PanelBrush = FSlateRoundedBoxBrush(FLinearColor::White, 12.f);

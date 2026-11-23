@@ -59,6 +59,28 @@ struct FEarthTaxi
 	double Until = 0.0; // when it gives up waiting
 };
 
+/** A button under an answer of the guide: "take" (my ride carries me), "taxi", "jump" (go there now) or "show" (a Show me place, whose id is Show). */
+struct FEarthGuideGo
+{
+	FString Act;
+	FString Label;
+	FString Show;
+};
+
+/** What the guide answered (docs/PROTOCOL.md, "The guide"). */
+struct FEarthGuideAnswer
+{
+	FString Q;    // the question this answers, as the server read it
+	FString Text; // what it says
+	bool bAi = false;
+	bool bPlace = false; // the answer is about one place
+	FString PlaceName;
+	double Lat = 0.0;
+	double Lon = 0.0;
+	TArray<FEarthGuideGo> Go; // the buttons that start the trip, in the order to show them
+	TArray<FString> Ask;      // questions to ask next, with one click
+};
+
 /** A player's own car, standing where it was called to or left (docs/PROTOCOL.md, "The garage"). */
 struct FEarthOwnCar
 {
@@ -214,6 +236,8 @@ DECLARE_MULTICAST_DELEGATE(FOnEarthRace);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthHat, const FString& /*MemberId*/, const FString& /*Hat, or empty*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTreasure, double /*Lat*/, double /*Lon*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthTaxi, const FEarthTaxi& /*Taxi*/, bool /*bGone*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthGuide, const FEarthGuideAnswer& /*Answer*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthError, const FString& /*Code*/, const FString& /*Text*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthJournal, const TSharedPtr<class FJsonObject>& /*Journal, or null*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEarthMenu, const FEarthMenu& /*Menu*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnEarthLived, const FString& /*Key: "x/y/id"*/, bool /*bGone*/);
@@ -307,8 +331,12 @@ public:
 	/** The garden of my house: "adopt" a young animal (Sp), or "feed", "gather" from or "release" the one at a place (Index). */
 	void SendGarden(const FString& Verb, const FString& Sp, int32 Index = 0);
 	const FEarthRace& GetRace() const { return Race; }
-	/** Calls a taxi to take me to a place; it is announced through OnTaxi. */
-	void SendTaxi(const FString& Place);
+	/** Calls a taxi to take me to a place; it is announced through OnTaxi. With bAt the place's position is known already (from the guide), and the name is not looked up again. */
+	void SendTaxi(const FString& Place, bool bAt = false, double Lat = 0.0, double Lon = 0.0);
+	/** Asks the guide something in plain words; the answer comes through OnGuide. */
+	void SendGuide(const FString& Question);
+	/** "Take me there" under an answer of the guide: what I am riding carries me to that place, as when told so itself. */
+	void SendGuideTake(const FString& Name, double Lat, double Lon);
 	/**
 	 * Food and hearts: "eat" one of these from my lunch box, ask for the "menu" of a shop ("shop") or of
 	 * somewhere to eat ("food"), "buy" one there (With says which of the two), "cook" a recipe, or
@@ -358,6 +386,9 @@ public:
 	FOnEarthSay OnSay;
 	FOnEarthOrder OnOrder;
 	FOnEarthTaxi OnTaxi;
+	FOnEarthGuide OnGuide;
+	/** Something the server refused, by its code ("slow", "nowhere"...) and in its words. It is a notice too. */
+	FOnEarthError OnError;
 	FOnEarthHat OnHat;
 	/** The room's race has changed in some way: set up, joined, begun, a gate passed, over, cleared away. */
 	FOnEarthRace OnRace;

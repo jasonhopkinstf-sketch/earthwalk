@@ -41,6 +41,7 @@ namespace
 		{ TEXT("taxi"), TEXT("Ride and drive"), TEXT("Call a taxi..."), TEXT("It comes to you and drives you there. Press E beside it to get in."), TEXT("X"), TEXT("taxi"), TEXT("Where should the taxi take you?"), TEXT("the beach"), TEXT("Taxi...") },
 
 		{ TEXT("talk"), TEXT("Talk"), TEXT("Talk to what is nearest"), TEXT("Animals, cars, trains, trees and houses all answer. Tell one what to do: follow me, stay, take me to the beach."), TEXT("T"), TEXT(""), TEXT(""), TEXT(""), TEXT("Talk") },
+		{ TEXT("guide"), TEXT("Talk"), TEXT("Ask the guide..."), TEXT("Ask in plain words where you are, what is near, or how to get somewhere. The answer comes with buttons that take you there."), TEXT("Q"), TEXT("guide"), TEXT("What would you like to know?"), TEXT("where is the nearest station?"), TEXT("") },
 		{ TEXT("chat"), TEXT("Talk"), TEXT("Chat with people"), TEXT("Everybody in your room reads what you type."), TEXT("Enter"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("passport"), TEXT("Play"), TEXT("My passport"), TEXT("Today's tasks, treasure hunts, expeditions, coins, hats, riddles and everywhere you have been."), TEXT("P"), TEXT(""), TEXT(""), TEXT(""), TEXT("Passport") },
@@ -318,6 +319,10 @@ void SEarthMenu::Construct(const FArguments&, AEarthWalkHUD* InOwner)
 						.ClearKeyboardFocusOnCommit(false)
 						.OnTextCommitted(this, &SEarthMenu::HandleAsked)
 					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
+					[
+						SAssignNew(AskChoices, SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(6.0, 6.0)).Visibility(EVisibility::Collapsed)
+					]
 					+ SVerticalBox::Slot().AutoHeight()
 					[
 						Line(TEXT("Enter to go. Esc to change your mind."), TEXT("Regular"), 11, DimColor)
@@ -427,7 +432,7 @@ void SEarthMenu::ShowStrip(bool bShow)
 	Strip->SetVisibility(bShow ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
 }
 
-void SEarthMenu::ShowAsk(const FEarthAction* Action)
+void SEarthMenu::ShowAsk(const FEarthAction* Action, const TArray<FString>& Choices)
 {
 	AskPanel->SetVisibility(Action ? EVisibility::Visible : EVisibility::Collapsed);
 	if (Action)
@@ -435,6 +440,84 @@ void SEarthMenu::ShowAsk(const FEarthAction* Action)
 		AskTitle->SetText(FText::FromString(Action->Ask));
 		AskInput->SetText(FText::GetEmpty());
 		AskInput->SetHintText(FText::FromString(FString::Printf(TEXT("for example: %s"), Action->AskHint)));
+		// Answers ready to click, for a question that has some (the guide's): a click is the answer.
+		AskChoices->ClearChildren();
+		AskChoices->SetVisibility(Choices.Num() > 0 ? EVisibility::Visible : EVisibility::Collapsed);
+		const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+		for (const FString& Choice : Choices)
+		{
+			AskChoices->AddSlot()
+			[
+				SNew(SButton)
+				.IsFocusable(false) // the typing line keeps the keyboard
+				.ButtonStyle(&RowButton)
+				.ContentPadding(FMargin(12.f, 5.f))
+				.OnClicked_Lambda([Hud, Choice]()
+				{
+					if (AEarthWalkHUD* Screen = Hud.Get())
+					{
+						Screen->AskDone(Choice);
+					}
+					return FReply::Handled();
+				})
+				[
+					Line(Choice, TEXT("Regular"), 12, FLinearColor::White)
+				]
+			];
+		}
+	}
+}
+
+void SEarthMenu::ShowGuide(const FString& Words, const FString& Mine, const TArray<FString>& Go, const TArray<FString>& Ask)
+{
+	TalkPanel->SetVisibility(EVisibility::Visible);
+	TalkName->SetText(FText::FromString(TEXT("Your guide")));
+	TalkInput->SetHintText(FText::FromString(TEXT("Ask your guide something else, and press Enter")));
+	TalkWords->SetText(FText::FromString(Words));
+	SetTalkMine(Mine);
+	TalkReplies->ClearChildren();
+	const TWeakObjectPtr<AEarthWalkHUD> Hud = Owner;
+	for (int32 i = 0; i < Go.Num(); ++i)
+	{
+		TalkReplies->AddSlot()
+		[
+			SNew(SButton)
+			.IsFocusable(false)
+			.ButtonStyle(&GoButton)
+			.ContentPadding(FMargin(12.f, 5.f))
+			.OnClicked_Lambda([Hud, i]()
+			{
+				if (AEarthWalkHUD* Screen = Hud.Get())
+				{
+					Screen->GuideGo(i);
+				}
+				return FReply::Handled();
+			})
+			[
+				Line(Go[i], TEXT("Bold"), 12, PaperInk)
+			]
+		];
+	}
+	for (const FString& Question : Ask)
+	{
+		TalkReplies->AddSlot()
+		[
+			SNew(SButton)
+			.IsFocusable(false)
+			.ButtonStyle(&ReplyButton)
+			.ContentPadding(FMargin(10.f, 4.f))
+			.OnClicked_Lambda([Hud, Question]()
+			{
+				if (AEarthWalkHUD* Screen = Hud.Get())
+				{
+					Screen->GuideAsk(Question);
+				}
+				return FReply::Handled();
+			})
+			[
+				Line(Question, TEXT("Bold"), 11, PaperInk)
+			]
+		];
 	}
 }
 

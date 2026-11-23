@@ -17,9 +17,7 @@ const NOT_IN_BROWSER: Record<string, string> = {
  * Things in the browser's menu that are meant for both games, in the place they are to have in both, and that the
  * Windows game has not got yet. When its table gains the row (same id, words and key), this test says to take it off.
  */
-const NOT_IN_WINDOWS_YET: Record<string, string> = {
-  guide: "the guide was built for the server and the browser first (2026-11-23); the Windows half is written up for the main chat (docs/PROTOCOL.md, \"The guide\")",
-};
+const NOT_IN_WINDOWS_YET: Record<string, string> = {};
 /** Fields that differ on purpose. */
 const DIFFERENT: Record<string, Partial<Record<(typeof FIELDS)[number], string>>> = {
   house: { command: "\"/house\" is the house of your own in the browser, so finding a door is \"/houses\"" },

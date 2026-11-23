@@ -52,7 +52,7 @@ public:
 	/** Brings the player's own car to stand beside them (/car), or sends it away. */
 	void CallCar(bool bAway = false);
 	/** Calls a taxi to take the player to a place (/taxi the beach). */
-	void CallTaxi(const FString& Place);
+	void CallTaxi(const FString& Place, bool bAt = false, double Lat = 0.0, double Lon = 0.0);
 	bool IsRiding() const { return Mine.bOn; }
 	/** What kind of thing I am riding and steering myself ("car", "horse"); empty on foot, on a train, or behind a friend. */
 	FString RidingKind() const { return Mine.bOn && Mine.Seat == 0 ? Mine.Sp : FString(); }

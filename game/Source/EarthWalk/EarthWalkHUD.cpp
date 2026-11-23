@@ -1371,6 +1371,19 @@ void AEarthWalkHUD::BeginPlay()
 		{
 			AddLine(Text, NoticeColor);
 		});
+		GuideHandle = Net->OnGuide.AddWeakLambda(this, [this](const FEarthGuideAnswer& Answer)
+		{
+			OnGuideAnswer(Answer);
+		});
+		ErrorHandle = Net->OnError.AddWeakLambda(this, [this](const FString& Code, const FString& Text)
+		{
+			// "Give the guide a moment to answer": said in the bubble, where the question is.
+			if (bGuideOpen && bGuideWaiting && Menu.IsValid() && (Code == TEXT("slow") || Code == TEXT("nowhere")))
+			{
+				bGuideWaiting = false;
+				Menu->SetTalkWords(Text);
+			}
+		});
 		JournalHandle = Net->OnJournal.AddWeakLambda(this, [this](const TSharedPtr<FJsonObject>& Journal)
 		{
 			if (bPassportOpen && Overlay.IsValid())
@@ -1489,6 +1502,8 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		Net->OnChat.Remove(ChatHandle);
 		Net->OnNotice.Remove(NoticeHandle);
+		Net->OnGuide.Remove(GuideHandle);
+		Net->OnError.Remove(ErrorHandle);
 		Net->OnWelcome.Remove(WelcomeHandle);
 		Net->OnJournal.Remove(JournalHandle);
 		Net->OnStamp.Remove(StampHandle);
@@ -1565,8 +1580,9 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 	{
 		// The conversation: it ends when the thing has been left behind, or on Esc; its name appears once
 		// it has introduced itself; and its line keeps the keyboard, wherever the pointer clicks.
+		// (The guide's answer is in the same bubble, and is nobody that can be left behind.)
 		const UEarthCompany* Talk = Company();
-		if (!Talk || !Talk->IsTalking())
+		if (!bGuideOpen && (!Talk || !Talk->IsTalking()))
 		{
 			CloseTalk(false);
 		}
@@ -1577,7 +1593,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		}
 		else
 		{
-			if (Talk->TalkingTo() != TalkNameShown)
+			if (!bGuideOpen && Talk->TalkingTo() != TalkNameShown)
 			{
 				TalkNameShown = Talk->TalkingTo();
 				Menu->SetTalkName(TalkNameShown);
@@ -1666,6 +1682,12 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 				Lunch->Close();
 			}
 			House->KeyHome();
+		}
+		// Q asks the guide.
+		if (PC->WasInputKeyJustPressed(EKeys::Q))
+		{
+			CloseMenu();
+			MenuAction(TEXT("guide"));
 		}
 		// C calls my car (flying, C is "down" and nothing else), and X asks where a taxi should take me.
 		const AEarthWalkCharacter* Flier = Cast<AEarthWalkCharacter>(PC->GetPawn());
@@ -2551,7 +2573,10 @@ void AEarthWalkHUD::OpenAsk(const FString& Id)
 	{
 		Character->bTyping = true;
 	}
-	Menu->ShowAsk(Action);
+	// The guide's box has six questions ready to click (GUIDE_QUESTIONS in server/public/js/actions.js).
+	static const TArray<FString> GuideQuestions = { TEXT("Where am I?"), TEXT("What is near here?"), TEXT("What can I do here?"), TEXT("Is there a shop near here?"),
+		TEXT("Where is the nearest station?"), TEXT("How do I get to the beach?") };
+	Menu->ShowAsk(Action, Id == TEXT("guide") ? GuideQuestions : TArray<FString>());
 	FInputModeGameAndUI Mode;
 	Mode.SetWidgetToFocus(Menu->GetAskInput());
 	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
@@ -2615,6 +2640,10 @@ void AEarthWalkHUD::OpenTalk()
 	{
 		return;
 	}
+	if (bGuideOpen)
+	{
+		CloseTalk(false); // the guide gives the bubble up to the thing
+	}
 	if (bTalkOpen)
 	{
 		return; // already in it: "Take me to..." from its own button
@@ -2670,12 +2699,15 @@ void AEarthWalkHUD::CloseTalk(bool bStopTalking)
 		return;
 	}
 	bTalkOpen = false;
+	const bool bWasGuide = bGuideOpen;
+	bGuideOpen = false;
+	bGuideWaiting = false;
 	ChatClosedAt = FPlatformTime::Seconds();
 	if (Menu.IsValid())
 	{
 		Menu->ShowTalk(false);
 	}
-	if (UEarthCompany* Friends = bStopTalking ? Company() : nullptr)
+	if (UEarthCompany* Friends = bStopTalking && !bWasGuide ? Company() : nullptr)
 	{
 		Friends->StopTalking();
 	}
@@ -2689,8 +2721,137 @@ void AEarthWalkHUD::CloseTalk(bool bStopTalking)
 	}
 }
 
+void AEarthWalkHUD::GuideAsk(const FString& Question)
+{
+	APlayerController* PC = GetOwningPlayerController();
+	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	// (As the server reads it: no control characters, trimmed, 200 at most. An answer is matched to its question by these words.)
+	FString Asked = Question;
+	for (TCHAR& C : Asked)
+	{
+		if (C < 0x20 || C == 0x7f)
+		{
+			C = TEXT(' ');
+		}
+	}
+	Asked = Asked.TrimStartAndEnd().Left(200);
+	if (!PC || !Menu.IsValid() || !Net || Asked.IsEmpty())
+	{
+		return;
+	}
+	if (!Net->IsConnected())
+	{
+		AddLine(TEXT("The guide cannot hear you yet: not connected to the meetup server."), NoticeColor);
+		return;
+	}
+	if (bTalkOpen && !bGuideOpen)
+	{
+		CloseTalk(true); // a conversation with a thing ends first: there is one bubble
+	}
+	if (!bGuideOpen)
+	{
+		CloseShows();
+		ClosePassport();
+		CloseMenu();
+		CloseChat();
+		bTalkOpen = true;
+		bGuideOpen = true;
+		if (AEarthWalkCharacter* Character = Cast<AEarthWalkCharacter>(PC->GetPawn()))
+		{
+			Character->bTyping = true;
+		}
+		FInputModeGameAndUI Mode;
+		Mode.SetWidgetToFocus(Menu->GetTalkInput());
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PC->SetInputMode(Mode);
+		PC->bShowMouseCursor = true;
+		FSlateApplication::Get().SetKeyboardFocus(Menu->GetTalkInput(), EFocusCause::SetDirectly);
+	}
+	GuideQuestion = Asked;
+	bGuideWaiting = true;
+	GuideActs.Reset();
+	GuideShows.Reset();
+	Menu->GetTalkInput()->SetText(FText::GetEmpty());
+	Menu->ShowGuide(TEXT("..."), FString::Printf(TEXT("You: %s"), *Asked), TArray<FString>(), TArray<FString>());
+	Net->SendGuide(Asked);
+}
+
+void AEarthWalkHUD::OnGuideAnswer(const FEarthGuideAnswer& Answer)
+{
+	// An answer to an earlier question (two asked in a hurry) is not put under a later one.
+	if (!bGuideOpen || !Menu.IsValid() || (!Answer.Q.IsEmpty() && Answer.Q != GuideQuestion))
+	{
+		return;
+	}
+	bGuideWaiting = false;
+	GuidePlace = Answer.PlaceName;
+	GuideLat = Answer.Lat;
+	GuideLon = Answer.Lon;
+	GuideActs.Reset();
+	GuideShows.Reset();
+	TArray<FString> Labels;
+	for (const FEarthGuideGo& Go : Answer.Go)
+	{
+		// Only what this game knows how to do, and (but for a Show me place) only with a place to go to.
+		const bool bKnown = Go.Act == TEXT("show") ? !Go.Show.IsEmpty() : Answer.bPlace && (Go.Act == TEXT("take") || Go.Act == TEXT("taxi") || Go.Act == TEXT("jump"));
+		if (bKnown)
+		{
+			GuideActs.Add(Go.Act);
+			GuideShows.Add(Go.Show);
+			Labels.Add(Go.Label);
+		}
+	}
+	Menu->ShowGuide(Answer.Text, FString::Printf(TEXT("You: %s"), *GuideQuestion), Labels, Answer.Ask);
+	UE_LOG(LogTemp, Display, TEXT("EarthWalk: guide: %s answer with %d buttons and %d questions: %s"), Answer.bAi ? TEXT("an AI") : TEXT("a built-in"), Labels.Num(), Answer.Ask.Num(), *Answer.Text.Left(200));
+}
+
+void AEarthWalkHUD::GuideGo(int32 Index)
+{
+	if (!bGuideOpen || !GuideActs.IsValidIndex(Index))
+	{
+		return;
+	}
+	const FString Act = GuideActs[Index], Show = GuideShows[Index], Place = GuidePlace;
+	const double Lat = GuideLat, Lon = GuideLon;
+	CloseTalk(false);
+	UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr;
+	if (Act == TEXT("take"))
+	{
+		// What I am riding carries me: it answers in its own bubble, and the way comes as when it is told itself.
+		if (Net)
+		{
+			Net->SendGuideTake(Place, Lat, Lon);
+		}
+	}
+	else if (Act == TEXT("taxi"))
+	{
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallTaxi(Place, true, Lat, Lon);
+		}
+	}
+	else if (Act == TEXT("jump"))
+	{
+		APlayerController* PC = GetOwningPlayerController();
+		if (AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr)
+		{
+			AddLine(FString::Printf(TEXT("Travelling to %s"), *Place), NoticeColor);
+			Character->TeleportToGeo(Lat, Lon);
+		}
+	}
+	else if (Act == TEXT("show"))
+	{
+		ShowChosen(Show);
+	}
+}
+
 void AEarthWalkHUD::TalkSay(const FString& Text)
 {
+	if (bGuideOpen)
+	{
+		GuideAsk(Text); // the bubble is the guide's: what is typed on its line is the next question
+		return;
+	}
 	UEarthCompany* Friends = Company();
 	if (!Friends || !Friends->IsTalking() || Text.IsEmpty())
 	{
@@ -3003,6 +3164,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
 		AddLine(TEXT("C   your car comes to you (not while flying, when C is down)        X   a taxi: it asks where to, comes to you, and drives you there"), NoticeColor);
+		AddLine(TEXT("Q   ask the guide in plain words: where am I, what is near here, how do I get to the beach? Or type /guide and your question."), NoticeColor);
 		AddLine(TEXT("K   tricks: what your companion knows (a click has it do one), a lesson in the next, and an agility course to set up."), NoticeColor);
 		AddLine(TEXT("H   the home key: inside a house nobody lives in, make it yours; inside your own, furnish it; anywhere else, go home."), NoticeColor);
 		AddLine(TEXT("B   your lunch box: your five hearts, the food you carry (a click eats it), and beside a shop or a caf\u00e9 what it sells."), NoticeColor);
@@ -3246,6 +3408,22 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		{
 			AddLine(TEXT("Not connected to the meetup server."), ErrorColor);
 		}
+	}
+	else if (Command == TEXT("guide") || Command == TEXT("ask"))
+	{
+		// "/guide where is the nearest station?", or with nothing after it the box that asks.
+		if (Argument.IsEmpty())
+		{
+			MenuAction(TEXT("guide"));
+		}
+		else
+		{
+			GuideAsk(Argument);
+		}
+	}
+	else if (Command == TEXT("guidego"))
+	{
+		GuideGo(FMath::Max(1, FCString::Atoi(*Argument)) - 1); // the first, second... button under the guide's answer: for tests
 	}
 	else if (Command == TEXT("taxi"))
 	{

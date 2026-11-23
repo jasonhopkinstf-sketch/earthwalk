@@ -443,7 +443,7 @@ void UEarthWalkNet::SendGarden(const FString& Verb, const FString& Sp, int32 Ind
 	}
 }
 
-void UEarthWalkNet::SendTaxi(const FString& Place)
+void UEarthWalkNet::SendTaxi(const FString& Place, bool bAt, double Lat, double Lon)
 {
 	if (!bJoined)
 	{
@@ -453,6 +453,40 @@ void UEarthWalkNet::SendTaxi(const FString& Place)
 	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
 	Message->SetStringField(TEXT("t"), TEXT("taxi"));
 	Message->SetStringField(TEXT("place"), Place.Left(120));
+	if (bAt)
+	{
+		Message->SetNumberField(TEXT("lat"), Lat);
+		Message->SetNumberField(TEXT("lon"), Lon);
+	}
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendGuide(const FString& Question)
+{
+	if (!bJoined)
+	{
+		OnNotice.Broadcast(TEXT("Not connected to the meetup server, so the guide cannot hear you yet."));
+		return;
+	}
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("guide"));
+	Message->SetStringField(TEXT("q"), Question.Left(200));
+	SendJson(Message);
+}
+
+void UEarthWalkNet::SendGuideTake(const FString& Name, double Lat, double Lon)
+{
+	if (!bJoined)
+	{
+		return;
+	}
+	const TSharedRef<FJsonObject> Take = MakeShared<FJsonObject>();
+	Take->SetStringField(TEXT("name"), Name);
+	Take->SetNumberField(TEXT("lat"), Lat);
+	Take->SetNumberField(TEXT("lon"), Lon);
+	const TSharedRef<FJsonObject> Message = MakeShared<FJsonObject>();
+	Message->SetStringField(TEXT("t"), TEXT("guide"));
+	Message->SetObjectField(TEXT("take"), Take);
 	SendJson(Message);
 }
 
@@ -1114,6 +1148,47 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			OnTaxi.Broadcast(Taxi, false);
 		}
 	}
+	else if (Type == TEXT("guide"))
+	{
+		// The guide's answer, to me alone (docs/PROTOCOL.md, "The guide").
+		FEarthGuideAnswer Answer;
+		Json->TryGetStringField(TEXT("q"), Answer.Q);
+		Json->TryGetStringField(TEXT("text"), Answer.Text);
+		Json->TryGetBoolField(TEXT("ai"), Answer.bAi);
+		const TSharedPtr<FJsonObject>* Place = nullptr;
+		if (Json->TryGetObjectField(TEXT("place"), Place) && (*Place)->TryGetNumberField(TEXT("lat"), Answer.Lat) && (*Place)->TryGetNumberField(TEXT("lon"), Answer.Lon))
+		{
+			Answer.bPlace = true;
+			(*Place)->TryGetStringField(TEXT("name"), Answer.PlaceName);
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Buttons = nullptr;
+		if (Json->TryGetArrayField(TEXT("go"), Buttons))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Buttons)
+			{
+				const TSharedPtr<FJsonObject>* Button = nullptr;
+				FEarthGuideGo Go;
+				if (Value.IsValid() && Value->TryGetObject(Button) && (*Button)->TryGetStringField(TEXT("act"), Go.Act) && (*Button)->TryGetStringField(TEXT("label"), Go.Label))
+				{
+					(*Button)->TryGetStringField(TEXT("show"), Go.Show);
+					Answer.Go.Add(Go);
+				}
+			}
+		}
+		const TArray<TSharedPtr<FJsonValue>>* More = nullptr;
+		if (Json->TryGetArrayField(TEXT("ask"), More))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *More)
+			{
+				FString Question;
+				if (Value.IsValid() && Value->TryGetString(Question) && !Question.IsEmpty())
+				{
+					Answer.Ask.Add(Question);
+				}
+			}
+		}
+		OnGuide.Broadcast(Answer);
+	}
 	else if (Type == TEXT("journal"))
 	{
 		const TSharedPtr<FJsonObject>* Journal = nullptr;
@@ -1458,5 +1533,6 @@ void UEarthWalkNet::HandleMessage(const FString& Message)
 			OnRideFail.Broadcast();
 		}
 		OnNotice.Broadcast(FString::Printf(TEXT("Server: %s"), *Json->GetStringField(TEXT("text"))));
+		OnError.Broadcast(Code, Json->GetStringField(TEXT("text")));
 	}
 }
