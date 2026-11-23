@@ -62,6 +62,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #decor .acts button:first-child { border-radius: 4px 0 0 10px; }
 #decor .acts button:last-child { border-radius: 0 4px 10px 0; }
 #decor .acts button:disabled { opacity: .45; cursor: default; }
+#decor .plan { display: flex; flex-direction: column; gap: 6px; }
+#decor .plan p { margin: 0; }
+#decor .plan canvas { max-width: 100%; border: 1px solid #c9bd9a; border-radius: 8px; }
+#decor .plan .pick, #decor .plan .build { align-self: flex-start; background: #2b2620; color: #f6efd9; border: 0; border-radius: 10px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+#decor .plan .build { background: #3f7f4f; font-weight: 700; }
+#decor .plan .reading { font-weight: 700; color: #8a6a12; }
+#decor .plan .oops { color: #a3261c; font-size: 13px; }
+#decor .plan .note { font-style: italic; }
 #decor .out { background: none; border: 1px solid #a9987a; color: #6b5d45; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 /* Food: five hearts in the corner, and the lunch box where the furnishing panel goes. */
 #hearts { position: fixed; right: 14px; bottom: 76px; display: flex; gap: 3px; background: var(--panel); border: 0; border-radius: 18px; padding: 4px 8px; cursor: pointer; font: inherit; }

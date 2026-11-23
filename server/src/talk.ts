@@ -480,14 +480,24 @@ export class Talker {
     return this.loaded;
   }
 
+  /** Is there allowance left today for something else that asks the model (reading a floor plan, planreader.ts)? */
+  mayAsk(): Promise<boolean> {
+    return this.canSpend();
+  }
+
+  /** Counts what such a thing cost against the same allowance. */
+  charge(inputTokens: number, outputTokens: number, model: string): Promise<void> {
+    return this.spent(inputTokens, outputTokens, model);
+  }
+
   private async canSpend(): Promise<boolean> {
     await this.load();
     this.rollOver();
     return this.spend.usd < this.dailyUsd;
   }
 
-  private async spent(inputTokens: number, outputTokens: number): Promise<void> {
-    const [inPrice, outPrice] = PRICES[this.model] ?? [8, 40];
+  private async spent(inputTokens: number, outputTokens: number, model = this.model): Promise<void> {
+    const [inPrice, outPrice] = PRICES[model] ?? [8, 40];
     this.rollOver();
     this.spend.usd += (inputTokens * inPrice + outputTokens * outPrice) / 1e6;
     if (this.spendFile) await cacheWrite(this.spendFile, JSON.stringify(this.spend)).catch(() => undefined);

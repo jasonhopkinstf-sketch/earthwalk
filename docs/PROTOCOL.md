@@ -690,6 +690,15 @@ that leads out of it, `name` its owner's, `rev` counting its changes), and
 as `lived`, and the player's own as `house`. Errors: `nowhere`, `nohome` (no such house, or none of
 their own), `far`, `taken`, `many`, `poor`, `locked` (no such piece, or a prize not won yet), `busy`.
 
+**Reading a plan off a picture: `POST /v1/plan`.** The body is the picture itself (`Content-Type`
+`image/png`, `image/jpeg`, `image/webp`, `image/gif` or `application/pdf`, four megabytes at most), sent
+by somebody signed in (their token as for `/v1/journal`) who has a house. The answer is
+`{"plan":{…},"notes":["…"],"lines":["Ground floor: …"],"left":2}`: the plan to send back in a `house`
+message if they want it built, what had to be changed, the plan in words, and how many tries they have
+left today (three a day). Errors carry `error` in words: 401 not signed in, 409 no house, 413 too
+big, 415 not a picture, 422 not a floor plan or nothing to build, 429 no tries left, 502 the reading
+failed (the try is given back), 503 no AI on this server or its allowance spent for today.
+
 **A plan of one's own.** `{"t":"house","plan":{…}}` gives my house a floor plan (the object the server
 made when it read my picture: `floors`, each with `rooms` (`name`, `kind`, and `a0`, `a1`, `b0`, `b1` in
 metres from the front door: `a` along the front wall, `b` back into the house) and `doors` (pairs of

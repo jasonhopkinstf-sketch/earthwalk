@@ -290,3 +290,81 @@ test("a plan is kept with a house, told to everybody, and served only to a game 
     rooms.wss.close();
   }
 });
+
+test("POST /v1/plan: a signed-in person with a house has a picture read into a plan, three times a day, within the AI allowance", async () => {
+  const { createApp } = await import("../src/app.ts");
+  const { Homes } = await import("../src/home.ts");
+  const { AccountDirectory } = await import("../src/people.ts");
+  const { Talker } = await import("../src/talk.ts");
+  const { GENERATOR_REV } = await import("../src/chunk.ts");
+  const home = { id: 77, corners: [[100, -50], [100, -57], [110, -57], [110, -50]] as [number, number][], x: 106, y: -50, along: [-1, 0] as [number, number], out: [0, 1] as [number, number], floor: 12.06, height: 5.85, seed: 5, wall: 0xf6e8c6, porch: false };
+  const accounts = new AccountDirectory(undefined);
+  const sam = accounts.signIn({ sub: "g-sam", email: "sam@example.com", name: "Sam" })!;
+  const kim = accounts.signIn({ sub: "g-kim", email: "kim@example.com", name: "Kim" })!;
+  const homes = new Homes(null, () => 0);
+  homes.claim(sam.person.id, "Sam", true, { x: 1, y: 2, id: 77, lat: 52.01, lon: 4.71, yaw: 0, home, gen: GENERATOR_REV });
+  const seen: string[] = [];
+  let answer: unknown = HOUSE;
+  let broken = false;
+  const talker = new Talker({ ask: null, monthlyUsd: 30, spendFile: null });
+  const app = createApp({
+    accounts, homes, talker, plansPerDay: 3,
+    readPlan: async (picture, mediaType) => {
+      seen.push(`${mediaType} ${picture.length}`);
+      if (broken) throw new Error("the service is down");
+      return { raw: answer, inputTokens: 2000, outputTokens: 900, model: "claude-opus-5-5" };
+    },
+  });
+  await new Promise<void>((r) => app.server.listen(0, r));
+  const base = `http://localhost:${(app.server.address() as { port: number }).port}`;
+  const picture = Buffer.alloc(5000, 7);
+  const post = async (token: string | null, type = "image/png", body: Buffer = picture): Promise<{ status: number; body: Record<string, any> }> => {
+    const res = await fetch(`${base}/v1/plan`, { method: "POST", headers: { "Content-Type": type, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: new Uint8Array(body) });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  };
+  try {
+    // Not for guests, not without a house, not for anything but a picture, and not a huge one. None of these is read or counted.
+    assert.equal((await post(null)).status, 401);
+    assert.equal((await post(kim.token)).status, 409);
+    assert.equal((await post(sam.token, "text/plain")).status, 415);
+    assert.equal((await post(sam.token, "image/png", Buffer.alloc(4 * 1024 * 1024 + 10))).status, 413);
+    assert.deepEqual(seen, []);
+    // Read: the plan comes back tidied, in words too, with how many tries are left; and it is charged to the allowance.
+    const before = (await talker.budget()).spentToday;
+    const got = await post(sam.token, "application/pdf");
+    assert.deepEqual([got.status, got.body.left, got.body.plan.floors.length, got.body.notes, /^Ground floor: Hall 3\.0 by 6\.0 m/.test(got.body.lines[0])], [200, 2, 2, [], true]);
+    assert.deepEqual(got.body.plan, normalisePlan(HOUSE)!.plan);
+    assert.deepEqual(seen, ["application/pdf 5000"]);
+    assert.ok((await talker.budget()).spentToday > before, "paid for out of the day's allowance");
+    assert.equal(homes.of(sam.person.id)!.plan, undefined, "reading a plan builds nothing: its owner says when");
+    // Not a floor plan, and one with nothing to build: told plainly, and each is a try.
+    answer = null;
+    assert.deepEqual([(await post(sam.token)).status], [422]);
+    // The service failing is nobody's try.
+    broken = true;
+    const failed = await post(sam.token);
+    assert.deepEqual([failed.status, failed.body.left], [502, 1]);
+    broken = false;
+    answer = { floors: [{ rooms: [] }] };
+    const empty = await post(sam.token);
+    assert.deepEqual([empty.status, empty.body.left], [422, 0]);
+    // Three a day.
+    const over = await post(sam.token);
+    assert.deepEqual([over.status, over.body.left, seen.length], [429, 0, 4]);
+  } finally {
+    app.close();
+  }
+  // With nobody to read plans (no key on the server), the upload says so; and with the day's allowance spent, likewise.
+  const none = createApp({ accounts, homes, talker, readPlan: null });
+  const spent = createApp({ accounts, homes, talker: new Talker({ ask: null, monthlyUsd: 0, spendFile: null }), readPlan: async () => ({ raw: HOUSE, inputTokens: 1, outputTokens: 1, model: "x" }) });
+  await Promise.all([none, spent].map((a) => new Promise<void>((r) => a.server.listen(0, r))));
+  try {
+    for (const a of [none, spent]) {
+      const res = await fetch(`http://localhost:${(a.server.address() as { port: number }).port}/v1/plan`, { method: "POST", headers: { "Content-Type": "image/png", Authorization: `Bearer ${sam.token}` }, body: new Uint8Array(picture) });
+      assert.equal(res.status, 503);
+    }
+  } finally {
+    none.close();
+    spent.close();
+  }
+});
