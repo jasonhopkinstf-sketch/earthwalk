@@ -8,7 +8,7 @@ import { metersPerTile } from "../src/geo.ts";
 import { findHome, INSIDE } from "../src/interior.ts";
 import { buildLabels } from "../src/labels.ts";
 import type { Features } from "../src/osm.ts";
-import { layVenue, type Laid, type VenueKind, type VenueSpec } from "../src/venue.ts";
+import { hasWings, layVenue, type Laid, type VenueKind, type VenueSpec } from "../src/venue.ts";
 import { jobOf, persona, ROLES, TALKABLE, Talker } from "../src/talk.ts";
 import { FIGURES, generateInside, VENUE_CAP, venueMesh, venuesOf, venueWho } from "../src/venues.ts";
 import { STROLL_PACE, STROLL_WAIT, strollAt } from "../public/js/peoplemotion.js";
@@ -76,11 +76,16 @@ const SIZES: Record<VenueKind, [number, number][]> = {
   cafe: [[4.5, 5], [7, 6], [10, 9], [14, 12]],
   mall: [[11, 14], [15, 20], [18, 30], [30, 44], [40, 60], [12, 40]],
   lobby: [[4.5, 5], [6, 6], [9, 7], [12, 10]],
+  church: [[4, 4.5], [6, 6], [8, 12], [12, 20], [22, 34], [16, 9]],
+  school: [[4, 4.5], [7, 6], [10, 9], [13, 11], [20, 24], [30, 36], [14, 30]],
+  hospital: [[4, 4.5], [7, 6], [10, 9], [13, 11], [20, 24], [30, 36], [14, 30]],
 };
+const CAPS: Record<VenueKind, number> = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4, church: 14, school: 30, hospital: 20 };
 
 test("every inside has a way through, and nobody stands in the furniture", () => {
   let laidOut = 0, people = 0;
   const roles = new Set<string>();
+  const biggest: Record<string, number> = {};
   for (const kind of Object.keys(SIZES) as VenueKind[]) {
     for (const [width, depth] of SIZES[kind]) {
       for (let n = 0; n < 24; n++) {
@@ -92,7 +97,8 @@ test("every inside has a way through, and nobody stands in the furniture", () =>
         const tight = n % 3 === 0;
         const lo = tight ? Math.min(len - 1.2, 1.2 + (len - 2.4) * 0.7) : 1.2, hi = len - 1.2;
         const spec: VenueSpec = {
-          kind, width, depth, ceiling: kind === "mall" ? 4.2 : 3, seed, name: "The Test Rooms", ...(n % 2 ? { hotel: true } : {}),
+          kind, width, depth, ceiling: kind === "mall" ? 4.2 : kind === "church" && n % 2 ? 5.5 : 3, seed, name: "The Test Rooms", ...(n % 2 ? { hotel: true } : {}),
+          ...(kind === "church" && n % 3 ? { faith: n % 3 === 1 ? "mosque" as const : "temple" as const } : {}),
           doors: n % 6 === 5 || hi < lo ? [{ side: 0, at: front }] : [{ side: 0, at: front }, { side, at: (lo + hi) / 2, lo, hi }],
         };
         const laid = layVenue(spec);
@@ -114,7 +120,7 @@ test("every inside has a way through, and nobody stands in the furniture", () =>
         const reached = reach(start);
         if (laid.doors[1]) {
           const s = doorAt(laid, 1);
-          if (kind !== "mall" && spec.doors[1].lo !== undefined) assert.ok(laid.doors[1].at >= spec.doors[1].lo! - 1e-6 && laid.doors[1].at <= spec.doors[1].hi! + 1e-6, `${what}: the second door is where its wall allows`);
+          if (kind !== "mall" && !hasWings(spec) && spec.doors[1].lo !== undefined) assert.ok(laid.doors[1].at >= spec.doors[1].lo! - 1e-6 && laid.doors[1].at <= spec.doors[1].hi! + 1e-6, `${what}: the second door is where its wall allows`);
           assert.ok(reached(s.a + s.da * 0.9, s.b + s.db * 0.9), `${what}: no way through to the second door`);
         }
         // Whoever is in there is in the room, and whoever stands or strolls has floor under them that can be reached.
@@ -137,16 +143,17 @@ test("every inside has a way through, and nobody stands in the furniture", () =>
         for (const t of laid.tills) assert.ok(t.a > 0 && t.a < width && t.b > 0 && t.b < depth && (t.use === "shop" || t.use === "food") && t.text);
         // A shop has its counter and its keeper, a café its counter and its barista, however small or awkward it is.
         if (kind === "shop" || kind === "cafe") assert.ok(laid.tills.length === 1 && laid.people.some((p) => p.role === (kind === "shop" ? "keeper" : "barista")), `${what}: no counter`);
-        const cap = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4 }[kind];
-        assert.ok(laid.people.length <= cap, `${what}: ${laid.people.length} people`);
+        assert.ok(laid.people.length <= CAPS[kind] && (laid.people.length >= 1 || !/church|school|hospital/.test(kind)), `${what}: ${laid.people.length} people`);
         // Not too much to send: a quad is 120 bytes.
         const faces = laid.pieces.reduce((sum, p) => sum + (p.form === "box" ? (p.under ? 6 : 5) : 1), 0);
         assert.ok(faces * 120 < (kind === "mall" ? 520_000 : 200_000), `${what}: ${Math.round((faces * 120) / 1024)} KB`);
+        biggest[kind] = Math.max(biggest[kind] ?? 0, faces * 120);
       }
     }
   }
-  assert.ok(laidOut === 26 * 24 && people > laidOut * 3, `${people} people in ${laidOut} places`);
-  assert.deepEqual([...roles].sort(), ["barista", "caretaker", "guest", "keeper", "meeting", "reception", "resident", "shopper", "worker"]);
+  assert.ok(laidOut === 46 * 24 && people > laidOut * 3, `${people} people in ${laidOut} places`);
+  if (process.env.SHOW_SIZES) console.log(Object.entries(biggest).map(([k, v]) => `${k} ${Math.round(v / 1024)} KB`).join(", "));
+  assert.deepEqual([...roles].sort(), ["barista", "caretaker", "doctor", "guest", "keeper", "meeting", "musician", "nurse", "patient", "pupil", "reception", "resident", "shopper", "singer", "teacher", "visitor", "warden", "worker"]);
   // What each kind of place has in it.
   const office = layVenue({ kind: "office", width: 22, depth: 15, ceiling: 3, seed: 4127, name: "Harbour Works", doors: [{ side: 0, at: 9 }, { side: 1, at: 9, lo: 2, hi: 20 }] });
   assert.ok(office.people.filter((p) => p.role === "worker" && p.pose === "sit").length >= 4, "workers at their desks");
@@ -166,6 +173,35 @@ test("every inside has a way through, and nobody stands in the furniture", () =>
   assert.ok(hotel.people.some((p) => p.role === "reception") && hotel.lettering.some((l) => l.text === "LIFT") && hotel.lettering.some((l) => l.text === "Hotel Kiwi"));
   const flats = layVenue({ kind: "lobby", width: 9, depth: 7, ceiling: 3, seed: 11, doors: [{ side: 0, at: 4 }, { side: 3, at: 3.5, lo: 2, hi: 5 }] });
   assert.ok(flats.lettering.some((l) => l.text === "LETTERS") && flats.people.some((p) => p.role === "caretaker" || p.role === "resident"));
+  // A church: rows of pews facing the far end, somebody who looks after it, the organ and the choir; its back door is to one side.
+  const church = layVenue({ kind: "church", width: 14, depth: 26, ceiling: 5.5, seed: 77, name: "St Mary", doors: [{ side: 0, at: 7 }, { side: 1, at: 7, lo: 1.2, hi: 12.8 }] });
+  const count = (laid: Laid, role: string): number => laid.people.filter((p) => p.role === role).length;
+  assert.ok(count(church, "warden") === 1 && count(church, "musician") === 1 && count(church, "singer") >= 2 && count(church, "visitor") >= 2, JSON.stringify(church.people.map((p) => p.role)));
+  assert.ok(church.people.filter((p) => p.role === "visitor" && p.pose === "sit").every((p) => p.fb === 1), "everybody in the pews faces the far end");
+  assert.ok(Math.abs(church.doors[1].at - 7) > 4, "the door at the far end is not behind the table");
+  assert.ok(church.lettering.some((l) => l.text === "St Mary"));
+  // A mosque has no pews and a temple no organ; nobody sits on the floor.
+  for (const faith of ["mosque", "temple"] as const) {
+    const other = layVenue({ kind: "church", faith, width: 14, depth: 20, ceiling: 4, seed: 78, doors: [{ side: 0, at: 7 }, { side: 3, at: 10, lo: 2, hi: 18 }] });
+    assert.ok(count(other, "warden") === 1 && count(other, "musician") === 0 && count(other, "singer") === 0 && count(other, "visitor") >= 1, `${faith}: ${JSON.stringify(other.people.map((p) => p.role))}`);
+    assert.equal(other.people.some((p) => p.pose === "sit"), faith === "temple");
+  }
+  // A school: classrooms off a corridor, each with its teacher and its pupils, and one of the other rooms.
+  const school = layVenue({ kind: "school", width: 24, depth: 30, ceiling: 3, seed: 41, name: "Hill School", doors: [{ side: 0, at: 12 }, { side: 1, at: 5, lo: 3, hi: 9 }] });
+  const rooms = school.lettering.map((l) => l.text);
+  assert.ok(rooms.filter((t) => /^CLASS \d+$/.test(t)).length >= 3 && rooms.some((t) => t === "LIBRARY" || t === "ART" || t === "MUSIC") && rooms.includes("Hill School"), rooms.join(", "));
+  assert.ok(count(school, "teacher") >= 4 && count(school, "pupil") >= 8 && school.people.some((p) => p.pose === "walk"), JSON.stringify(school.people.map((p) => p.role)));
+  assert.equal(school.doors[1].at, 12, "the back door is at the end of the corridor");
+  const nursery = layVenue({ kind: "school", width: 9, depth: 8, ceiling: 3, seed: 42, doors: [{ side: 0, at: 4 }] });
+  assert.ok(count(nursery, "teacher") === 1 && count(nursery, "pupil") >= 2, "a small school is one classroom");
+  // A hospital: a desk and seats to wait on, then wards and the doctors' rooms off a corridor; a clinic is one room.
+  const hospital = layVenue({ kind: "hospital", width: 26, depth: 32, ceiling: 3, seed: 43, name: "City Hospital", doors: [{ side: 0, at: 13 }, { side: 2, at: 20, lo: 4, hi: 28 }] });
+  const signs = hospital.lettering.map((l) => l.text);
+  assert.ok(signs.includes("RECEPTION") && signs.some((t) => /^WARD \d+$/.test(t)) && signs.includes("DOCTOR") && signs.includes("City Hospital"), signs.join(", "));
+  assert.ok(count(hospital, "reception") === 1 && count(hospital, "patient") >= 3 && count(hospital, "nurse") >= 1 && count(hospital, "doctor") >= 1, JSON.stringify(hospital.people.map((p) => p.role)));
+  const clinic = layVenue({ kind: "hospital", width: 8, depth: 7, ceiling: 3, seed: 44, name: "Dr Fern", doors: [{ side: 0, at: 4 }, { side: 1, at: 4, lo: 2, hi: 6 }] });
+  assert.ok(count(clinic, "doctor") === 1 && count(clinic, "reception") === 1 && clinic.lettering.some((l) => l.text === "Dr Fern"));
+  assert.equal(hospital.tills.length + school.tills.length + church.tills.length, 0, "nothing is sold in any of them");
 });
 
 function within(ring: [number, number][], x: number, y: number): boolean {
@@ -180,7 +216,7 @@ function within(ring: [number, number][], x: number, y: number): boolean {
 /** A street of things that are not homes, between a road to the north and a lane to the south. */
 function town(): Features {
   const ring = (west: number, north: number, w: number, dep: number): [number, number][] => [[west, north], [west + d(w), north], [west + d(w), north + d(dep)], [west, north + d(dep)]];
-  const north = CY + 0.3;
+  const north = CY + 0.3, south = north + d(80);
   const at = (metres: number): number => CX + 0.05 + d(metres);
   const buildings: Features["buildings"] = [
     { id: 1, ring: ring(at(0), north, 10, 8), height: 6, name: "Kettle Café", use: "food" },
@@ -199,6 +235,13 @@ function town(): Features {
     { id: 12, ring: ring(at(320), north, 14, 12), height: 14, kind: "hotel", name: "Hotel Kiwi" },
     { id: 13, ring: ring(at(340), north, 5, 5), height: 3, kind: "garage" },
     { id: 14, ring: ring(at(350), north, 20, 20), height: 8, kind: "warehouse" },
+    // A second row, the other side of the lane.
+    { id: 15, ring: ring(at(0), south, 30, 20), height: 8, kind: "school", name: "Hill School", use: "school" },
+    { id: 16, ring: ring(at(40), south, 34, 30), height: 16, name: "City Hospital", use: "hospital" },
+    { id: 17, ring: ring(at(85), south, 9, 7), height: 5, name: "Dr Fern", use: "hospital" },
+    { id: 18, ring: ring(at(105), south, 16, 18), height: 8, use: "mosque" },
+    { id: 19, ring: ring(at(130), south, 20, 14), height: 12, kind: "university" },
+    { id: 20, ring: ring(at(160), south, 12, 8), height: 5, name: "Petrol", use: "fuel" },
   ];
   const roads = [
     { id: 900, cls: "road" as const, width: 6, pts: [[CX + 0.02, north - d(10)], [CX + 0.98, north - d(10)]] as [number, number][] },
@@ -212,13 +255,15 @@ function town(): Features {
   return { buildings, roads, areas: [], trees: [], addresses: [], coast: [], places } as Features;
 }
 
-test("shops, cafés, offices, malls, flats and hotels open, each with a door on two sides", async () => {
+test("shops, cafés, offices, malls, flats, hotels, churches, schools and hospitals open, each with a door on two sides", async () => {
   const elev = await level();
   const f = town();
   const venues = venuesOf(CX, CY, f, elev);
   const by = new Map(venues.map((v) => [v.id, v]));
-  assert.deepEqual(venues.map((v) => v.id).sort((a, b) => a - b), [1, 2, 3, 6, 7, 8, 9, 10, 11, 12], "not the house, the church, the garage or the warehouse");
+  assert.deepEqual(venues.map((v) => v.id).sort((a, b) => a - b), [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19], "not the house, the garage, the warehouse or the petrol station");
   assert.deepEqual([1, 2, 6, 7, 9, 11, 12].map((id) => by.get(id)!.kind), ["cafe", "office", "lobby", "mall", "shop", "office", "lobby"]);
+  assert.deepEqual([5, 15, 16, 17, 18, 19].map((id) => [by.get(id)!.kind, by.get(id)!.use]), [["church", "church"], ["school", "school"], ["hospital", "hospital"], ["hospital", "clinic"], ["church", "mosque"], ["school", "school"]], "a mosque is a mosque, a small hospital a clinic, and a university building a school");
+  assert.ok(by.get(5)!.spec.ceiling > 4 && by.get(18)!.spec.faith === "mosque" && !by.get(5)!.spec.faith, "a church is high inside");
   assert.ok(["office", "mall"].includes(by.get(3)!.kind), "a big building the map says nothing about is an office or a row of shops");
   assert.deepEqual(homesOf(CX, CY, f, elev).filter((h) => !h.use).map((h) => h.id), [4], "the house is still a home");
   assert.equal(venuesOf(CX, CY, f, elev), venues, "worked out once for a chunk, then remembered");
@@ -233,7 +278,8 @@ test("shops, cafés, offices, malls, flats and hotels open, each with a door on 
     const what = `${v.kind} ${v.id}`;
     // Two doors, on different walls, each on the outline with open air outside it; the front one faces the road to the north.
     assert.equal(v.doors.length, 2, `${what}: a way through`);
-    assert.ok(v.doors[0].out[1] > 0.99, `${what}: the front door faces the street`);
+    // (The second row is on a lane, which is no road: the front of each is its longest wall.)
+    if (v.id < 15) assert.ok(v.doors[0].out[1] > 0.99, `${what}: the front door faces the street`);
     assert.ok(v.doors[0].out[0] * v.doors[1].out[0] + v.doors[0].out[1] * v.doors[1].out[1] < 0.5, `${what}: the second door is on another side`);
     for (const door of v.doors) {
       assert.ok(within(ring, door.x - door.out[0] * 0.3, door.y - door.out[1] * 0.3) && !within(ring, door.x + door.out[0] * 0.3, door.y + door.out[1] * 0.3), `${what}: a door on its wall`);
@@ -262,7 +308,7 @@ test("shops, cafés, offices, malls, flats and hotels open, each with a door on 
     // Who is inside: in the building, each their own animal, the same every time.
     const who = venueWho(v, CX, CY, S);
     assert.deepEqual(venueWho(v, CX, CY, S), who);
-    assert.deepEqual([who.x, who.y, who.id, who.use], [CX, CY, v.id, v.kind]);
+    assert.deepEqual([who.x, who.y, who.id, who.use], [CX, CY, v.id, v.use]);
     assert.equal(new Set(who.people.map((p) => p.id)).size, who.people.length);
     for (const p of who.people) {
       assert.ok(within(ring, p.u * S, -p.v * S) && FIGURES.includes(p.sp) && p.id > 0 && p.yaw >= 0 && p.yaw < 360 && Math.abs(p.h - v.floor) < 0.01, `${what}: ${JSON.stringify(p)}`);
@@ -282,13 +328,13 @@ test("shops, cafés, offices, malls, flats and hotels open, each with a door on 
   // ---- the labels
   const items = buildLabels(CX, CY, f, elev);
   const doors = items.filter((it) => it.kind === "door");
-  assert.deepEqual(doors.map((it) => [it.id, it.use, it.text]).sort((p, q) => (p[0] as number) - (q[0] as number)), [[1, "cafe", "Kettle Café"], [2, "office", "Harbour Works"], [4, undefined, undefined]], "a house's door, and the café's and the small office's, which say what they are");
+  assert.deepEqual(doors.map((it) => [it.id, it.use, it.text]).sort((p, q) => (p[0] as number) - (q[0] as number)), [[1, "cafe", "Kettle Café"], [2, "office", "Harbour Works"], [4, undefined, undefined], [17, "clinic", "Dr Fern"], [18, "mosque", undefined], [19, "school", undefined]], "a house's door, and those of the small places that have one like it, which say what they are; the petrol station has none");
   const entries = items.filter((it) => it.kind === "entry");
-  assert.equal(entries.length, venues.reduce((n, v) => n + v.doors.length, 0) - 2, "every other door of theirs is an entry");
+  assert.equal(entries.length, venues.reduce((n, v) => n + v.doors.length, 0) - venues.filter((v) => v.home).length, "every other door of theirs is an entry");
   for (const it of entries) {
     const v = by.get(it.id!)!;
     const door = v.doors.find((x) => Math.abs(it.u * S - x.x) < 0.01 && Math.abs(-it.v * S - x.y) < 0.01)!;
-    assert.ok(door && it.use === v.kind && Math.abs(it.h - v.floor) < 0.01 && Math.abs(it.g! - GROUND) < 0.01, JSON.stringify(it));
+    assert.ok(door && it.use === v.use && Math.abs(it.h - v.floor) < 0.01 && Math.abs(it.g! - GROUND) < 0.01, JSON.stringify(it));
     const out = [Math.sin((it.yaw * Math.PI) / 180), Math.cos((it.yaw * Math.PI) / 180)];
     assert.ok(Math.abs(out[0] - door.out[0]) < 0.01 && Math.abs(out[1] - door.out[1]) < 0.01, "yaw is the way out");
     // Where the door inside is somewhere else, the labels say where.
@@ -296,9 +342,9 @@ test("shops, cafés, offices, malls, flats and hotels open, each with a door on 
     assert.equal(it.iu !== undefined, apart || door.iout[0] * door.out[0] + door.iout[1] * door.out[1] < 0.98);
     if (it.iu !== undefined) assert.ok(Math.abs(it.iu * S - door.ix) < 0.01 && Math.abs(-it.iv! * S - door.iy) < 0.01 && it.iyaw !== undefined);
   }
-  // A block of flats or a hotel (and a big building the map says nothing about, which is drawn as one) has a front door in the mesh already.
-  assert.deepEqual([...new Set(entries.filter((it) => it.drawn).map((it) => it.id))].sort((p, q) => p! - q!), [3, 6, 12]);
-  assert.deepEqual(entries.filter((it) => it.text).map((it) => it.text).sort(), ["Hotel Kiwi", "Left", "Paper Kite Books", "Right", "Riverside Mall"], "its name comes with its front door");
+  // A block of flats or a hotel (and a big building the map gives no kind, which is drawn as one: here the church too) has a front door in the mesh already.
+  assert.deepEqual([...new Set(entries.filter((it) => it.drawn).map((it) => it.id))].sort((p, q) => p! - q!), [3, 5, 6, 12]);
+  assert.deepEqual(entries.filter((it) => it.text).map((it) => it.text).sort(), ["City Hospital", "Hill School", "Hotel Kiwi", "Left", "Paper Kite Books", "Right", "Riverside Mall", "St Mary"], "its name comes with its front door");
   assert.ok(JSON.stringify(entries).length < venues.length * 2 * 190, "under 190 bytes a door");
 
   // ---- nobody can make a café their home; the house, they can
@@ -310,7 +356,9 @@ test("shops, cafés, offices, malls, flats and hotels open, each with a door on 
   assert.ok(cafe && cafe.mesh.readUInt32LE(0) === 0x31435745 && JSON.parse(cafe.who!.toString("utf8")).use === "cafe");
   const house = await generateInside(CX, CY, 4, elev, load);
   assert.ok(house && house.mesh.length > 1000 && house.who === null, "a house has rooms and nobody in them");
-  assert.equal(await generateInside(CX, CY, 5, elev, load), null, "the church is shut");
+  const church = await generateInside(CX, CY, 5, elev, load);
+  assert.ok(church && JSON.parse(church.who!.toString("utf8")).use === "church" && JSON.parse(church.who!.toString("utf8")).people.length >= 5, "the church is open, and not empty");
+  assert.equal(await generateInside(CX, CY, 20, elev, load), null, "the petrol station is shut");
 });
 
 test("a city block opens no more buildings than a chunk may carry, the named ones first", async () => {
