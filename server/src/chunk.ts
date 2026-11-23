@@ -9,7 +9,8 @@
 import earcut from "earcut";
 import { CHUNK_Z, hash32, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { Elevation, GRID } from "./elevation.ts";
-import { type Building, DATA_MARGIN, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
+import { BLOCK_Z, type Building, DATA_MARGIN, DATA_Z, loadFeatures, type Features, type GroundClass, type Pt, type Road } from "./osm.ts";
+import { COVER, kindAt, TALL_UNKNOWN, tallAt } from "./cover.ts";
 import { type HouseStyle, houseStyle, type RoofForm } from "./styles.ts";
 import { prepareSpans, rampsOf, spansOf } from "./spans.ts";
 import { drawSpans, planTunnels, type SpanCtx } from "./spanmesh.ts";
@@ -17,7 +18,7 @@ import { drawSpans, planTunnels, type SpanCtx } from "./spanmesh.ts";
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 14;
+export const GENERATOR_REV = 15;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -309,6 +310,35 @@ export function groundClasses(cx: number, cy: number, features: Features, elev: 
     }
   }
 
+  // ---- where the map says nothing, what satellites saw there (cover.ts): woods, scrub, grass, crops, bare ground.
+  // Where the map says only "a built-up area", the trees and grass in it are taken too: gardens and greens.
+  const cover = features.cover;
+  if (cover) {
+    const per = 2 ** (CHUNK_Z - BLOCK_Z);
+    const cell = metersPerTile(cy + 0.5) / GRID;
+    const id = (c: GroundClass): number => GROUND_ORDER.indexOf(c) + 1;
+    const urban = id("urban"), grass = id("grass");
+    const wild: Record<number, number> = {
+      [COVER.trees]: id("forest"), [COVER.mangroves]: id("forest"), [COVER.shrubs]: grass, [COVER.grass]: grass, [COVER.wetland]: grass, [COVER.moss]: grass,
+      [COVER.crops]: id("farm"), [COVER.built]: urban, [COVER.snow]: id("rock"),
+    };
+    for (let j = 0; j < GRID; j++) {
+      for (let i = 0; i < GRID; i++) {
+        const own = cls[j * GRID + i];
+        if (own !== 0 && own !== urban) continue;
+        const kind = kindAt(cover, (cx + (i + 0.5) / GRID) / per, (cy + (j + 0.5) / GRID) / per);
+        if (own === urban) {
+          if (kind === COVER.trees || kind === COVER.grass || kind === COVER.shrubs) cls[j * GRID + i] = grass;
+        } else if (kind === COVER.bare) {
+          // Bare ground is sand where it lies flat (a desert, a beach, a dry river bed) and rock where it is steep.
+          const x = cx + i / GRID, y = cy + j / GRID, d = 1 / GRID;
+          const steep = Math.max(Math.abs(elev.rawHeight(x + d, y) - elev.rawHeight(x, y)), Math.abs(elev.rawHeight(x, y + d) - elev.rawHeight(x, y))) / cell;
+          cls[j * GRID + i] = id(steep > 0.35 ? "rock" : "sand");
+        } else if (wild[kind]) cls[j * GRID + i] = wild[kind];
+      }
+    }
+  }
+
   // ---- sea (OSM has no polygon for it, only coastlines)
   const waterCls = GROUND_ORDER.indexOf("water") + 1;
   const X0 = (cx >> 1) << 1; // the data tile is 2x2 chunks
@@ -331,7 +361,12 @@ export function groundClasses(cx: number, cy: number, features: Features, elev: 
 
 export interface TreeSpot { wx: number; wy: number; seed: number; height: number; radius: number; conifer: boolean }
 
-/** Where trees stand: mapped single trees, plus scattered ones in forests and (sparsely) on grass. */
+/**
+ * Where trees stand: mapped single trees, plus scattered ones in forests and (sparsely) on grass. Where
+ * the ground cover is known (cover.ts), trees also stand wherever a satellite saw trees on grass (a park's
+ * wooded corner, a garden), bushes stand on scrub, and every tree is as tall as the trees there really are.
+ * Scattered trees keep off the roads, paths and railways.
+ */
 export function placeTrees(cx: number, cy: number, features: Features, cls: Uint8Array): TreeSpot[] {
   const out: TreeSpot[] = [];
   const footprintBoxes = features.buildings.map((b) => ({ b, box: inBox(b.ring, cx, cy) })).filter((x) => x.box);
@@ -355,13 +390,73 @@ export function placeTrees(cx: number, cy: number, features: Features, cls: Uint
     }
     return best < reach && Math.min(bestAlong, along - bestAlong) < MOUTH_REACH_M;
   });
-  const add = (wx: number, wy: number, seed: number, conifer: boolean): void => {
+  const cover = features.cover;
+  const per = 2 ** (CHUNK_Z - BLOCK_Z);
+  /** `grown`: 2 for a tree of a wood (as tall as the trees there are, however low), 1 for one standing alone, 0 for a bush. */
+  const add = (wx: number, wy: number, seed: number, conifer: boolean, grown: 0 | 1 | 2 = 1): void => {
     if (inTunnelMouth(wx, wy)) return;
-    out.push({ wx, wy, seed, height: 6 + (seed % 700) / 100, radius: 1.6 + ((seed >>> 10) % 160) / 100, conifer });
+    let height = 6 + (seed % 700) / 100, radius = 1.6 + ((seed >>> 10) % 160) / 100;
+    const tall = cover ? tallAt(cover, wx / per, wy / per) : TALL_UNKNOWN;
+    if (grown === 0) {
+      height = 1.4 + (seed % 160) / 100;
+      radius = 0.9 + ((seed >>> 10) % 80) / 100;
+    } else if (tall !== TALL_UNKNOWN && tall >= (grown === 2 ? 3 : 5)) {
+      // The tallest trees there are `tall` metres: this one is between two thirds of that and all of it.
+      height = Math.min(45, tall * (0.66 + (seed % 35) / 100));
+      radius = clamp(height * (0.2 + ((seed >>> 10) % 10) / 100), 1.2, 7);
+    } else if (tall !== TALL_UNKNOWN && grown === 2) {
+      // A wood where nothing stands tall: young trees, or low growth.
+      height = 3 + (seed % 200) / 100;
+      radius = 1.1 + ((seed >>> 10) % 80) / 100;
+    }
+    out.push({ wx, wy, seed, height: Math.round(height * 100) / 100, radius: Math.round(radius * 100) / 100, conifer });
   };
   for (const t of features.trees) {
     if (t.at[0] >= cx && t.at[0] < cx + 1 && t.at[1] >= cy && t.at[1] < cy + 1) add(t.at[0], t.at[1], hash32(t.id), false);
   }
+  // Which roads, paths and railways pass through or beside each cell, so that no scattered tree stands on one.
+  const lanes: number[] = []; // ax, ay, bx, by (chunk metres), half width with room for a trunk
+  const inCell = new Map<number, number[]>();
+  const cellM = S / GRID;
+  for (const road of features.roads) {
+    if (road.cls === "stream" && road.width < 4) continue; // a brook runs under the trees
+    const half = road.width / 2 + 1.3;
+    const r = Math.ceil(half / cellM);
+    for (let k = 0; k + 1 < road.pts.length; k++) {
+      const [ax, ay] = road.pts[k], [bx, by] = road.pts[k + 1];
+      if (Math.max(ax, bx) < cx - 0.05 || Math.min(ax, bx) > cx + 1.05 || Math.max(ay, by) < cy - 0.05 || Math.min(ay, by) > cy + 1.05) continue;
+      const lane = lanes.length;
+      lanes.push((ax - cx) * S, (ay - cy) * S, (bx - cx) * S, (by - cy) * S, half);
+      const steps = Math.min(4096, Math.ceil(Math.hypot(bx - ax, by - ay) * GRID * 2) + 1);
+      let last = -1;
+      for (let q = 0; q <= steps; q++) {
+        const i = Math.floor((ax + ((bx - ax) * q) / steps - cx) * GRID), j = Math.floor((ay + ((by - ay) * q) / steps - cy) * GRID);
+        if (j * 4096 + i === last) continue;
+        last = j * 4096 + i;
+        for (let dj = -r; dj <= r; dj++) {
+          for (let di = -r; di <= r; di++) {
+            const x = i + di, y = j + dj;
+            if (x < 0 || y < 0 || x >= GRID || y >= GRID) continue;
+            const list = inCell.get(y * GRID + x);
+            if (!list) inCell.set(y * GRID + x, [lane]);
+            else if (list[list.length - 1] !== lane) list.push(lane);
+          }
+        }
+      }
+    }
+  }
+  const onRoad = (wx: number, wy: number, i: number, j: number): boolean => {
+    const list = inCell.get(j * GRID + i);
+    if (!list) return false;
+    const px = (wx - cx) * S, py = (wy - cy) * S;
+    for (const lane of list) {
+      const ax = lanes[lane], ay = lanes[lane + 1], dx = lanes[lane + 2] - ax, dy = lanes[lane + 3] - ay;
+      const len2 = dx * dx + dy * dy;
+      const f = len2 > 0 ? clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1) : 0;
+      if (Math.hypot(px - ax - dx * f, py - ay - dy * f) < lanes[lane + 4]) return true;
+    }
+    return false;
+  };
   const forestCls = GROUND_ORDER.indexOf("forest") + 1;
   const grassCls = GROUND_ORDER.indexOf("grass") + 1;
   for (let j = 0; j < GRID; j++) {
@@ -369,10 +464,15 @@ export function placeTrees(cx: number, cy: number, features: Features, cls: Uint
       const c = cls[j * GRID + i];
       if (c !== forestCls && c !== grassCls) continue;
       const seed = hash32(cx * GRID + i, cy * GRID + j);
-      if (c === grassCls && seed % 9 !== 0) continue;
+      const kind = cover && c === grassCls ? kindAt(cover, (cx + (i + 0.5) / GRID) / per, (cy + (j + 0.5) / GRID) / per) : 0;
+      // On grass: a tree in every cell a satellite saw trees in, a bush in every other cell of scrub, and one cell in nine has a tree regardless.
+      const wooded = c === forestCls || kind === COVER.trees;
+      const bush = !wooded && kind === COVER.shrubs && seed % 2 === 0;
+      if (!wooded && !bush && seed % 9 !== 0) continue;
       const wx = cx + (i + 0.15 + ((seed >>> 4) % 70) / 100) / GRID;
       const wy = cy + (j + 0.15 + ((seed >>> 12) % 70) / 100) / GRID;
-      if (!insideBuilding(wx, wy)) add(wx, wy, seed >>> 3, c === forestCls && (seed >>> 20) % 5 < 2);
+      if (insideBuilding(wx, wy) || onRoad(wx, wy, i, j)) continue;
+      add(wx, wy, seed >>> 3, c === forestCls && (seed >>> 20) % 5 < 2, bush ? 0 : wooded ? 2 : 1);
     }
   }
   return out;

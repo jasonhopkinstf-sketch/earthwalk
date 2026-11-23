@@ -16,7 +16,7 @@ import { heightOn, liftAt, prepareSpans, type Profile, rampsOf, spansOf, SURFACE
 import { venuesOf } from "./venues.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 17;
+export const LABELS_REV = 18;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
