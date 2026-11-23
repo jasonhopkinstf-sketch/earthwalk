@@ -106,6 +106,8 @@ Controls (Unreal):
 | `Z` | The strip of buttons along the bottom, off and on (remembered) |
 | `M` | The little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, the gates of a race, and the road to where you are being taken |
 | `T` | Talk to the animal, car, train, tree or house beside you. The conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; `Esc` finishes. Nothing a thing says goes in the chat window, and the chat line always goes to people |
+| `C` | Your own car drives to where you are (not while flying, when `C` is "down") |
+| `X` | A taxi: it asks where to, comes to you, and drives you there |
 | `K` | Tricks: what your companion knows, a lesson in the next (Space on each paw print), and an agility course to set up |
 | `H` | The home key: inside a house nobody lives in, make it yours; inside your own (or by its door), furnish it; anywhere else, go home |
 | `B` | Your lunch box: your five hearts, the food you carry (a click eats it, or gives it to a friend standing by), and beside a shop or a café what it sells |

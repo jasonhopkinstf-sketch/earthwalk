@@ -9,7 +9,7 @@ import { FORMAT_VERSION, GENERATOR_REV, generateChunk } from "./chunk.ts";
 import { Elevation } from "./elevation.ts";
 import { CHUNK_Z } from "./geo.ts";
 import { generateLabels, LABELS_REV, partialLabels } from "./labels.ts";
-import { geocode, geocodeNear, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
+import { geocode, geocodeAround, geocodeNear, placeDetail as reverseDetail, placeName as reversePlace, type Place, type PlaceDetail } from "./geocode.ts";
 import { planRoute, type Route } from "./route.ts";
 import { planCourse } from "./race.ts";
 import { authUrl, googleSignIn, type GoogleOptions } from "./google.ts";
@@ -91,6 +91,8 @@ export interface AppOptions {
   readCache?: (rel: string) => Promise<Buffer | null>;
   writeCache?: (rel: string, data: Buffer) => Promise<void>;
   findPlace?: (query: string) => Promise<Place | null>;
+  /** Finds a place by name for "Go to...", asked from a position: the one close by, unless the whole world knows another. */
+  findAround?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   /** Finds a place by name near a position, and the way by road between two positions: for a rider who asks to be taken somewhere. */
   findNear?: (query: string, lat: number, lon: number) => Promise<Place | null>;
   planRoute?: (fromLat: number, fromLon: number, toLat: number, toLon: number) => Promise<Route | null>;
@@ -153,6 +155,7 @@ export function createApp(options: AppOptions = {}): App {
   const readCache = options.readCache ?? cacheRead;
   const writeCache = options.writeCache ?? cacheWrite;
   const findPlace = options.findPlace ?? geocode;
+  const findAround = options.findAround ?? (options.findPlace ? (query: string) => findPlace(query) : geocodeAround);
   const elevation = new Elevation();
   const buildChunk = options.buildChunk ?? ((x, y) => generateChunk(x, y, elevation));
   const buildLabels = options.buildLabels ?? ((x, y) => generateLabels(x, y, elevation));
@@ -502,7 +505,11 @@ export function createApp(options: AppOptions = {}): App {
       }
       if (p === "/v1/geocode") {
         if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
-        const place = await findPlace(url.searchParams.get("q") ?? "");
+        // With where the asker is (lat, lon), "the beach" is the beach down the road and not a town of that name abroad.
+        const q = url.searchParams.get("q") ?? "";
+        const lat = Number(url.searchParams.get("lat") ?? NaN), lon = Number(url.searchParams.get("lon") ?? NaN);
+        const from = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 85 && Math.abs(lon) <= 180;
+        const place = from ? await findAround(q, lat, lon) : await findPlace(q);
         return place ? json(res, 200, place) : json(res, 404, { error: "place not found" });
       }
       if (p === "/v1/place") {

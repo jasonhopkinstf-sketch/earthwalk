@@ -1667,6 +1667,18 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			}
 			House->KeyHome();
 		}
+		// C calls my car (flying, C is "down" and nothing else), and X asks where a taxi should take me.
+		const AEarthWalkCharacter* Flier = Cast<AEarthWalkCharacter>(PC->GetPawn());
+		if (PC->WasInputKeyJustPressed(EKeys::C) && Flier && !Flier->IsFlying())
+		{
+			CloseMenu();
+			MenuAction(TEXT("car"));
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::X))
+		{
+			CloseMenu();
+			MenuAction(TEXT("taxi"));
+		}
 	}
 	// -EWAsk=<words_with_underscores> answers the box that asks "where to?" three seconds after it comes up, as if typed, for tests.
 	if (bAskOpen && AskOpenedAt > 0.0 && FPlatformTime::Seconds() - AskOpenedAt > 3.0)
@@ -2990,6 +3002,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("help"))
 	{
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("C   your car comes to you (not while flying, when C is down)        X   a taxi: it asks where to, comes to you, and drives you there"), NoticeColor);
 		AddLine(TEXT("K   tricks: what your companion knows (a click has it do one), a lesson in the next, and an agility course to set up."), NoticeColor);
 		AddLine(TEXT("H   the home key: inside a house nobody lives in, make it yours; inside your own, furnish it; anywhere else, go home."), NoticeColor);
 		AddLine(TEXT("B   your lunch box: your five hearts, the food you carry (a click eats it), and beside a shop or a caf\u00e9 what it sells."), NoticeColor);
@@ -3027,7 +3040,21 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	}
 	else if (Command == TEXT("goto") && !Argument.IsEmpty())
 	{
-		GoToPlace(Argument);
+		// In a car or on an animal, "Go to" is said to it: it carries me there, along the road when the place
+		// is close. (What can be told where to go is deedsOf in server/src/talk.ts.)
+		static const TSet<FString> Carriers = { TEXT("car"), TEXT("tractor"), TEXT("taxi"), TEXT("horse"), TEXT("cow"), TEXT("sheep"), TEXT("camel"), TEXT("llama"), TEXT("kangaroo"),
+			TEXT("deer"), TEXT("donkey"), TEXT("pig"), TEXT("goat"), TEXT("zebra"), TEXT("elephant"), TEXT("giraffe"), TEXT("bison"), TEXT("moose"), TEXT("reindeer"), TEXT("bear"),
+			TEXT("lion"), TEXT("panda"), TEXT("tortoise") };
+		UEarthCompany* Friends = Company();
+		if (Friends && Carriers.Contains(Friends->RidingKind()) && (Friends->IsRidingIt() || Friends->KeyTalk()))
+		{
+			OpenTalk();
+			TalkSay(FString::Printf(TEXT("take me to %s"), *Argument));
+		}
+		else
+		{
+			GoToPlace(Argument);
+		}
 	}
 	else if (Command == TEXT("join") && !Argument.IsEmpty())
 	{
@@ -3380,12 +3407,22 @@ void AEarthWalkHUD::GoToPlace(const FString& Query)
 		{
 			Character->TeleportToGeo(Lat, Lon);
 		}
-	});
+	}, /*bFromHere*/ true);
 }
 
-void AEarthWalkHUD::LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found)
+void AEarthWalkHUD::LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found, bool bFromHere)
 {
-	const FString Url = FString::Printf(TEXT("%s/v1/geocode?q=%s"), *FEarthWalkConfig::ServerUrl(), *FGenericPlatformHttp::UrlEncode(Query));
+	FString Url = FString::Printf(TEXT("%s/v1/geocode?q=%s"), *FEarthWalkConfig::ServerUrl(), *FGenericPlatformHttp::UrlEncode(Query));
+	// Looked for from where I stand, "the beach" is the beach down the road and not a town of that name abroad.
+	const APlayerController* Asker = GetOwningPlayerController();
+	const AEarthWalkCharacter* Me = Asker ? Cast<AEarthWalkCharacter>(Asker->GetPawn()) : nullptr;
+	const AEarthWorld* Earth = AEarthWorld::Get(this);
+	if (bFromHere && Me && Earth && !Me->IsWaitingForGround())
+	{
+		double Lat = 0.0, Lon = 0.0, Alt = 0.0;
+		Earth->WorldToGeo(Me->GetActorLocation(), Lat, Lon, Alt);
+		Url += FString::Printf(TEXT("&lat=%.5f&lon=%.5f"), Lat, Lon);
+	}
 	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(Url);
 	Request->SetVerb(TEXT("GET"));

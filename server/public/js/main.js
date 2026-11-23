@@ -617,6 +617,8 @@ const KEYS = {
   KeyH: homeKey,
   KeyV: viewKey,
   KeyE: rideKey,
+  KeyC: () => { if (!player.flying) menuAction("car"); }, // my car comes to me (flying, C is "down")
+  KeyX: () => menuAction("taxi"), // a taxi: where to?
   KeyZ: toggleStrip,
   KeyM: cycleMap,
 };
@@ -635,10 +637,16 @@ say.addEventListener("keydown", (e) => {
   }
 });
 
+/** A place by name, looked for from where I stand: "the beach" is the beach down the road, not a town of that name abroad. */
 async function findPlace(query) {
-  const res = await fetch(`/v1/geocode?q=${encodeURIComponent(query)}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
+  const here = player.waitingForGround ? null : world.sceneToGeo(player.position);
+  const from = here ? `&lat=${here.lat.toFixed(5)}&lon=${here.lon.toFixed(5)}` : "";
+  const res = await fetch(`/v1/geocode?q=${encodeURIComponent(query)}${from}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
   return res.ok ? res.json() : null;
 }
+
+/** What can be told where to take its rider (deedsOf in server/src/talk.ts): cars, and the animals that carry. */
+const CARRIERS = new Set(["car", "tractor", "taxi", "horse", "cow", "sheep", "camel", "llama", "kangaroo", "deer", "donkey", "pig", "goat", "zebra", "elephant", "giraffe", "bison", "moose", "reindeer", "bear", "lion", "panda", "tortoise"]);
 
 /** How far off, for people: "120 m", "2.3 km". */
 const far = (m) => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
@@ -692,6 +700,7 @@ async function command(name, arg) {
     notice("    feeding hungry animals wins new companions");
     notice("/agility   an agility course of nine obstacles in a ring before you, for you and your companion: R starts it,");
     notice("    run it in order (the light shows the next), and your best time is kept; friends can press R to join in");
+    notice("C   your car comes to you (not while flying, when C is down)        X   a taxi: it asks where to, comes to you, and drives you there");
     notice("K   tricks for the companion at your side: teach it the next one (a game of timing: Space as each paw print");
     notice("    reaches the ring), and have it do the ones it knows (or /trick spin, /teach)");
     notice("B   your lunch box and your five hearts: eat one of each kind of good food (fruit, vegetables, bread, protein, dairy)");
@@ -763,6 +772,12 @@ async function command(name, arg) {
     if (/^(move ?out|leave)$/i.test(arg ?? "")) houses.moveOut();
     else houses.home();
   } else if (name === "goto" && arg) {
+    // In a car or on an animal, "Go to" is said to it: it carries me there, along the road when the place is close.
+    if (riding.mine && riding.mine.seat === 0 && CARRIERS.has(riding.mine.sp) && talk.beginRide()) {
+      openTalk();
+      talkSay(`take me to ${arg}`); // it answers in its bubble
+      return;
+    }
     notice(`Looking for "${arg}"...`);
     try {
       const place = await findPlace(arg);

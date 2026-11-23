@@ -46,7 +46,7 @@ private:
 	void GoToPlace(const FString& Query);
 	void GoToPerson(const FString& Name);
 	/** Asks the server where a place is; `Found` runs only on success, failures are reported in the log. */
-	void LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found);
+	void LookUpPlace(const FString& Query, TFunction<void(const FString& Name, double Lat, double Lon)> Found, bool bFromHere = false);
 	void ShowPeople();
 	FString StatusText() const;
 	/** The header that names the place the player is in: asks the server when they have moved to another square about a kilometre across. */

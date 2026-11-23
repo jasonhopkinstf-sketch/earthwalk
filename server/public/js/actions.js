@@ -32,10 +32,10 @@ export const ACTIONS = [
 
   row("ride", "Ride and drive", "Hop on, or hop off", "The nearest animal, car, tractor, boat or train. At a door with a COME IN sign, go in.", "E", "", "", "", "Ride"),
   row("above", "Ride and drive", "Look from above", "While you ride or are carried: a camera above and behind, then one high over the rooftops, then your seat again.", "V"),
-  row("car", "Ride and drive", "Call my car", "Your own car drives to where you are.", "", "car", "", "", "My car"),
+  row("car", "Ride and drive", "Call my car", "Your own car drives to where you are.", "C", "car", "", "", "My car"),
   row("caraway", "Ride and drive", "Send my car away", "It goes back to wherever it waits.", "", "car away"),
   row("taketo", "Ride and drive", "Take me to...", "On an animal or in a car: tell it where, and it carries you there by itself.", "", "", "Where should it take you?", "the beach"),
-  row("taxi", "Ride and drive", "Call a taxi...", "It comes to you and drives you there. Press E beside it to get in.", "", "taxi", "Where should the taxi take you?", "the beach", "Taxi..."),
+  row("taxi", "Ride and drive", "Call a taxi...", "It comes to you and drives you there. Press E beside it to get in.", "X", "taxi", "Where should the taxi take you?", "the beach", "Taxi..."),
 
   row("talk", "Talk", "Talk to what is nearest", "Animals, cars, trains, trees and houses all answer. Tell one what to do: follow me, stay, take me to the beach.", "T", "", "", "", "Talk"),
   row("chat", "Talk", "Chat with people", "Everybody in your room reads what you type.", "Enter"),

@@ -471,6 +471,18 @@ so far: the other game says so beside it.
 
 `200 {"name": "...", "lat": 48.85, "lon": 2.29}` or `404`. `q` may also be `"lat, lon"`.
 
+A client should add where the asker is, `&lat=...&lon=...` (both games do, for "Go to..."). The place
+is then looked for from there (`geocodeAround` in `server/src/geocode.ts`): somewhere the whole world
+knows (Paris, the Eiffel Tower) is that place; otherwise the nearest of that name close by (4 km, then
+25 km) when the words are an everyday place ("beach", "park"), begin with "the", are a name of several
+words, or name a town or suburb there; otherwise the best known within some 300 km; and only then the
+best known in the world. Without a position the best known in the world is given, as before: asked
+alone, "the beach" is a district of Toronto and "beach" a town in North Dakota.
+
+In both games "Go to..." while riding something that can be told where to go (a car, a taxi, a tractor,
+an animal that carries) is said to it instead, as "take me to ...": it carries its rider there, along
+the road when the place is close (see "Telling things what to do").
+
 ## Where am I: `GET /v1/place?lat=...&lon=...`
 
 `200 {"name": "Montmartre, Paris", "country": "France"}`, either of which may be `null`. For the header

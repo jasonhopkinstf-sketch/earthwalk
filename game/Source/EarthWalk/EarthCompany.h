@@ -54,6 +54,8 @@ public:
 	/** Calls a taxi to take the player to a place (/taxi the beach). */
 	void CallTaxi(const FString& Place);
 	bool IsRiding() const { return Mine.bOn; }
+	/** What kind of thing I am riding and steering myself ("car", "horse"); empty on foot, on a train, or behind a friend. */
+	FString RidingKind() const { return Mine.bOn && Mine.Seat == 0 ? Mine.Sp : FString(); }
 	/** Steps down from whatever is being ridden, if anything: before being taken somewhere else, or becoming another animal. */
 	void HopOff() { Off(); }
 

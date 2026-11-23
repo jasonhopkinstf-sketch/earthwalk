@@ -64,6 +64,8 @@ interface Member {
   /** What this member is riding: the thing's identity, what it is, and their seat (0 drives). */
   ride: Ride | null;
   talkTimes: number[];
+  /** The last thing I said to anything was only hello. */
+  helloLast?: boolean;
   taxiAt: number;
   /** The animal that keeps this member company, with an identity of its own (so it can be talked to). */
   pet: { sp: string; thing: number } | null;
@@ -421,13 +423,18 @@ export class Rooms {
         if (!finite(msg.thing) || !Number.isInteger(msg.thing) || msg.thing < 1 || msg.thing > 0xffffffff || !TALKABLE.has(sp)) return;
         const now = Date.now();
         me.talkTimes = me.talkTimes.filter((t) => now - t < 60_000);
-        if (me.talkTimes.length >= TALKS_A_MINUTE || now - (me.talkTimes[me.talkTimes.length - 1] ?? 0) < 1200) {
+        const text = clean(msg.text, 200);
+        // Things are not talked to faster than this. But hello and then something said in the same breath is
+        // one asking: "Go to..." and "Take me to..." turn to the ride and tell it where at once, and the
+        // telling was being refused, so the ride said hello and went nowhere.
+        const inOneBreath = !!me.helloLast && !!text;
+        if (me.talkTimes.length >= TALKS_A_MINUTE || (!inOneBreath && now - (me.talkTimes[me.talkTimes.length - 1] ?? 0) < 1200)) {
           send({ t: "error", code: "slow", text: "Give them a moment to answer" });
           return;
         }
         me.talkTimes.push(now);
+        me.helloLast = !text;
         const thing = msg.thing;
-        const text = clean(msg.text, 200);
         // Favours: this talk may bring one home, and the thing may ask one of its own (favours.ts).
         const asked = !!text && offersHelp(text);
         const favours = this.journal?.beforeTalk?.(me.id, thing, sp, persona(thing, sp).name, asked) ?? null;

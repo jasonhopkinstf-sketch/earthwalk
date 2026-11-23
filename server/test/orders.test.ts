@@ -237,6 +237,16 @@ test("in a room: orders reach everyone, newcomers learn of them, and only a ride
     await pause();
     say(mum, 77, "car", "to nowhere");
     assert.equal((await mum.next("error")).code, "nowhere");
+    // Hello and where to in the same breath, as "Go to..." in a car does: both are answered, and off it goes.
+    await pause();
+    mum.inbox.length = 0;
+    mum.ws.send(JSON.stringify({ t: "talk", thing: 77, sp: "car" }));
+    say(mum, 77, "car", "to the beach");
+    assert.equal((await mum.next("order")).act, "goto");
+    assert.deepEqual(mum.inbox.filter((m) => m.t === "error"), [], "the telling is not refused for coming straight after the hello");
+    // Two things said in the same breath are still one too many.
+    say(mum, 77, "car", "stay");
+    assert.equal((await mum.next("error")).code, "slow");
     await new Promise((r) => setTimeout(r, 100));
     assert.equal(kid.inbox.filter((m) => m.t === "order").length, 0, "nobody else is sent a rider's journey");
 
