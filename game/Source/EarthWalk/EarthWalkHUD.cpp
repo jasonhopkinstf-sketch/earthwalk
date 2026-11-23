@@ -1,6 +1,7 @@
 #include "EarthWalkHUD.h"
 
 #include "EarthMenu.h"
+#include "EarthMiniMap.h"
 #include "EarthAnimalFigure.h"
 #include "EarthCompany.h"
 #include "EarthLife.h"
@@ -1330,6 +1331,8 @@ void AEarthWalkHUD::BeginPlay()
 		bStripOn = !(FEarthWalkConfig::HasOverride(TEXT("Buttons"), Buttons) && Buttons.Equals(TEXT("off"), ESearchCase::IgnoreCase));
 		Menu->ShowStrip(bStripOn);
 		GEngine->GameViewport->AddViewportWidgetContent(Menu.ToSharedRef(), 11);
+		MiniMap = NewObject<UEarthMiniMap>(this);
+		MiniMap->Setup(this);
 	}
 	// Tab is the menu. It is bound, not just looked at each frame, so that it is used up here: left to
 	// itself Tab moves the keyboard from one thing on the screen to the next, as it does in any window.
@@ -1446,6 +1449,11 @@ void AEarthWalkHUD::ApplyGameInputMode(APlayerController* PC)
 
 void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (MiniMap)
+	{
+		MiniMap->Shutdown();
+		MiniMap = nullptr;
+	}
 	if (UEarthWalkNet* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<UEarthWalkNet>() : nullptr)
 	{
 		Net->OnChat.Remove(ChatHandle);
@@ -1478,6 +1486,10 @@ void AEarthWalkHUD::AddLine(const FString& Text, const FLinearColor& Color)
 void AEarthWalkHUD::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (MiniMap)
+	{
+		MiniMap->Frame(DeltaSeconds);
+	}
 
 	APlayerController* PC = GetOwningPlayerController();
 	if (!PC || !Overlay.IsValid())
@@ -1556,6 +1568,10 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		if (PC->WasInputKeyJustPressed(EKeys::Z))
 		{
 			ToggleStrip();
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::M))
+		{
+			CycleMap();
 		}
 	}
 	// -EWAsk=<words_with_underscores> answers the box that asks "where to?" three seconds after it comes up, as if typed, for tests.
@@ -2098,6 +2114,14 @@ void AEarthWalkHUD::CloseMenu()
 	}
 }
 
+void AEarthWalkHUD::CycleMap()
+{
+	if (MiniMap)
+	{
+		AddLine(MiniMap->Cycle(), NoticeColor);
+	}
+}
+
 void AEarthWalkHUD::ToggleStrip()
 {
 	bStripOn = !bStripOn;
@@ -2168,6 +2192,10 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	else if (Id == TEXT("strip"))
 	{
 		ToggleStrip();
+	}
+	else if (Id == TEXT("map"))
+	{
+		CycleMap();
 	}
 	else if (Id == TEXT("look"))
 	{
@@ -2523,6 +2551,10 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		ToggleStrip();
 	}
+	else if (Command == TEXT("map"))
+	{
+		CycleMap();
+	}
 	else if (Command == TEXT("do"))
 	{
 		// One thing from the menu by its name there ("/do goto"): what a button of the strip does.
@@ -2531,6 +2563,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	else if (Command == TEXT("help"))
 	{
 		AddLine(TEXT("Tab   everything you can do, to click. The buttons along the bottom are the most used; Z hides them and brings them back."), NoticeColor);
+		AddLine(TEXT("M   the little map in the corner: bigger, hidden, and back. It shows friends, doors that open, where trains stop, cars, and the way to where you are being taken."), NoticeColor);
 		AddLine(TEXT("The same things as typed commands, for those who like typing:"), NoticeColor);
 		AddLine(TEXT("/goto <place or lat, lon>   travel anywhere, e.g. /goto Times Square"), NoticeColor);
 		AddLine(TEXT("/join <name>   go to someone in your room        /who   list who is here"), NoticeColor);

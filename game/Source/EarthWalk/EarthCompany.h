@@ -11,6 +11,7 @@ class AEarthLife;
 class AEarthRaceCourse;
 class AEarthWalkCharacter;
 class AEarthWorld;
+struct FEarthMapMark;
 
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnEarthThingLine, const FString& /*Who*/, const FString& /*Text*/, bool /*bFromThing*/);
 
@@ -70,6 +71,12 @@ public:
 	bool IsRidingIt() const { return bTalking && Mine.bOn && Mine.Thing == To.Thing; }
 	/** The thing that spoke last, as OnLine is being told of it. */
 	uint32 LastSpoke() const { return Spoke; }
+
+	/**
+	 * For the little map (EarthMiniMap.h): my own car and the taxi I called, wherever they stand; the
+	 * gates of a race still to pass; and where I am being taken, with the road there from here and its name.
+	 */
+	void MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutWay, FString& OutGoing) const;
 
 	/** What E and T would do just now, for the line at the foot of the screen; empty when nothing is near. */
 	const FString& GetHint() const { return Hint; }

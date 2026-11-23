@@ -1,5 +1,7 @@
 #include "EarthCompany.h"
 
+#include "EarthMiniMap.h"
+
 #include "EarthLife.h"
 #include "EarthLifeMotion.h"
 #include "EarthLifeRigs.h"
@@ -274,6 +276,91 @@ void UEarthCompany::GeoToScene(double Lat, double Lon, double& OutX, double& Out
 	const FVector At = World.IsValid() ? World->GeoToWorld(Lat, Lon, 0.0) : FVector::ZeroVector;
 	OutX = At.Y / 100.0;
 	OutZ = -At.X / 100.0;
+}
+
+void UEarthCompany::MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutWay, FString& OutGoing) const
+{
+	UEarthWalkNet* Room = Net.Get();
+	if (!Room)
+	{
+		return;
+	}
+	const FString& Me = Room->GetMyId();
+	// Where a thing is being drawn out of its place, if it is.
+	const auto Drawn = [this](uint32 Thing, double& X, double& Z)
+	{
+		for (const FEarthThing& Mount : Mounts)
+		{
+			if (Mount.Thing == Thing)
+			{
+				X = Mount.X;
+				Z = Mount.Z;
+				return true;
+			}
+		}
+		return false;
+	};
+	const auto Add = [&Out](FEarthMapMark::EKind Kind, double X, double Z, const FString& Label)
+	{
+		FEarthMapMark& Mark = Out.AddDefaulted_GetRef();
+		Mark.Kind = Kind;
+		Mark.X = X;
+		Mark.Z = Z;
+		Mark.Label = Label;
+	};
+
+	if (const FEarthOwnCar* Car = Room->GetCars().Find(Me))
+	{
+		if (!(Mine.bOn && Mine.Thing == Car->Thing))
+		{
+			double X = 0.0, Z = 0.0;
+			if (!Drawn(Car->Thing, X, Z))
+			{
+				GeoToScene(Car->Lat, Car->Lon, X, Z);
+			}
+			Add(FEarthMapMark::EKind::MyCar, X, Z, TEXT("your car"));
+		}
+	}
+	for (const TPair<uint32, FEarthTaxi>& Pair : Room->GetTaxis())
+	{
+		double X = 0.0, Z = 0.0;
+		if (Pair.Value.By == Me && !(Mine.bOn && Mine.Thing == Pair.Key) && Drawn(Pair.Key, X, Z))
+		{
+			Add(FEarthMapMark::EKind::Taxi, X, Z, Pair.Value.Name.IsEmpty() ? FString(TEXT("your taxi")) : Pair.Value.Name);
+		}
+	}
+
+	const FEarthRace& Race = Room->GetRace();
+	if (Race.bOn && Race.State != TEXT("over"))
+	{
+		const FEarthRunner* Runner = Race.Runners.FindByPredicate([&Me](const FEarthRunner& Each) { return Each.Id == Me; });
+		if (!Runner || !Runner->bFinished)
+		{
+			const int32 Next = Runner ? Runner->Gate : 0;
+			for (int32 K = Next; K < Race.Gates.Num(); ++K)
+			{
+				double X = 0.0, Z = 0.0;
+				GeoToScene(Race.Gates[K].X, Race.Gates[K].Y, X, Z);
+				Add(FEarthMapMark::EKind::Gate, X, Z, K != Next ? FString() : !Runner ? FString(TEXT("the race")) : K == Race.Gates.Num() - 1 ? FString(TEXT("finish")) : FString(TEXT("next gate")));
+				if (!Runner)
+				{
+					break; // not in it: just where it starts
+				}
+			}
+		}
+	}
+
+	double Px = 0.0, Pz = 0.0;
+	if (Trip.bOn && Trip.Path.Num() > 0 && PlayerAt(Px, Pz))
+	{
+		OutGoing = Trip.Name;
+		OutWay.Add(FVector2D(Px, Pz));
+		for (int32 K = FMath::Clamp(Trip.I, 0, Trip.Path.Num() - 1); K < Trip.Path.Num(); ++K)
+		{
+			OutWay.Add(Trip.Path[K]);
+		}
+		Add(FEarthMapMark::EKind::Goal, Trip.Path.Last().X, Trip.Path.Last().Y, Trip.Name);
+	}
 }
 
 bool UEarthCompany::GroundFor(const FString& Sp, double X, double Z, double& OutY) const

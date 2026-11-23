@@ -55,6 +55,7 @@ namespace
 
 		{ TEXT("look"), TEXT("The game"), TEXT("Switch the look"), TEXT("Between the painted look and the flat cartoon look."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("sound"), TEXT("The game"), TEXT("Sounds on, or off"), TEXT("The animals' voices, car horns and train whistles."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("map"), TEXT("The game"), TEXT("The little map: bigger, or hidden"), TEXT("The map in the corner: friends, doors, trains, cars and where you are going."), TEXT("M"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("strip"), TEXT("The game"), TEXT("Buttons on, or off"), TEXT("The row of buttons along the bottom of the screen."), TEXT("Z"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("help"), TEXT("The game"), TEXT("Every typed command"), TEXT("Lists the slash commands in the chat window, for those who like typing."), TEXT(""), TEXT("help"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("quit"), TEXT("The game"), TEXT("Leave EarthWalk"), TEXT("Where you are is remembered for next time."), TEXT("Esc Esc"), TEXT("quit"), TEXT(""), TEXT(""), TEXT("") },

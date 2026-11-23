@@ -6,6 +6,7 @@
 #include "EarthWalkHUD.generated.h"
 
 class SEarthMenu;
+class UEarthMiniMap;
 class SEarthWalkOverlay;
 class UEarthCompany;
 
@@ -91,6 +92,11 @@ private:
 	void CloseTalk(bool bStopTalking);
 	bool bTalkOpen = false;
 	FString TalkNameShown;
+
+	/** The little map in the top right corner (EarthMiniMap.h). M makes it large, hides it, and brings it back. */
+	UPROPERTY()
+	TObjectPtr<UEarthMiniMap> MiniMap;
+	void CycleMap();
 
 	TSharedPtr<SEarthMenu> Menu;
 	bool bMenuOpen = false;

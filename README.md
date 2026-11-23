@@ -105,6 +105,7 @@ Controls (Unreal):
 | `T` | Talk to the animal, car, train, tree or house beside you; `Esc` stops |
 | `Tab` | Windows: the menu of everything you can do, to click (go to a place, call your car or a taxi, your passport...). Nothing needs a typed command. One thing to do is one line of the table in `game/Source/EarthWalk/EarthMenu.cpp` |
 | `Z` | Windows: the strip of buttons along the bottom, off and on (remembered) |
+| `M` | Windows: the little map in the top right corner: bigger (with what each mark is), hidden, and back (remembered). It shows friends, doors that open, where trains stop, parked cars, your own car, the taxi you called, and the road to where you are being taken |
 | `T` | Talk to what is nearest. In the Windows game the conversation is a bubble at the foot of the screen with the thing's name, what it last said, buttons for the usual things to say (follow me, stay, take me to...) and a line to type on; Esc finishes. Nothing a thing says goes in the chat window |
 | `Esc`, `Esc` | Leave the game (Windows; it fills the screen, so there is no window to close). `/quit` does the same |
 | `P` | Your passport (`/passport` does the same) |
@@ -480,7 +481,7 @@ the camera, `-EWWalk` walks forward, and `-EWShotUI` keeps the on-screen text in
 `-EWFly=<metres>` starts flying that far above the ground and `-EWShotDelay=<seconds>` changes the
 8 second wait before the picture. `-EWTimeShift=<seconds>` moves the game's clock for the animals,
 cars and trains (to catch a train at a station), and `-EWLifeWhere=<time>` logs where each of them
-is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
+is at that moment, to compare with the browser's `earthwalk.life.where(time)`. `-EWMap=small|big|off` sets the little map for one run, `-EWMapCost` writes to the log what a frame costs with it hidden, small and large, `-EWMapLog` what it found to mark, and `-EWMapTripShot=<file>` takes a picture four seconds into being taken somewhere. `-EWMenu` opens the menu by itself, and `/do <name>` does one thing from it by its name in the
 table (`/do goto` asks "where to?"), as `-EWRun=do_goto`; `-EWAsk=<words_with_underscores>` then answers that box as if typed. `-EWRun=<command_with_underscores>` runs one chat command by itself twelve seconds in
 (`look_flat`, `quit`). Cars, vans and taxis are ready-made
 models (three from Kenney's Car Kit, kept in `game/Models/kenney-car-kit` and turned into
