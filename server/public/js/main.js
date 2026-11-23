@@ -26,6 +26,7 @@ import { Talk } from "./talk.js";
 import { findAction, Menu } from "./menu.js";
 import { quickReplies } from "./actions.js";
 import { MiniMap } from "./minimap.js";
+import { newsCard } from "./newsnotes.js";
 import { Traffic } from "./traffic.js";
 import { World } from "./world.js";
 
@@ -109,7 +110,7 @@ const showcase = new Showcase({ panel: $("show"), world, player, life, traffic, 
 for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => sounds.unlock());
 // The menu of everything (Tab), and the box that asks "Where to?" (menu.js).
 const menu = new Menu({
-  panel: $("menu"), askBox: $("ask"), strip: $("strip"), talkBox: $("talkbox"),
+  panel: $("menu"), askBox: $("ask"), strip: $("strip"), talkBox: $("talkbox"), newsBox: $("news"),
   act: (id) => menuAction(id), answer: (id, text) => askDone(id, text), talkSay: (words) => talkSay(words), talkEnd: () => talk.stop(),
 });
 /** "Daisy the cow"; "The cow" until she has said who she is. */
@@ -140,6 +141,33 @@ function toggleStrip() {
   menu.showStrip(stripOn);
   save({ strip: stripOn ? "on" : "off" });
   notice(stripOn ? "The buttons are back. Z hides them." : "The buttons are hidden. Z brings them back, and Tab still shows everything you can do.");
+}
+/**
+ * "What's new": the release notes since the ones this player last saw, on a card. On arriving (`onlyNew`)
+ * it is quiet when there is nothing to tell or the player is busy; from the menu it shows the newest three.
+ */
+async function openNews(onlyNew) {
+  const seen = saved.newsSeen;
+  let answer;
+  try {
+    const res = await fetch(`/v1/news${onlyNew && seen ? `?since=${encodeURIComponent(seen)}` : ""}`, { headers: world.code ? { Authorization: `Bearer ${world.code}` } : {} });
+    answer = res.ok ? await res.json() : null;
+  } catch { answer = null; }
+  if (!Array.isArray(answer?.news)) {
+    if (!onlyNew) problem("Could not fetch what is new just now."); // on arriving that is nothing to mention
+    return;
+  }
+  const entries = newsCard(answer.news, "browser", onlyNew && !seen);
+  if (typeof answer.latest === "string" && answer.latest) save({ newsSeen: answer.latest });
+  if (!entries.length) {
+    if (!onlyNew) notice("Nothing new to tell of just now.");
+    return;
+  }
+  // Busy with something else by now: it is in the menu when wanted.
+  if (onlyNew && (typingNow() || menu.open || menu.asking || menu.talking || passport.open || showcase.open)) return;
+  passport.close();
+  showcase.close();
+  menu.showNews(entries);
 }
 let started = false;
 /** The signed-in account (from /v1/me), or null for a guest. */
@@ -288,6 +316,8 @@ function start(me) {
     : "Welcome to EarthWalk. Click the view to look around, walk with W, A, S and D, and press Tab to see everything you can do.");
   setInterval(tickSlow, 100);
   renderer.setAnimationLoop(frame);
+  // What is new since last time, a few seconds after arriving: once the world is on the screen.
+  if (!params.has("nonews")) setTimeout(() => void openNews(true), 8000);
 }
 
 const speedo = $("speedo");
@@ -504,6 +534,7 @@ function menuAction(id) {
   else if (id === "chat") say.focus();
   else if (id === "strip") toggleStrip();
   else if (id === "map") cycleMap();
+  else if (id === "news") void openNews(false);
   else if (id === "above") viewKey();
   else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
   else if (id === "tricks") tricksKey();
@@ -606,6 +637,8 @@ async function command(name, arg) {
     toggleStrip();
   } else if (name === "map") {
     cycleMap();
+  } else if (name === "news") {
+    void openNews(false);
   } else if (name === "do") {
     menuAction(arg.toLowerCase()); // one thing from the menu by its name there
   } else if (name === "houses") {
@@ -800,4 +833,4 @@ addEventListener("pagehide", () => {
 });
 
 // For the automated tests and for poking around in the browser console.
-window.earthwalk = { menu, menuAction, openTalk, talkSay, minimap, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { menu, menuAction, openTalk, talkSay, openNews, minimap, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

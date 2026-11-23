@@ -1,6 +1,6 @@
 // The menu of everything (Tab), the strip of buttons along the bottom, the small box that asks
-// "Where to?" when a thing to do needs a place or a name, and the speech bubble at the foot of the
-// screen in which a thing is talked to. What there is to do is the table in actions.js; what each one
+// "Where to?" when a thing to do needs a place or a name, the speech bubble at the foot of the
+// screen in which a thing is talked to, and the "What's new" card. What there is to do is the table in actions.js; what each one
 // does is main.js's business (`act`, `answer` for what was typed into the box, `talkSay` and
 // `talkEnd` for the conversation). The Windows game's is SEarthMenu
 // (game/Source/EarthWalk/EarthMenu.cpp), and this is laid out the same way.
@@ -24,7 +24,7 @@ function keepFocus(node) {
 
 export class Menu {
   /**
-   * @param {{ panel: HTMLElement, askBox: HTMLElement, strip: HTMLElement, talkBox: HTMLElement, act: (id: string) => void,
+   * @param {{ panel: HTMLElement, askBox: HTMLElement, strip: HTMLElement, talkBox: HTMLElement, newsBox: HTMLElement, act: (id: string) => void,
    *   answer: (id: string, text: string) => void, talkSay: (words: string) => void, talkEnd: () => void }} parts
    */
   constructor(parts) {
@@ -34,6 +34,48 @@ export class Menu {
     this.buildAsk();
     this.buildStrip();
     this.buildTalk();
+    keepFocus(this.newsBox);
+    this.newsBox.addEventListener("click", (e) => { if (e.target.closest("button")) this.closeNews(); });
+  }
+
+  // ---------------------------------------------------------------- what is new
+  get newsOpen() {
+    return !this.newsBox.hidden;
+  }
+
+  /**
+   * The card: each release with its title and the things in it (newsnotes.js, `newsCard`). The heading and
+   * the button stay put; what is between them scrolls when there is a lot of it.
+   */
+  showNews(entries) {
+    this.close();
+    document.exitPointerLock?.();
+    const head = el("div", "head");
+    head.append(el("h2", "", "What's new"), el("span", "dim", "Esc to close"));
+    const body = el("div", "body");
+    for (const entry of entries) {
+      const title = el("div", "entry");
+      title.append(el("h3", "", entry.title), el("span", "dim", entry.version));
+      body.append(title);
+      if (entry.note) body.append(el("p", "note", entry.note));
+      const list = el("ul");
+      for (const item of entry.items) {
+        const line = el("li", "", item.text);
+        if (item.note) line.append(el("span", "note", item.note));
+        list.append(line);
+      }
+      body.append(list);
+    }
+    const foot = el("div", "foot");
+    const button = el("button", "", "Got it");
+    button.type = "button";
+    foot.append(button);
+    this.newsBox.replaceChildren(head, body, foot);
+    this.newsBox.hidden = false;
+  }
+
+  closeNews() {
+    this.newsBox.hidden = true;
   }
 
   // ---------------------------------------------------------------- the conversation with a thing
@@ -237,6 +279,7 @@ export class Menu {
       return true;
     }
     this.close();
+    this.closeNews();
     if (this.talking) this.talkEnd();
     return false;
   }
