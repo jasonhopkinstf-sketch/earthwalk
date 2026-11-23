@@ -10,6 +10,8 @@ import { Flight } from "./flight.js";
 import { choiceWords } from "./flightplan.js";
 import { Sounds } from "./sounds.js";
 import { Passport } from "./passport.js";
+import { ProgressBar } from "./progress.js";
+import { Idle } from "./idle.js";
 import { Orders } from "./orders.js";
 import { Houses } from "./houses.js";
 import { People } from "./people.js";
@@ -306,6 +308,11 @@ meetup.addEventListener("welcome", (e) => {
 });
 meetup.addEventListener("people", (e) => showPeople(e.detail));
 const passport = new Passport({ panel: $("passport"), toast: $("stamp"), meetup, animal: (id) => void command("animal", id), goHome: () => houses.goHome() });
+// The progress bar, above the hearts: a click on it opens the passport.
+const progressBar = new ProgressBar({ bar: $("progress"), meetup, open: () => { if (!passport.open) passport.toggle(); } });
+// Left standing for half a minute, my animal fidgets and talks to itself, and the camera steps out to watch (idle.js).
+const idle = new Idle({ scene, camera, player, world, meetup, avatars, nudge: () => progressBar.level?.hint });
+setTimeout(() => Object.assign(window.earthwalk ?? {}, { idle, progressBar })); // for looking at them from the console
 const treasure = new Treasure({ scene, world });
 // "/clue" asks for my journal and reads out the clue I am on.
 let wantClue = false;
@@ -362,6 +369,7 @@ function frame(now) {
   sounds.engine(car ? Math.min(1, Math.abs(car.speed) / player.mount.drive.top) : null, !!car && !player.typing && player.keys.has("KeyW"));
   avatars.showSelf(dt, car || player.view ? meetup.me : null, player.position, flight.active ? -flight.now.yaw : -player.yaw, flight.active ? Math.min(60, flight.now.left / 3) : -1);
   avatars.update(dt, meetup.peers, world);
+  idle.frame(dt);
   riding.frame(dt, meetup.now());
   showcase.frame();
   talk.frame(dt);

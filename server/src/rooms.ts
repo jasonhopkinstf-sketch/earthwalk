@@ -132,6 +132,8 @@ export interface RoomsListener { joined?(m: RoomMember): void; left?(m: RoomMemb
 /** Keeps each player's journal (journal.ts). A member's id is the key; the keeper never learns who else is in the room. */
 export interface JournalKeeper {
   listen(tell: (key: string, news: { title: string; text: string; kind: string; thing?: number; sp?: string; say?: string; at?: { lat: number; lon: number } }) => void): void;
+  /** Progress (progress.ts): told when a player's points rise, and once as they come in. */
+  listenProgress?(tell: (key: string, news: object) => void): void;
   joined(key: string, personId: string | null, room: string, tzMinutes?: number): Promise<void>;
   left(key: string): void;
   moved(key: string, lat: number, lon: number): void;
@@ -269,6 +271,10 @@ export class Rooms {
       if (thing && sp && say) m.ws.send(JSON.stringify({ t: "say", thing, sp, name: persona(thing, sp).name, text: say, by: m.id, ...(m.hasPos ? { lat: +m.lat.toFixed(7), lon: +m.lon.toFixed(7) } : {}) }));
       // An expedition begun or ended may bring a lost animal to the player's side, or send it home.
       if (news.kind === "expedition") this.walkWith(m);
+    });
+    this.journal?.listenProgress?.((key, news) => {
+      const m = this.everyone.get(key);
+      if (m && m.ws.readyState === m.ws.OPEN) m.ws.send(JSON.stringify({ t: "progress", ...news }));
     });
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => this.onConnection(ws, req));

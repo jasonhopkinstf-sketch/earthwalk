@@ -8,6 +8,7 @@ import path from "node:path";
 import WebSocket from "ws";
 import { ALL_TASKS_COINS, dayNumber, emptyDaily, HATS, RIDDLE_COINS, TASK_COINS, TASKS, tasksFor } from "../src/daily.ts";
 import { FileJournalStore, Journals, type JournalView, type StampNews } from "../src/journal.ts";
+import { levelPrizes } from "../src/progress.ts";
 import { GuestDirectory } from "../src/people.ts";
 import { Rooms } from "../src/rooms.ts";
 
@@ -78,7 +79,7 @@ test("tasks are done by getting about, pay coins, and all three win a hat; tomor
   const solved = v.riddles.filter((r) => r.solved).length;
   assert.ok(solved >= 4, "talking to a cow, a tree, a house and a car answered four riddles on the way");
   assert.equal(v.favoursDone, 1);
-  assert.equal(v.coins, 3 * TASK_COINS + ALL_TASKS_COINS + solved * RIDDLE_COINS + 15, "three tasks, the day, the riddles, and one hello passed on");
+  assert.equal(v.coins, 3 * TASK_COINS + ALL_TASKS_COINS + solved * RIDDLE_COINS + 15 + levelPrizes(1, v.level.n), "three tasks, the day, the riddles, one hello passed on, and the prizes of the levels reached");
   const told = news.get("a")!;
   assert.equal(told.filter((n) => n.kind === "task" && n.title === "Task done").length, 3, "each task is announced once");
   assert.ok(told.some((n) => n.title === "All three tasks done!") && told.some((n) => n.kind === "prize" && /Explorer's hat/.test(n.title)));
@@ -199,7 +200,7 @@ test("in a room: a hat bought is seen by everyone, and by those who come later",
     mum.ws.send(JSON.stringify({ t: "journal" }));
     const mine = (await mum.next("journal")).journal as JournalView;
     // Two riddles paid for the cap; what is left is whatever today's tasks paid for those two chats.
-    assert.deepEqual([mine.coins, mine.hat, mine.hats.find((h) => h.id === "cap")!.owned], [mine.today.tasks.filter((t) => t.done).length * TASK_COINS, null, true]);
+    assert.deepEqual([mine.coins, mine.hat, mine.hats.find((h) => h.id === "cap")!.owned], [mine.today.tasks.filter((t) => t.done).length * TASK_COINS + levelPrizes(1, mine.level.n), null, true]); // and the prize of the level those chats reached
     for (const p of [mum, kid, late]) p.ws.close();
   } finally {
     rooms.close();
