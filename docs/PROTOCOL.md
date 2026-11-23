@@ -531,6 +531,13 @@ somewhere else.
 
 `welcome` carries `taxis`: those still waiting. One call every 15 seconds a player.
 
+**Agility.** `{"t":"race","make":"agility"}` sets up, for a player with a companion, an agility course
+where they stand: a race whose `kind` is `"agility"`, with nine `gates` in a ring some twenty metres
+across before them, `reach` (3.2 m: how near a gate counts as passing it) and `obstacles`, what each
+gate is: `start`, `jump`, `hoop`, `weave`, `tunnel`, `table`, `finish`. Everything else is as for a
+race (join, go, stop, the countdown, gates in order). A finished round is paid for and the quickest
+kept; the journal's `agility` has `runs` and `bestSeconds`. Clients are expected to draw each obstacle.
+
 ### Tag, and hide and seek
 
 A room has at most one of these at a time, and not while a race is on (`server/src/play.ts`). `play`
@@ -585,6 +592,123 @@ start gate first. Each gate passed is told to the room with `race`. A finisher i
 finished the state is `over` and the results stay for a minute. `stop` takes a runner out; from
 its maker (or when its maker leaves the room) it ends the race. A race nobody starts is cleared
 after ten minutes, and one nobody finishes after twenty.
+
+### Hungry animals
+
+On any day about one animal in five is hungry for one food: which, and for what, is
+`hungerOf(sp, thing, day)` in `server/public/js/care.js` (a hash of the animal's identity and the day
+number, the player's own day as for the daily tasks; a table says what each kind likes). Games are
+expected to mark the hungry ones nearby. A `talk` to a hungry animal by a player who has that food in
+their lunch box feeds it: the food goes, twelve coins come, and it is not hungry for that player
+again that day. Without the food, the player is told what it would like. News comes as `stamp`
+messages of kind `care`. The journal's `care` has `fed` (in all), `today` (those fed today, as
+`"horse:918398760"`), `coins`, and `next` (how many fed wins which companion, or null). A hungry
+animal gives no food of its own until it has been fed.
+
+### Tricks
+
+The companion at a player's side (see "Riddles and companions") can be taught tricks, in this order:
+`sit`, `spin`, `jump`, `bow`, `fetch`, `hoop`, `dance`. Each kind of companion keeps its own.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"trick","learn":"sit"}` | Begin a lesson in the next trick my companion can learn. |
+| `{"t":"trick","presses":[1830,2950,4170]}` | My presses for the lesson under way, in milliseconds from when it was set. |
+| `{"t":"trick","do":"sit"}` | Have it do a trick it knows. |
+
+A lesson is set with `{"t":"lesson","trick":"sit","name":"Sit up","beats":[1800,2900,4150],"slack":380}`:
+the beats in milliseconds from now, and how near a beat a press must fall. The presses are marked by the
+server (each beat met by at most one press; all but one beat must be met, with no more than two presses
+to spare, and not before the last beat has had time to come) and answered with
+`{"t":"lesson","trick":"sit","name":"Sit up","done":true,"passed":true,"hits":3,"of":3}`. A lesson
+that does not come off costs nothing. When one does, the journal follows, and a `stamp` of kind `trick`.
+
+Whenever a companion does a trick (asked for, or just learnt) the room is sent
+`{"t":"trick","id":"<member id>","thing":2499031538,"sp":"cow","trick":"sit"}`, and every game draws it.
+The journal's `tricks` has `pet` (the companion, or null), `all` (each `id`, `name`, `known`), `next` and
+`coins`. Errors are `locked`, with words saying why.
+
+### Food and hearts
+
+A player has five hearts, one for each kind of good food: `fruit`, `veg`, `grain`, `protein`, `dairy`.
+Eating fills them for the day (the player's own day, as with the daily tasks); nothing empties them but
+midnight, and nothing bad comes of empty ones. Food is carried in a lunch box of thirty things, kept
+in the journal. A `talk` to a thing that has food to give puts it in the lunch box, once a day from
+each thing (a cow milk, a hen an egg, one tree in three its fruit); so does a favour done.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"food","eat":"milk"}` | Eat one of these from my lunch box. |
+| `{"t":"food","menu":"food"}` | What is sold where I am: `"shop"` for a shop, `"food"` for somewhere to eat. |
+| `{"t":"food","buy":"sushi","at":"food"}` | Buy one, from a shop or (`at` `"food"`) somewhere to eat, into my lunch box. It must be on that menu. |
+| `{"t":"food","cook":"sandwich"}` | Cook a recipe from what is in my lunch box: two helpings of the meal come in place of what it needs. Only within 40 m of the door of a house of my own, and only a recipe I know. |
+| `{"t":"food","give":"sandwich","to":"<member id>"}` | Give one of these to a player in my room who is within 20 m. Both are sent their `journal`, and both a `stamp` of kind `food`. |
+
+The answers: after eating, `{"t":"pep","on":true}` (true once all five hearts are full today: the
+player may then go about a tenth quicker on foot; it is also sent, true, on joining later the same
+day) and the `journal`; after buying, the `journal`; and for a menu
+
+```json
+{"t":"menu","use":"food","country":"Japan","items":[{"id":"sushi","name":"a plate of sushi","groups":["grain","protein"],"price":16}]}
+```
+
+A café's menu begins with the dishes of the country the player is in. News of food comes as `stamp`
+messages of kind `food`. The journal's `food` has `hearts` (the five, each `group`, `title`, `full`),
+`full`, `healthyDays`, `coinsFull`, `larder` (each `id`, `name`, `groups`, `n`), `room`, and `recipes`
+(each `id`, the meal's `name` and `groups`, `makes`, `needs` as words with whether the lunch box `have`s
+each, `known`, `can` and `times`; three are known at first, and each cooked for the first time makes
+the next one known). A `sign`
+label of a shop or of somewhere to eat carries `use`: `"shop"` or `"food"`. Clients are expected to
+show the hearts, let the player eat from the lunch box, and offer the menu beside such a sign.
+
+### A house of your own
+
+Any house that opens (see "Inside houses") can be made a player's own. One house a person; a guest's
+is theirs until they leave. Houses are in the world, not in a room: everybody connected is told of them.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"house","claim":{"x":33638,"y":21638,"id":269982566}}` | Make this house mine: the chunk it is in and its number there (the `id` of its `door` label). The sender must be within 80 m of its door. A house they had before is given up, and its furnishing comes along. |
+| `{"t":"house","leave":true}` | Give my house up. |
+| `{"t":"house","put":{"slot":"sofa","id":"royal"}}` | Swap a piece: `slot` is `walls`, `floor`, `sofa`, `bed` or `rug`, and `id` a piece of that slot (bought now with coins if it is not theirs yet); without `id`, what the house came with goes back. |
+| `{"t":"house","put":{"slot":"prize","id":"piano","on":true}}` | Put a prize on show, or (`on` false) away. Six at most stand in a house. |
+
+The server answers the sender with `{"t":"house","house":…}`: null, or their house as below with
+`decor` (`{walls?, floor?, sofa?, bed?, rug?, prizes: []}`), and after a `put` with their `journal`
+again (the coins have changed). Everybody, in every room, is sent
+
+```json
+{"t":"lived","x":33638,"y":21638,"id":269982566,"lat":52.0310154,"lon":4.7796697,"yaw":332.3,"name":"Sam","rev":3}
+```
+
+when a house is moved into or furnished anew (`lat`, `lon` its front door, `yaw` the compass heading
+that leads out of it, `name` its owner's, `rev` counting its changes), and
+`{"t":"lived","x":…,"y":…,"id":…,"gone":true}` when it is empty again. `welcome` carries the same list
+as `lived`, and the player's own as `house`. Errors: `nowhere`, `nohome` (no such house, or none of
+their own), `far`, `taken`, `many`, `poor`, `locked` (no such piece, or a prize not won yet), `busy`.
+
+**The garden.** A house's owner may keep up to four young animals before its front door.
+
+| Message | Meaning |
+| --- | --- |
+| `{"t":"garden","adopt":"chicken"}` | Buy a young one: `chicken`, `sheep`, `pig` or `cow`. |
+| `{"t":"garden","feed":0}` | Feed the one at this place in my garden, once a day, with something plain from my lunch box (vegetables first, then grain, then fruit). |
+| `{"t":"garden","gather":0}` | Take what a grown one gives, once a day: food into my lunch box, or coins. |
+| `{"t":"garden","release":0}` | Send one away, to make room. |
+
+Each is answered with a `stamp` of kind `care` saying what happened, then `house` and `journal`, and
+everybody is sent the house again as `lived`, now with `garden`: each animal's `sp` and `size` (0.45
+when it comes, 1 when grown). The owner's `house` also has `animals` (each `sp`, `name`, `fed`, `meals`,
+`grown`, `hungry` today, `ready` to give today, `gives`), `breeds` (what can be bought, with `price` and
+`meals`) and `gardenMax`. A garden does not change `rev`. Games are expected to draw the animals a few
+metres out from the door, each at its size.
+
+The pieces there are come in the journal as `house.pieces`: `id`, `slot`, `name`, `price` (null for a
+prize that is won, with `how` in words), `owned`, and `hex`, its colours.
+
+`GET /v1/interior/16/x/y/id` of a house somebody lives in gives its rooms furnished their way, and is
+not to be cached: fetch it again when `rev` changes (the browser adds `?r=<rev>`). Clients are
+expected to put the owner's name over the door ("Sam's house"), and to let its owner choose pieces.
 
 ### The garage
 

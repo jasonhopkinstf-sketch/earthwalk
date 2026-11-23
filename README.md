@@ -239,6 +239,73 @@ passport, brings it to stand beside you, and only you can drive it; friends ride
 and body are chosen in the passport: four paints are free, nine more and a van are bought with the
 coins that tasks, favours and treasure pay (`server/src/garage.ts`, `server/public/js/garage.js`).
 
+Food and hearts (in the browser so far): five hearts in the corner, one for each kind of good food
+(fruit, vegetables, bread and grains, protein, dairy). Eating something fills its hearts for the day,
+and with all five full you are "full of beans" until your midnight: a little quicker on your feet,
+15 coins, and a healthy day for the passport. Empty hearts cost nothing; nobody is ever hungry. Food
+is carried in a lunch box (B). It comes from the world: a cow or a goat gives milk when you talk to
+it, a hen an egg, a boat a fish, a tractor something from its field, one tree in three its fruit
+(apples in the north, mangoes near the equator), once a day each; a favour done is thanked with
+something to eat; and beside a real shop or café on the map (its name is on a board) B shows what it
+sells for coins: groceries in a shop, and in a café the dishes of the country you are in (sushi in
+Japan, a cheese roll in the Netherlands, a meat pie in New Zealand). The foods, the gifts and the
+menus are `server/src/food.ts`; the journal keeps the lunch box. In a house of your own the lunch box
+is a kitchen too: ten recipes (`RECIPES`) turn what you carry into meals that fill several hearts, two
+helpings at a time. Three are known from the start, and each one cooked for the first time teaches
+the next, up to a feast that fills all five hearts. With a friend standing by, each thing in the
+lunch box has a button to give it to them.
+
+Agility (in the browser so far): `/agility` (or the button under the tricks, K) sets up nine obstacles
+in a ring before you: a start, jumps, a hoop, weave poles, a tunnel, a table and a finish. R starts
+it; run them in order with your companion at your heels (it leaps at the jumps), and the round is
+timed. A clear round pays twelve coins, your quickest is kept, and friends can press R to join and
+run it against you. It is a race of another kind (`agilityCourse` in `server/src/race.ts`): no roads
+are needed, only a companion.
+
+The garden (in the browser so far): the house panel (H, indoors or by your own front door) has a
+garden too. A chick, a lamb, a piglet or a calf is bought with coins and lives before the front door,
+where everybody sees it. It is fed once a day from your lunch box (plain vegetables, bread or fruit)
+and after three to five meals is grown; a grown hen gives an egg a day, a cow milk, a sheep wool and
+a pig a truffle (coins). Nothing happens to one that is not fed: it waits. Four at most, and they
+move house with you (`BREEDS` and the garden methods of `Homes` in `server/src/home.ts`,
+`server/public/js/garden.js`).
+
+Hungry animals (in the browser so far): each day about one animal in five is hungry, and a thought
+bubble over it shows the food it would like (a duck bread, a horse an apple or a carrot, a squirrel
+nuts). Talk to it with that food in your lunch box and it is fed: twelve coins, a count in the
+passport, and at three, eight, fifteen and twenty-five animals fed a new companion (a hedgehog, a
+fox, a deer, an otter). Without the food it says what it would like. Which animals are hungry is one
+rule in `server/public/js/care.js`, used by the server to judge and by the games to draw the bubbles.
+
+Tricks (in the browser so far): the companion at your side can be taught seven tricks, in order: sit
+up, spin, jump, take a bow, fetch, jump through a hoop, dance. K opens the list. A lesson is a game
+of timing: paw prints run along a bar and Space is pressed as each reaches the ring; the server sets
+the beats and marks the presses (`server/src/tricks.ts`), one slip is forgiven, and a lesson that does
+not come off is simply had again. A trick learnt is that kind of companion's for good (each kind
+learns its own), pays ten coins, and is done whenever asked (K and a number, or `/trick spin`), for
+everybody nearby to see (`perform` in `server/public/js/pets.js`). `/teach` begins the next lesson.
+
+A house of your own (in the browser so far): go into any house nobody lives in (E at a door with a
+COME IN board) and press H. It is yours: your name goes up over the door for everybody, friends can
+walk in, and H anywhere else takes you home. Inside it, H opens a panel at the side where the paint
+on the walls, the floors, the sofa, the beds and the rugs can each be swapped for another, bought
+with coins, and where prizes are put on show: some bought (a piano, a fish tank), most won out in
+the world (a treasure chest for a treasure hunt, a globe for three countries, a golden cup for
+winning a race). The rooms change round you as you choose. One house a person; moving (H twice in
+another empty house) takes the furnishing along, and `/house moveout` gives it up. A guest's house
+lasts for the visit. The catalogue and who lives where are `server/src/home.ts` (kept in
+`people/homes.json` beside the accounts); the rooms are built again with the owner's choices by
+`buildInterior` in `server/src/interior.ts`, from measurements kept with the house, so the map is
+not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
+things on a developer's own machine; it is not set on the live server.
+
+The view from above (in the browser so far): riding anything, or being carried by a train, a taxi or a
+friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
+rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken
+along, it follows the way the ride is going and circles slowly until the mouse is touched; steering, it
+stays behind. Where a building is in the way it looks from steeper (`hover` in
+`server/public/js/player.js`). Nothing is sent to the server.
+
 Driving: a car, a taxi or a tractor is driven, not ridden. W and S are the
 pedals, A and D steer, Space is the handbrake, and the view moves to behind the car, where the
 mouse looks round it. Speed builds and brakes, the steering is gentler the faster you go, the car

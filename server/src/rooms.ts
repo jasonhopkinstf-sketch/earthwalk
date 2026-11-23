@@ -8,9 +8,12 @@ import { hash32 } from "./geo.ts";
 import type { Home, PeopleDirectory } from "./people.ts";
 import { aKind, persona, TALKABLE, Talker, type Said, type Wish } from "./talk.ts";
 import { favourNotes, favourWords, offersHelp } from "./favours.ts";
-import { COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
+import { agilityCourse, COUNTDOWN_MS, type Course, newRace, passed, placeOf, type Race, stale } from "./race.ts";
 import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay, stepHerd, stepPlay } from "./play.ts";
 import type { TalkNews } from "./journal.ts";
+import { breedOf, BREEDS, cleanDecor, gardenView, GARDEN_MAX, type Homes, isGrown, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
+import type { HomeDoor } from "./chunk.ts";
+import { judge, lesson, trickById } from "./tricks.ts";
 
 const MAX_NAME = 24;
 const MAX_ROOM = 32;
@@ -61,6 +64,11 @@ interface Member {
   /** The animal that keeps this member company, with an identity of its own (so it can be talked to). */
   pet: { sp: string; thing: number } | null;
   hat: string | null;
+  /** When they last asked for a house, so that the map is not searched over and over. */
+  houseAt: number;
+  /** The lesson their companion is having: the trick, its beats (ms from the start) and when it began. And when it last did a trick. */
+  lesson: { trick: string; beats: number[]; at: number } | null;
+  trickAt: number;
 }
 interface Ride { thing: number; sp: string; seat: number }
 /** Something a rider got off: it stays there until `until` (server clock, ms), then goes back to where it belongs. */
@@ -118,8 +126,29 @@ export interface JournalKeeper {
   carOf?(key: string): { body: string; paint: number };
   /** A race finished: where they came among how many, and their time in milliseconds. */
   raced?(key: string, place: number, of: number, ms: number): void;
+  /** An agility round finished with a companion: the same. */
+  agility?(key: string, place: number, of: number, ms: number): void;
   /** A game of tag or of hide and seek over: how it came out for this player. */
   played?(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void;
+  /** A piece for a house of their own: theirs already, or bought now. */
+  takePiece?(key: string, id: string): "ok" | "poor" | "prize" | "unknown";
+  /** Food (food.ts): eating from the lunch box, whether all five hearts are full, what is sold where they are, and buying it. */
+  eat?(key: string, id: string): "ok" | "none";
+  pepOf?(key: string): boolean;
+  menuOf?(key: string, use: "shop" | "food"): { country: string | null; items: { id: string; name: string; groups: string[]; price: number }[] };
+  buyFood?(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown";
+  /** For the garden: the player's day, paying out of their coins, something earned, and something from the lunch box for a young animal (taken out). */
+  dayFor?(key: string): number;
+  spend?(key: string, coins: number, what: string): boolean;
+  earn?(key: string, gain: { coins?: number; food?: string }): boolean;
+  fodder?(key: string, take?: boolean): { id: string; name: string } | null;
+  /** Tricks (tricks.ts): whether my companion can be taught one now, that it has learnt it, and whether it knows one. */
+  lessonFor?(key: string, id: string): "ok" | "nopet" | "known" | "order" | "unknown";
+  learnTrick?(key: string, id: string): boolean;
+  knowsTrick?(key: string, id: string): boolean;
+  /** Cooking a recipe from the lunch box, and giving one thing from it to another player. */
+  cook?(key: string, id: string): "ok" | "locked" | "missing" | "unknown";
+  giveFood?(key: string, to: string, id: string, fromName: string, toName: string): "ok" | "none" | "full";
 }
 export interface RoomsOptions {
   /** Names a position ("Montmartre, Paris") for `/home` without a place given. */
@@ -147,6 +176,13 @@ export interface RoomsOptions {
   playLot?: () => number;
   /** Writes down where players go and what they do, each in their own journal. Without one, nothing is. */
   journal?: JournalKeeper;
+  /** Who lives where (home.ts), and a way to find a house that opens: its measurements, its door on Earth, the way out. */
+  homes?: Homes;
+  findHome?: (x: number, y: number, id: number) => Promise<{ home: HomeDoor; lat: number; lon: number; yaw: number } | null>;
+  /** The making of the world the houses are measured in (GENERATOR_REV). */
+  worldRev?: number;
+  /** For tests: a lesson may be answered at once, without the time its beats take. */
+  quickLessons?: boolean;
   /** Told where each player is, every time they say (ahead.ts fetches the map ahead of whoever is travelling). */
   moved?: (id: string, lat: number, lon: number) => void;
 }
@@ -283,7 +319,7 @@ export class Rooms {
         room = r;
         me = {
           id: randomUUID().slice(0, 8), personId: person.personId, name, avatar: avatarId(person.avatar ?? msg.avatar), ws,
-          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null,
+          lat: 0, lon: 0, alt: 0, yaw: 0, hasPos: false, dirty: false, chatTimes: [], home: person.home ?? null, ride: null, talkTimes: [], taxiAt: 0, pet: null, hat: null, houseAt: 0, lesson: null, trickAt: 0,
         };
         clearTimeout(helloTimer);
         send({
@@ -298,6 +334,8 @@ export class Rooms {
           history: r.history,
           signedIn: me.personId !== null,
           ...(me.personId !== null ? { personId: me.personId, home: me.home } : {}),
+          lived: this.options.homes?.list() ?? [],
+          house: this.houseOf(me),
           now: Date.now(),
         });
         this.broadcast(r, { t: "join", id: me.id, name: me.name, avatar: me.avatar });
@@ -308,6 +346,7 @@ export class Rooms {
         void this.journal?.joined(me.id, me.personId, roomName, finite(msg.tz) ? msg.tz : undefined).then(() => {
           this.bringPet(r, arrived, this.journal?.petOf?.(arrived.id) ?? null);
           this.wearHat(r, arrived, this.journal?.hatOf?.(arrived.id) ?? null);
+          if (this.journal?.pepOf?.(arrived.id) && arrived.ws.readyState === arrived.ws.OPEN) arrived.ws.send(JSON.stringify({ t: "pep", on: true })); // all five hearts were filled earlier today
         }).catch(() => {});
         this.listener.joined?.(this.publicMember(me, roomName));
         if (this.options.peopleList) send({ t: "people", p: this.options.peopleList() });
@@ -328,7 +367,7 @@ export class Rooms {
         const race = room?.race;
         if (race && room) {
           const got = passed(race, me.id, me.lat, me.lon, Date.now());
-          if (got === "finish") this.journal?.raced?.(me.id, placeOf(race, me.id), race.runners.length, race.runners.find((r) => r.id === me!.id)?.time ?? 0);
+          if (got === "finish") (race.kind === "agility" ? this.journal?.agility : this.journal?.raced)?.call(this.journal, me.id, placeOf(race, me.id), race.runners.length, race.runners.find((r) => r.id === me!.id)?.time ?? 0);
           if (got) this.broadcast(room, { t: "race", race });
         }
         // In a game of tag or of hide and seek, this may be a touch, a find, or a step off the field.
@@ -446,6 +485,175 @@ export class Rooms {
         else if (drop) this.journal?.dropExpedition?.(me.id, drop);
         this.walkWith(me);
         send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+      } else if (msg.t === "garden" && room) {
+        // The garden of my house (home.ts): a young animal comes to live there (`adopt`, a kind), one is fed from my
+        // lunch box (`feed`, its place in the garden), a grown one gives what it gives (`gather`), or one goes (`release`).
+        const homes = this.options.homes;
+        const owner = me.personId ?? me.id;
+        const mine = homes?.of(owner);
+        if (!homes || !mine) { send({ t: "error", code: "nohome", text: "A garden comes with a house of your own: go into a house nobody lives in and press H" }); return; }
+        const day = this.journal?.dayFor?.(me.id) ?? Math.floor(Date.now() / 86_400_000);
+        const at = (v: unknown): number => (Number.isInteger(v) ? (v as number) : -1);
+        const adopt = clean(msg.adopt, 12);
+        const told = (title: string, text: string): void => send({ t: "stamp", kind: "care", title, text });
+        if (adopt) {
+          const breed = breedOf(adopt);
+          if (!breed) { send({ t: "error", code: "locked", text: "There is no such animal to be had" }); return; }
+          if ((mine.garden?.length ?? 0) >= GARDEN_MAX) { send({ t: "error", code: "many", text: `A garden holds ${GARDEN_MAX}: one would have to go first` }); return; }
+          if (!(this.journal?.spend?.(me.id, breed.price, breed.young) ?? false)) { send({ t: "error", code: "poor", text: "Not enough coins yet" }); return; }
+          homes.adopt(owner, breed.sp);
+          told(`A ${breed.young} has come to live in your garden`, `Feed it once a day from your lunch box: after ${breed.meals} meals it is a grown ${breed.grown}, and gives ${breed.gives.what} every day`);
+        } else if (at(msg.feed) >= 0) {
+          const i = at(msg.feed);
+          const can = homes.hungry(owner, i, day);
+          const young = mine.garden?.[i];
+          const breed = young ? breedOf(young.sp) : undefined;
+          if (can !== "ok" || !young || !breed) { send({ t: "error", code: "locked", text: can === "today" ? "It has eaten today: it will be hungry again tomorrow" : can === "grown" ? "It is grown, and feeds itself now" : "There is no such animal in your garden" }); return; }
+          const food = this.journal?.fodder?.(me.id) ?? null;
+          if (!food) { send({ t: "error", code: "locked", text: "There is nothing it eats in your lunch box: it likes plain vegetables, bread and grains, and fruit" }); return; }
+          homes.fed(owner, i, day);
+          if (isGrown(young)) told(`Your ${breed.young} is a grown ${breed.grown}!`, `It ate ${food.name}. From tomorrow it gives ${breed.gives.what} every day`);
+          else told(`Your ${breed.young} ate ${food.name}`, `${young.fed} of ${breed.meals} meals: it is growing. It will be hungry again tomorrow`);
+        } else if (at(msg.gather) >= 0) {
+          const i = at(msg.gather);
+          const young = mine.garden?.[i];
+          const breed = young && isGrown(young) ? breedOf(young.sp) : undefined;
+          if (!breed) { send({ t: "error", code: "locked", text: "It is not grown yet" }); return; }
+          if (young!.gaveDay === day) { send({ t: "error", code: "locked", text: "It has given today: come back tomorrow" }); return; }
+          // (The lunch box is tried first, so that nothing is lost when it is full.)
+          if (breed.gives.food && !(this.journal?.earn?.(me.id, { food: breed.gives.food }) ?? false)) { send({ t: "error", code: "locked", text: "Your lunch box is full: eat something first" }); return; }
+          if (breed.gives.coins) this.journal?.earn?.(me.id, { coins: breed.gives.coins });
+          homes.gather(owner, i, day);
+          told(`Your ${breed.grown} gave you ${breed.gives.what}`, breed.gives.coins ? `Worth ${breed.gives.coins} coins` : "It is in your lunch box (B)");
+        } else if (at(msg.release) >= 0) {
+          if (!homes.release(owner, at(msg.release))) return;
+        } else return;
+        this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+        send({ t: "house", house: this.houseOf(me) });
+        send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+      } else if (msg.t === "trick" && room) {
+        // My companion's tricks (tricks.ts): begin a lesson (`learn`), hand in my presses for it (`presses`,
+        // milliseconds from its start), or have it do a trick it knows (`do`), which the room is shown.
+        const learn = clean(msg.learn, 12), act = clean(msg.do, 12);
+        if (learn) {
+          const trick = trickById(learn);
+          const can = this.journal?.lessonFor?.(me.id, learn) ?? "unknown";
+          if (!trick || can !== "ok" || !me.pet) {
+            send({ t: "error", code: "locked", text: can === "nopet" || !me.pet ? "You have no companion with you: solve a riddle to win one, and choose it in your passport" : can === "known" ? "It knows that one already" : can === "order" ? "It has an easier trick to learn first" : "There is no such trick" });
+            return;
+          }
+          me.lesson = { trick: trick.id, beats: lesson(trick, (Math.random() * 0x7fffffff) | 0), at: Date.now() };
+          send({ t: "lesson", trick: trick.id, name: trick.name, beats: me.lesson.beats, slack: trick.slackMs });
+        } else if (Array.isArray(msg.presses)) {
+          const had = me.lesson;
+          const trick = had ? trickById(had.trick) : undefined;
+          me.lesson = null;
+          if (!had || !trick) return;
+          // A lesson cannot be handed in before its last beat has had time to come.
+          const early = !this.options.quickLessons && Date.now() - had.at < had.beats[had.beats.length - 1] - 500;
+          const marks = judge(trick, had.beats, early ? [] : (msg.presses as unknown[]).filter(finite));
+          const passed = marks.passed && (this.journal?.learnTrick?.(me.id, trick.id) ?? false);
+          send({ t: "lesson", trick: trick.id, name: trick.name, done: true, passed, hits: marks.hits, of: marks.of });
+          if (passed) {
+            send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+            if (me.pet) this.broadcast(room, { t: "trick", id: me.id, thing: me.pet.thing, sp: me.pet.sp, trick: trick.id }); // and it shows off what it has learnt
+          }
+        } else if (act) {
+          if (!me.pet || !this.journal?.knowsTrick?.(me.id, act)) { send({ t: "error", code: "locked", text: "Your companion does not know that trick yet" }); return; }
+          if (Date.now() - me.trickAt < 1200) return;
+          me.trickAt = Date.now();
+          this.broadcast(room, { t: "trick", id: me.id, thing: me.pet.thing, sp: me.pet.sp, trick: act });
+        }
+      } else if (msg.t === "food" && room) {
+        // Food (food.ts): eat something from my lunch box (`eat`), ask what a shop or a café sells where I am
+        // (`menu`: "shop" or "food"), or buy something there (`buy`, with `at` saying which of the two it is).
+        const eat = clean(msg.eat, 16), buy = clean(msg.buy, 16), cook = clean(msg.cook, 16), give = clean(msg.give, 16);
+        const use = msg.menu === "food" || msg.at === "food" ? "food" : "shop";
+        if (eat) {
+          if (this.journal?.eat?.(me.id, eat) !== "ok") { send({ t: "error", code: "locked", text: "There is none of that in your lunch box" }); return; }
+          send({ t: "pep", on: this.journal?.pepOf?.(me.id) ?? false });
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (buy) {
+          const got = this.journal?.buyFood?.(me.id, use, buy) ?? "unknown";
+          if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : got === "full" ? "Your lunch box is full: eat something first" : "That is not sold here" }); return; }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (cook) {
+          // Cooking is done at home: in, or just outside, a house of my own.
+          const mine = this.options.homes?.of(me.personId ?? me.id);
+          const metres = mine && me.hasPos ? Math.hypot((mine.lat - me.lat) * 111_320, (mine.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) : Infinity;
+          if (metres > 40) { send({ t: "error", code: "far", text: mine ? "Cooking is done in your own kitchen: H takes you home" : "Cooking needs a kitchen of your own: go into a house nobody lives in and press H" }); return; }
+          const got = this.journal?.cook?.(me.id, cook) ?? "unknown";
+          if (got !== "ok") { send({ t: "error", code: "locked", text: got === "missing" ? "Something that recipe needs is not in your lunch box" : got === "locked" ? "You have not learnt that recipe yet" : "There is no such recipe" }); return; }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        } else if (give) {
+          // One thing from my lunch box to a friend who is standing by.
+          const friend = room.members.get(clean(msg.to, 64));
+          if (!friend || friend === me || !me.hasPos || !friend.hasPos
+            || Math.hypot((friend.lat - me.lat) * 111_320, (friend.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180)) > 20) { send({ t: "error", code: "far", text: "Stand beside the friend you want to give it to" }); return; }
+          const got = this.journal?.giveFood?.(me.id, friend.id, give, me.name, friend.name) ?? "none";
+          if (got !== "ok") { send({ t: "error", code: "locked", text: got === "full" ? `${friend.name}'s lunch box is full` : "There is none of that in your lunch box" }); return; }
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+          if (friend.ws.readyState === friend.ws.OPEN) friend.ws.send(JSON.stringify({ t: "journal", journal: this.journal?.view(friend.id) ?? null }));
+        } else if (msg.menu === "shop" || msg.menu === "food") {
+          const menu = this.journal?.menuOf?.(me.id, use);
+          send({ t: "menu", use, country: menu?.country ?? null, items: (menu?.items ?? []).map((x) => ({ id: x.id, name: x.name, groups: x.groups, price: x.price })) });
+        }
+      } else if (msg.t === "house" && room) {
+        // A house of my own (home.ts): make the one I am at mine (`claim`), give mine up (`leave`), or swap a
+        // piece in it (`put`: a slot and a piece, or no piece for what the house came with; a prize goes `on` or off).
+        const homes = this.options.homes;
+        if (!homes) { send({ t: "error", code: "locked", text: "Houses cannot be kept here" }); return; }
+        const owner = me.personId ?? me.id;
+        const c = msg.claim as { x?: unknown; y?: unknown; id?: unknown } | undefined;
+        if (c && typeof c === "object") {
+          const x = Number(c.x), y = Number(c.y), id = Number(c.id);
+          if (![x, y, id].every(Number.isSafeInteger) || x < 0 || y < 0) return;
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          const there = homes.at(x, y, id);
+          if (there) { send({ t: "error", code: "taken", text: there.owner === owner ? "This is your house already" : `${there.name} lives here` }); return; }
+          if (Date.now() - me.houseAt < 2000) { send({ t: "error", code: "busy", text: "One moment" }); return; }
+          me.houseAt = Date.now();
+          let found: Awaited<ReturnType<NonNullable<RoomsOptions["findHome"]>>> = null;
+          try { found = (await this.options.findHome?.(x, y, id)) ?? null; } catch { /* the map would not say */ }
+          if (!room.members.has(me.id)) return; // left meanwhile
+          if (!found) { send({ t: "error", code: "nohome", text: "That house cannot be moved into" }); return; }
+          const metres = Math.hypot((found.lat - me.lat) * 111_320, (found.lon - me.lon) * 111_320 * Math.cos((me.lat * Math.PI) / 180));
+          if (metres > 80) { send({ t: "error", code: "far", text: "Go into the house first" }); return; }
+          const { got, left } = homes.claim(owner, me.name, me.personId !== null, { x, y, id, ...found, gen: this.options.worldRev ?? 0 });
+          if (got !== "ok") { send({ t: "error", code: got === "full" ? "many" : "taken", text: got === "full" ? "There are no more houses to be had just now" : "Somebody lives here" }); return; }
+          if (left) this.broadcastAll({ t: "lived", x: left.x, y: left.y, id: left.id, gone: true });
+          this.broadcastAll({ t: "lived", ...viewOfLived(homes.of(owner)!) });
+          send({ t: "house", house: this.houseOf(me) });
+        } else if (msg.leave === true) {
+          const left = homes.leave(owner);
+          if (left) this.broadcastAll({ t: "lived", x: left.x, y: left.y, id: left.id, gone: true });
+          send({ t: "house", house: null });
+        } else if (msg.put && typeof msg.put === "object") {
+          const mine = homes.of(owner);
+          if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }
+          const put = msg.put as { slot?: unknown; id?: unknown; on?: unknown };
+          const slot = clean(put.slot, 12), id = clean(put.id, 16);
+          const piece = id ? pieceById(id) : undefined;
+          if ((id && piece?.slot !== slot) || !["walls", "floor", "sofa", "bed", "rug", "prize"].includes(slot)) { send({ t: "error", code: "locked", text: "There is no such piece" }); return; }
+          if (piece) {
+            const got = this.journal?.takePiece?.(me.id, piece.id) ?? "unknown";
+            if (got !== "ok") { send({ t: "error", code: got === "poor" ? "poor" : "locked", text: got === "poor" ? "Not enough coins yet" : got === "prize" ? "That is a prize: it has to be won" : "There is no such piece" }); return; }
+          }
+          const decor = cleanDecor(mine.decor);
+          if (slot === "prize") {
+            if (!piece) return;
+            decor.prizes = decor.prizes.filter((p) => p !== piece.id);
+            if (put.on !== false) {
+              if (decor.prizes.length >= PRIZES_SHOWN) { send({ t: "error", code: "many", text: `A house shows ${PRIZES_SHOWN} prizes at once: put one away first` }); return; }
+              decor.prizes.push(piece.id);
+            }
+          } else if (piece) decor[slot as "walls" | "floor" | "sofa" | "bed" | "rug"] = piece.id;
+          else delete decor[slot as "walls" | "floor" | "sofa" | "bed" | "rug"];
+          homes.change(owner, { decor });
+          this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+          send({ t: "house", house: this.houseOf(me) });
+          send({ t: "journal", journal: this.journal?.view(me.id) ?? null });
+        }
       } else if (msg.t === "hat" && room) {
         // Buy a hat with my coins (`buy`), put on one I own (`wear`), or take it off (neither).
         const buy = clean(msg.buy, 16), wear = clean(msg.wear, 16) || null;
@@ -488,7 +696,14 @@ export class Rooms {
         const now = Date.now();
         if (room.race && stale(room.race, now)) room.race = null;
         const race = room.race;
-        if (msg.make === true) {
+        if (msg.make === "agility") {
+          // An agility course (race.ts): obstacles in a ring before me, for me and my companion. No roads are needed.
+          if (race && race.state !== "over") { send({ t: "error", code: "locked", text: `${race.byName} has a race set up already` }); return; }
+          if (room.play && room.play.state !== "over") { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
+          if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
+          if (!me.pet) { send({ t: "error", code: "locked", text: "Agility is for you and a companion: solve a riddle to win one, and choose it in your passport" }); return; }
+          room.race = newRace(me.id, me.name, agilityCourse(me.lat, me.lon, me.yaw, hash32(parseInt(me.id, 16) | 0, now & 0x7fffffff)), now);
+        } else if (msg.make === true) {
           if (race && race.state !== "over") { send({ t: "error", code: "locked", text: `${race.byName} has a race set up already` }); return; }
           if (room.play && room.play.state !== "over") { send({ t: "error", code: "locked", text: "There is a game set up here already" }); return; }
           if (!me.hasPos) { send({ t: "error", code: "nowhere", text: "You have not arrived anywhere yet" }); return; }
@@ -577,6 +792,9 @@ export class Rooms {
       this.leaveRace(room, me.id);
       this.leavePlay(room, me.id);
       for (const x of [...room.taxis.values()]) if (x.by === me.id && !x.aboard) this.dismiss(room, x.thing); // and their taxi drives off
+      // A guest's house is theirs for the visit only.
+      const lent = me.personId === null ? this.options.homes?.leave(me.id) : null;
+      if (lent) this.broadcastAll({ t: "lived", x: lent.x, y: lent.y, id: lent.id, gone: true });
       this.journal?.left(me.id);
       this.everyone.delete(me.id);
       room.members.delete(me.id);
@@ -783,6 +1001,19 @@ export class Rooms {
     room.orders.set(thing, order);
     if (order.act === "follow") this.journal?.following?.(m.id, thing, true);
     this.broadcast(room, { t: "order", ...order });
+  }
+
+  /** My own house, as I am told of it: where it is and how I have furnished it. */
+  private houseOf(m: Member): (ReturnType<typeof viewOfLived> & { decor: Lived["decor"]; animals: ReturnType<typeof gardenView>; breeds: typeof BREEDS; gardenMax: number }) | null {
+    const mine = this.options.homes?.of(m.personId ?? m.id);
+    const day = this.journal?.dayFor?.(m.id) ?? Math.floor(Date.now() / 86_400_000);
+    return mine ? { ...viewOfLived(mine), decor: mine.decor, animals: gardenView(mine.garden ?? [], day), breeds: BREEDS, gardenMax: GARDEN_MAX } : null;
+  }
+
+  /** Tells everybody, in every room: houses are in the world, not in a room. */
+  private broadcastAll(obj: unknown): void {
+    const text = JSON.stringify(obj);
+    for (const m of this.everyone.values()) if (m.ws.readyState === m.ws.OPEN) m.ws.send(text);
   }
 
   private broadcast(room: Room, obj: unknown): void {

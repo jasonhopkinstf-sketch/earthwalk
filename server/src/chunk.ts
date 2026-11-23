@@ -777,7 +777,7 @@ function roofRise(b: Building, areaM2: number, height: number, look: RoofLook): 
  * Where a building's name goes: the middle of a board on its front wall (chunk-local metres east and
  * north, metres above the sea), the way it faces, and how wide it may be. The games draw the board.
  */
-export interface SignSpot { text: string; x: number; y: number; z: number; out: XY; width: number; /** True for a shop, a church, a school...: these keep their signs where a chunk has too many. */ known?: boolean }
+export interface SignSpot { text: string; x: number; y: number; z: number; out: XY; width: number; /** True for a shop, a church, a school...: these keep their signs where a chunk has too many. */ known?: boolean; /** What kind of place it is, where the map says: a shop, somewhere to eat... */ use?: string }
 /** A city centre has a name on every building: a chunk keeps this many, the shops, churches and schools first. */
 const SIGN_CAP = 20;
 
@@ -1568,7 +1568,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(cross, x, y, t, o, at - 0.14, at + 0.14, 0.08, 0.12, signZ - 0.44, signZ + 0.44);
           box(cross, x, y, t, o, at - 0.44, at + 0.44, 0.08, 0.12, signZ - 0.14, signZ + 0.14);
         }
-        if (signs && b.name && room > 2.6) signs.push({ text: b.name, x: x + o[0] * 0.1, y: y + o[1] * 0.1, z: signZ, out: o, width: signW, ...(b.use ? { known: true } : {}) });
+        if (signs && b.name && room > 2.6) signs.push({ text: b.name, x: x + o[0] * 0.1, y: y + o[1] * 0.1, z: signZ, out: o, width: signW, ...(b.use ? { known: true, use: b.use } : {}) });
       }
     }
   }

@@ -14,7 +14,7 @@ import { trainsFor, type Train } from "./rail.ts";
 import { loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 13;
+export const LABELS_REV = 14;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
@@ -269,6 +269,8 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
   const signs: LabelItem[] = signsOf(cx, cy, features, elev).map((sign) => ({
     kind: "sign", text: sign.text, u: r7(sign.x / S), v: r7(-sign.y / S), h: Math.round(sign.z * 100) / 100,
     yaw: r1(((Math.atan2(sign.out[0], sign.out[1]) * 180) / Math.PI + 360) % 360), w: r1(sign.width),
+    // A shop or somewhere to eat says so: food is sold there (food.ts).
+    ...(sign.use === "shop" || sign.use === "food" ? { use: sign.use } : {}),
   }));
 
   // ---- cars: the parked ones, and the trips the others make. Clients drive them (docs/PROTOCOL.md, "Traffic").

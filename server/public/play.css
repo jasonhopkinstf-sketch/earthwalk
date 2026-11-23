@@ -29,6 +29,98 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #stamp.race { border-color: #26262b; border-style: solid; }
 #speedo { position: fixed; right: 16px; bottom: 34px; background: var(--panel); padding: 6px 14px; border-radius: 18px; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 #speedo[hidden] { display: none; }
+/* Furnishing a house of your own: a panel down the right-hand side, with the room still in view. */
+#decor { position: fixed; top: 84px; right: 12px; bottom: 12px; width: min(380px, calc(100vw - 24px)); z-index: 4; }
+#decor[hidden] { display: none; }
+#decor .page { position: relative; max-height: 100%; overflow-y: auto; background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); }
+#decor h2 { margin: 0 0 2px; font-size: 22px; }
+#decor h3 { margin: 12px 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #6b5d45; }
+#decor .coins { margin: 0; font-weight: 700; color: #8a6a12; }
+#decor .small { font-size: 12px; opacity: .8; margin: 0; text-align: left; }
+#decor p.small { margin: 12px 0 6px; }
+#decor .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: inherit; }
+#decor .pieces { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+#decor .piece { display: grid; grid-template-columns: 26px 1fr; column-gap: 8px; align-items: center; text-align: left; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 10px; padding: 4px 10px 4px 6px; font: inherit; font-size: 13px; cursor: pointer; }
+#decor .piece i { grid-row: 1 / span 2; width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .3); }
+#decor .piece i.plain { background: repeating-linear-gradient(45deg, #e8dcc8 0 4px, #fffaf0 4px 8px); }
+#decor .piece b { font-weight: 600; }
+#decor .piece .small { grid-column: 2; text-align: left; }
+#decor .piece.owned { border-color: #3f7f4f; }
+#decor .piece.on { border-color: #3f7f4f; background: #e2f0da; }
+#decor .piece:disabled { cursor: default; opacity: .62; }
+#decor .animal { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto auto; column-gap: 6px; align-items: center; background: #fffaf0; border: 2px solid #c9bd9a; border-radius: 10px; padding: 4px 6px 4px 10px; font-size: 13px; }
+#decor .animal.todo { border-color: #d08a1e; background: #fdf1d8; }
+#decor .animal b { font-weight: 600; }
+#decor .animal .small { grid-column: 1; grid-row: 2; }
+#decor .animal .do { grid-row: 1 / span 2; grid-column: 2; background: #2b2620; color: #f6efd9; border: 0; border-radius: 10px; padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; max-width: 170px; }
+#decor .animal .do:disabled { background: none; color: inherit; opacity: .6; cursor: default; }
+#decor .animal .go { grid-row: 1 / span 2; grid-column: 3; background: none; border: 0; color: #8a7a5a; font: inherit; font-size: 14px; cursor: pointer; }
+#decor .out { background: none; border: 1px solid #a9987a; color: #6b5d45; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+/* Food: five hearts in the corner, and the lunch box where the furnishing panel goes. */
+#hearts { position: fixed; right: 14px; bottom: 76px; display: flex; gap: 3px; background: var(--panel); border: 0; border-radius: 18px; padding: 4px 8px; cursor: pointer; font: inherit; }
+#hearts[hidden] { display: none; }
+#hearts .heart { font-size: 17px; line-height: 1.3; filter: grayscale(1); opacity: .38; }
+#hearts .heart.on { filter: none; opacity: 1; }
+#hearts.full { box-shadow: 0 0 0 2px #f2c94c, 0 0 14px rgba(242, 201, 76, .8); }
+#lunch { position: fixed; top: 84px; right: 12px; bottom: 12px; width: min(380px, calc(100vw - 24px)); z-index: 4; }
+#lunch[hidden] { display: none; }
+#lunch .page { position: relative; max-height: 100%; overflow-y: auto; background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); }
+#lunch h2 { margin: 0 0 6px; font-size: 22px; }
+#lunch h3 { margin: 12px 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #6b5d45; }
+#lunch .small { font-size: 12px; opacity: .8; margin: 0; text-align: left; }
+#lunch p.small { margin: 6px 0; }
+#lunch .coins { margin: 0 0 6px; font-weight: 700; color: #8a6a12; font-size: 13px; }
+#lunch .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: inherit; }
+#lunch .hearts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; text-align: center; }
+#lunch .kind .small { text-align: center; }
+#lunch .kind { background: #fffaf0; border: 2px solid #c9bd9a; border-radius: 10px; padding: 4px 2px; display: flex; flex-direction: column; align-items: center; }
+#lunch .kind .icon { font-size: 22px; filter: grayscale(1); opacity: .4; }
+#lunch .kind.on { border-color: #3f7f4f; background: #e2f0da; }
+#lunch .kind.on .icon { filter: none; opacity: 1; }
+#lunch .foods { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+#lunch .foods p { grid-column: 1 / -1; }
+#lunch .food { display: flex; flex-direction: column; text-align: left; background: #fffaf0; color: inherit; border: 2px solid #3f7f4f; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+#lunch .food.buy { border-color: #c9bd9a; }
+#lunch .food b { font-weight: 600; }
+#lunch .food:disabled { cursor: default; opacity: .6; }
+#lunch .pair { display: flex; flex-direction: column; gap: 2px; }
+#lunch .pair .food { border-radius: 10px 10px 4px 4px; }
+#lunch .give { background: #2b2620; color: #f6efd9; border: 0; border-radius: 4px 4px 10px 10px; padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lunch .recipes { display: flex; flex-direction: column; gap: 5px; }
+#lunch .recipe { display: flex; flex-direction: column; text-align: left; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 13px; }
+#lunch .recipe.can { border-color: #d08a1e; background: #fdf1d8; cursor: pointer; }
+#lunch .recipe b { font-weight: 600; }
+#lunch .recipe .have { color: #2f6b3c; font-weight: 600; }
+#lunch .recipe .want { opacity: .75; text-decoration: underline dotted; }
+#lunch .recipe:disabled { opacity: .8; }
+#stamp.food { border-color: #3f7f4f; }
+/* Tricks: the panel, and the bar a lesson is played on. */
+#train { position: fixed; top: 84px; right: 12px; width: min(300px, calc(100vw - 24px)); z-index: 4; }
+#train[hidden], #lesson[hidden] { display: none; }
+#train .page { position: relative; background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 12px 14px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); }
+#train h2 { margin: 0 0 4px; font-size: 22px; }
+#train .small { font-size: 12px; opacity: .8; margin: 0; text-align: left; }
+#train p.small { margin: 6px 0; }
+#train .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: inherit; }
+#train .tricks { display: flex; flex-direction: column; gap: 5px; }
+#train .trick { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; background: #fffaf0; color: inherit; border: 2px solid #c9bd9a; border-radius: 10px; padding: 5px 10px; font: inherit; font-size: 13px; }
+#train .trick.known { border-color: #3f7f4f; background: #e2f0da; cursor: pointer; }
+#train .trick.next { border-color: #d08a1e; background: #fdf1d8; cursor: pointer; }
+#train .trick:disabled { opacity: .55; }
+#train .trick b { font-weight: 600; }
+#lesson { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); background: #f6efd9; color: #2b2620; border-radius: 14px; padding: 10px 14px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); z-index: 4; text-align: center; }
+#lesson.flash { box-shadow: 0 0 0 3px #f2c94c, 0 6px 24px rgba(0, 0, 0, .45); }
+#lesson .title { font-size: 18px; font-weight: 800; }
+#lesson .small { font-size: 12px; opacity: .8; margin: 4px 0 0; }
+#lesson .track { position: relative; height: 44px; margin: 8px 0 2px; background: #efe6c8; border-radius: 22px; overflow: hidden; }
+#lesson .ring { position: absolute; left: 38px; top: 4px; width: 36px; height: 36px; box-sizing: border-box; border: 4px solid #b5372e; border-radius: 50%; }
+#lesson .paw { position: absolute; left: -14px; top: 7px; width: 28px; font-size: 22px; line-height: 30px; text-align: center; will-change: transform; }
+#lesson .paw.hit { filter: hue-rotate(80deg) saturate(2); opacity: .5; }
+#lesson .paw.miss { opacity: .25; }
+#stamp.trick { border-color: #d08a1e; border-style: solid; }
+#stamp.care { border-color: #c2507a; }
+#passport .homebox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#passport .homebox .go { background: #2b2620; color: #f6efd9; border: 0; border-radius: 12px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
 #hint { position: fixed; top: 12px; right: 12px; background: var(--panel); padding: 6px 10px; border-radius: 6px; font-size: 12px; opacity: .85; }
 /* "Show me...": things to show somebody, and the button that opens the list. */
 #showme { position: fixed; top: 46px; right: 12px; background: #f5c518; color: #26221f; border: 0; border-radius: 16px; padding: 6px 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }

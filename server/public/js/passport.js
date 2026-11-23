@@ -26,7 +26,8 @@ export class Passport {
    * @param {{ panel: HTMLElement, toast: HTMLElement, meetup: import("./net.js").Meetup, animal?: (id: string) => void }} parts
    *   `animal` makes the player another animal (the passport has the six to choose from).
    */
-  constructor({ panel, toast, meetup, animal }) {
+  constructor({ panel, toast, meetup, animal, goHome }) {
+    this.goHome = goHome ?? null;
     this.panel = panel;
     this.toast = toast;
     this.meetup = meetup;
@@ -70,7 +71,7 @@ export class Passport {
     this.showing = !!news;
     if (!news) { this.toast.hidden = true; return; }
     this.toast.replaceChildren(
-      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : news.kind === "hunt" ? "Treasure hunt" : news.kind === "expedition" ? "Expedition" : news.kind === "race" ? "Race" : news.kind === "play" ? "Game over" : "New stamp"),
+      el("div", "label", news.kind === "country" ? "New country" : news.kind === "level" ? "Level up" : news.kind === "riddle" ? "Riddles" : news.kind === "task" ? "Today" : news.kind === "prize" ? "A prize" : news.kind === "favour" ? "A favour" : news.kind === "hunt" ? "Treasure hunt" : news.kind === "expedition" ? "Expedition" : news.kind === "race" ? "Race" : news.kind === "play" ? "Game over" : news.kind === "food" ? "Food" : news.kind === "trick" ? "A new trick" : news.kind === "care" ? "Animals" : "New stamp"),
       el("div", "title", news.title), el("div", "text", news.text ?? ""));
     this.toast.className = news.kind ?? "stamp";
     this.toast.hidden = false;
@@ -306,6 +307,23 @@ export class Passport {
       garage.append(row, paints, bodies);
     }
 
+    // A house of my own: where it is and a way home; the furnishing is done inside it (decor.js).
+    const homebox = el("div", "homebox");
+    if (j.house) {
+      const mine = this.meetup.house;
+      const owned = j.house.pieces.filter((p) => p.owned);
+      const prizes = owned.filter((p) => p.slot === "prize").length;
+      if (mine) {
+        const go = el("button", "go", "Go home");
+        go.type = "button";
+        go.addEventListener("click", () => { this.close(); this.goHome?.(); });
+        homebox.append(go, el("span", "small", "Inside it, H opens the furniture, the paint and your prizes."));
+      } else {
+        homebox.append(el("span", "small", "You have no house yet. Go into any house nobody lives in (E at a door with a COME IN board) and press H: your name goes up over the door, and friends can visit."));
+      }
+      homebox.append(el("span", "small", `You own ${owned.length - prizes} piece${owned.length - prizes === 1 ? "" : "s"} of furniture and paint, and ${prizes} prize${prizes === 1 ? "" : "s"} of ${j.house.pieces.filter((p) => p.slot === "prize").length}.`));
+    }
+
     // Hats: bought with coins or won, one worn at a time. Friends see it on you.
     const avatar = this.meetup.me?.avatar ?? "fox";
     const wardrobe = el("div", "wardrobe");
@@ -352,7 +370,7 @@ export class Passport {
       animals.append(b);
     }
 
-    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Games with friends"), games, el("h3", "", "Your car"), garage, el("h3", "", "Your animal"), animals, el("h3", "", "Hats"), wardrobe,
+    page.append(close, coins, head, totals, el("h3", "", "Today"), tasks, tasksNote, el("h3", "", "Favours"), favours, favoursNote, el("h3", "", "Expeditions"), journeys, el("h3", "", "Games with friends"), games, el("h3", "", "Your house"), homebox, el("h3", "", "Your car"), garage, el("h3", "", "Your animal"), animals, el("h3", "", "Hats"), wardrobe,
       el("h3", "", "Riddles"), riddles, el("h3", "", "Companions"), pets, el("h3", "", "Stamps"), stamps, lists, foot);
     this.panel.replaceChildren(page);
   }

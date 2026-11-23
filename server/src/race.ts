@@ -49,7 +49,32 @@ export function gatesAlong(path: [number, number][], every = GATE_EVERY_M): [num
   return gates;
 }
 
-export interface Course { gates: [number, number][]; metres: number }
+export interface Course { gates: [number, number][]; metres: number; kind?: "agility"; reach?: number; obstacles?: Obstacle[] }
+
+/**
+ * An agility course: a ring of obstacles on open ground, for a player to run with their companion at their
+ * heels. It is a race of another kind: its "gates" are the obstacles, close together, each passed by coming
+ * within a few steps of it, in order.
+ */
+export type Obstacle = "start" | "jump" | "hoop" | "weave" | "tunnel" | "table" | "finish";
+export const AGILITY_REACH_M = 3.2;
+/** Where the obstacles stand, in metres ahead of and to the right of whoever sets the course up. */
+const RING: [number, number][] = [[5, 0], [11, 3], [16, 9], [17, 16], [12, 21], [5, 20], [0, 15], [-1, 8], [3, 3]];
+const BETWEEN: Obstacle[] = ["jump", "hoop", "weave", "jump", "tunnel", "table", "jump"];
+
+/** The course set up by somebody standing at a place and facing `yawDeg` (a compass heading). `seed` chooses the order of the obstacles. */
+export function agilityCourse(lat: number, lon: number, yawDeg: number, seed: number): Course {
+  const yaw = (yawDeg * Math.PI) / 180;
+  const gates: [number, number][] = RING.map(([ahead, right]) => {
+    const north = Math.cos(yaw) * ahead - Math.sin(yaw) * right, east = Math.sin(yaw) * ahead + Math.cos(yaw) * right;
+    return [+(lat + north / 111_320).toFixed(7), +(lon + east / (111_320 * Math.cos((lat * Math.PI) / 180))).toFixed(7)];
+  });
+  let metres = 0;
+  for (let i = 1; i < RING.length; i++) metres += Math.hypot(RING[i][0] - RING[i - 1][0], RING[i][1] - RING[i - 1][1]);
+  const turn = (seed >>> 0) % BETWEEN.length;
+  const obstacles: Obstacle[] = ["start", ...BETWEEN.map((_, i) => BETWEEN[(i + turn) % BETWEEN.length]), "finish"];
+  return { gates, metres: Math.round(metres), kind: "agility", reach: AGILITY_REACH_M, obstacles };
+}
 
 /**
  * A course for a race beginning near a position: a way by road to somewhere a few streets off. Eight
@@ -84,10 +109,17 @@ export interface Race {
   made: number;
   ended: number;
   runners: Runner[];
+  /** For an agility course: that it is one, how near an obstacle counts as passing it, and what each obstacle is. */
+  kind?: "agility";
+  reach?: number;
+  obstacles?: Obstacle[];
 }
 
 export function newRace(by: string, byName: string, course: Course, now: number): Race {
-  return { by, byName, gates: course.gates, metres: course.metres, state: "open", startAt: 0, made: now, ended: 0, runners: [{ id: by, name: byName, gate: 0, time: null }] };
+  return {
+    by, byName, gates: course.gates, metres: course.metres, state: "open", startAt: 0, made: now, ended: 0, runners: [{ id: by, name: byName, gate: 0, time: null }],
+    ...(course.kind ? { kind: course.kind, reach: course.reach, obstacles: course.obstacles } : {}),
+  };
 }
 
 /** Where a runner came in among those who have finished: 1 for the winner. 0 if they have not finished. */
@@ -107,7 +139,7 @@ export function passed(race: Race, id: string, lat: number, lon: number, now: nu
   const runner = race.runners.find((r) => r.id === id);
   if (!runner || runner.time !== null) return null;
   const gate = race.gates[runner.gate];
-  if (!gate || metresBetween(gate[0], gate[1], lat, lon) > GATE_REACH_M) return null;
+  if (!gate || metresBetween(gate[0], gate[1], lat, lon) > (race.reach ?? GATE_REACH_M)) return null;
   runner.gate++;
   if (runner.gate < race.gates.length) return "gate";
   runner.time = now - race.startAt;

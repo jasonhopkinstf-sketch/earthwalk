@@ -1,4 +1,5 @@
-// The local player: first-person walking and flying, and driving, seen from behind the car.
+// The local player: first-person walking and flying, driving, seen from behind the car, and the view from
+// above while riding or being carried.
 
 import * as THREE from "three";
 import { stepCar } from "./cardrive.js";
@@ -18,6 +19,19 @@ const CAR_RADIUS = 1.25;
 const CAR_BUMPER = 0.6;
 /** What a car keeps of its speed when it meets a wall: a bump, never a crash. */
 const BUMP_KEEPS = 0.5;
+/**
+ * The views while riding (the V key): the seat, then from above, then from high up. `far` is how far off the
+ * camera hovers in metres, and `tilt` how steeply it looks down (radians above level).
+ */
+export const VIEWS = [
+  { name: "your seat" },
+  { name: "from above", far: 17, tilt: 0.5 },
+  { name: "from high up", far: 62, tilt: 0.85 },
+];
+/** Being carried, the hovering camera circles slowly until the mouse says where to look: radians a second. */
+const DRIFT = 0.09;
+/** The least turn from one angle to another, -pi to pi. */
+const wrap = (a) => ((a % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
 
 export class Player {
   constructor(camera, world, canvas) {
@@ -43,6 +57,17 @@ export class Player {
      * { heading, vx, vz, speed, steer, turn, look, idle, view }. The camera then follows behind it.
      */
     this.car = null;
+    /** Which of VIEWS the ride is seen from. */
+    this.view = 0;
+    /** True while something else is taking the player along: a train, a friend, or a mount finding its own way. */
+    this.taken = false;
+    this.course = 0; // which way the ride has been going, as a heading
+    this.orbit = 0; // how far round from behind the hovering camera has been swung
+    this.zoom = 1; // nearer or further, by the mouse wheel
+    this.drift = false; // circling by itself
+    this.boom = null; // from the rider to the hovering camera
+    this.was = new THREE.Vector3();
+    this.still = 0;
     this.ray = new THREE.Raycaster();
     this.ray.firstHitOnly = true;
     camera.rotation.order = "YXZ";
@@ -65,12 +90,47 @@ export class Player {
       if (document.pointerLockElement !== canvas && !dragging) return;
       this.look(e.movementX, e.movementY);
     });
+    // From above, the wheel brings the camera nearer or takes it further off.
+    canvas.addEventListener("wheel", (e) => {
+      if (!this.view) return;
+      e.preventDefault();
+      this.zoom = Math.min(2.5, Math.max(0.4, this.zoom * Math.exp(e.deltaY * 0.0012)));
+    }, { passive: false });
   }
 
   look(dx, dy) {
     // At the wheel the mouse looks round the car, and the car goes where it is steered.
-    if (this.car) { this.car.look += dx * LOOK; this.car.idle = 0; } else this.yaw += dx * LOOK;
+    this.turn(dx * LOOK);
     this.pitch = Math.min(1.5, Math.max(-1.5, this.pitch - dy * LOOK));
+  }
+
+  /** Looks further round to the right, by the mouse or the arrow keys. */
+  turn(by) {
+    if (!by) return;
+    this.drift = false;
+    // At the wheel it looks round the car, and the car goes where it is steered. Taken along and seen from above,
+    // it swings the camera round the ride. Otherwise it turns the player.
+    if (this.car) { this.car.look += by; this.car.idle = 0; } else if (this.view && this.taken) this.orbit += by; else this.yaw += by;
+  }
+
+  /**
+   * The V key: the next of VIEWS, while riding or being carried. Returns the view's name, or null on foot.
+   */
+  nextView() {
+    if (!this.mount && !this.carried) return null;
+    this.setView((this.view + 1) % VIEWS.length);
+    return VIEWS[this.view].name;
+  }
+
+  setView(view) {
+    this.view = view;
+    this.pitch = 0;
+    this.orbit = 0;
+    this.zoom = 1;
+    this.drift = view > 0;
+    this.boom = null;
+    if (this.car) this.car.look = 0;
+    if (this.still > 0.5) this.course = this.car ? this.car.heading : this.yaw;
   }
 
   setFlying(fly) {
@@ -154,12 +214,63 @@ export class Player {
     this.camera.lookAt(this.position.x + Math.sin(car.heading) * 2, this.position.y + 0.7, this.position.z - Math.cos(car.heading) * 2);
   }
 
+  /** Which way the ride is going, from where it was a frame ago. */
+  track(dt) {
+    const dx = this.position.x - this.was.x, dz = this.position.z - this.was.z;
+    this.was.copy(this.position);
+    const step = Math.hypot(dx, dz);
+    if (dt > 0 && step < 50 && step / dt > 1) {
+      this.still = 0;
+      this.course += wrap(Math.atan2(dx, -dz) - this.course) * (1 - Math.exp(-2.5 * dt));
+    } else this.still += dt;
+  }
+
+  /**
+   * The camera hovering over the ride, looking down at it. Steering, it stays behind; taken along, it follows
+   * the way the ride is going, circles slowly by itself, and goes where the mouse swings it.
+   */
+  hover(dt) {
+    const v = VIEWS[this.view], car = this.car;
+    let round;
+    if (car) {
+      car.idle += dt;
+      if (this.taken) { if (this.drift) car.look += DRIFT * dt; }
+      else if (car.idle > 1.2 && Math.abs(car.speed) > 1.5) car.look *= Math.exp(-2.5 * dt);
+      round = car.view = car.heading + car.look;
+    } else if (this.taken) {
+      if (this.drift) this.orbit += DRIFT * dt;
+      round = this.course + this.orbit;
+    } else {
+      this.orbit = 0;
+      round = this.yaw;
+    }
+    const far = v.far * this.zoom;
+    const tilt = Math.max(0.12, Math.min(1.45, v.tilt - this.pitch * 0.7));
+    const eye = new THREE.Vector3(this.position.x, this.position.y + 0.6, this.position.z);
+    const arm = (t) => new THREE.Vector3(-Math.sin(round) * Math.cos(t) * far, Math.sin(t) * far, Math.cos(round) * Math.cos(t) * far);
+    // Over the rooftops, not behind them: where a building is in the way, look from steeper.
+    let want = arm(tilt);
+    for (let t = tilt; ; ) {
+      const wall = this.hit(eye, want.clone().divideScalar(far), far + 0.5);
+      if (!wall) break;
+      t += 0.2;
+      if (t > 1.5) { want.multiplyScalar(Math.max(0.1, (wall.distance - 0.5) / far)); break; } // under a roof: come in close
+      want = arm(t);
+    }
+    if (this.boom) this.boom.lerp(want, 1 - Math.exp(-5 * dt)); else this.boom = want;
+    const at = eye.clone().add(this.boom);
+    const ground = this.world.groundHeight(at.x, at.z);
+    if (ground !== null && at.y < ground + 1.2) at.y = ground + 1.2;
+    this.camera.position.copy(at);
+    this.camera.lookAt(eye);
+  }
+
   update(dt) {
     const k = this.keys;
     const turn = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
     const tilt = (k.has("ArrowUp") ? 1 : 0) - (k.has("ArrowDown") ? 1 : 0);
     if (!this.typing) {
-      if (this.car) { this.car.look += turn * 1.8 * dt; if (turn) this.car.idle = 0; } else this.yaw += turn * 1.8 * dt;
+      this.turn(turn * 1.8 * dt);
       this.pitch = Math.min(1.5, Math.max(-1.5, this.pitch + tilt * 1.2 * dt));
     }
 
@@ -178,6 +289,7 @@ export class Player {
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
       const move = new THREE.Vector3();
+      this.taken = this.carried || (!!this.mount && !forward && !strafe && !!this.autopilot);
 
       if (this.carried) {
         // Nothing to do: riding.js puts us where the train, or our friend, has got to.
@@ -228,7 +340,7 @@ export class Player {
         const ground = this.world.groundHeight(this.position.x, this.position.z);
         if (ground !== null && this.position.y < ground) this.position.y = ground;
       } else {
-        const speed = (fast ? RUN : WALK) * (this.boost ?? 1) * dt; // whoever is "it" at tag is a little quicker (play.js)
+        const speed = (fast ? RUN : WALK) * (this.boost ?? 1) * (this.pep ?? 1) * dt; // whoever is "it" at tag is a little quicker (play.js), and so is anyone with five full hearts (lunch.js)
         move.set(sin * forward + cos * strafe, 0, -cos * forward + sin * strafe);
         if (move.lengthSq() > 1) move.normalize();
         this.moveHorizontally(move.multiplyScalar(speed));
@@ -263,6 +375,9 @@ export class Player {
       }
     }
 
+    this.track(dt);
+    if (this.view && !this.mount && !this.carried) this.setView(0); // on foot again
+    if (this.view && !this.waitingForGround) return this.hover(dt);
     if (this.car && this.mount && !this.waitingForGround) return this.chase(dt);
     this.camera.position.set(this.position.x, this.position.y + (this.mount || this.carried ? RIDING_EYE : EYE_HEIGHT), this.position.z);
     this.camera.rotation.set(this.pitch, -this.yaw, 0);

@@ -6,6 +6,7 @@
 // (docs/PROTOCOL.md, "Riding"). A train is different: it keeps to its timetable and carries you.
 
 import { newCar } from "./cardrive.js";
+import { VIEWS } from "./player.js";
 
 /**
  * What can be ridden: pace in metres a second (hold Shift for all of it), how high the rider sits,
@@ -104,9 +105,10 @@ export class Riding {
       // Something with an engine is driven: it has a heading and a speed of its own, and the camera stands back.
       if (mount.drive) p.car = newCar(p.yaw);
     }
-    this.say(ride.seat > 0 && ride.sp !== "train" ? `You are riding along on the ${mount.name}. Press E to hop off.`
-      : mount.drive && ride.seat === 0 ? `You are driving the ${mount.name}: W and S for the pedals, A and D to steer, Space for the handbrake, the mouse to look round. Press E to get out.`
-      : `You are on the ${mount.name}. Press E to hop off.`);
+    p.setView(0);
+    this.say(ride.seat > 0 && ride.sp !== "train" ? `You are riding along on the ${mount.name}. Press E to hop off, V to look from above.`
+      : mount.drive && ride.seat === 0 ? `You are driving the ${mount.name}: W and S for the pedals, A and D to steer, Space for the handbrake, the mouse to look round. Press E to get out, V to look from above.`
+      : `You are on the ${mount.name}. Press E to hop off, V to look from above.`);
   }
 
   /** Hop off, and tell everyone. */
@@ -122,6 +124,7 @@ export class Riding {
     this.mine = null;
     p.mount = null;
     p.carried = false;
+    if (p.view) p.setView(0);
     if (p.car) { p.yaw = p.car.heading; p.pitch = 0; p.car = null; }
     p.position.x += Math.cos(p.yaw) * side;
     p.position.z += Math.sin(p.yaw) * side;
@@ -198,9 +201,9 @@ export class Riding {
       };
       for (const c of this.life.rideable) consider(c);
       for (const c of this.traffic.rideable) consider(c);
-      for (const m of this.mounts) if (m.key !== "me") consider(m); // one left standing, or a friend's, to ride along on
+      for (const m of this.mounts) if (m.key !== "me" && !m.noRide) consider(m); // one left standing, or a friend's, to ride along on
     }
-    this.hint(me ? `E: hop off the ${me.mount.name}` : this.near ? `E: ${this.near.key ? "ride along on" : "hop on"} the ${MOUNTS[this.near.sp].name}` : "");
+    this.hint(me ? `E: hop off the ${me.mount.name} · V: ${VIEWS[(p.view + 1) % VIEWS.length].name}` : this.near ? `E: ${this.near.key ? "ride along on" : "hop on"} the ${MOUNTS[this.near.sp].name}` : "");
   }
 
   /** A driven car sits to the slope of the ground under its wheels, leans out of a bend, and dips its nose under braking. */

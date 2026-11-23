@@ -394,16 +394,18 @@ export class Life {
     const rig = RIGS[m.sp];
     if (!rig) return;
     const beat = (m.thing % 628) / 100;
-    const size = 0.9 + 0.2 * unit(m.thing, SALT_COAT + 1);
+    const size = (0.9 + 0.2 * unit(m.thing, SALT_COAT + 1)) * (m.scale ?? 1); // (a young one in a garden is small: garden.js)
     const coat = rig.palette[hash32(m.thing, SALT_COAT) % rig.palette.length];
-    const stride = (m.gait / rig.stride) * Math.PI * 2;
+    const stride = (m.gait / (rig.stride * (m.scale ?? 1))) * Math.PI * 2;
     const walk = m.moving ? 1 : 0;
     const lift = rig.hop ? Math.abs(Math.sin(stride / 2)) * rig.hop * walk : Math.abs(Math.sin(stride)) * 0.03 * walk;
     const bob = rig.swim ? Math.sin(t * 1.7 + beat) * 0.012 - rig.swim : 0;
     // An insect keeps to the air here too, wings going.
     const hover = rig.hover ? rig.hover[0] + (rig.hover[1] - rig.hover[0]) * (0.5 + 0.5 * Math.sin(t * 0.8 + beat * 3)) : 0;
     const flap = rig.hover && rig.wing ? rig.wing.air[0] + rig.wing.air[1] * Math.sin(t * rig.wing.rate + beat) : 0;
-    this.base.compose(this.v.set(m.x, m.y + hover + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(0, m.yaw, rig.heel ?? 0)), this.s.set(size, size, size));
+    // (A companion doing a trick tips up or down, `tip`, and leans to one side, `lean`: pets.js.)
+    this.base.compose(this.v.set(m.x, m.y + hover + (lift + bob) * size, m.z), this.q.setFromEuler(this.euler.set(m.tip ?? 0, m.yaw, (rig.heel ?? 0) + (m.lean ?? 0), "YXZ")), this.s.set(size, size, size));
+    this.euler.order = "XYZ";
     this.put(rig, coat, counts, MOUNT_POSE, flap, Math.sin(stride) * 0.55 * walk, t, beat, 1, !!rig.hop);
   }
 

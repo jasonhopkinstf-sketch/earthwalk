@@ -19,6 +19,10 @@ import { aKind } from "./talk.ts";
 import { type HuntStop, huntCell, wayTo } from "./hunt.ts";
 import { clock, ordinal } from "./race.ts";
 import { bodyById, CAR_BODIES, CAR_PAINTS, emptyGarage, type Garage, lookOf, paintById } from "./garage.ts";
+import { type Feat, howWon, pieceById, PIECES } from "./home.ts";
+import { TRICK_COINS, trickById, TRICKS, tricksView } from "./tricks.ts";
+import { hungerOf } from "../public/js/care.js";
+import { type Food, foodById, giftOf as foodGiftOf, GROUPS, HEALTHY_COINS, heartsOf, HELPINGS, ingredients, LARDER_MAX, menuFor, needName, recipeById, RECIPES, recipesKnown, thanksFood } from "./food.ts";
 import { type Expedition, expeditionById, EXPEDITIONS, EXPEDITIONS_OPEN, itemsOf, needOf } from "./expeditions.ts";
 
 interface PlaceSeen { name: string; country: string | null; lat: number; lon: number; first: number; last: number; times: number }
@@ -82,6 +86,20 @@ export interface JournalDoc {
   /** Games of tag and of hide and seek played, and those won (play.ts). */
   games: number;
   gamesWon: number;
+  /** Pieces for a house of their own (home.ts): those bought, and the prizes won. */
+  pieces: string[];
+  /** Food (food.ts): what is in their lunch box, by food, and the days on which all five hearts were filled. */
+  larder: Record<string, number>;
+  healthyDays: number;
+  /** Meals cooked at home, by recipe, with how many times. */
+  cooked: Record<string, number>;
+  /** The tricks each kind of companion has been taught (tricks.ts). */
+  tricks: Record<string, string[]>;
+  /** How many hungry animals they have fed (public/js/care.js). */
+  caredFor: number;
+  /** Agility courses run with a companion, and the quickest in milliseconds. */
+  agilityRuns: number;
+  agilityBest: number | null;
 }
 
 /** A stamp in the passport: something counted, with the numbers at which it is stamped again. */
@@ -122,10 +140,24 @@ export interface JournalView {
   passenger: string | null;
   /** Their car: what is chosen, and every paint and body there is with its price and whether it is theirs. */
   garage: { body: string; paint: string; paints: { id: string; name: string; hex: number; price: number; owned: boolean }[]; bodies: { id: string; name: string; price: number; owned: boolean }[] };
+  /** Everything there is for a house of their own: `price` null for a prize, with `how` it is won. */
+  house: { pieces: { id: string; slot: string; name: string; price: number | null; how: string | null; owned: boolean; hex: number[] }[] };
+  /** Agility courses run, and the quickest round in seconds (null before the first). */
+  agility: { runs: number; bestSeconds: number | null };
+  /** Hungry animals: how many they have fed, those fed today (as "cow:918398760"), the coins for each, and the companion that feeding more will win. */
+  care: { fed: number; today: string[]; coins: number; next: { at: number; pet: string } | null };
+  /** The companion at their side (null for none), every trick there is with whether it knows it, and the one it could learn next. */
+  tricks: { pet: string | null; all: { id: string; name: string; known: boolean }[]; next: string | null; coins: number };
+  /** Today's five hearts, whether all are full, and the lunch box: each food with the hearts it fills and how many are carried. */
+  food: { hearts: { group: string; title: string; full: boolean }[]; full: boolean; healthyDays: number; coinsFull: number; larder: { id: string; name: string; groups: string[]; n: number }[]; room: number;
+    /** What a young animal in the garden would be fed from this lunch box, if there is anything it eats. */
+    fodder: string | null;
+    /** The recipes there are: what each makes and needs (`have` says whether the lunch box has it), whether it is known yet, and whether it can be cooked now. */
+    recipes: { id: string; name: string; groups: string[]; makes: number; needs: { name: string; have: boolean }[]; known: boolean; can: boolean; times: number }[] };
 }
 /** Something worth telling a player the moment it happens. */
 export interface StampNews {
-  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play";
+  title: string; text: string; kind: "country" | "stamp" | "level" | "riddle" | "task" | "prize" | "favour" | "hunt" | "expedition" | "race" | "play" | "food" | "trick" | "care";
   /** For a treasure just found: where its finder stood, so that their game can show it there. */
   at?: { lat: number; lon: number };
   /** For a favour just done: the thing that asked it, and what it says in thanks. */
@@ -283,6 +315,11 @@ const STAMPS: StampRule[] = [
   { id: "sea", title: "Sailor", unit: "", steps: [1], count: (d) => (d.ridden.boat || d.ridden.sailboat ? 1 : 0), say: () => "You have been out in a boat" },
   { id: "halves", title: "Both halves", unit: "", steps: [1], count: (d) => (d.north !== null && d.south !== null && d.north > 0 && d.south < 0 ? 1 : 0), say: () => "You have stood on both halves of the world" },
   { id: "north", title: "Far north", unit: "", steps: [1], count: (d) => (d.north !== null && d.north > 66.5 ? 1 : 0), say: () => "You have been north of the Arctic Circle" },
+  { id: "agility", title: "Agility rounds", unit: "rounds", steps: [1, 5, 20, 50], count: (d) => d.agilityRuns ?? 0, say: (n) => `You have run ${one(n, "agility round")} with your companion` },
+  { id: "cared", title: "Animals fed", unit: "animals", steps: [1, 3, 8, 15, 25, 50, 100], count: (d) => d.caredFor ?? 0, say: (n) => `You have fed ${one(n, "hungry animal")}` },
+  { id: "tricks", title: "Tricks taught", unit: "tricks", steps: [1, 3, 7, 14, 30], count: (d) => Object.values(d.tricks ?? {}).reduce((n, list) => n + list.length, 0), say: (n) => `You have taught ${one(n, "trick")}` },
+  { id: "cooked", title: "Meals cooked", unit: "meals", steps: [1, 5, 20, 50], count: (d) => Object.values(d.cooked ?? {}).reduce((a, b) => a + b, 0), say: (n) => `You have cooked ${one(n, "meal")}` },
+  { id: "healthy", title: "Healthy days", unit: "days", steps: [1, 3, 7, 14, 30, 100], count: (d) => d.healthyDays ?? 0, say: (n) => `You have filled all five hearts on ${one(n, "day")}` },
   { id: "south", title: "Far south", unit: "", steps: [1], count: (d) => (d.south !== null && d.south < -40 ? 1 : 0), say: () => "You have been to the far south" },
 ];
 
@@ -304,7 +341,7 @@ export function emptyJournal(personId: string | null, now: number): JournalDoc {
     version: 1, personId, since: now, updated: now, visits: 0, minutes: 0, metresOnFoot: 0, metresRidden: 0, north: null, south: null,
     countries: {}, continents: {}, places: {}, placeCount: 0, friends: {}, friendCount: 0, talked: {}, ridden: {}, earned: {}, solved: {}, pet: null,
     coins: 0, spent: 0, tz: 0, daily: null, days: 0, hats: [], hat: null, favours: [], favoursDone: 0, favoured: {},
-    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0,
+    hunt: null, huntsDone: 0, huntBest: null, expeditions: {}, expeditionsDone: {}, morePets: [], car: emptyGarage(), races: 0, racesWon: 0, games: 0, gamesWon: 0, pieces: [], larder: {}, healthyDays: 0, cooked: {}, tricks: {}, caredFor: 0, agilityRuns: 0, agilityBest: null,
   };
 }
 
@@ -315,6 +352,24 @@ const todayOf = (d: JournalDoc, now: number): Daily => {
 };
 const hatHow = (h: { days?: number; hunts?: number }): string | null =>
   h.days ? (h.days === 1 ? "Do all three tasks in one day" : `Do all three tasks on ${h.days} days`) : h.hunts ? (h.hunts === 1 ? "Find the treasure at the end of a treasure hunt" : `Find ${h.hunts} treasures`) : null;
+/** Coins for feeding a hungry animal, and the companions that feeding so many wins. */
+export const CARE_COINS = 12;
+export const CARE_PETS: { at: number; pet: string }[] = [{ at: 3, pet: "hedgehog" }, { at: 8, pet: "fox" }, { at: 15, pet: "deer" }, { at: 25, pet: "otter" }];
+/** How much of something a player has done, for the prizes that are won by it (home.ts). */
+export function featOf(d: JournalDoc, feat: Feat): number {
+  switch (feat) {
+    case "hunts": return d.huntsDone ?? 0;
+    case "races": return d.races ?? 0;
+    case "wins": return d.racesWon ?? 0;
+    case "countries": return Object.keys(d.countries).length;
+    case "days": return d.days ?? 0;
+    case "favours": return d.favoursDone ?? 0;
+    case "games": return d.games ?? 0;
+    case "expeditions": return Object.keys(d.expeditionsDone ?? {}).length;
+    case "riddles": return Object.keys(d.solved).length;
+    case "friends": return d.friendCount;
+  }
+}
 /** The lost animal a player is taking home, if any. */
 const passengerOf = (d: JournalDoc): string | null => {
   for (const id of Object.keys(d.expeditions)) { const e = expeditionById(id); if (e?.sort === "home") return e.passenger; }
@@ -355,6 +410,22 @@ export function viewOf(d: JournalDoc, now = Date.now(), at: { lat: number; lon: 
       paints: CAR_PAINTS.map((p) => ({ ...p, owned: p.price === 0 || g.paints.includes(p.id) })),
       bodies: CAR_BODIES.map((b) => ({ ...b, owned: b.price === 0 || g.bodies.includes(b.id) })),
     }))(d.car ?? emptyGarage()),
+    agility: { runs: d.agilityRuns ?? 0, bestSeconds: d.agilityBest == null ? null : Math.round(d.agilityBest / 100) / 10 },
+    care: { fed: d.caredFor ?? 0, today: today.cared ?? [], coins: CARE_COINS, next: CARE_PETS.find((c) => c.at > (d.caredFor ?? 0)) ?? null },
+    tricks: ((pet) => ({ pet, ...tricksView(pet ? (d.tricks ?? {})[pet] ?? [] : []), coins: TRICK_COINS }))(passengerOf(d) ?? (d.pet && petsOf(d).includes(d.pet) ? d.pet : null)),
+    food: ((ate, larder) => ({
+      hearts: heartsOf(ate), full: ate.length >= GROUPS.length, healthyDays: d.healthyDays ?? 0, coinsFull: HEALTHY_COINS,
+      larder: Object.entries(larder).filter(([id, n]) => n > 0 && foodById(id)).map(([id, n]) => ({ id, name: foodById(id)!.name, groups: foodById(id)!.groups, n })),
+      room: Math.max(0, LARDER_MAX - Object.values(larder).reduce((a, b) => a + b, 0)),
+      fodder: ["veg", "grain", "fruit"].map((g) => Object.keys(larder).find((x) => larder[x] > 0 && foodById(x)?.groups.length === 1 && foodById(x)!.groups[0] === g)).filter(Boolean).map((x) => foodById(x!)!.name)[0] ?? null,
+      recipes: RECIPES.map((r, i) => {
+        const using = ingredients(r, larder);
+        const known = i < recipesKnown(d.cooked ?? {});
+        const meal = foodById(r.makes)!;
+        return { id: r.id, name: meal.name, groups: meal.groups, makes: HELPINGS, needs: r.needs.map((need, k) => ({ name: needName(need), have: using[k] !== null })), known, can: known && using.every((x) => x !== null), times: (d.cooked ?? {})[r.id] ?? 0 };
+      }),
+    }))(today.ate ?? [], d.larder ?? {}),
+    house: { pieces: PIECES.map((p) => ({ id: p.id, slot: p.slot, name: p.name, price: p.price ?? null, how: howWon(p), owned: (d.pieces ?? []).includes(p.id), hex: p.hex })) },
     kept: d.personId !== null,
     since: d.since,
     level: levelOf(pointsOf(d)),
@@ -413,6 +484,8 @@ export interface JournalsOptions {
   now?: () => number;
   /** Makes the treasure hunt of a neighbourhood on a day (hunt.ts). Without it there are no hunts. */
   planHunt?: (lat: number, lon: number, day: number) => Promise<HuntStop[] | null>;
+  /** A test aid: coins a brand-new journal starts with, so that things to buy can be tried without earning them. */
+  startCoins?: number;
 }
 
 export class Journals {
@@ -420,6 +493,7 @@ export class Journals {
   private readonly placeDetail: ((lat: number, lon: number) => Promise<PlaceDetail>) | null;
   private readonly now: () => number;
   private readonly planHunt: JournalsOptions["planHunt"] | null;
+  private readonly startCoins: number;
   private readonly walkers = new Map<string, Walker>(); // member id -> their journal
   private readonly byPerson = new Map<string, Open>();
   private tell: (key: string, news: StampNews) => void = () => {};
@@ -432,6 +506,7 @@ export class Journals {
     this.placeDetail = options.placeDetail ?? null;
     this.now = options.now ?? Date.now;
     this.planHunt = options.planHunt ?? null;
+    this.startCoins = Math.max(0, Math.floor(options.startCoins ?? 0)) || 0;
     this.timer = setInterval(() => void this.flush(), SAVE_EVERY_MS);
     this.timer.unref();
   }
@@ -524,6 +599,18 @@ export class Journals {
       open.dirty = true;
       this.tell(key, { kind: "prize", title: `You have won the ${h.name}`, text: "Put it on in your passport (P)" });
     }
+    // Prizes for a house of their own, won by what has been done (home.ts). Several at once are told as one.
+    const pieces = (d.pieces ??= []);
+    const won = PIECES.filter((p) => p.feat && !pieces.includes(p.id) && featOf(d, p.feat) >= (p.n ?? 1));
+    if (won.length) {
+      for (const p of won) pieces.push(p.id);
+      open.dirty = true;
+      const names = won.map((p) => `the ${p.name}`);
+      this.tell(key, {
+        kind: "prize", title: won.length === 1 ? `For your house: ${names[0]}` : `${won.length} prizes for your house`,
+        text: won.length === 1 ? "A prize to stand in a house of your own (H)" : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}, to stand in a house of your own (H)`,
+      });
+    }
     const level = levelOf(pointsOf(d));
     if (level.n > levelBefore) {
       this.tell(key, { kind: "level", title: `Level ${level.n}: ${level.title}`, text: `You are now ${/^[AEIOU]/.test(level.title) ? "an" : "a"} ${level.title}` });
@@ -598,6 +685,229 @@ export class Journals {
     return "ok";
   }
 
+  // ---- tricks (tricks.ts)
+
+  /** Can the companion at this player's side be taught this trick now? Tricks are taught in order. */
+  lessonFor(key: string, id: string): "ok" | "nopet" | "known" | "order" | "unknown" {
+    const w = this.walkers.get(key);
+    const pet = this.petOf(key);
+    if (!w || !trickById(id)) return "unknown";
+    if (!pet) return "nopet";
+    const known = (w.open.doc.tricks ?? {})[pet] ?? [];
+    return known.includes(id) ? "known" : tricksView(known).next === id ? "ok" : "order";
+  }
+
+  /** The lesson came off: the companion knows the trick from now on, and its teacher is paid. */
+  learnTrick(key: string, id: string): boolean {
+    const w = this.walkers.get(key);
+    const pet = this.petOf(key);
+    const trick = trickById(id);
+    if (!w || !pet || !trick || this.lessonFor(key, id) !== "ok") return false;
+    this.note(w.open, "trick", { pet, id });
+    this.change(key, w, (d) => {
+      ((d.tricks ??= {})[pet] ??= []).push(id);
+      d.coins += TRICK_COINS;
+      const next = TRICKS[TRICKS.indexOf(trick) + 1];
+      this.tell(key, { kind: "trick", title: `Your ${pet} has learnt: ${trick.name}`, text: `${TRICK_COINS} coins. It will do it whenever you ask (K)${next ? `. Next to teach: ${next.name}` : ". That is every trick there is!"}` });
+    });
+    return true;
+  }
+
+  /** Does the companion at this player's side know this trick? */
+  knowsTrick(key: string, id: string): boolean {
+    const w = this.walkers.get(key);
+    const pet = this.petOf(key);
+    return !!w && !!pet && ((w.open.doc.tricks ?? {})[pet] ?? []).includes(id);
+  }
+
+  // ---- food and hearts (food.ts)
+
+  /** Puts one of a food in the lunch box. False when the box is full. */
+  private stock(d: JournalDoc, id: string): boolean {
+    const larder = (d.larder ??= {});
+    if (Object.values(larder).reduce((a, b) => a + b, 0) >= LARDER_MAX) return false;
+    larder[id] = (larder[id] ?? 0) + 1;
+    return true;
+  }
+
+  /**
+   * Eats something from the lunch box: its hearts are filled for today, and with all five full the day is a
+   * healthy one, paid for once. "none" when there is none of it to eat.
+   */
+  eat(key: string, id: string): "ok" | "none" {
+    const w = this.walkers.get(key);
+    const food = foodById(id);
+    if (!w || !food || !((w.open.doc.larder ?? {})[id] > 0)) return "none";
+    this.note(w.open, "eat", { id });
+    this.change(key, w, (d) => {
+      if (--d.larder[id] <= 0) delete d.larder[id];
+      const t = this.today(d);
+      const ate = (t.ate ??= []);
+      const filled = food.groups.filter((g) => !ate.includes(g));
+      ate.push(...filled);
+      t.eaten = (t.eaten ?? 0) + 1;
+      const titles = filled.map((g) => GROUPS.find((x) => x.id === g)!.title.toLowerCase());
+      if (ate.length >= GROUPS.length && !t.fed) {
+        t.fed = true;
+        d.coins += HEALTHY_COINS;
+        d.healthyDays = (d.healthyDays ?? 0) + 1;
+        this.tell(key, { kind: "food", title: "All five hearts are full!", text: `You are full of beans: quicker on your feet until tomorrow, and ${HEALTHY_COINS} coins` });
+      } else {
+        this.tell(key, {
+          kind: "food", title: `You ate ${food.name}`,
+          text: filled.length ? `A heart filled for ${titles.join(" and for ")}: ${ate.length} of ${GROUPS.length} today`
+            : food.groups.length ? "Tasty. That heart was full already today" : "A treat: delicious, though it fills no heart",
+        });
+      }
+    });
+    return "ok";
+  }
+
+  /**
+   * Cooks a recipe from what is in the lunch box: the things it needs go, and two helpings of the meal come.
+   * "locked" when the recipe is not known yet, "missing" when something it needs is not in the lunch box.
+   * (Whether the player is in their own kitchen is for the rooms to say.)
+   */
+  cook(key: string, id: string): "ok" | "locked" | "missing" | "unknown" {
+    const w = this.walkers.get(key);
+    const recipe = recipeById(id);
+    const meal = recipe ? foodById(recipe.makes) : undefined;
+    if (!w || !recipe || !meal) return "unknown";
+    const d = w.open.doc;
+    if (RECIPES.indexOf(recipe) >= recipesKnown(d.cooked ?? {})) return "locked";
+    const using = ingredients(recipe, d.larder ?? {});
+    if (using.some((x) => x === null)) return "missing";
+    this.note(w.open, "cook", { id });
+    this.change(key, w, (doc) => {
+      for (const used of using as string[]) if (--doc.larder[used] <= 0) delete doc.larder[used];
+      for (let i = 0; i < HELPINGS; i++) this.stock(doc, meal.id);
+      const cooked = (doc.cooked ??= {});
+      const before = recipesKnown(cooked);
+      cooked[recipe.id] = (cooked[recipe.id] ?? 0) + 1;
+      // A recipe cooked for the first time teaches the next one in the book.
+      const learnt = recipesKnown(cooked) > before ? foodById(RECIPES[recipesKnown(cooked) - 1].makes) : undefined;
+      this.tell(key, { kind: "food", title: `You cooked ${meal.name}`, text: `Two helpings, in your lunch box: one to eat and one to give a friend${learnt ? `. And you have learnt a new recipe: ${learnt.name}` : ""}` });
+    });
+    return "ok";
+  }
+
+  /**
+   * Gives one thing from a lunch box to somebody else's. "none" when there is none of it, "full" when their
+   * lunch box is. Both are told.
+   */
+  giveFood(key: string, to: string, id: string, fromName: string, toName: string): "ok" | "none" | "full" {
+    const giver = this.walkers.get(key), taker = this.walkers.get(to);
+    const food = foodById(id);
+    if (!giver || !taker || !food || giver.open === taker.open || !((giver.open.doc.larder ?? {})[id] > 0)) return "none";
+    if (!this.stock(taker.open.doc, id)) return "full";
+    taker.open.doc.updated = this.now();
+    taker.open.dirty = true;
+    this.change(key, giver, (d) => { if (--d.larder[id] <= 0) delete d.larder[id]; });
+    this.note(giver.open, "give", { id, to: toName });
+    this.tell(key, { kind: "food", title: `You gave ${toName} ${food.name}`, text: "That was kind" });
+    this.tell(to, { kind: "food", title: `${fromName} gave you ${food.name}`, text: "It is in your lunch box (B)" });
+    return "ok";
+  }
+
+  // ---- for the garden (home.ts): the rooms keep the animals, the journal the coins and the lunch box
+
+  /** The day it is for this player, as the daily tasks count days. */
+  dayFor(key: string): number {
+    return dayNumber(this.now(), this.walkers.get(key)?.open.doc.tz ?? 0);
+  }
+
+  /** Pays out of the player's coins. False when there are not enough. */
+  spend(key: string, coins: number, what: string): boolean {
+    const w = this.walkers.get(key);
+    if (!w || coins < 0 || w.open.doc.coins - w.open.doc.spent < coins) return false;
+    w.open.doc.spent += coins;
+    this.note(w.open, "spend", { coins, what });
+    w.open.doc.updated = this.now();
+    w.open.dirty = true;
+    return true;
+  }
+
+  /** Something earned outside the journal's own games: coins, or a thing for the lunch box (false when it is full). */
+  earn(key: string, gain: { coins?: number; food?: string }): boolean {
+    const w = this.walkers.get(key);
+    if (!w) return false;
+    if (gain.food && !this.stock(w.open.doc, gain.food)) return false;
+    this.change(key, w, (d) => { d.coins += Math.max(0, gain.coins ?? 0); });
+    return true;
+  }
+
+  /**
+   * Something from the lunch box for a young animal to eat: plain vegetables first, then grain, then fruit,
+   * never a meal or a treat. It is taken out; null when there is nothing of the kind.
+   */
+  fodder(key: string, take = true): { id: string; name: string } | null {
+    const w = this.walkers.get(key);
+    const larder = w?.open.doc.larder ?? {};
+    for (const group of ["veg", "grain", "fruit"]) {
+      const id = Object.keys(larder).find((x) => larder[x] > 0 && foodById(x)?.groups.length === 1 && foodById(x)!.groups[0] === group);
+      if (!id || !w) continue;
+      if (take) {
+        if (--larder[id] <= 0) delete larder[id];
+        w.open.doc.updated = this.now();
+        w.open.dirty = true;
+      }
+      return { id, name: foodById(id)!.name };
+    }
+    return null;
+  }
+
+  /** Are all five hearts full today? Then the player is a little quicker on their feet. */
+  pepOf(key: string): boolean {
+    const w = this.walkers.get(key);
+    return !!w && (todayOf(w.open.doc, this.now()).ate ?? []).length >= GROUPS.length;
+  }
+
+  /** What a shop (`shop`) or somewhere to eat (`food`) would sell this player where they are. */
+  menuOf(key: string, use: "shop" | "food"): { country: string | null; items: Food[] } {
+    const w = this.walkers.get(key);
+    const country = (w && w.open.doc.places[w.placeKey]?.country) || null;
+    return { country, items: menuFor(use, country, w?.at?.lat ?? 45) };
+  }
+
+  /**
+   * Buys something to eat where the player is, into the lunch box. "poor" when there are not the coins, "full"
+   * when the lunch box is, "unknown" when it is not sold there.
+   */
+  buyFood(key: string, use: "shop" | "food", id: string): "ok" | "poor" | "full" | "unknown" {
+    const w = this.walkers.get(key);
+    const food = w ? this.menuOf(key, use).items.find((x) => x.id === id) : undefined;
+    if (!w || !food) return "unknown";
+    const d = w.open.doc;
+    if (d.coins - d.spent < food.price) return "poor";
+    if (!this.stock(d, food.id)) return "full";
+    d.spent += food.price;
+    this.note(w.open, "food", { id, price: food.price });
+    d.updated = this.now();
+    w.open.dirty = true;
+    return "ok";
+  }
+
+  /**
+   * Takes a piece for the player's house, buying it first if it is not theirs yet. "poor" when there are not
+   * enough coins, "prize" when it can only be won, "unknown" when there is no such piece.
+   */
+  takePiece(key: string, id: string): "ok" | "poor" | "prize" | "unknown" {
+    const w = this.walkers.get(key);
+    const piece = pieceById(id);
+    if (!w || !piece) return "unknown";
+    const d = w.open.doc;
+    const pieces = (d.pieces ??= []);
+    if (pieces.includes(id)) return "ok";
+    if (piece.price === undefined) return "prize";
+    if (d.coins - d.spent < piece.price) return "poor";
+    d.spent += piece.price;
+    pieces.push(id);
+    this.note(w.open, "piece", { id, price: piece.price });
+    d.updated = this.now();
+    w.open.dirty = true;
+    return "ok";
+  }
+
   /** Puts on a hat the player owns, or (null) takes it off. False when it is not theirs. */
   wearHat(key: string, id: string | null): boolean {
     const w = this.walkers.get(key);
@@ -651,6 +961,23 @@ export class Journals {
     });
   }
 
+  /** An agility round finished with a companion: paid for, and the quickest kept. Nothing is lost by a slow one. */
+  agility(key: string, place: number, of: number, ms: number): void {
+    const w = this.walkers.get(key);
+    if (!w) return;
+    const best = w.open.doc.agilityBest ?? null;
+    const record = best === null || ms < best;
+    const won = place === 1 && of > 1;
+    const coins = 12 + (won ? 8 : 0) + (record && best !== null ? 5 : 0);
+    this.note(w.open, "agility", { place, of, ms });
+    this.tell(key, { kind: "race", title: won ? "You and your companion won!" : record && best !== null ? "Your quickest round yet!" : "A clear round", text: `${clock(ms)}: ${coins} coins` });
+    this.change(key, w, (d) => {
+      d.agilityRuns = (d.agilityRuns ?? 0) + 1;
+      if (record) d.agilityBest = ms;
+      d.coins += coins;
+    });
+  }
+
   /** A game of tag or of hide and seek is over: whether this player won, what it paid, and the words to tell them. */
   played(key: string, kind: string, o: { won: boolean; coins: number; title: string; text: string }): void {
     const w = this.walkers.get(key);
@@ -693,7 +1020,7 @@ export class Journals {
     if (!open) {
       const kept = personId && this.store ? await this.store.load(personId).catch(() => null) : null;
       open = (personId ? this.byPerson.get(personId) : undefined) // another window may have opened it while we read
-        ?? { doc: kept ? { ...emptyJournal(personId, now), ...kept } : emptyJournal(personId, now), dirty: false, log: [], keys: new Set(), busy: Promise.resolve() };
+        ?? { doc: kept ? { ...emptyJournal(personId, now), ...kept } : { ...emptyJournal(personId, now), coins: this.startCoins }, dirty: false, log: [], keys: new Set(), busy: Promise.resolve() };
       if (personId) this.byPerson.set(personId, open);
     }
     open.keys.add(key);
@@ -848,6 +1175,33 @@ export class Journals {
         const keys = Object.keys(d.friends);
         if (keys.length > FRIEND_CAP) delete d.friends[keys.reduce((a, b) => (d.friends[a].last <= d.friends[b].last ? a : b))];
       }
+      // A hungry animal (public/js/care.js) is fed from the lunch box if what it would like is there; if not, it says
+      // what that is, once. Feeding it is paid for, and every so many animals fed wins a new companion.
+      const want = foodById(hungerOf(sp, thing, t.day) ?? "");
+      const cared = (t.cared ??= []);
+      const hungry = !!want && !cared.includes(id);
+      if (want && hungry && (d.larder ?? {})[want.id] > 0) {
+        if (--d.larder[want.id] <= 0) delete d.larder[want.id];
+        cared.push(id);
+        d.caredFor = (d.caredFor ?? 0) + 1;
+        d.coins += CARE_COINS;
+        this.tell(key, { kind: "care", title: `You fed ${name}`, text: `${want.name[0].toUpperCase()}${want.name.slice(1)} was just what it wanted: ${CARE_COINS} coins` });
+        const won = CARE_PETS.find((c) => c.at === d.caredFor);
+        if (won && !petsOf(d).includes(won.pet)) {
+          (d.morePets ??= []).push(won.pet);
+          this.tell(key, { kind: "care", title: `${aKind(won.pet)[0].toUpperCase()}${aKind(won.pet).slice(1)} wants to keep you company`, text: `You have fed ${d.caredFor} hungry animals, and word has got round. Choose it under Companions in your passport (P)` });
+        }
+      } else if (want && hungry && !(t.hungry ??= []).includes(id) && t.hungry.length < 60) {
+        t.hungry.push(id);
+        this.tell(key, { kind: "care", title: `${name} is hungry`, text: `It would love ${want.name}. Bring one in your lunch box (B) and talk to it again` });
+      }
+      // What it has to give (food.ts): once a day from each thing, into the lunch box. (Not on an empty stomach.)
+      const food = hungry && !cared.includes(id) ? undefined : foodById(foodGiftOf(sp, thing, w.at?.lat ?? 45) ?? "");
+      const gifts = (t.gifts ??= []);
+      if (food && !gifts.includes(id) && gifts.length < 60 && this.stock(d, food.id)) {
+        gifts.push(id);
+        this.tell(key, { kind: "food", title: `${name} gave you ${food.name}`, text: "It is in your lunch box (B)" });
+      }
     });
     this.attempt(key, w, { talk: sp });
     // An album being filled: this may be a new kind for it.
@@ -909,6 +1263,9 @@ export class Journals {
       d.favours = d.favours.filter((x) => x !== f);
       d.favoursDone++;
       d.coins += f.coins;
+      // And something to eat, in thanks.
+      const food = foodById(thanksFood(f.thing));
+      if (food && this.stock(d, food.id)) this.tell(key, { kind: "food", title: `A thank-you: ${food.name}`, text: "It is in your lunch box (B)" });
       const t = this.today(d);
       t.favours = (t.favours ?? 0) + 1;
     });

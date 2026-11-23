@@ -16,6 +16,8 @@ export class Meetup extends EventTarget {
     this.orders = new Map(); // thing -> what it has been told to keep doing (orders.js)
     this.taxis = new Map(); // thing -> a taxi on its way to whoever called it (taxi.js)
     this.cars = new Map(); // member id -> their own car, where it stands (garage.js)
+    this.homes = new Map(); // "x/y/id" -> a house somebody lives in: { x, y, id, lat, lon, yaw, name, rev } (houses.js)
+    this.house = null; // my own house, with how it is furnished (`decor`)
     this.race = null; // the race set up in this room, if any (race.js)
     this.play = null; // the game of tag or of hide and seek in this room, if any (play.js)
     /** Server time minus this device's time, in milliseconds, and the round trip of the measurement behind it. */
@@ -163,9 +165,34 @@ export class Meetup extends EventTarget {
     this.send({ t: "race", [what]: true });
   }
 
+  /** Sets up an agility course before me, for me and my companion (it is a race of another kind: join, go and stop as for a race). */
+  sendAgility() {
+    this.send({ t: "race", make: "agility" });
+  }
+
   /** Tag, and hide and seek: { make: "tag" | "hide" } sets one up where I stand; { join }, { go } (its maker) and { stop } as for a race. */
   sendPlay(what) {
     this.send({ t: "play", ...what });
+  }
+
+  /** The garden of my house: `adopt` a young animal (a kind), `feed` one (its place), `gather` from a grown one, or `release` one. */
+  sendGarden(what) {
+    this.send({ t: "garden", ...what });
+  }
+
+  /** My companion's tricks: `learn` one (a lesson is set), hand in my `presses` for the lesson, or have it `do` one it knows. */
+  sendTrick(what) {
+    this.send({ t: "trick", ...what });
+  }
+
+  /** Food: `eat` something from my lunch box, ask for the `menu` of a "shop" or "food" place, or `buy` something `at` one. */
+  sendFood(what) {
+    this.send({ t: "food", ...what });
+  }
+
+  /** A house of my own: `claim` the one I am in, `leave` mine, or `put` a piece in it. */
+  sendHouse(what) {
+    this.send({ t: "house", ...what });
   }
 
   callCar() {
@@ -224,6 +251,10 @@ export class Meetup extends EventTarget {
         this.orders = new Map((msg.orders ?? []).map((o) => [o.thing, o]));
         this.taxis = new Map((msg.taxis ?? []).map((x) => [x.thing, x]));
         this.cars = new Map((msg.cars ?? []).map((c) => [c.id, c]));
+        this.homes = new Map((msg.lived ?? []).map((h) => [`${h.x}/${h.y}/${h.id}`, h]));
+        this.house = msg.house ?? null;
+        this.emit("homes", null);
+        this.emit("house", this.house);
         this.race = msg.race ?? null;
         this.emit("race", this.race);
         this.play = msg.play ?? null;
@@ -270,6 +301,30 @@ export class Meetup extends EventTarget {
         // The race in this room, whole, each time anything about it changes; null when it is over and cleared away.
         this.race = msg.race ?? null;
         this.emit("race", this.race);
+        break;
+      case "lived": {
+        // A house somebody has moved into or furnished anew, or (`gone`) one that is empty again.
+        const key = `${msg.x}/${msg.y}/${msg.id}`;
+        if (msg.gone) this.homes.delete(key);
+        else this.homes.set(key, msg);
+        this.emit("lived", msg);
+        break;
+      }
+      case "lesson":
+        this.emit("lesson", msg); // a lesson set for my companion, or how it went
+        break;
+      case "trick":
+        if (typeof msg.thing === "number") this.emit("trick", msg); // somebody's companion does a trick
+        break;
+      case "menu":
+        this.emit("menu", msg); // what the shop or café I am beside sells
+        break;
+      case "pep":
+        this.emit("pep", !!msg.on); // all five hearts full: quicker on my feet
+        break;
+      case "house":
+        this.house = msg.house ?? null;
+        this.emit("house", this.house);
         break;
       case "car":
         // Somebody's own car has been called, moved or repainted; or (with no `thing`) has gone.

@@ -17,6 +17,46 @@ const KINDS = {
   finish: [paint(0x26262b), paint(0xf4f1ea)],
   passed: [paint(0x9aa6b2), paint(0xc9ced4)],
 };
+/** An agility course's obstacles (race.ts): each a small thing to run at, built to face along the course. */
+const RED = paint(0xd9382e), WHITE = paint(0xf4f1ea), BLUE = paint(0x3f6fb0), GOLD = paint(0xe0b23c), GREEN = paint(0x3f9a45), DARK = paint(0x26262b), GREY = paint(0x9aa6b2);
+const rod = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+const ring = new THREE.TorusGeometry(0.8, 0.07, 8, 24);
+const arch = new THREE.CylinderGeometry(0.95, 0.95, 2.6, 16, 1, true, 0, Math.PI);
+function pole(material, height, x, z) {
+  const mesh = new THREE.Mesh(rod, material);
+  mesh.scale.set(1, height, 1);
+  mesh.position.set(x, height / 2, z);
+  return mesh;
+}
+function makeObstacle(kind) {
+  const g = new THREE.Group();
+  const tinted = []; // the parts that go grey once I am past
+  const add = (mesh) => { tinted.push({ mesh, was: mesh.material }); g.add(mesh); return mesh; };
+  if (kind === "start" || kind === "finish") {
+    const tone = kind === "start" ? [GREEN, WHITE] : [DARK, WHITE];
+    for (const side of [-1, 1]) g.add(pole(WHITE, 2.4, side * 1.3, 0));
+    for (let i = 0; i < 8; i++) add(part(tone[i % 2], [0.325, 0.3, 0.06], [-1.3 + 0.325 * (i + 0.5), 2.25, 0]));
+  } else if (kind === "jump") {
+    for (const side of [-1, 1]) add(pole(RED, 1.1, side * 0.9, 0));
+    add(part(WHITE, [1.8, 0.09, 0.09], [0, 0.55, 0]));
+    add(part(RED, [0.5, 0.1, 0.1], [0, 0.55, 0]));
+  } else if (kind === "hoop") {
+    g.add(pole(WHITE, 0.5, 0, 0));
+    const hoop = add(new THREE.Mesh(ring, GOLD));
+    hoop.position.set(0, 1.3, 0);
+  } else if (kind === "weave") {
+    for (let i = 0; i < 5; i++) add(pole(i % 2 ? BLUE : GOLD, 1.2, 0, (i - 2) * 0.7));
+  } else if (kind === "tunnel") {
+    const tube = add(new THREE.Mesh(arch, new THREE.MeshLambertMaterial({ color: 0x3f6fb0, side: THREE.DoubleSide })));
+    tube.rotation.set(Math.PI / 2, 0, Math.PI / 2); // lying along the course, open underneath
+    tube.position.set(0, 0, 0);
+  } else {
+    add(part(GOLD, [1.3, 0.35, 1.3], [0, 0.175, 0])); // the table: up, and off again
+  }
+  g.userData = { kind, tinted, placed: false, obstacle: true };
+  return g;
+}
+
 const BEAM = new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
 
 function part(material, scale, position) {
@@ -87,18 +127,36 @@ export class Races {
       if (race) {
         this.group = new THREE.Group();
         race.gates.forEach((_, i) => {
-          const gate = makeGate(i === 0 ? "start" : i === race.gates.length - 1 ? "finish" : "gate");
+          const gate = race.kind === "agility" ? makeObstacle(race.obstacles?.[i] ?? "jump") : makeGate(i === 0 ? "start" : i === race.gates.length - 1 ? "finish" : "gate");
           gate.visible = false;
           this.gates.push(gate);
           this.group.add(gate);
         });
         this.scene.add(this.group);
         const me = this.meetup.me?.id;
-        this.say(race.by === me ? `Your race is set up: ${race.metres} metres, ${race.gates.length} gates. Press R to start it when everyone who wants to is in.`
+        if (race.kind === "agility") this.say(race.by === me ? `An agility course is set up before you: ${race.gates.length} obstacles in a ring. Press R to start, then run it in order with your companion at your heels. The light shows the next one.`
+          : `${race.byName} has set up an agility course. Press R to join in.`);
+        else this.say(race.by === me ? `Your race is set up: ${race.metres} metres, ${race.gates.length} gates. Press R to start it when everyone who wants to is in.`
           : `${race.byName} has set up a race of ${race.metres} metres. Press R to join in.`);
       }
     }
+    // On an agility course, a companion leaps as its runner comes to a jump or a hoop.
+    const before = this.reached ?? new Map();
+    this.reached = new Map();
+    for (const r of race?.runners ?? []) {
+      this.reached.set(r.id, r.gate);
+      const kind = race.kind === "agility" && r.gate > (before.get(r.id) ?? r.gate) ? race.obstacles?.[r.gate - 1] : null;
+      if (kind === "jump" || kind === "hoop" || kind === "table") this.pets?.hop(r.id);
+    }
     this.told = null; // the panel is written afresh
+  }
+
+  /** Sets an agility course up before me, for me and my companion. */
+  agility() {
+    const { meetup, race } = this;
+    if (!meetup.joined) return;
+    if (race && race.state !== "over") return this.say("There is a race set up already: R joins or starts it, /race stop ends it.");
+    meetup.sendAgility();
   }
 
   /** The R key, or "/race" with a word. */
@@ -144,13 +202,18 @@ export class Races {
       const done = !!me && i < me.gate && i < race.gates.length - 1;
       if (gate.userData.done !== done) {
         gate.userData.done = done;
-        for (const sq of gate.userData.squares) sq.material = KINDS[done ? "passed" : gate.userData.kind][sq.userData.tone];
+        if (gate.userData.obstacle) for (const t of gate.userData.tinted) t.mesh.material = done ? GREY : t.was;
+        else for (const sq of gate.userData.squares) sq.material = KINDS[done ? "passed" : gate.userData.kind][sq.userData.tone];
       }
     });
     // A column of light over the gate I am to go through next.
     const next = me && me.time === null && race.state !== "over" ? this.gates[me.gate] : null;
     this.beam.visible = !!next?.userData.placed;
-    if (this.beam.visible) this.beam.position.set(next.position.x, next.position.y + 40, next.position.z);
+    if (this.beam.visible) {
+      this.beam.position.set(next.position.x, next.position.y + 40, next.position.z);
+      const wide = race.kind === "agility" ? 0.7 : 1;
+      this.beam.scale.set(wide, 80, wide);
+    }
 
     // The countdown, large, and "GO!" for a moment after it.
     const until = race.state === "go" ? race.startAt - now : null;
@@ -161,14 +224,15 @@ export class Races {
     // The panel: who is in, how far along, and what R does now.
     const lines = [];
     const order = [...race.runners].sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity) || b.gate - a.gate);
+    const agile = race.kind === "agility";
     if (race.state === "open") {
-      lines.push(`Race by ${race.byName}: ${race.metres} m, ${race.gates.length} gates`, `In: ${race.runners.map((r) => r.name).join(", ")}`,
-        !me ? "R: join in" : race.by === meetup.me?.id ? "R: start the race" : `Waiting for ${race.byName} to say go`);
+      lines.push(agile ? `Agility course by ${race.byName}: ${race.gates.length} obstacles` : `Race by ${race.byName}: ${race.metres} m, ${race.gates.length} gates`, `In: ${race.runners.map((r) => r.name).join(", ")}`,
+        !me ? "R: join in" : race.by === meetup.me?.id ? (agile ? "R: start" : "R: start the race") : `Waiting for ${race.byName} to say go`);
     } else {
       const running = race.state === "go" && until <= 0;
-      if (me && me.time === null && running) lines.push(`Gate ${Math.min(me.gate + 1, race.gates.length)} of ${race.gates.length} · ${mmss(now - race.startAt)}`);
-      else if (race.state === "go" && until > 0) lines.push("Get to the green start gate...");
-      else if (race.state === "over") lines.push("The race is over");
+      if (me && me.time === null && running) lines.push(`${agile ? (race.obstacles?.[me.gate] === "weave" ? "Weave poles" : race.obstacles?.[me.gate] === "table" ? "Table" : race.obstacles?.[me.gate] === "tunnel" ? "Tunnel" : race.obstacles?.[me.gate] === "hoop" ? "Hoop" : race.obstacles?.[me.gate] === "finish" ? "Finish" : race.obstacles?.[me.gate] === "start" ? "Start" : "Jump") : "Gate"} ${Math.min(me.gate + 1, race.gates.length)} of ${race.gates.length} · ${mmss(now - race.startAt)}`);
+      else if (race.state === "go" && until > 0) lines.push(agile ? "Get to the green start..." : "Get to the green start gate...");
+      else if (race.state === "over") lines.push(agile ? "The round is over" : "The race is over");
       order.forEach((r, i) => lines.push(`${i + 1}. ${r.name}  ${r.time !== null ? mmss(r.time) : `${r.gate}/${race.gates.length}`}`));
       if (race.state === "over") lines.push("R: set up another");
     }
