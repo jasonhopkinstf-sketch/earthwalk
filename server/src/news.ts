@@ -11,29 +11,29 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
-    version: "0.2.46", date: "2026-11-23", title: "The Windows game catches up: food, a house, animal games",
+    version: "0.2.46", date: "2026-11-23", title: "The two games catch each other up",
     items: [
-      { text: "Five hearts, top left, one for each kind of good food. Fill all five and you are quicker on your feet for the day.", in: "windows" },
-      { text: "B opens your lunch box. Cows, hens and fruit trees give food when you talk to them; real shops and cafés sell it when you stand beside them.", in: "windows" },
-      { text: "A house of your own. Go into a house nobody lives in and press H: your name goes over the door.", in: "windows" },
-      { text: "H in your own house chooses walls, floors, furniture and prizes, and the lunch box is a kitchen there. Anywhere else, H takes you home.", in: "windows" },
-      { text: "A garden before your door: raise a chick, a lamb, a piglet or a calf, and it gives you something every day once it is grown.", in: "windows" },
-      { text: "K teaches your companion tricks in a small game of timing, and sets up an agility course to run with it.", in: "windows" },
-      { text: "A hungry animal has a thought over its head saying what it would like. Talk to it with that food in your lunch box.", in: "windows" },
-      { text: "A prize on show can be put down where you stand; and in the browser a real floor plan can be uploaded and your house built from it." },
+      { text: "Windows game: five hearts and a lunch box (B), with food from animals and fruit trees, and from the real shops and cafés you stand beside." },
+      { text: "Windows game: a house of your own (H), with your name over the door, furniture to choose, a kitchen, and a garden of young animals." },
+      { text: "Windows game: teach your companion tricks (K), set up an agility course, and feed the hungry animals that show what they would like." },
+      { text: "Browser game: press Tab for everything you can do, with a row of buttons along the bottom (Z hides it)." },
+      { text: "Browser game: talking has a speech bubble of its own (T), and a little map sits in the top right corner (M)." },
+      { text: "Browser game: the flat cartoon look. Switch it in the Tab menu." },
+      { text: "A prize on show in your house can be put down where you stand, turned, or sent back to a wall. There are five new things to buy." },
+      { text: "Upload a picture of a real floor plan and your house is built from it inside, with stairs you can walk up.", in: "browser" },
     ],
   },
   {
     version: "0.2.45", date: "2026-11-23", title: "Easier to find your way about",
     items: [
-      { text: "Press Tab to see everything you can do, and click it. Nothing needs a typed command any more.", in: "windows" },
-      { text: "A row of buttons along the bottom for the things you do most. Z hides it.", in: "windows" },
-      { text: "Talk to an animal, a car or a tree with T: it answers in a speech bubble of its own, with things to say that you can click.", in: "windows" },
-      { text: "A little map in the top right corner shows your friends, doors that open, stations, cars and the way you are going. M makes it bigger.", in: "windows" },
+      { text: "Press Tab to see everything you can do, and click it. Nothing needs a typed command any more." },
+      { text: "A row of buttons along the bottom for the things you do most. Z hides it." },
+      { text: "Talk to an animal, a car or a tree with T: it answers in a speech bubble of its own, with things to say that you can click." },
+      { text: "A little map in the top right corner shows your friends, doors that open, stations, cars and the way you are going. M makes it bigger." },
       { text: "A taxi, or your own car, really drives you where you asked. A taxi waits for you on the street: look for the T on the map." },
       { text: "Taxis tell you a story on the way, about somebody they once drove." },
-      { text: "While you ride or are carried, V looks down from above, then from high up over the rooftops.", in: "windows" },
-      { text: "This card: what is new since you were last here. It is in the Tab menu too.", in: "windows" },
+      { text: "While you ride or are carried, V looks down from above, then from high up over the rooftops." },
+      { text: "This card: what is new since you were last here. It is in the Tab menu too." },
     ],
   },
   {
@@ -65,7 +65,7 @@ export const NEWS: NewsEntry[] = [
   {
     version: "0.2.41", date: "2026-11-22", title: "A flat cartoon look",
     items: [
-      { text: "A second look for the whole world: flat bright colour and bold black lines. Switch it in the Tab menu.", in: "windows" },
+      { text: "A second look for the whole world: flat bright colour and bold black lines. Switch it in the Tab menu." },
       { text: "Esc twice leaves the game, and where you were is remembered.", in: "windows" },
     ],
   },

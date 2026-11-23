@@ -44,19 +44,19 @@ namespace
 		{ TEXT("chat"), TEXT("Talk"), TEXT("Chat with people"), TEXT("Everybody in your room reads what you type."), TEXT("Enter"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("passport"), TEXT("Play"), TEXT("My passport"), TEXT("Today's tasks, treasure hunts, expeditions, coins, hats, riddles and everywhere you have been."), TEXT("P"), TEXT(""), TEXT(""), TEXT(""), TEXT("Passport") },
-		{ TEXT("tricks"), TEXT("Play"), TEXT("Teach my companion tricks"), TEXT("A small game of timing teaches it to sit, spin, jump and more; then it does them when you ask."), TEXT("K"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
-		{ TEXT("agility"), TEXT("Play"), TEXT("Set up an agility course"), TEXT("Nine obstacles in a ring before you, run against the clock with your companion at your heels."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("race"), TEXT("Play"), TEXT("A race"), TEXT("Sets a race up along the roads here, joins a friend's, or starts yours."), TEXT("R"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("racestop"), TEXT("Play"), TEXT("Leave the race"), TEXT("Leaves it, or ends your own."), TEXT(""), TEXT("race stop"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("clue"), TEXT("Play"), TEXT("Hear the clue again"), TEXT("The clue of the treasure hunt you are on."), TEXT(""), TEXT("clue"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("tricks"), TEXT("Play"), TEXT("My companion's tricks"), TEXT("Teach the companion at your side its next trick, and have it do the ones it knows."), TEXT("K"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("agility"), TEXT("Play"), TEXT("An agility course"), TEXT("Nine obstacles in a ring before you, for you and your companion. R starts it."), TEXT(""), TEXT("agility"), TEXT(""), TEXT(""), TEXT("") },
 
-		{ TEXT("myhouse"), TEXT("Me"), TEXT("My house"), TEXT("In a house nobody lives in: make it yours. In your own: choose the furniture. Anywhere else: go home."), TEXT("H"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
-		{ TEXT("lunch"), TEXT("Me"), TEXT("My lunch box"), TEXT("Your five hearts, the food you carry, and what the shop beside you sells."), TEXT("B"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("animal"), TEXT("Me"), TEXT("Change my animal..."), TEXT("Fox, bear, rabbit, cat, owl or frog."), TEXT(""), TEXT("animal"), TEXT("Which animal? Fox, bear, rabbit, cat, owl or frog"), TEXT("bear"), TEXT("") },
 		{ TEXT("name"), TEXT("Me"), TEXT("Change my name..."), TEXT("What other people see over your head."), TEXT(""), TEXT("name"), TEXT("What should people call you?"), TEXT("your name"), TEXT("") },
 		{ TEXT("home"), TEXT("Me"), TEXT("Make this my home"), TEXT("You start here next time (when you are signed in)."), TEXT(""), TEXT("home"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("room"), TEXT("Me"), TEXT("Change room..."), TEXT("People in the same room see each other."), TEXT(""), TEXT("room"), TEXT("Which room?"), TEXT("family"), TEXT("") },
 		{ TEXT("login"), TEXT("Me"), TEXT("Sign in with Google"), TEXT("Opens your browser. Keeps your passport, coins and home."), TEXT(""), TEXT("login"), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("myhouse"), TEXT("Me"), TEXT("My house"), TEXT("Inside a house nobody lives in, makes it yours. Inside your own, the furniture, paint and garden. Anywhere else, takes you home."), TEXT("H"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("lunch"), TEXT("Me"), TEXT("My lunch box"), TEXT("Your five hearts and the food you carry. Beside a real shop or café, what it sells."), TEXT("B"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 
 		{ TEXT("look"), TEXT("The game"), TEXT("Switch the look"), TEXT("Between the painted look and the flat cartoon look."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("sound"), TEXT("The game"), TEXT("Sounds on, or off"), TEXT("The animals' voices, car horns and train whistles."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
