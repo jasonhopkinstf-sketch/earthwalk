@@ -15,7 +15,7 @@ import { DATA_Z, loadFeatures, type Features, type Pt, type Road } from "./osm.t
 import { heightOn, liftAt, prepareSpans, type Profile, rampsOf, spansOf, SURFACE_M } from "./spans.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 15;
+export const LABELS_REV = 16;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();

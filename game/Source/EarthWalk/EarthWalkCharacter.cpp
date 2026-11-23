@@ -425,7 +425,10 @@ void AEarthWalkCharacter::RideTick(float DeltaSeconds, APlayerController* PC)
 	const AEarthWorld* Earth = AEarthWorld::Get(this);
 	const FVector Here = GetActorLocation();
 	bool bWet = false;
-	if (Earth && !bAuto && bHasGoodSpot && Earth->WaterAt(Here.Y / 100.0, -Here.X / 100.0, bWet) && bWet != Mount->bAfloat)
+	// On a bridge the water is far below: whatever is ridden over it is on the deck, not in the sea.
+	double Under = 0.0;
+	const bool bOnDeck = Earth && Earth->TerrainHeightAt(Here.Y / 100.0, -Here.X / 100.0, Under) && FeetLocation().Z / 100.0 > Under + 1.5;
+	if (Earth && !bAuto && !bOnDeck && bHasGoodSpot && Earth->WaterAt(Here.Y / 100.0, -Here.X / 100.0, bWet) && bWet != Mount->bAfloat)
 	{
 		SetActorLocation(GoodSpot, false, nullptr, ETeleportType::TeleportPhysics);
 		Movement->StopMovementImmediately();

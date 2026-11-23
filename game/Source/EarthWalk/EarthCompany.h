@@ -164,7 +164,12 @@ private:
 	bool PlayerAt(double& OutX, double& OutZ) const;
 	void GeoToScene(double Lat, double Lon, double& OutX, double& OutZ) const;
 	/** The ground a thing stands on, metres above sea level: the terrain, a little higher for a car (roads are laid on top of it). */
-	bool GroundFor(const FString& Sp, double X, double Z, double& OutY) const;
+	/**
+	 * The height something of this kind stands at. Near the player, or with FeetAt given (the height its
+	 * rider is at), that is the floor there: a bridge's deck or a tunnel's floor where there is one, and
+	 * the terrain everywhere else.
+	 */
+	bool GroundFor(const FString& Sp, double X, double Z, double& OutY, double FeetAt = TNumericLimits<double>::Lowest(), const AActor* Ignore = nullptr) const;
 	void TestAids(double Dt);
 
 	TWeakObjectPtr<AEarthWorld> World;

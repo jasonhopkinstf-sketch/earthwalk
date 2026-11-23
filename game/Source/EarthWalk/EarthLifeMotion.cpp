@@ -334,6 +334,31 @@ void EarthLife::Prepare(FTrip& Trip)
 	Trip.Period = Trip.Da + Trip.Db + 2.0 * Trip.Time;
 }
 
+double EarthLife::LiftAt(const FTrip& Trip, double D)
+{
+	if (Trip.Lift.Num() != Trip.N || Trip.N < 2)
+	{
+		return 0.0;
+	}
+	int32 Lo = 0;
+	int32 Hi = Trip.N - 1;
+	while (Hi - Lo > 1)
+	{
+		const int32 Mid = (Lo + Hi) >> 1;
+		if (Trip.Dist[Mid] <= D)
+		{
+			Lo = Mid;
+		}
+		else
+		{
+			Hi = Mid;
+		}
+	}
+	const double Run = Trip.Dist[Hi] - Trip.Dist[Lo];
+	const double F = Run > 0.0 ? FMath::Clamp((D - Trip.Dist[Lo]) / Run, 0.0, 1.0) : 0.0;
+	return Trip.Lift[Lo] + (Trip.Lift[Hi] - Trip.Lift[Lo]) * F;
+}
+
 FVector2D EarthLife::PointAt(const FTrip& Trip, double D)
 {
 	const TArray<double>& P = Trip.Path;
@@ -417,6 +442,7 @@ EarthLife::FTripPose EarthLife::TripPose(const FTrip& Trip, double T)
 	Out.Leg = Leg;
 	Out.Pace = Out.bMoving && Span > 0.0 ? Run / Span : 0.0;
 	Out.bInLane = Out.bMoving && G0 == 1.0 && G1 == 1.0;
+	Out.Lift = LiftAt(Trip, Along);
 	return Out;
 }
 

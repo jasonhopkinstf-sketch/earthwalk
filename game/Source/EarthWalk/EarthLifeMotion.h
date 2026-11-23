@@ -72,6 +72,11 @@ namespace EarthLife
 		double Da = 1.0;
 		double Db = 1.0;
 		TArray<double> Path;
+		/**
+		 * Where the trip crosses a bridge or runs through a tunnel: for each point of the path, how far the
+		 * road or the rails are above the terrain there (below, in a tunnel). Empty for a trip on the ground.
+		 */
+		TArray<double> Lift;
 
 		int32 N = 0;
 		TArray<double> Dist;
@@ -83,6 +88,8 @@ namespace EarthLife
 
 	/** The point D metres along the middle of the road, or along the track. */
 	FVector2D PointAt(const FTrip& Trip, double D);
+	/** How far above the terrain (below, in a tunnel) a trip or a run is, D metres along it: liftAt of trafficmotion.js. 0 on the ground. */
+	double LiftAt(const FTrip& Trip, double D);
 	/** Compass heading of the path D metres along it, taken across Reach metres either side. */
 	double HeadingAt(const FTrip& Trip, double D, double Reach = 3.0);
 
@@ -95,6 +102,7 @@ namespace EarthLife
 		int32 Leg = 0; // 0 waiting at the start, 1 driving out, 2 waiting at the far end, 3 driving back
 		double Pace = 0.0;
 		bool bInLane = false;
+		double Lift = 0.0; // metres above the terrain: on a bridge, or on the ramp up to one
 	};
 	FTripPose TripPose(const FTrip& Trip, double T);
 

@@ -17,7 +17,7 @@ import { drawSpans, planTunnels, type SpanCtx } from "./spanmesh.ts";
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 13;
+export const GENERATOR_REV = 14;
 export const FLAG_COLLISION = 1;
 
 export interface MaterialDef { id: number; color: number; collision: boolean }
@@ -337,7 +337,26 @@ export function placeTrees(cx: number, cy: number, features: Features, cls: Uint
   const footprintBoxes = features.buildings.map((b) => ({ b, box: inBox(b.ring, cx, cy) })).filter((x) => x.box);
   const insideBuilding = (wx: number, wy: number): boolean =>
     footprintBoxes.some(({ b, box }) => wx >= box![0] && wx <= box![2] && wy >= box![1] && wy <= box![3] && pointInRing(wx, wy, b.ring));
+  // No tree in a tunnel's way near its mouths: for its first 80 m or so a tunnel is not yet under the ground
+  // (it dives from the mouth), and a tree there would stand in the tunnel with its top through the roof.
+  const S = metersPerTile(cy + 0.5);
+  const MOUTH_REACH_M = 85;
+  const inTunnelMouth = (wx: number, wy: number): boolean => (features.tunnels ?? []).some((way) => {
+    const reach = way.width / 2 + 2.6; // the tube's wall, and room for a trunk
+    let along = 0, best = Infinity, bestAlong = 0;
+    for (let i = 0; i + 1 < way.pts.length; i++) {
+      const ax = (way.pts[i][0] - wx) * S, ay = (way.pts[i][1] - wy) * S;
+      const dx = (way.pts[i + 1][0] - way.pts[i][0]) * S, dy = (way.pts[i + 1][1] - way.pts[i][1]) * S;
+      const len = Math.hypot(dx, dy);
+      const f = len > 0 ? Math.min(1, Math.max(0, -(ax * dx + ay * dy) / (len * len))) : 0;
+      const off = Math.hypot(ax + dx * f, ay + dy * f);
+      if (off < best) { best = off; bestAlong = along + len * f; }
+      along += len;
+    }
+    return best < reach && Math.min(bestAlong, along - bestAlong) < MOUTH_REACH_M;
+  });
   const add = (wx: number, wy: number, seed: number, conifer: boolean): void => {
+    if (inTunnelMouth(wx, wy)) return;
     out.push({ wx, wy, seed, height: 6 + (seed % 700) / 100, radius: 1.6 + ((seed >>> 10) % 160) / 100, conifer });
   };
   for (const t of features.trees) {

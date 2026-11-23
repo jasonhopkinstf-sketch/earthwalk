@@ -364,11 +364,37 @@ void UEarthCompany::MapMarks(TArray<FEarthMapMark>& Out, TArray<FVector2D>& OutW
 	}
 }
 
-bool UEarthCompany::GroundFor(const FString& Sp, double X, double Z, double& OutY) const
+bool UEarthCompany::GroundFor(const FString& Sp, double X, double Z, double& OutY, double FeetAt, const AActor* Ignore) const
 {
 	if (!World.IsValid() || !World->TerrainHeightAt(X, Z, OutY))
 	{
 		return false;
+	}
+	// FeetAt the player, what is stood on may be a bridge deck or a tunnel's floor and not the terrain: the
+	// highest thing under a point a little above the player's feet (floorAt of world.js). A companion on
+	// a bridge trots on the deck beside its player, and one in a tunnel on its floor.
+	// The same for a friend's mount, from the height the friend is at (FeetAt).
+	const AEarthWalkCharacter* Me = Player.Get();
+	double Px = 0.0, Pz = 0.0;
+	bool bHasFeet = FeetAt > TNumericLimits<double>::Lowest();
+	if (!bHasFeet && Me && !Me->IsWaitingForGround() && PlayerAt(Px, Pz) && std::hypot(X - Px, Z - Pz) < 40.0)
+	{
+		FeetAt = Me->FeetLocation().Z / 100.0;
+		bHasFeet = true;
+	}
+	if (bHasFeet && FMath::Abs(FeetAt - OutY) > 1.0 && World->GetWorld())
+	{
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(EarthWalkFloor), /*bTraceComplex*/ true, Me);
+		if (Ignore)
+		{
+			Params.AddIgnoredActor(Ignore);
+		}
+		const FVector From = SceneToEngine(X, FeetAt + 1.2, Z);
+		if (World->GetWorld()->LineTraceSingleByChannel(Hit, From, From - FVector(0.0, 0.0, 800.0), ECC_Visibility, Params))
+		{
+			OutY = Hit.ImpactPoint.Z / 100.0;
+		}
 	}
 	if (Sp == TEXT("car") || Sp == TEXT("taxi"))
 	{
@@ -446,10 +472,16 @@ void UEarthCompany::OnRide(const FEarthRide& Ride)
 		if (bFrom)
 		{
 			// Onto its back, where it stands, facing the way it faces.
+			// On a bridge or in a tunnel that is the deck or the floor it stands on, not the ground far under
+			// or over it. Something that stands where there is no floor at my height (beside the deck, down
+			// on the water) comes to me instead: I stay where I am, and it is drawn under me.
 			double Ground = 0.0;
 			const FVector Here = Me->FeetLocation();
-			const bool bGround = World.IsValid() && World->TerrainHeightAt(From.X, From.Z, Ground);
-			Me->PlaceFeetAt(SceneToEngine(From.X, bGround ? Ground + 0.3 : Here.Z / 100.0, From.Z));
+			const bool bGround = GroundFor(FString(), From.X, From.Z, Ground);
+			if (!bGround || FMath::Abs(Ground - Here.Z / 100.0) < 3.0)
+			{
+				Me->PlaceFeetAt(SceneToEngine(From.X, bGround ? Ground + 0.3 : Here.Z / 100.0, From.Z));
+			}
 			if (APlayerController* PC = Cast<APlayerController>(Me->GetController()))
 			{
 				FRotator Look = PC->GetControlRotation();
@@ -594,10 +626,11 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 			FEarthThing& Mount = Mounts.Last();
 			const FEarthCar& Car = Me->GetCar();
 			const double Sin = std::sin(Car.Heading), Cos = std::cos(Car.Heading);
+			// On a bridge or in a tunnel that is the deck or the floor, not the hillside far under or over it.
 			const auto HeightAt = [&](double Along, double Across)
 			{
 				double H = Mount.Y;
-				Earth->TerrainHeightAt(Mount.X + Sin * Along + Cos * Across, Mount.Z - Cos * Along + Sin * Across, H);
+				GroundFor(FString(), Mount.X + Sin * Along + Cos * Across, Mount.Z - Cos * Along + Sin * Across, H, Feet.Z / 100.0);
 				return H;
 			};
 			const double Slope = std::atan2(HeightAt(1.3, 0.0) - HeightAt(-1.3, 0.0), 2.6);
@@ -620,7 +653,7 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 			const FVector At = Shown->GetActorLocation();
 			const double X = At.Y / 100.0, Z = -At.X / 100.0;
 			double Y = At.Z / 100.0 - Mount->Seat;
-			GroundFor(Ride.Sp, X, Z, Y);
+			GroundFor(Ride.Sp, X, Z, Y, Y, Shown); // a friend riding over a bridge has their mount on the deck with them
 			Ridden(Pair.Key, Ride.Thing, Ride.Sp, X, Z, Y, (-Shown->GetActorRotation().Yaw * UE_DOUBLE_PI) / 180.0, Dt);
 		}
 		else
@@ -1148,7 +1181,8 @@ void UEarthCompany::Steer(double Dt)
 			++J;
 		}
 		double GroundHere = 0.0, GroundThere = 0.0;
-		if (World.IsValid() && World->TerrainHeightAt(Px, Pz, GroundHere) && World->TerrainHeightAt(Trip.Path[J].X, Trip.Path[J].Y, GroundThere))
+		// (The floor at each place, which on a bridge is its deck: by the terrain alone a taxi held up on a bridge was set down under it.)
+		if (World.IsValid() && GroundFor(FString(), Px, Pz, GroundHere) && GroundFor(FString(), Trip.Path[J].X, Trip.Path[J].Y, GroundThere))
 		{
 			const FVector Here = Me->GetActorLocation();
 			Me->SetActorLocation(FVector(-Trip.Path[J].Y * 100.0, Trip.Path[J].X * 100.0, Here.Z + (GroundThere - GroundHere) * 100.0 + 30.0), false, nullptr, ETeleportType::TeleportPhysics);

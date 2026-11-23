@@ -91,6 +91,31 @@ namespace
 		}
 		return true;
 	}
+
+	/**
+	 * How far above the terrain each point of a path is (docs/PROTOCOL.md, "Traffic" and "Trains": `lift`):
+	 * sent only for a trip that crosses a bridge or a run that goes through a tunnel, a number for each
+	 * point. Anything else leaves the trip on the ground.
+	 */
+	void ReadLift(const FJsonObject& Json, int32 Points, TArray<double>& Out)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Lifts = nullptr;
+		if (!Json.TryGetArrayField(TEXT("lift"), Lifts) || Lifts->Num() != Points)
+		{
+			return;
+		}
+		Out.Reserve(Points);
+		for (const TSharedPtr<FJsonValue>& Value : *Lifts)
+		{
+			double Metres = 0.0;
+			if (!Value.IsValid() || !Value->TryGetNumber(Metres) || !FMath::IsFinite(Metres))
+			{
+				Out.Reset();
+				return;
+			}
+			Out.Add(Metres);
+		}
+	}
 }
 
 AEarthLife::AEarthLife()
@@ -228,6 +253,7 @@ void AEarthLife::AddChunk(FIntPoint Key, const TArray<TSharedPtr<FJsonValue>>& I
 			Car.Trip.W = FMath::Clamp(Car.Trip.W, 2.5, 40.0);
 			Car.Trip.Da = FMath::Max(1.0, Car.Trip.Da);
 			Car.Trip.Db = FMath::Max(1.0, Car.Trip.Db);
+			ReadLift(Json, Car.Trip.Path.Num() / 3, Car.Trip.Lift);
 			EarthLife::Prepare(Car.Trip);
 			Car.Looks = LooksOf(Identity);
 			if (Car.Trip.Time > 0.0 && Car.Looks.Rig)
@@ -246,6 +272,7 @@ void AEarthLife::AddChunk(FIntPoint Key, const TArray<TSharedPtr<FJsonValue>>& I
 			Train.Trip.Id = Identity;
 			Train.Trip.Da = FMath::Max(1.0, Train.Trip.Da);
 			Train.Trip.Db = FMath::Max(1.0, Train.Trip.Db);
+			ReadLift(Json, Train.Trip.Path.Num() / 3, Train.Trip.Lift);
 			EarthLife::Prepare(Train.Trip);
 			Train.Rig = EarthRigs::Find(TEXT("railcar"));
 			if (Train.Rig && Train.Trip.Time > 0.0 && Train.Trip.Length > TrainM + 30.0)
@@ -893,6 +920,19 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 		}
 		double Y = 0.0;
 		const bool bGround = World->TerrainHeightAt(Pose.X, Pose.Y, Y);
+		Y += Pose.Lift; // on a bridge, the deck and not the ground under it
+		// -EWLiftLog: every car that is off the ground, every two seconds, for tests.
+		static const bool bLiftLog = FParse::Param(FCommandLine::Get(), TEXT("EWLiftLog"));
+		if (bLiftLog && bGround && FMath::Abs(Pose.Lift) > 0.5)
+		{
+			static TMap<int64, double> NextLog;
+			double& LiftLogAt = NextLog.FindOrAdd(int64(Id));
+			if (FPlatformTime::Seconds() > LiftLogAt)
+			{
+				LiftLogAt = FPlatformTime::Seconds() + 2.0;
+				UE_LOG(LogTemp, Display, TEXT("EarthWalk: lift: car %lld at %.1f east %.1f south: ground %.1f m, road %.1f m over it, %.0f m from me"), int64(Id), Pose.X, Pose.Y, Y - Pose.Lift, Pose.Lift, Entry.D);
+			}
+		}
 		if (bBlocked)
 		{
 			St.Lag = FMath::Min(90.0, St.Lag + Dt); // after a minute and a half it gives up waiting and drives on
@@ -945,6 +985,18 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 			if (Away > TrainShowM || !World->TerrainHeightAt(At.X, At.Y, Y))
 			{
 				continue;
+			}
+			Y += EarthLife::LiftAt(Trip, D); // over a bridge, or down in a tunnel
+			static const bool bRailLog = FParse::Param(FCommandLine::Get(), TEXT("EWLiftLog"));
+			if (bRailLog && K == 0 && FMath::Abs(EarthLife::LiftAt(Trip, D)) > 0.5)
+			{
+				static TMap<int64, double> NextLog;
+				double& LiftLogAt = NextLog.FindOrAdd(int64(Trip.Id));
+				if (FPlatformTime::Seconds() > LiftLogAt)
+				{
+					LiftLogAt = FPlatformTime::Seconds() + 2.0;
+					UE_LOG(LogTemp, Display, TEXT("EarthWalk: lift: train %lld at %.1f east %.1f south: ground %.1f m, rails %.1f m from it, %.0f m from me, %s"), int64(Trip.Id), At.X, At.Y, Y - EarthLife::LiftAt(Trip, D), EarthLife::LiftAt(Trip, D), Away, Pose.bMoving ? TEXT("moving") : TEXT("standing"));
+				}
 			}
 			const double CarriageYaw = (-EarthLife::HeadingAt(Trip, D, 6.0) * Pi) / 180.0;
 			if (Away < 40.0)
@@ -1053,7 +1105,7 @@ bool AEarthLife::CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double
 			return false;
 		}
 		Out.X = At.X;
-		Out.Y = Y + RailLiftM;
+		Out.Y = Y + RailLiftM + EarthLife::LiftAt(Trip, D);
 		Out.Z = At.Y;
 		Out.Yaw = (-EarthLife::HeadingAt(Trip, D, 6.0) * Pi) / 180.0;
 		return true;

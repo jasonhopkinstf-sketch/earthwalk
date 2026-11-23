@@ -1,7 +1,7 @@
 // Bridges and tunnels: what the map says about them, the heights worked out for them, and what is drawn.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildChunkMesh, MATERIALS, type Section } from "../src/chunk.ts";
+import { buildChunkMesh, groundClasses, MATERIALS, placeTrees, type Section } from "../src/chunk.ts";
 import { buildLabels } from "../src/labels.ts";
 import { liftAt, prepare, tripPose } from "../public/js/trafficmotion.js";
 import { planRoute } from "../src/route.ts";
@@ -212,6 +212,33 @@ test("a tunnel is a tube under the ground: a floor to stand on, walls and a ceil
   assert.equal(over(-140.3, 0.4), 0, "the terrain is cut away just inside the mouth");
   assert.equal(over(1.3, 0.7), 1, "and whole over the middle of the hill");
   assert.equal(over(-140.3, 60.7), 1, "and beside the tunnel");
+  // Walking in at a mouth there is something solid underfoot at every step: the terrain, then the slab before
+  // the mouth, then the floor. (A game that stands on the triangles falls through any gap.)
+  const solid = sections.filter((s) => s.mat.collision && (s.mat.id <= 9 || s.mat.id === MATERIALS.deck.id));
+  const underfoot = (e: number, n: number): boolean => solid.some((s) => {
+    for (let t = 0; t < s.idx.length; t += 3) {
+      const [a, b, c] = [s.idx[t], s.idx[t + 1], s.idx[t + 2]].map((v) => [s.pos[v * 3] - S / 2 - e, s.pos[v * 3 + 1] + S / 2 - n]);
+      const side = (p: number[], q: number[]): number => p[0] * q[1] - p[1] * q[0];
+      const [d1, d2, d3] = [side(a, b), side(b, c), side(c, a)];
+      if ((d1 >= 0 && d2 >= 0 && d3 >= 0) || (d1 <= 0 && d2 <= 0 && d3 <= 0)) return true;
+    }
+    return false;
+  });
+  for (const mouth of [-150, 150]) {
+    for (let e = mouth - 14; e <= mouth + 14; e += 0.35) {
+      for (const n of [-2.9, -1.1, 0.2, 1.6, 2.9]) assert.ok(underfoot(e, n), `something to stand on ${(e - mouth).toFixed(2)} m from the mouth at ${mouth}, ${n} m off the middle`);
+    }
+  }
+});
+
+test("no tree stands in a tunnel's way near its mouths", async () => {
+  const elev = await land((e) => GROUND + 40 * Math.max(0, 1 - (e / 160) ** 2));
+  const tube = road(2, [at(-150, 0), at(150, 0)], { tunnel: true, layer: -1 });
+  const f = world([road(1, [at(-200, 0), at(-150, 0)]), road(3, [at(150, 0), at(200, 0)])], [tube]);
+  // Mapped trees: one 10 m inside the west mouth on the tunnel's line, one beside it, one over the middle of the hill, one 20 m inside the east mouth.
+  f.trees = [{ id: 11, at: at(-140, 0.5) }, { id: 12, at: at(-140, 14) }, { id: 13, at: at(0, 0) }, { id: 14, at: at(130, -1) }];
+  const spots = placeTrees(CX, CY, f, groundClasses(CX, CY, f, elev)).map((t) => [Math.round((t.wx - CX - 0.5) * S), Math.round((t.wy - CY - 0.5) * S)]);
+  assert.deepEqual(spots, [[-140, 14], [0, 0]], "the two in the tunnel's way near a mouth are not planted; the others are");
 });
 
 test("underground paths with no way in from the street are left out; a tunnel that ends underground ends in a wall", async () => {

@@ -375,6 +375,12 @@ four parts about somebody it once drove, then remarks. Friends can share it.
 It waits on the nearest proper street, not up a driveway (the little map shows where), and a car
 being driven somewhere that meets something in its way is set down ten metres farther along its
 road (Windows; `-EWTripLog` writes the trip to the log each second, `-EWTripHop` holds it up once).
+Bridges and tunnels in the Windows game: cars and trains are drawn at the terrain's height plus the
+`lift` of their trip, anything that stands beside the player (a companion, a taxi, a called car, a
+friend's mount) stands on the floor there (`UEarthCompany::GroundFor`: a trace down from 1.2 m above
+the feet, so a deck or a tunnel's floor where there is one), and a ride over water on a deck is not
+stopped at the "shore". `-EWLiftLog` writes every car and train that is off the ground to the log
+every two seconds, with the ground's height and how far the road or rails are from it.
 `server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
 
 Fifty-four kinds of animal now live in the world (`server/src/life.ts` places them,

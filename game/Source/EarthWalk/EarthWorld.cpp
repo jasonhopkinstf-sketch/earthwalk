@@ -1034,6 +1034,11 @@ namespace
 			{ 7, { TEXT("M_EarthWater"), 0x4aa8e0, 0.f, 0.f, 0.f, 0.f, 0x3aa8f2 } },
 			{ 8, { TEXT("M_EarthTop"), 0xa59c90, 0.f, 0.f, 0.f, 0.f, 0xaaa59c } }, // rock
 			// Roads
+			{ 9, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },   // ground that is not on the terrain's grid (round a tunnel's mouth, banked over a tunnel), in the colour sent
+			{ 16, { TEXT("M_EarthTop"), 0, 0.f, 0.f, 0.f, 0.f } },  // a way that is not on the ground: a bridge deck, a ramp, a tunnel floor, in the colour of what it carries
+			{ 17, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 0.f, 0.f } }, // bridge structure: sides, piers, arches
+			{ 18, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 0.f, 0.f } }, // railings and hangers
+			{ 19, { TEXT("M_EarthWall"), 0, 0.f, 0.f, 0.f, 0.f } }, // tunnel walls and ceilings, the stone of a mouth
 			{ 10, { TEXT("M_EarthTop"), 0x7f838c, 0.f, 0.f, 0.f, 0.f, 0x8d919c } },
 			{ 11, { TEXT("M_EarthTop"), 0xe6c690, 0.f, 0.f, 0.f, 0.f, 0xefcb8a } }, // paths
 			{ 12, { TEXT("M_EarthTop"), 0x7a5e4a, 0.f, 0.f, 0.f, 0.f, 0x80593f } }, // railway
@@ -1198,6 +1203,9 @@ bool AEarthWorld::BuildChunk(FIntPoint Key, const TArray<uint8>& Data)
 	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Mesh->SetCollisionObjectType(ECC_WorldStatic);
 	Mesh->SetCollisionResponseToAllChannels(ECR_Block);
+	// A tunnel's walls and ceiling face inwards, and the sun is outside: seen from the sun they are back
+	// faces, which cast no shadow unless told to, and the light fell through them onto the tunnel's floor.
+	Mesh->bCastShadowAsTwoSided = true;
 	Mesh->SetupAttachment(RootComponent);
 	// The component sits at the chunk's north-west corner; vertices are relative to it.
 	Mesh->SetRelativeLocation(FVector(-(Key.Y - OriginY) * TileCm, (Key.X - OriginX) * TileCm, 0.0));

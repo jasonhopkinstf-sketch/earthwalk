@@ -570,6 +570,18 @@ function tunnel(ctx: SpanCtx, profile: Profile, plan: TunnelPlan): void {
       panel(lining, [corner(0, -half, z), corner(0, half, z), corner(0, half, z + high), corner(0, -half, z + high)], [-oe, -on, 0]);
       continue;
     }
+    // The ground is not drawn in the tunnel's way, and "in its way" reaches a few metres out in front of the
+    // mouth, round the end of the tunnel. A piece of ground from the mouth out to the terrain there, just under
+    // the paint of the road or the rails, so that there is something solid underfoot all the way in. (The
+    // browser game walks by the table of heights and never noticed; the Windows game stands on what is drawn,
+    // and fell through.)
+    const lip = half + 1.7, wide = half + 1.4;
+    const sill = ctx.sec(ctx.painted(ctx.mats.cut, surface(way)));
+    const onGround = (a: number, o: number): [number, number, number] => {
+      const [ce, cn] = corner(a, o, 0);
+      return [ce, cn, ctx.ground(ctx.cx + ce / S, ctx.cy - cn / S) + 0.04];
+    };
+    panel(sill, [corner(-0.3, -wide, z - SURFACE_M + 0.04), corner(-0.3, wide, z - SURFACE_M + 0.04), onGround(lip, wide), onGround(lip, -wide)], [0, 0, 1]);
     // A stone frame round the opening, standing a little proud of it and above the bank, with a wing each side holding the bank back.
     const up = z + high + TUBE_ROOF_M + 0.8, out = shoulder + 0.5;
     const here = { wx, wy, te: -oe, tn: -on };

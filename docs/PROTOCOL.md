@@ -143,7 +143,12 @@ Where a tunnel comes up through the ground (at a mouth, and wherever it is not d
 covered), **the terrain has holes**. The cells of the terrain's grid that the tunnel passes through
 there are not drawn as terrain. Each is drawn again in section 9, in the same colour, as 6 by 6
 smaller squares, less those in the tunnel's way. Where the ground does not cover the tunnel, earth is
-banked over it, also in section 9. Three things follow for a client:
+banked over it, also in section 9. "In the tunnel's way" reaches a few metres out in front of a
+mouth, so a piece of ground is laid there too (section 9, in the colour of the way, just under its
+paint): with it there is something solid to stand on at every step into a tunnel, for a client that
+stands on the triangles and not on the grid of heights. No tree is planted (in the mesh or in the
+labels) in a tunnel's way within 85 m of its ends, where the tunnel is not yet under the ground.
+Three things follow for a client:
 
 - **The grid of heights is still whole.** Every vertex of the 65 by 65 grid is still sent in a
   terrain section (0 to 8), even where no triangle uses it, so a client that rebuilds the grid from
