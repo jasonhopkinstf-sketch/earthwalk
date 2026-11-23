@@ -1,5 +1,5 @@
-// The inside of a building that is not a home: an office, a shop, a café, or a mall (which, small, is
-// an arcade or a row of shops). Like a house's rooms (interior.ts), everything follows from the
+// The inside of a building that is not a home: an office, a shop, a café, a mall (which, small, is
+// an arcade or a row of shops), or the entrance hall of a block of flats or a hotel. Like a house's rooms (interior.ts), everything follows from the
 // building's own numbers, so it is the same inside for everyone and on every visit; unlike a house,
 // it has a way through, from the door on the street to a door on another side, and people in it.
 //
@@ -13,7 +13,7 @@ import { hash32 } from "./geo.ts";
 import type { MaterialDef } from "./chunk.ts";
 import { INSIDE } from "./interior.ts";
 
-export type VenueKind = "office" | "shop" | "cafe" | "mall";
+export type VenueKind = "office" | "shop" | "cafe" | "mall" | "lobby";
 /** A door of the room: which wall (0 front, 1 back, 2 the wall a = 0, 3 the wall a = width) and how far along it. `lo` and `hi`, when given, are how far it may be moved along its wall. */
 export interface VenueDoor { side: 0 | 1 | 2 | 3; at: number; lo?: number; hi?: number }
 /** A shop the map names inside a mall. */
@@ -32,9 +32,11 @@ export interface VenueSpec {
   trade?: string;
   /** A mall: the shops the map names inside it, which come first along its walk. */
   shops?: NamedShop[];
+  /** An entrance hall: a hotel's, with a desk and luggage, and not a block of flats'. */
+  hotel?: boolean;
 }
 
-export type Role = "worker" | "meeting" | "reception" | "keeper" | "barista" | "shopper" | "guest";
+export type Role = "worker" | "meeting" | "reception" | "keeper" | "barista" | "shopper" | "guest" | "caretaker" | "resident";
 /**
  * Somebody inside. `fa`, `fb` is the way they face (a unit vector in the room's frame). Sitting, `seat` is
  * how high the seat is; strolling, `path` is where they walk, there and back, as a, b, a, b...
@@ -111,6 +113,8 @@ export function tradeOf(word: string | undefined, name: string | undefined, seed
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+/** Halfway between two colours. */
+const hexMix = (p: number, q: number): number => ((((p >> 16) & 255) + ((q >> 16) & 255)) >> 1 << 16) | ((((p >> 8) & 255) + ((q >> 8) & 255)) >> 1 << 8) | (((p & 255) + (q & 255)) >> 1);
 /** The ways a thing can face: into the building from the front wall, towards the front, and the two sideways. */
 const FACING: [number, number][] = [[0, 1], [0, -1], [1, 0], [-1, 0]];
 
@@ -131,10 +135,16 @@ export function layVenue(spec: VenueSpec): Laid {
   const front: VenueDoor = { side: 0, at: clamp(spec.doors[0]?.at ?? W / 2, 1, W - 1) };
   const doors: VenueDoor[] = [front];
   const given = spec.doors[1];
+  /** How wide a mall's walk is, and where its middle is: straight back from the front door. */
+  const mallWalk = W >= 26 ? 6 : W >= 16 ? 4.5 : 3.2;
+  const mallMid = clamp(front.at, mallWalk / 2, W - mallWalk / 2);
   if (given) {
     const len = given.side === 1 ? W : D;
-    const lo = Math.max(1.2, given.lo ?? given.at), hi = Math.min(len - 1.2, given.hi ?? given.at);
-    const want = given.side === 1 ? front.at : D * (0.45 + unit(0x444f4f52) * 0.2);
+    let lo = Math.max(1.2, given.lo ?? given.at), hi = Math.min(len - 1.2, given.hi ?? given.at);
+    let want = given.side === 1 ? front.at : D * (0.45 + unit(0x444f4f52) * 0.2);
+    // A mall's back door is at the end of its walk, wherever the wall outside is free (the door outside is then a few steps along).
+    if (spec.kind === "mall" && given.side === 1) { lo = 1.2; hi = len - 1.2; want = mallMid; }
+    if (spec.kind === "mall" && given.side !== 1) { lo = Math.max(lo, 3); hi = Math.min(hi, len - 3); }
     if (hi >= lo) doors.push({ side: given.side, at: clamp(want, lo, hi) });
   }
   const second = doors[1] as VenueDoor | undefined;
@@ -168,7 +178,10 @@ export function layVenue(spec: VenueSpec): Laid {
           : [within[1] - off - d, within[1] - off, within[2] + from, within[2] + from + w];
   const F = INSIDE.furniture;
   let nobody = 0;
+  /** No more than this many in one place: whoever is thought of first is in (the people who work there, before those passing through). */
+  const MOST = { office: 20, shop: 4, cafe: 10, mall: 25, lobby: 4 }[spec.kind];
   const person = (role: Role, pose: Person["pose"], at: [number, number], k: number, more: Partial<Person> = {}): void => {
+    if (people.length >= MOST) return;
     people.push({ n: nobody++, role, pose, a: Math.round(at[0] * 100) / 100, b: Math.round(at[1] * 100) / 100, fa: FACING[k][0], fb: FACING[k][1], ...more });
   };
 
@@ -503,7 +516,7 @@ export function layVenue(spec: VenueSpec): Laid {
       path.push(a0, b1, a2, b1, a2, D - 1.2);
     }
     const r = (v: number): number => Math.round(v * 100) / 100;
-    people.push({ n: nobody++, role, pose: "walk", a: r(path[0]), b: r(path[1]), fa: 0, fb: 1, path: path.map(r) });
+    if (people.length < MOST) people.push({ n: nobody++, role, pose: "walk", a: r(path[0]), b: r(path[1]), fa: 0, fb: 1, path: path.map(r) });
   };
 
   // =============================================================== a shop
@@ -529,27 +542,31 @@ export function layVenue(spec: VenueSpec): Laid {
       }
     }
     // Shelves round the walls, and in rows down the middle where the shop is wide enough.
+    // (A big shop has longer shelves with wider aisles between them, like a supermarket's: fewer pieces to send.)
     let n = 0;
+    const large = W * D > 110;
+    const sw = large ? 2.4 : 1.2;
     for (const k of [2, 3, 1]) {
       const run = k < 2 ? W : D;
-      for (let from = 0.3; from + 1.2 <= run - 0.3; from += 1.3) {
-        const r = against([0, W, 0, D], k, from, 1.2, 0.4);
-        if (take(r, undefined, 0.02)) shelves(boxIn(r, k), 1.2, trade, 0x5348454c + n++ * 29);
+      for (let from = 0.3; from + sw <= run - 0.3; from += sw + 0.1) {
+        const r = against([0, W, 0, D], k, from, sw, 0.4);
+        if (take(r, undefined, 0.02)) shelves(boxIn(r, k), sw, trade, 0x5348454c + n++ * 29);
       }
     }
-    for (let a = 1.7; a + 0.9 <= W - 1.7; a += 2.5) {
-      for (let b = 2.4; b + 1.2 <= D - 1.9; b += 1.3) {
-        const r: Rect = [a, a + 0.9, b, b + 1.2];
+    for (let a = 1.7; a + 0.9 <= W - 1.7; a += large ? 3.3 : 2.5) {
+      for (let b = 2.4; b + sw <= D - 1.9; b += sw + (large ? 1.4 : 0.1)) {
+        const r: Rect = [a, a + 0.9, b, b + sw];
         if (!take(r, undefined, 0.02)) continue;
-        shelves(boxIn([a, a + 0.45, b, b + 1.2], 3), 1.2, trade, 0x474f4e44 + n++ * 29, 1.4);
-        shelves(boxIn([a + 0.45, a + 0.9, b, b + 1.2], 2), 1.2, trade, 0x474f4e44 + n++ * 29, 1.4);
+        shelves(boxIn([a, a + 0.45, b, b + sw], 3), sw, trade, 0x474f4e44 + n++ * 29, 1.4, large);
+        shelves(boxIn([a + 0.45, a + 0.9, b, b + sw], 2), sw, trade, 0x474f4e44 + n++ * 29, 1.4, large);
       }
     }
     plants([0, W, 0, D], 1, 0x504c4e54);
     if (spec.name) lettering.push({ text: spec.name, a: side === 2 ? 0.04 : W - 0.04, b: 1.3 + cw / 2, z: Math.min(H - 0.35, 2.3), fa: side === 2 ? 1 : -1, fb: 0, w: Math.min(3, cw + 0.6) });
     // Somebody looking along the shelves.
     if (W * D >= 40) stroller("shopper", walk, 0.5);
-    if (W * D >= 90) person("shopper", "stand", [front.at + (side === 2 ? 1.2 : -1.2), Math.min(D - 1.6, 3.2)], side === 2 ? 3 : 2);
+    const by: [number, number] = [front.at + (side === 2 ? 1.2 : -1.2), Math.min(D - 1.6, 3.2)];
+    if (W * D >= 90 && by[0] > 0.6 && by[0] < W - 0.6 && !taken.some((t) => hits([by[0] - 0.3, by[0] + 0.3, by[1] - 0.3, by[1] + 0.3], t, 0.05))) person("shopper", "stand", by, side === 2 ? 3 : 2);
   };
 
   // =============================================================== a café
@@ -598,11 +615,113 @@ export function layVenue(spec: VenueSpec): Laid {
     plants([0, W, 0, D], 3, 0x504c4e54);
   };
 
+  // =============================================================== the entrance hall of flats or a hotel
+  const lobby = (): void => {
+    lining(paint);
+    floor(pick(TILES, 0x464c4f52), [0, W, 0, D]);
+    doors.forEach(doorway);
+    windows(0, 0.4, W - 0.4, false);
+    lights([0, W, 0, D]);
+    const walk = walkOf(1.6);
+    clear.push(...walk);
+    for (const r of walk) floor(hexMix(accent, 0x8a8478), r, 0.006, INSIDE.soft); // a runner from door to door
+    /** Stands a thing `w` across and `d` deep against a wall, wherever along the walls (in the order given) there is room; says where. */
+    const stand = (w: number, d: number, salt: number, walls: number[], make: (box: Box, rect: Rect, k: number) => void): { rect: Rect; k: number } | null => {
+      for (const k of walls) {
+        const run = k < 2 ? W : D;
+        if (w > run - 0.6) continue;
+        const first = hash32(spec.seed, salt + k) % 3;
+        for (let n = 0; n < 3; n++) {
+          const where = (first + n) % 3;
+          const from = where === 0 ? (run - w) / 2 : where === 1 ? 0.3 : run - w - 0.3;
+          const rect = against([0, W, 0, D], k, from, w, d);
+          if (!take(rect)) continue;
+          make(boxIn(rect, k), rect, k);
+          return { rect, k };
+        }
+      }
+      return null;
+    };
+    const letter = (text: string, at: { rect: Rect; k: number }, w: number, z: number): void => {
+      const p = pointIn(at.rect, at.k, (at.k < 2 ? at.rect[1] - at.rect[0] : at.rect[3] - at.rect[2]) / 2, 0.02);
+      lettering.push({ text, a: p[0], b: p[1], z: Math.min(H - 0.2, z), fa: FACING[at.k][0], fb: FACING[at.k][1], w });
+    };
+    const backFirst = [1, 2, 3, 0], sidesFirst = front.at < W / 2 ? [3, 2, 1, 0] : [2, 3, 1, 0];
+    // The lift: two steel doors in a frame, with a button beside them.
+    const lift = stand(2.3, 0.12, 0x4c494654, backFirst, (box) => {
+      box(F, 0x8d949a, 0, 2.3, 0, 0.08, 0, 2.3);
+      box(F, STEEL, 0.18, 1.13, 0.08, 0.11, 0, 2.12);
+      box(F, STEEL, 1.17, 2.12, 0.08, 0.11, 0, 2.12);
+      box(F, accent, 2.16, 2.24, 0.08, 0.12, 1.0, 1.14);
+    });
+    if (lift) letter("LIFT", lift, 1.0, 2.5);
+    if (spec.hotel) {
+      // The desk, with whoever is on duty behind it and the keys on the wall; luggage on a trolley; somewhere to wait.
+      const side = sidesFirst[0];
+      const cw = Math.min(2.6, D - 3.2);
+      if (cw >= 1.6) {
+        const r = against([0, W, 0, D], side, Math.max(1.4, (D - cw) / 2), cw, 0.65, 0.95);
+        const behind: Rect = side === 2 ? [0.1, 0.9, r[2], r[3]] : [W - 0.9, W - 0.1, r[2], r[3]];
+        if (take(r, undefined, 0.05) && take(behind, undefined, 0)) {
+          const box = boxIn(r, side);
+          box(F, wood, 0, cw, 0, 0.65, 0, 1.05);
+          box(F, 0xe9e4d8, -0.03, cw + 0.03, -0.03, 0.68, 1.05, 1.09);
+          box(F, 0xe0b23c, 0.3, 0.42, 0.25, 0.37, 1.09, 1.17); // the bell
+          person("reception", "stand", [(behind[0] + behind[1]) / 2, (r[2] + r[3]) / 2], side);
+          const wall = side === 2 ? 0.03 : W - 0.03, s = side === 2 ? 1 : -1;
+          sheetA(INSIDE.glass, TIMBER, wall, r[2] + 0.3, r[3] - 0.3, 1.3, 2.0, s);
+          for (let k = 0; k < 5; k++) sheetA(INSIDE.glass, 0xe0b23c, wall + s * 0.01, r[2] + 0.45 + k * ((cw - 1.0) / 4), r[2] + 0.55 + k * ((cw - 1.0) / 4), 1.45 + (k % 2) * 0.25, 1.6 + (k % 2) * 0.25, s);
+          lettering.push({ text: spec.name ?? "HOTEL", a: side === 2 ? r[1] + 0.02 : r[0] - 0.02, b: (r[2] + r[3]) / 2, z: 0.6, fa: side === 2 ? 1 : -1, fb: 0, w: Math.min(2.2, cw - 0.3) });
+        }
+      }
+      stand(1.0, 0.6, 0x4c554747, sidesFirst.slice(1), (box) => {
+        box(F, 0xe0b23c, 0, 1.0, 0, 0.6, 0.12, 0.2, true);
+        box(F, 0xe0b23c, 0, 0.06, 0, 0.06, 0.2, 1.5);
+        box(F, 0xe0b23c, 0.94, 1.0, 0, 0.06, 0.2, 1.5);
+        box(F, 0x8a3a2e, 0.1, 0.55, 0.1, 0.5, 0.2, 0.75);
+        box(F, 0x2f5a8a, 0.6, 0.92, 0.12, 0.45, 0.2, 0.6);
+      });
+    } else {
+      // Letterboxes in rows, a noticeboard, and the caretaker.
+      const post = stand(2.0, 0.25, 0x504f5354, sidesFirst, (box) => {
+        box(F, wood, 0, 2.0, 0, 0.22, 0.75, 1.75, true);
+        for (let row = 0; row < 3; row++) for (let k = 0; k < 4; k++) box(F, hash32(spec.seed, 0x424f58 + row * 5 + k) % 4 === 0 ? accent : STEEL, 0.06 + k * 0.485, 0.5 + k * 0.485, 0.22, 0.25, 0.8 + row * 0.32, 1.07 + row * 0.32, true);
+      });
+      if (post) {
+        letter("LETTERS", post, 1.2, 2.0);
+        const p = pointIn(post.rect, post.k, 1.0, 1.0);
+        if (fits([p[0] - 0.3, p[0] + 0.3, p[1] - 0.3, p[1] + 0.3])) person("caretaker", "stand", p, post.k < 2 ? 1 - post.k : 5 - post.k);
+      }
+      const board = stand(1.4, 0.05, 0x4e4f5445, backFirst, (box) => {
+        box(F, TIMBER, 0, 1.4, 0, 0.03, 1.1, 2.0, true);
+        box(F, 0xc9a36b, 0.06, 1.34, 0.03, 0.04, 1.16, 1.94, true);
+        for (let k = 0; k < 5; k++) box(F, [WHITE, 0xf2cc74, 0xa9d4ee, 0xf2b8c6, WHITE][k], 0.14 + (k % 3) * 0.4, 0.42 + (k % 3) * 0.4, 0.04, 0.045, 1.25 + Math.floor(k / 3) * 0.36, 1.53 + Math.floor(k / 3) * 0.36, true);
+      });
+      if (board && spec.name) letter(spec.name, board, 1.4, 2.25);
+    }
+    // Somewhere to sit and wait, with a low table, and plants.
+    const sofa = stand(2.0, 0.9, 0x534f4641, [...sidesFirst.slice(1), sidesFirst[0]], (box) => {
+      box(F, accent, 0, 2.0, 0.18, 0.9, 0, 0.45);
+      box(F, accent, 0, 2.0, 0, 0.2, 0, 0.92);
+      box(F, accent, 0, 0.18, 0.18, 0.9, 0.45, 0.66);
+      box(F, accent, 1.82, 2.0, 0.18, 0.9, 0.45, 0.66);
+    });
+    if (sofa) {
+      const facing = sofa.k;
+      if (unit(0x53495431) < 0.75) person(spec.hotel ? "guest" : "resident", "sit", pointIn(sofa.rect, sofa.k, 0.6, 0.55), facing, { seat: 0.45 });
+      if (spec.hotel && unit(0x53495432) < 0.5) person("guest", "sit", pointIn(sofa.rect, sofa.k, 1.4, 0.55), facing, { seat: 0.45 });
+      const t = pointIn(sofa.rect, sofa.k, 1.0, 1.6);
+      const table: Rect = [t[0] - 0.45, t[0] + 0.45, t[1] - 0.3, t[1] + 0.3];
+      if (take(table)) block(F, wood, table[0], table[1], table[2], table[3], 0, 0.4);
+    }
+    plants([0, W, 0, D], 3, 0x504c4e54);
+    if (second) stroller(spec.hotel ? "guest" : "resident", walk, 0.5);
+  };
+
   // =============================================================== a mall, an arcade, a row of shops
   const mall = (): void => {
     // The walk runs straight back from the front door; shops line it where there is room for them.
-    const cw = W >= 26 ? 6 : W >= 16 ? 4.5 : 3.2;
-    const ca = clamp(front.at, cw / 2, W - cw / 2);
+    const cw = mallWalk, ca = mallMid;
     let c0 = ca - cw / 2, c1 = ca + cw / 2;
     if (c0 < 3.4) c0 = 0; // too little room for shops on that side: the walk takes it
     if (W - c1 < 3.4) c1 = W;
@@ -656,8 +775,8 @@ export function layVenue(spec: VenueSpec): Laid {
           floor(pick(WOODS, 0x53464c52 + shopNo), r, 0.004);
           // Its back and side walls, from inside.
           sheetA(INSIDE.wall, WHITE, back, b0, b1, 0, H, s);
-          block(INSIDE.wall, WHITE, Math.min(edge, back), Math.max(edge, back), b0 - 0.05, b0 + 0.05, 0, H);
-          if (i === count - 1) block(INSIDE.wall, WHITE, Math.min(edge, back), Math.max(edge, back), b1 - 0.05, b1 + 0.05, 0, H);
+          block(INSIDE.wall, WHITE, Math.min(edge, back), Math.max(edge, back), Math.max(0, b0 - 0.05), b0 + 0.05, 0, H);
+          if (i === count - 1) block(INSIDE.wall, WHITE, Math.min(edge, back), Math.max(edge, back), b1 - 0.05, Math.min(D, b1 + 0.05), 0, H);
           // Its front: an opening in the middle, windows either side, and its name over the opening.
           const open = Math.min(2.6, fw - 1.4), m = (b0 + b1) / 2;
           const T = 0.12;
@@ -758,7 +877,7 @@ export function layVenue(spec: VenueSpec): Laid {
       const a = ca - cw / 2 + cw * lanes[i % 2];
       const lo = 1.2 + ((D - 2.4) * (hash32(spec.seed, 0x5354524f + i) % 30)) / 100, hi = D - 1.2 - ((D - 2.4) * (hash32(spec.seed, 0x5354524f + i * 3 + 1) % 30)) / 100;
       const r = (v: number): number => Math.round(v * 100) / 100;
-      people.push({ n: nobody++, role: "shopper", pose: "walk", a: r(a), b: r(lo), fa: 0, fb: 1, path: [r(a), r(lo), r(a), r(hi)] });
+      if (people.length < MOST) people.push({ n: nobody++, role: "shopper", pose: "walk", a: r(a), b: r(lo), fa: 0, fb: 1, path: [r(a), r(lo), r(a), r(hi)] });
     }
     if (spec.name) lettering.push({ text: spec.name, a: ca, b: D - 0.04, z: Math.min(H - 0.4, 3.0), fa: 0, fb: -1, w: Math.min(cw - 0.6, 5) });
   };
@@ -766,6 +885,7 @@ export function layVenue(spec: VenueSpec): Laid {
   if (spec.kind === "office") office();
   else if (spec.kind === "shop") shop();
   else if (spec.kind === "cafe") cafe();
+  else if (spec.kind === "lobby") lobby();
   else mall();
   return { spec, doors, pieces, people, lettering, tills };
 }

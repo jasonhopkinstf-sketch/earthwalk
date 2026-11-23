@@ -21,7 +21,7 @@ import type { Decor } from "./home.ts";
 import { type HousePlan, PLAN_LIFT_M, sharedWall, STAIR_STEPS, STOREY_M } from "./plan.ts";
 
 /** Bump when interiors change, so cached ones are rebuilt. */
-export const INTERIOR_REV = 2;
+export const INTERIOR_REV = 3;
 
 export const INSIDE = {
   floor: { id: 40, color: 0, collision: true },
@@ -1078,7 +1078,7 @@ export async function findHome(cx: number, cy: number, id: number, elev: Elevati
   const features = await featuresForChunk(cx, cy, load);
   await elev.ensure(cx - 0.5, cy - 0.5, cx + 1.5, cy + 1.5);
   const home = homesOf(cx, cy, features, elev).find((h) => h.id === id);
-  if (!home) return null;
+  if (!home || home.use) return null; // (a shop or a café is nobody's to live in)
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
   return {
     home, lat: +yToLat(cy - home.y / S).toFixed(7), lon: +xToLon(cx + home.x / S).toFixed(7),

@@ -797,6 +797,22 @@ export interface HomeDoor {
   wall: number;
   /** Has it a porch over the door? (A sign over the door has to stand on it to be seen.) */
   porch: boolean;
+  /** "shop", "food", "office" or "hotel" where the map says it is one: it is that inside, not a home (venues.ts). */
+  use?: string;
+  name?: string;
+}
+/**
+ * What building a chunk's mesh works out about each building that is not mapped in 3D, for whoever
+ * lays out its inside (venues.ts): how high its walls stand, the ground at its lowest and highest
+ * corner, whether it stands on legs, where its front door is drawn (homes and flats) and where its
+ * name and shopfront go (anything with a name or a use). Metres, chunk-local, as in `HomeDoor`.
+ */
+export interface Shell {
+  id: number;
+  top: number; lo: number; hi: number;
+  raised: boolean;
+  door?: { x: number; y: number; along: XY; out: XY };
+  front?: { x: number; y: number; along: XY; out: XY };
 }
 /**
  * The room a home gives to its inside is at least `HOME_MIN_M` a side and at most `HOME_MAX_M` (a
@@ -841,7 +857,7 @@ function liesInside(shape: XY[], ring: XY[]): boolean {
  * Four corners, counter-clockwise, starting with the two on the front wall; null when no room of
  * `HOME_MIN_M` a side fits.
  */
-export function roomInside(ring: XY[], x: number, y: number, t: XY, o: XY): XY[] | null {
+export function roomInside(ring: XY[], x: number, y: number, t: XY, o: XY, maxWide = HOME_MAX_M, maxDeep = HOME_MAX_M, least = HOME_MIN_M): XY[] | null {
   // The house in the door's own frame: `a` along the wall from the door, `b` back into the house.
   const pts = ring.map(([e, n]): XY => [(e - x) * t[0] + (n - y) * t[1], -((e - x) * o[0] + (n - y) * o[1])]);
   const lo = Math.min(...pts.map((p) => p[0])), hi = Math.max(...pts.map((p) => p[0]));
@@ -879,10 +895,10 @@ export function roomInside(ring: XY[], x: number, y: number, t: XY, o: XY): XY[]
       front = Math.max(front, gaps[j - 1][0]);
       back = Math.min(back, gaps[j - 1][1]);
       // The door's wall must be the front of the room all the way along, give or take a wall's thickness.
-      if (front > 0.25 || back - front < HOME_MIN_M) break;
+      if (front > 0.25 || back - front < least) break;
       if (at[j] < HOME_DOOR_CLEAR_M) continue;
-      const wide = Math.min(at[j] - at[i], HOME_MAX_M), deep = Math.min(back - front, HOME_MAX_M);
-      if (wide < HOME_MIN_M || wide * deep <= bestArea) continue;
+      const wide = Math.min(at[j] - at[i], maxWide), deep = Math.min(back - front, maxDeep);
+      if (wide < least || wide * deep <= bestArea) continue;
       const left = Math.max(at[i], Math.min(-wide / 2, at[j] - wide)); // a house wider than the most: that much of it, round the door
       bestArea = wide * deep;
       best = [left, left + wide, front, front + deep];
@@ -898,7 +914,7 @@ export function roomInside(ring: XY[], x: number, y: number, t: XY, o: XY): XY[]
  * `look` is the style of the houses; left out, it is the style of where the chunk is in the world.
  * `homes`, when given, is filled with the homes that can be walked into.
  */
-export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle, homes?: HomeDoor[], signs?: SignSpot[]): ChunkMesh {
+export function buildChunkMesh(cx: number, cy: number, features: Features, elev: Elevation, look?: HouseStyle, homes?: HomeDoor[], signs?: SignSpot[], shells?: Shell[]): ChunkMesh {
   const S = metersPerTile(cy + 0.5, CHUNK_Z);
   const sections = new Map<string, Section>();
   const sec = (m: MaterialDef): Section => {
@@ -1339,6 +1355,8 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     /** A building on legs, or bridging a street: it starts this far up. */
     const raised = b.minHeight !== undefined && (lo + hi) / 2 + b.minHeight < top - 1;
     const foot = raised ? (lo + hi) / 2 + b.minHeight! : base;
+    const shell: Shell = { id: b.id, top, lo, hi, raised };
+    shells?.push(shell);
     const walls = sec(wallMat);
     for (const outline of [ring, ...holes]) {
       for (let i = 0; i < outline.length; i++) {
@@ -1414,6 +1432,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
           box(leaf, x, y, t, o, 0.04, 1.5, 0.1, 0.16, g + 0.02, g + 3.0);
         } else {
           const porch = homely && (h >>> 21) % 2 === 0 && top - g > 3.4;
+          shell.door = { x, y, along: t, out: o };
           // A house can be walked into. A plain four-square one gives the whole of itself to its
           // rooms; one of any other shape, or a very big one, the largest rectangle that fits
           // inside it behind the front door. The floor is level with the highest ground at its
@@ -1424,7 +1443,9 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
             // (An outline that only looks like a rectangle once its small corners are smoothed off is not one.)
             const whole = isRectangle(outline) && Math.min(side(0), side(1)) >= HOME_MIN_M && Math.max(side(0), side(1)) <= HOME_MAX_M && liesInside(outline, ring);
             const corners = whole ? outline : roomInside(ring, x, y, t, o);
-            if (corners) homes.push({ id: b.id, corners, x, y, along: t, out: o, floor: hi + 0.06, height: top - hi, seed: h, wall: wallHex, porch });
+            // (A small shop, café, office or hotel opens like a house, but is not one inside: venues.ts.)
+            const notHome = b.use === "shop" || b.use === "food" ? b.use : /^(office|government|civic|public)$/.test(kind) ? "office" : kind === "hotel" ? "hotel" : undefined;
+            if (corners) homes.push({ id: b.id, corners, x, y, along: t, out: o, floor: hi + 0.06, height: top - hi, seed: h, wall: wallHex, porch, ...(notHome ? { use: notHome, ...(b.name ? { name: b.name } : {}) } : {}) });
           }
           box(trim, x, y, t, o, -0.72, 0.72, 0, 0.08, g - 0.3, g + 2.5);
           box(sec(painted(MATERIALS.door, style.doors[(h >>> 18) % style.doors.length])), x, y, t, o, -0.5, 0.5, 0.08, 0.14, g + 0.02, g + 2.12);
@@ -1504,6 +1525,7 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
       const front = frontOf(ring);
       if (front) {
         const { x, y, t, o, len, from: [ae, an] } = front;
+        shell.front = { x, y, along: t, out: o };
         const g = ground(cx + x / S, cy - y / S);
         const room = top - g; // how much wall stands above the ground here
         let signZ = g + Math.min(3.1, room - 0.5);
@@ -1599,16 +1621,16 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
   return { sections: [...sections.values()].filter((s) => s.idx.length > 0).sort((a, b) => a.mat.id - b.mat.id || a.mat.color - b.mat.color), metersPerTile: S };
 }
 
-const homesMemo = new WeakMap<Features, Map<string, { homes: HomeDoor[]; signs: SignSpot[] }>>();
+const homesMemo = new WeakMap<Features, Map<string, { homes: HomeDoor[]; signs: SignSpot[]; shells: Shell[] }>>();
 /** What building a chunk's mesh finds out besides the mesh: its homes that can be walked into, and where its name signs go. Kept a while, since a chunk's labels and its houses' insides all ask. */
-function foundIn(cx: number, cy: number, features: Features, elev: Elevation): { homes: HomeDoor[]; signs: SignSpot[] } {
+function foundIn(cx: number, cy: number, features: Features, elev: Elevation): { homes: HomeDoor[]; signs: SignSpot[]; shells: Shell[] } {
   let byChunk = homesMemo.get(features);
   if (!byChunk) homesMemo.set(features, (byChunk = new Map()));
   const key = `${cx}/${cy}`;
   let found = byChunk.get(key);
   if (!found) {
-    found = { homes: [], signs: [] };
-    buildChunkMesh(cx, cy, features, elev, undefined, found.homes, found.signs);
+    found = { homes: [], signs: [], shells: [] };
+    buildChunkMesh(cx, cy, features, elev, undefined, found.homes, found.signs, found.shells);
     byChunk.set(key, found);
     if (byChunk.size > 64) byChunk.delete(byChunk.keys().next().value!);
   }
@@ -1617,6 +1639,10 @@ function foundIn(cx: number, cy: number, features: Features, elev: Elevation): {
 /** The homes of a chunk that can be walked into. */
 export function homesOf(cx: number, cy: number, features: Features, elev: Elevation): HomeDoor[] {
   return foundIn(cx, cy, features, elev).homes;
+}
+/** What the mesh works out about each of a chunk's buildings (not those mapped in 3D). */
+export function shellsOf(cx: number, cy: number, features: Features, elev: Elevation): Shell[] {
+  return foundIn(cx, cy, features, elev).shells;
 }
 /** Where the name signs of a chunk's buildings go. */
 export function signsOf(cx: number, cy: number, features: Features, elev: Elevation): SignSpot[] {
