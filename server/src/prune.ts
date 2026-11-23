@@ -12,7 +12,7 @@ import { readdir, rm, stat, statfs, unlink } from "node:fs/promises";
 import path from "node:path";
 
 /** The folders of the cache whose contents can always be made again. Nothing outside them is ever touched. */
-export const REBUILDABLE = ["chunks", "labels", "interiors", "osm", "elevation", "rail"] as const;
+export const REBUILDABLE = ["chunks", "labels", "interiors", "osm", "elevation", "rail", "overture", "cover"] as const;
 /** Free room to keep, and to get back to once it has run short. */
 export const MIN_FREE_BYTES = 150 * 1024 * 1024;
 export const WANT_FREE_BYTES = 350 * 1024 * 1024;

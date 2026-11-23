@@ -5,6 +5,8 @@ import { roofPaint, wallPaint } from "./paint.ts";
 import { CHUNK_Z, hash32, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { cacheHas, cacheRead, cacheWrite } from "./cache.ts";
 import { Gate, httpGet, Pool, USER_AGENT } from "./net.ts";
+import { addOverture, fetchOverture, overtureOn, type OvertureBlock } from "./overture.ts";
+import { coverOn, fetchCover, type Cover } from "./cover.ts";
 
 /** OSM data is kept, and handed to the generator, in tiles at this zoom (2x2 chunks each). */
 export const DATA_Z = 15;
@@ -105,8 +107,13 @@ export interface Features {
   fields?: Field[];
   /** Named places mapped as points (extras). */
   places?: NamedPlace[];
-  /** True when the extras (3D pieces, named places) could not be had just now; they are put in when they come. */
+  /**
+   * True when the extras (3D pieces, named places), or what another source has for the place (Overture's
+   * buildings and places, the ground cover), could not be had just now; they are put in when they come.
+   */
   partial?: boolean;
+  /** What the ground is covered with and how tall its trees stand, from satellite maps (cover.ts): used where the map says nothing. */
+  cover?: Cover;
 }
 
 interface OsmElement {
@@ -918,7 +925,26 @@ function wallsOf(tags: Record<string, string>, height: number): Pick<Building, "
   return out;
 }
 
-function inRing(x: number, y: number, ring: Pt[]): boolean {
+/**
+ * A building as the world draws it, from its outline and what its tags say (OpenStreetMap's own tags; a
+ * second source, overture.ts, puts what it knows into the same words). Null for one under the ground.
+ */
+export function buildingOf(id: number, tags: Record<string, string>, ring: Pt[], holes: Pt[][] = []): Building | null {
+  if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return null;
+  const kind = tags.building && tags.building !== "yes" ? { kind: tags.building } : {};
+  const metres = num(tags.height) ?? num(tags["building:height"]);
+  const measured = metres && metres > 1 && metres < 1000 ? { measured: true } : {};
+  const guessed = metres || num(tags["building:levels"]) ? {} : { guessed: true };
+  const height = buildingHeight(id, tags);
+  const name = signName(tags.name);
+  const use = useOf(tags);
+  return {
+    id, ring, height, ...address(tags), ...roofOf(tags), ...wallsOf(tags, height), ...kind, ...guessed, ...measured, ...(holes.length ? { holes } : {}),
+    ...(name ? { name } : {}), ...(use ? { use } : {}),
+  };
+}
+
+export function inRing(x: number, y: number, ring: Pt[]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const [xi, yi] = ring[i], [xj, yj] = ring[j];
@@ -1047,18 +1073,8 @@ export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
 
   const isBuilding = (tags: Record<string, string>): boolean => !!tags.building && tags.building !== "no";
   const addBuilding = (id: number, tags: Record<string, string>, ring: Pt[], holes: Pt[][] = []): void => {
-    if (tags.location === "underground" || (num(tags.layer) ?? 0) < 0) return;
-    const kind = tags.building !== "yes" ? { kind: tags.building } : {};
-    const metres = num(tags.height) ?? num(tags["building:height"]);
-    const measured = metres && metres > 1 && metres < 1000 ? { measured: true } : {};
-    const guessed = metres || num(tags["building:levels"]) ? {} : { guessed: true };
-    const height = buildingHeight(id, tags);
-    const name = signName(tags.name);
-    const use = useOf(tags);
-    out.buildings.push({
-      id, ring, height, ...address(tags), ...roofOf(tags), ...wallsOf(tags, height), ...kind, ...guessed, ...measured, ...(holes.length ? { holes } : {}),
-      ...(name ? { name } : {}), ...(use ? { use } : {}),
-    });
+    const b = buildingOf(id, tags, ring, holes);
+    if (b) out.buildings.push(b);
   };
 
   const usedAsOuter = new Set<number>();
@@ -1136,6 +1152,36 @@ export function parseOsm(json: OsmJson, extra?: OsmJson | null): Features {
   return out;
 }
 
+/**
+ * What the sources beside OpenStreetMap have for a data tile's block. Each is null when it has not come
+ * yet (the block is owed it), and left out when that source is not asked.
+ */
+export interface Others { overture?: OvertureBlock | null; cover?: Cover | null }
+export type OthersFetcher = (dx: number, dy: number, only?: { overture?: boolean; cover?: boolean }) => Promise<Others>;
+
+/** Overture's buildings and places, and the ground cover, for the block a data tile is in. Never fails: what cannot be had is null. */
+export const fetchOthers: OthersFetcher = async (dx, dy, only) => {
+  const [overture, cover] = await Promise.all([
+    overtureOn() && (!only || only.overture) ? fetchOverture(dx, dy).catch(() => null) : undefined,
+    coverOn() && (!only || only.cover) ? fetchCover(dx, dy).catch(() => null) : undefined,
+  ]);
+  return { ...(overture !== undefined ? { overture } : {}), ...(cover !== undefined ? { cover } : {}) };
+};
+
+/** What each tile parsed without everything is still waiting for. */
+const lacking = new WeakMap<Features, { extras: boolean; overture: boolean; cover: boolean }>();
+/** Puts what the other sources have into a tile parsed from OpenStreetMap, and notes what has not come. */
+function addOthers(f: Features, extra: OsmJson | null, others: Others, dx: number, dy: number): Features {
+  if (others.overture) addOverture(f, others.overture, dx, dy);
+  if (others.cover) f.cover = others.cover;
+  const lack = { extras: !extra, overture: others.overture === null, cover: others.cover === null };
+  if (lack.extras || lack.overture || lack.cover) {
+    f.partial = true;
+    lacking.set(f, lack);
+  }
+  return f;
+}
+
 const parsed = new Map<string, Features>();
 /**
  * How heavy each parsed tile is, as the number of things in its map (points, ways and relations): a
@@ -1173,7 +1219,11 @@ const parsing = new Map<string, Promise<Features>>();
  * is read and parsed once: a city centre's is tens of megabytes parsed, and the live server has 512 MB
  * in all (it ran out, 2026-11-23).
  */
-export function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile, extras: (dx: number, dy: number) => Promise<OsmJson | null> = fetcher === fetchOsmTile ? fetchExtras : async () => ({ elements: [] })): Promise<Features> {
+export function loadFeatures(
+  dx: number, dy: number, fetcher = fetchOsmTile,
+  extras: (dx: number, dy: number) => Promise<OsmJson | null> = fetcher === fetchOsmTile ? fetchExtras : async () => ({ elements: [] }),
+  others: OthersFetcher = fetcher === fetchOsmTile ? fetchOthers : async () => ({}),
+): Promise<Features> {
   const key = `${dx}/${dy}`;
   const ready = parsed.get(key);
   if (ready && !ready.partial) return Promise.resolve(ready);
@@ -1183,27 +1233,30 @@ export function loadFeatures(dx: number, dy: number, fetcher = fetchOsmTile, ext
       const had = parsed.get(key);
       let json: OsmJson;
       let extra: OsmJson | null;
+      let more: Others;
+      const weigh = (raw: OsmJson): number => raw.elements.length + (extra?.elements.length ?? 0) + (more.overture?.buildings.length ?? 0) * 6;
       if (had?.partial) {
-        // Parsed without its extras: it is left as it is until they have come, and only then read and
-        // parsed again (afresh, since what was worked out from it, such as which houses have a front
-        // door, is remembered against the old one).
-        extra = await extras(dx, dy);
-        if (!extra) return had;
+        // Parsed without its extras, or without what another source has: it is left as it is until
+        // something it lacks has come, and only then read and parsed again (afresh, since what was worked
+        // out from it, such as which houses have a front door, is remembered against the old one). Only
+        // what it lacks is asked after: the rest is in the cache, and is read once, when it is wanted.
+        const lack = lacking.get(had) ?? { extras: true, overture: false, cover: false };
+        const [came, cameToo] = await Promise.all([lack.extras ? extras(dx, dy) : null, lack.overture || lack.cover ? others(dx, dy, lack) : ({} as Others)]);
+        if (!came && !cameToo.overture && !cameToo.cover) return had;
       } else if (fetcher === fetchOsmTile && !onDisk.has(tileRel(dx, dy)) && !(await cacheHas(tileRel(dx, dy))) && !(await cacheHas(oldTileRel(dx, dy)))) {
-        // Not downloaded yet: the map and its extras are asked for together, since both take a while.
-        // (Downloads go two at a time as it is, so few raw tiles are held this way.)
-        [json, extra] = await Promise.all([fetcher(dx, dy), extras(dx, dy)]);
-        const fresh = parseOsm(json, extra);
-        if (!extra) fresh.partial = true;
-        keepParsed(key, fresh, json.elements.length + (extra?.elements.length ?? 0));
+        // Not downloaded yet: the map, its extras and the other sources are asked for together, since all
+        // take a while. (Downloads go two at a time as it is, so few raw tiles are held this way.)
+        [json, extra, more] = await Promise.all([fetcher(dx, dy), extras(dx, dy), others(dx, dy)]);
+        const fresh = addOthers(parseOsm(json, extra), extra, more, dx, dy);
+        keepParsed(key, fresh, weigh(json));
         return fresh;
-      } else extra = await extras(dx, dy);
+      }
+      [extra, more] = await Promise.all([extras(dx, dy), others(dx, dy)]);
       // The extras first, and only then the tile itself, read and parsed and let go of at once.
       return reading.run(async () => {
         const raw = await fetcher(dx, dy);
-        const fresh = parseOsm(raw, extra);
-        if (!extra) fresh.partial = true;
-        keepParsed(key, fresh, raw.elements.length + (extra?.elements.length ?? 0));
+        const fresh = addOthers(parseOsm(raw, extra), extra, more, dx, dy);
+        keepParsed(key, fresh, weigh(raw));
         return fresh;
       });
     })().finally(() => parsing.delete(key));

@@ -10,6 +10,8 @@ import { INTERIOR_REV } from "./interior.ts";
 import { keepRoom, removeRetired } from "./prune.ts";
 import { BLOCK_Z, keepExtrasComing, onExtras, RETIRED_CACHE, warmOsmTile } from "./osm.ts";
 import { keepShowsBuilt } from "./showcase.ts";
+import { keepOvertureComing, onOverture, overtureOn } from "./overture.ts";
+import { coverOn, keepCoverComing, onCover } from "./cover.ts";
 import { CHUNK_Z } from "./geo.ts";
 
 // One thing going wrong for one player must never stop the world for everyone. Left alone, Node ends the
@@ -60,6 +62,20 @@ onExtras((bx, by) => {
   console.log(`map: the 3D pieces for block ${bx}/${by} have come; what was built there will be built again`);
 });
 keepExtrasComing();
+// The same for what the other sources have for a block: Overture's buildings and places, and the ground cover.
+const builtAgain = (what: string) => (bx: number, by: number): void => {
+  const per = 2 ** (CHUNK_Z - BLOCK_Z);
+  for (let j = 0; j < per; j++) for (let i = 0; i < per; i++) void app.forget(bx * per + i, by * per + j);
+  console.log(`map: ${what} for block ${bx}/${by} has come; what was built there will be built again`);
+};
+if (overtureOn()) {
+  onOverture(builtAgain("Overture's buildings and places"));
+  keepOvertureComing();
+}
+if (coverOn()) {
+  onCover(builtAgain("the ground cover"));
+  keepCoverComing();
+}
 // The places in "Show me..." are kept built, so that showing the world to somebody starts at once.
 if (process.env.EARTHWALK_SHOWCASE !== "0") keepShowsBuilt(app.prepare, warmOsmTile);
 
