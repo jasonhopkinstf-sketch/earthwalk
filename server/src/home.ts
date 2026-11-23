@@ -69,6 +69,11 @@ export const PIECES: Piece[] = [
   { id: "fishtank", slot: "prize", name: "Fish tank", price: 90, hex: [0x7fc4e8, 0xe8935a] },
   { id: "piano", slot: "prize", name: "Piano", price: 150, hex: [0x26262b, 0xf7f5ef] },
   { id: "telescope", slot: "prize", name: "Telescope", price: 80, hex: [0xb98c5a, 0xe0b23c] },
+  { id: "plant", slot: "prize", name: "Potted palm", price: 15, hex: [0x3f9a45, 0xb5653c] },
+  { id: "lamp", slot: "prize", name: "Standing lamp", price: 20, hex: [0xf2cc74, 0xb9c0c6] },
+  { id: "beanbag", slot: "prize", name: "Beanbag", price: 25, hex: [0x7a4f9a] },
+  { id: "toybox", slot: "prize", name: "Toy box", price: 30, hex: [0x3f6fb0, 0xd9382e] },
+  { id: "bookcase", slot: "prize", name: "Bookcase", price: 40, hex: [0x8a5a3a, 0x3f6fb0] },
   { id: "chest", slot: "prize", name: "Treasure chest", feat: "hunts", n: 1, hex: [0x8a5a3a, 0xe0b23c] },
   { id: "cup", slot: "prize", name: "Racing cup", feat: "races", n: 3, hex: [0xe0b23c] },
   { id: "goldcup", slot: "prize", name: "Winner's golden cup", feat: "wins", n: 1, hex: [0xf2c94c, 0x26262b] },
@@ -102,10 +107,14 @@ export function howWon(p: Piece): string | null {
 }
 
 /** The choices that make a house somebody's own: a piece for each slot (or none), and the prizes on show, in order. */
-export interface Decor { walls?: string; floor?: string; sofa?: string; bed?: string; rug?: string; prizes: string[] }
+export interface Decor {
+  walls?: string; floor?: string; sofa?: string; bed?: string; rug?: string; prizes: string[];
+  /** Where their owner has put some of the things on show: the middle of each in the house's own frame (metres along the front wall, and back from it), and which way it faces. The rest stand against a wall. */
+  placed?: Record<string, { a: number; b: number; k: number }>;
+}
 export const emptyDecor = (): Decor => ({ prizes: [] });
 /** At most this many prizes stand in a house at once. */
-export const PRIZES_SHOWN = 6;
+export const PRIZES_SHOWN = 10;
 
 /** A decor with only pieces that exist, each in its own slot. */
 export function cleanDecor(raw: unknown): Decor {
@@ -116,6 +125,12 @@ export function cleanDecor(raw: unknown): Decor {
     if (typeof id === "string" && pieceById(id)?.slot === slot) out[slot] = id;
   }
   if (Array.isArray(d.prizes)) for (const id of d.prizes) if (typeof id === "string" && pieceById(id)?.slot === "prize" && !out.prizes.includes(id) && out.prizes.length < PRIZES_SHOWN) out.prizes.push(id);
+  // Only what is on show has a place of its own.
+  const placed = d.placed && typeof d.placed === "object" ? (d.placed as Record<string, { a?: unknown; b?: unknown; k?: unknown }>) : {};
+  for (const id of out.prizes) {
+    const p = placed[id];
+    if (p && Number.isFinite(p.a) && Number.isFinite(p.b) && [0, 1, 2, 3].includes(p.k as number)) (out.placed ??= {})[id] = { a: p.a as number, b: p.b as number, k: p.k as number };
+  }
   return out;
 }
 

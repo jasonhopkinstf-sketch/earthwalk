@@ -295,6 +295,14 @@ lasts for the visit. The catalogue and who lives where are `server/src/home.ts` 
 not read again. `EARTHWALK_START_COINS=3000` gives every new player that many coins, for trying
 things on a developer's own machine; it is not set on the live server.
 
+Free placing (in the browser so far): anything on show in your house can be put where you like. Stand
+in the house where you want it and press Here under it in the house panel: it is put down a step in
+front of you, facing you, square to the walls, and the room's own furniture arranges itself round
+it. Turn turns it a quarter; Wall sends it back to stand against a wall. It will not stand across a
+wall or within a step of a doorway, so nobody can be shut in. Ten things can be on show now, and
+there are five more to buy: a potted palm, a standing lamp, a beanbag, a toy box and a bookcase
+(`spotIn`, `turnedIn` and `standing` in `server/src/interior.ts`; `placed` in a house's `decor`).
+
 The view from above (in the browser so far): riding anything, or being carried by a train, a taxi or a
 friend, V moves from your seat to a camera hovering above and behind, then to one high up over the
 rooftops, then back. The mouse swings it round and the wheel brings it nearer or further. Being taken

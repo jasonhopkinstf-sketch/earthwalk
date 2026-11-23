@@ -671,10 +671,13 @@ is theirs until they leave. Houses are in the world, not in a room: everybody co
 | `{"t":"house","claim":{"x":33638,"y":21638,"id":269982566}}` | Make this house mine: the chunk it is in and its number there (the `id` of its `door` label). The sender must be within 80 m of its door. A house they had before is given up, and its furnishing comes along. |
 | `{"t":"house","leave":true}` | Give my house up. |
 | `{"t":"house","put":{"slot":"sofa","id":"royal"}}` | Swap a piece: `slot` is `walls`, `floor`, `sofa`, `bed` or `rug`, and `id` a piece of that slot (bought now with coins if it is not theirs yet); without `id`, what the house came with goes back. |
-| `{"t":"house","put":{"slot":"prize","id":"piano","on":true}}` | Put a prize on show, or (`on` false) away. Six at most stand in a house. |
+| `{"t":"house","put":{"slot":"prize","id":"piano","on":true}}` | Put a prize on show, or (`on` false) away. Ten at most stand in a house. |
+| `{"t":"house","place":{"id":"piano"}}` | Put something that is on show down a step in front of where I stand in my house, facing me. With `"turn":true` it is turned a quarter round where it is; with `"wall":true` it goes back to standing against a wall. |
 
 The server answers the sender with `{"t":"house","house":…}`: null, or their house as below with
-`decor` (`{walls?, floor?, sofa?, bed?, rug?, prizes: []}`), and after a `put` with their `journal`
+`decor` (`{walls?, floor?, sofa?, bed?, rug?, prizes: [], placed?}`, where `placed` gives, for things put
+somewhere by their owner, the middle of each in metres along the front wall (`a`) and back from it (`b`)
+and which way it faces (`k`, 0 to 3); the server works these out from where the owner stands), and after a `put` with their `journal`
 again (the coins have changed). Everybody, in every room, is sent
 
 ```json

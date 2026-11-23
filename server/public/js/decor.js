@@ -133,9 +133,27 @@ export class Decor {
     for (const p of [...all].sort((a, b) => rank(a) - rank(b))) {
       const on = shown.includes(p.id);
       const note = on ? "On show: put it away" : p.owned ? "Yours: put it on show" : p.price !== null ? `${p.price} coins` : p.how;
-      prizes.append(card(p, on, note, !on && !p.owned && (p.price === null || coins < p.price), () => put({ slot: "prize", id: p.id, on: !on })));
+      const one = card(p, on, note, !on && !p.owned && (p.price === null || coins < p.price), () => put({ slot: "prize", id: p.id, on: !on }));
+      if (!on) { prizes.append(one); continue; }
+      // What is on show can be put down wherever I stand, turned, or sent back to a wall.
+      const cell = el("div", "shown");
+      const acts = el("div", "acts");
+      const placed = !!decor.placed?.[p.id];
+      const act = (text, what, disabled, title) => {
+        const b = el("button", "", text);
+        b.type = "button";
+        b.disabled = disabled;
+        b.title = title;
+        b.addEventListener("click", () => this.meetup.sendHouse({ place: { id: p.id, ...what } }));
+        acts.append(b);
+      };
+      act("Here", {}, false, "Put it down a step in front of where you stand, facing you");
+      act("Turn", { turn: true }, !placed, "Turn it a quarter round");
+      act("Wall", { wall: true }, !placed, "Send it back to stand against a wall");
+      cell.append(one, acts);
+      prizes.append(cell);
     }
-    box.append(el("h3", "", `Prizes on show (${shown.length} of 6)`), prizes);
+    box.append(el("h3", "", `Things on show (${shown.length} of 10)`), el("p", "small", "Stand in your house where you want one and press Here: it is put down a step in front of you, facing you, and the furniture makes way. Turn turns it; Wall sends it back to a wall."), prizes);
 
     const out = el("button", "out", this.leaving > performance.now() ? "Really move out? Click again" : "Move out of this house");
     out.type = "button";

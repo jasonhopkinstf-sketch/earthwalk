@@ -13,6 +13,7 @@ import { beginPlay, joinPlay, leavePlay, newPlay, outcomes, type Play, stalePlay
 import type { TalkNews } from "./journal.ts";
 import { breedOf, BREEDS, cleanDecor, gardenView, GARDEN_MAX, type Homes, isGrown, type Lived, pieceById, PRIZES_SHOWN, viewOfLived } from "./home.ts";
 import type { HomeDoor } from "./chunk.ts";
+import { spotIn, turnedIn } from "./interior.ts";
 import { judge, lesson, trickById } from "./tricks.ts";
 
 const MAX_NAME = 24;
@@ -628,6 +629,26 @@ export class Rooms {
           const left = homes.leave(owner);
           if (left) this.broadcastAll({ t: "lived", x: left.x, y: left.y, id: left.id, gone: true });
           send({ t: "house", house: null });
+        } else if (msg.place && typeof msg.place === "object") {
+          // Something on show is put down a step in front of me, facing me; turned a quarter round (`turn`); or sent
+          // back to stand against a wall (`wall`). The house's own furniture makes way for it.
+          const mine = homes.of(owner);
+          if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }
+          const place = msg.place as { id?: unknown; turn?: unknown; wall?: unknown };
+          const id = clean(place.id, 16);
+          const decor = cleanDecor(mine.decor);
+          if (!decor.prizes.includes(id)) { send({ t: "error", code: "locked", text: "Put it on show first" }); return; }
+          if (place.wall === true) {
+            if (decor.placed) delete decor.placed[id];
+          } else {
+            const spot = place.turn === true ? turnedIn(mine.home, decor, id)
+              : me.hasPos ? spotIn(mine.home, mine.x, mine.y, decor, id, me.lat, me.lon, me.yaw) : null;
+            if (!spot) { send({ t: "error", code: "locked", text: place.turn === true ? (decor.placed?.[id] ? "There is no room to turn it there" : "Put it somewhere first") : "There is no room for it there: stand in your house with a clear stretch of floor in front of you, away from the doorways" }); return; }
+            (decor.placed ??= {})[id] = spot;
+          }
+          homes.change(owner, { decor });
+          this.broadcastAll({ t: "lived", ...viewOfLived(mine) });
+          send({ t: "house", house: this.houseOf(me) });
         } else if (msg.put && typeof msg.put === "object") {
           const mine = homes.of(owner);
           if (!mine) { send({ t: "error", code: "nohome", text: "You have no house yet" }); return; }

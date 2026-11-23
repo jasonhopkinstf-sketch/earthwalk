@@ -12,7 +12,7 @@
 // its left-hand corner as you face out of the door, `b` runs back into the house, `z` is up from
 // the floor.
 
-import { hash32, metersPerTile, xToLon, yToLat } from "./geo.ts";
+import { hash32, latToY, lonToX, metersPerTile, xToLon, yToLat } from "./geo.ts";
 import { CHUNK_Z } from "./geo.ts";
 import { type ChunkMesh, encodeChunk, face, featuresForChunk, type HomeDoor, homesOf, type MaterialDef, painted, Section } from "./chunk.ts";
 import type { Elevation } from "./elevation.ts";
@@ -173,6 +173,136 @@ const RAINBOW = [0xd9382e, 0xe8935a, 0xf2cc74, 0x3f9a45, 0x3f6fb0, 0x7a4f9a];
 const GOLD = 0xe0b23c;
 const BLACK = 0x26262b;
 const RED = 0xd9382e;
+/** How wide and how deep each thing that can be put on show is, in metres (it is made further down, in `buildInterior`). */
+export const PRIZE_SIZE: Record<string, [number, number]> = { chest: [0.9, 0.55], cup: [0.5, 0.5], goldcup: [0.6, 0.6], globe: [0.55, 0.55], clock: [0.6, 0.4], thanks: [0.6, 0.6], games: [1.0, 0.7], map: [1.2, 0.8], owl: [0.5, 0.5], friends: [1.6, 0.1], rocking: [1.2, 0.45], fishtank: [1.0, 0.42], piano: [1.5, 0.62], telescope: [0.6, 0.62], plant: [0.5, 0.5], lamp: [0.4, 0.4], beanbag: [0.9, 0.9], toybox: [0.9, 0.5], bookcase: [1.2, 0.34] };
+
+/** A stretch of floor in a house's own frame: from `a0` to `a1` along the front wall, and from `b0` to `b1` back into the house. */
+type Rect = [number, number, number, number];
+/** Where its owner has put something: its middle, and which way it faces (0 into the house from the front wall, 1 towards the front, 2 and 3 the two sideways). */
+export interface Spot { a: number; b: number; k: number }
+
+/**
+ * A home's own frame (where its front left corner is, and which way `a` and `b` run), and the rooms it is
+ * cut into, each already inside the lining of the outside walls.
+ */
+function frameOf(home: HomeDoor): { A: XYLike; ta: [number, number]; tb: [number, number]; width: number; depth: number; door: number; inset: number; plan: Plan } {
+  // The front wall is the side of the outline the door is on.
+  const c = home.corners;
+  let front = 0;
+  let nearest = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const p = c[i], q = c[(i + 1) % 4];
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+    const off = Math.abs(((home.x - p[0]) * (q[1] - p[1]) - (home.y - p[1]) * (q[0] - p[0])) / len);
+    if (off < nearest) { nearest = off; front = i; }
+  }
+  const A = c[front], B = c[(front + 1) % 4], C = c[(front + 2) % 4];
+  const width = Math.hypot(B[0] - A[0], B[1] - A[1]);
+  const depth = Math.hypot(C[0] - B[0], C[1] - B[1]);
+  const ta: [number, number] = [(B[0] - A[0]) / width, (B[1] - A[1]) / width];
+  const tb: [number, number] = [(C[0] - B[0]) / depth, (C[1] - B[1]) / depth];
+  const door = Math.min(width - 0.8, Math.max(0.8, (home.x - A[0]) * ta[0] + (home.y - A[1]) * ta[1]));
+  const inset = 0.05; // the lining stands this far inside the real walls
+  const plan = planHome(width - inset * 2, depth - inset * 2, door - inset, home.seed)
+    ?? { rooms: [{ kind: "L" as RoomKind, a0: 0, a1: width - inset * 2, b0: 0, b1: depth - inset * 2 }], doorways: [], entrance: 0, layout: 0, mirrored: false };
+  for (const r of plan.rooms) { r.a0 += inset; r.a1 += inset; r.b0 += inset; r.b1 += inset; }
+  for (const d of plan.doorways) { d.at += inset; d.lo += inset; d.hi += inset; }
+  return { A, ta, tb, width, depth, door, inset, plan };
+}
+type XYLike = readonly [number, number] | number[];
+type Frame = ReturnType<typeof frameOf>;
+
+/** The points a room keeps clear: its doorways, and the front door if it is the room behind it. */
+function waysOf(f: Frame, i: number): [number, number][] {
+  const ways: [number, number][] = [];
+  for (const d of f.plan.doorways) {
+    if (d.from !== i && d.to !== i) continue;
+    ways.push(d.along === "a" ? [(d.lo + d.hi) / 2, d.at] : [d.at, (d.lo + d.hi) / 2]);
+  }
+  if (i === f.plan.entrance) ways.push([f.door, f.plan.rooms[i].b0]);
+  return ways;
+}
+
+/** The floor something takes up where its owner has put it. */
+function rectOf(id: string, spot: Spot): Rect | null {
+  const size = PRIZE_SIZE[id];
+  if (!size) return null;
+  const [w, d] = spot.k < 2 ? size : [size[1], size[0]];
+  return [spot.a - w / 2, spot.a + w / 2, spot.b - d / 2, spot.b + d / 2];
+}
+
+/** The room a stretch of floor lies wholly in, clear of that room's doorways; -1 when it crosses a wall or blocks a way. */
+function roomOf(rect: Rect, f: Frame): number {
+  const i = f.plan.rooms.findIndex((r) => rect[0] >= r.a0 + 0.06 && rect[1] <= r.a1 - 0.06 && rect[2] >= r.b0 + 0.06 && rect[3] <= r.b1 - 0.06);
+  if (i < 0) return -1;
+  for (const [wa, wb] of waysOf(f, i)) if (wa > rect[0] - 0.85 && wa < rect[1] + 0.85 && wb > rect[2] - 0.85 && wb < rect[3] + 0.85) return -1;
+  return i;
+}
+const apart = (p: Rect, q: Rect): boolean => p[0] >= q[1] + 0.12 || p[1] <= q[0] - 0.12 || p[2] >= q[3] + 0.12 || p[3] <= q[2] - 0.12;
+
+/**
+ * The things their owner has put somewhere, where that still works in this house (after a move to another
+ * house it may not: such a thing goes back to standing against a wall). `but` leaves one out.
+ */
+function standing(f: Frame, decor: Decor | null, but = ""): { id: string; rect: Rect; k: number; room: number }[] {
+  const out: { id: string; rect: Rect; k: number; room: number }[] = [];
+  for (const id of decor?.prizes ?? []) {
+    const spot = id === but ? undefined : decor?.placed?.[id];
+    const rect = spot ? rectOf(id, spot) : null;
+    if (!spot || !rect) continue;
+    const room = roomOf(rect, f);
+    if (room < 0 || out.some((o) => !apart(o.rect, rect))) continue;
+    out.push({ id, rect, k: spot.k, room });
+  }
+  return out;
+}
+
+/** Can this thing stand at this spot, with everything else its owner has placed where it is? */
+function canStand(f: Frame, decor: Decor | null, id: string, spot: Spot): boolean {
+  const rect = rectOf(id, spot);
+  return !!rect && roomOf(rect, f) >= 0 && standing(f, decor, id).every((o) => apart(o.rect, rect));
+}
+
+/**
+ * Where a thing would go if its owner, standing at a place in the house and looking along `yawDeg` (a compass
+ * heading), put it down a step in front of them: facing them, square to the walls. Null when they are not in
+ * the house, or there is no room for it there (a wall, a doorway, or something else they have placed).
+ * `cx`, `cy` is the chunk the house is in. The house's own furniture makes way for what its owner places.
+ */
+export function spotIn(home: HomeDoor, cx: number, cy: number, decor: Decor | null, id: string, lat: number, lon: number, yawDeg: number): Spot | null {
+  const f = frameOf(home);
+  const S = metersPerTile(cy + 0.5, CHUNK_Z);
+  const x = (lonToX(lon) - cx) * S, y = -(latToY(lat) - cy) * S;
+  const yaw = (yawDeg * Math.PI) / 180;
+  const fa = Math.sin(yaw) * f.ta[0] + Math.cos(yaw) * f.ta[1], fb = Math.sin(yaw) * f.tb[0] + Math.cos(yaw) * f.tb[1]; // the way they look, in the house's frame
+  const pa = (x - f.A[0]) * f.ta[0] + (y - f.A[1]) * f.ta[1], pb = (x - f.A[0]) * f.tb[0] + (y - f.A[1]) * f.tb[1];
+  if (pa < 0 || pa > f.width || pb < 0 || pb > f.depth) return null;
+  // It faces whoever put it there: the way most nearly towards them.
+  const k = Math.abs(fb) >= Math.abs(fa) ? (fb > 0 ? 1 : 0) : fa > 0 ? 3 : 2;
+  const size = PRIZE_SIZE[id];
+  if (!size) return null;
+  const reach = 0.9 + (k < 2 ? size[1] : size[0]) / 2;
+  // A step ahead first; then a little nearer, in case a wall is just behind where it would stand.
+  for (const step of [reach + 0.4, reach + 0.1, reach - 0.2, reach - 0.45]) {
+    const spot = { a: Math.round((pa + fa * step) * 100) / 100, b: Math.round((pb + fb * step) * 100) / 100, k };
+    if (canStand(f, decor, id, spot)) return spot;
+  }
+  return null;
+}
+
+/** The same thing turned a quarter round where it stands, or as far round as it takes to fit. Null when it fits no way. */
+export function turnedIn(home: HomeDoor, decor: Decor | null, id: string): Spot | null {
+  const f = frameOf(home);
+  const now = decor?.placed?.[id];
+  if (!now) return null;
+  const order = [0, 3, 1, 2]; // round by quarters
+  for (let n = 1; n <= 3; n++) {
+    const spot = { a: now.a, b: now.b, k: order[(order.indexOf(now.k) + n) % 4] };
+    if (canStand(f, decor, id, spot)) return spot;
+  }
+  return null;
+}
+
 /** Where prizes are stood, the likeliest rooms first; never the bathroom. */
 const PRIZE_ROOMS: RoomKind[] = ["L", "D", "H", "P", "S", "B", "K", "U"];
 
@@ -190,22 +320,8 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
     return s;
   };
 
-  // The house's own frame. The front wall is the side of the outline the door is on.
-  const c = home.corners;
-  let front = 0;
-  let nearest = Infinity;
-  for (let i = 0; i < 4; i++) {
-    const p = c[i], q = c[(i + 1) % 4];
-    const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
-    const off = Math.abs(((home.x - p[0]) * (q[1] - p[1]) - (home.y - p[1]) * (q[0] - p[0])) / len);
-    if (off < nearest) { nearest = off; front = i; }
-  }
-  const A = c[front], B = c[(front + 1) % 4], C = c[(front + 2) % 4];
-  const width = Math.hypot(B[0] - A[0], B[1] - A[1]);
-  const depth = Math.hypot(C[0] - B[0], C[1] - B[1]);
-  const ta: [number, number] = [(B[0] - A[0]) / width, (B[1] - A[1]) / width];
-  const tb: [number, number] = [(C[0] - B[0]) / depth, (C[1] - B[1]) / depth];
-  const door = Math.min(width - 0.8, Math.max(0.8, (home.x - A[0]) * ta[0] + (home.y - A[1]) * ta[1]));
+  const lay = frameOf(home);
+  const { A, ta, tb, width, depth, door, inset, plan } = lay;
   const at = (a: number, b: number, z: number): [number, number, number] => [A[0] + ta[0] * a + tb[0] * b, A[1] + ta[1] * a + tb[1] * b, home.floor + z];
   const dir = (da: number, db: number, dz: number): [number, number, number] => [ta[0] * da + tb[0] * db, ta[1] * da + tb[1] * db, dz];
   /** A flat panel facing along `a` (+1 or -1) at a given `a`, or along `b` at a given `b`. */
@@ -226,11 +342,6 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
 
   // The ceiling keeps under the top of the walls, which on a hillside is not far above the floor.
   const ROOM_M = Math.min(ROOM_MAX_M, Math.max(ROOM_LOW_M, home.height - 0.1));
-  const inset = 0.05; // the lining stands this far inside the real walls
-  const plan = planHome(width - inset * 2, depth - inset * 2, door - inset, home.seed)
-    ?? { rooms: [{ kind: "L" as RoomKind, a0: 0, a1: width - inset * 2, b0: 0, b1: depth - inset * 2 }], doorways: [], entrance: 0, layout: 0, mirrored: false };
-  for (const r of plan.rooms) { r.a0 += inset; r.a1 += inset; r.b0 += inset; r.b1 += inset; }
-  for (const d of plan.doorways) { d.at += inset; d.lo += inset; d.hi += inset; }
   const pick = <T>(list: T[], salt: number): T => list[hash32(home.seed, salt) % list.length];
 
   top(sec(INSIDE.ceiling, 0xfbf9f3), inset, width - inset, inset, depth - inset, ROOM_M, -1);
@@ -334,6 +445,14 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
   type Box = (s: Section, w0: number, w1: number, d0: number, d1: number, z0: number, z1: number) => void;
   const col = (hex: number): Section => sec(INSIDE.furniture, hex);
   const standers: { kind: RoomKind; against: (w: number, d: number, salt: number, make: (box: Box) => void) => boolean }[] = [];
+  /** A way to place boxes in a thing's own frame (across it, back to front, up), for a thing standing on `rect` and facing `k`. */
+  const boxIn = (rect: Rect, k: number): Box => (s, w0, w1, d0, d1, z0, z1) => {
+    if (k === 0) block(s, rect[0] + w0, rect[0] + w1, rect[2] + d0, rect[2] + d1, z0, z1);
+    else if (k === 1) block(s, rect[0] + w0, rect[0] + w1, rect[3] - d1, rect[3] - d0, z0, z1);
+    else if (k === 2) block(s, rect[0] + d0, rect[0] + d1, rect[2] + w0, rect[2] + w1, z0, z1);
+    else block(s, rect[1] - d1, rect[1] - d0, rect[2] + w0, rect[2] + w1, z0, z1);
+  };
+  const mine = standing(lay, decor);
   plan.rooms.forEach((r, i) => {
     /** Points to keep clear: the doorways of this room, and the front door. */
     const ways: [number, number][] = [];
@@ -342,7 +461,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       ways.push(d.along === "a" ? [(d.lo + d.hi) / 2, d.at] : [d.at, (d.lo + d.hi) / 2]);
     }
     if (i === plan.entrance) ways.push([door, r.b0]);
-    const placed: [number, number, number, number][] = [];
+    const placed: [number, number, number, number][] = mine.filter((u) => u.room === i).map((u) => u.rect); // what the owner has put here comes first
     const free = (a0: number, a1: number, b0: number, b1: number): boolean => {
       if (a0 < r.a0 + 0.06 || a1 > r.a1 - 0.06 || b0 < r.b0 + 0.06 || b1 > r.b1 - 0.06) return false;
       for (const [wa, wb] of ways) if (wa > a0 - 0.85 && wa < a1 + 0.85 && wb > b0 - 0.85 && wb < b1 + 0.85) return false;
@@ -613,14 +732,41 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
   });
 
   // ---- prizes on show: each stands against a wall where there is room, the living room first.
-  const PRIZES: Record<string, { w: number; d: number; make: (box: Box) => void }> = {
-    chest: { w: 0.9, d: 0.55, make: (box) => {
+  const PRIZES: Record<string, { make: (box: Box) => void }> = {
+    plant: { make: (box) => {
+      box(col(0xb5653c), 0.1, 0.4, 0.1, 0.4, 0, 0.4);
+      box(col(LEAF), 0.02, 0.48, 0.02, 0.48, 0.4, 0.95);
+      box(col(LEAF), 0.1, 0.4, 0.1, 0.4, 0.95, 1.35);
+    } },
+    lamp: { make: (box) => {
+      box(col(BLACK), 0.08, 0.32, 0.08, 0.32, 0, 0.06);
+      box(col(STEEL), 0.17, 0.23, 0.17, 0.23, 0.06, 1.45);
+      box(col(0xf2cc74), 0.04, 0.36, 0.04, 0.36, 1.45, 1.8);
+    } },
+    beanbag: { make: (box) => {
+      const bag = col(0x7a4f9a);
+      box(bag, 0, 0.9, 0, 0.9, 0, 0.32);
+      box(bag, 0.08, 0.82, 0.05, 0.5, 0.32, 0.62);
+      box(bag, 0.15, 0.75, 0.08, 0.35, 0.62, 0.8);
+    } },
+    toybox: { make: (box) => {
+      box(col(0x3f6fb0), 0, 0.9, 0, 0.5, 0, 0.45);
+      box(col(RED), 0, 0.9, 0, 0.12, 0.45, 0.78);
+      box(col(0xf2cc74), 0.12, 0.32, 0.18, 0.38, 0.45, 0.62);
+      box(col(0x3f9a45), 0.4, 0.56, 0.2, 0.36, 0.45, 0.7);
+      box(col(0xd87a9a), 0.64, 0.8, 0.22, 0.4, 0.45, 0.58);
+    } },
+    bookcase: { make: (box) => {
+      box(col(0x8a5a3a), 0, 1.2, 0, 0.34, 0, 1.85);
+      for (let k = 0; k < 8; k++) box(col(CLOTHS[(k * 3 + 2) % CLOTHS.length]), 0.08 + (k % 4) * 0.27, 0.3 + (k % 4) * 0.27, 0.3, 0.36, 0.3 + Math.floor(k / 4) * 0.75, 0.75 + Math.floor(k / 4) * 0.75);
+    } },
+    chest: { make: (box) => {
       box(col(0x8a5a3a), 0, 0.9, 0, 0.55, 0, 0.42);
       box(col(0x5a3a24), 0, 0.9, 0, 0.55, 0.42, 0.58);
       for (const w0 of [0.12, 0.7]) box(col(GOLD), w0, w0 + 0.08, 0, 0.56, 0, 0.585);
       box(col(GOLD), 0.4, 0.5, 0.55, 0.58, 0.3, 0.44);
     } },
-    cup: { w: 0.5, d: 0.5, make: (box) => {
+    cup: { make: (box) => {
       const gold = col(GOLD);
       box(col(0x6f4a30), 0.05, 0.45, 0.05, 0.45, 0, 0.85);
       box(gold, 0.17, 0.33, 0.17, 0.33, 0.85, 0.9);
@@ -629,7 +775,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(gold, 0.07, 0.13, 0.22, 0.28, 1.08, 1.2);
       box(gold, 0.37, 0.43, 0.22, 0.28, 1.08, 1.2);
     } },
-    goldcup: { w: 0.6, d: 0.6, make: (box) => {
+    goldcup: { make: (box) => {
       const gold = col(0xf2c94c);
       box(col(BLACK), 0.05, 0.55, 0.05, 0.55, 0, 0.8);
       box(gold, 0.2, 0.4, 0.2, 0.4, 0.8, 0.86);
@@ -639,7 +785,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(gold, 0.05, 0.14, 0.26, 0.34, 1.1, 1.3);
       box(gold, 0.46, 0.55, 0.26, 0.34, 1.1, 1.3);
     } },
-    globe: { w: 0.55, d: 0.55, make: (box) => {
+    globe: { make: (box) => {
       const sea = col(0x3f6fb0), land = col(0x3f9a45), stand = col(0x6f4a30);
       box(stand, 0.12, 0.43, 0.12, 0.43, 0, 0.08);
       box(stand, 0.25, 0.3, 0.25, 0.3, 0.08, 0.75);
@@ -651,7 +797,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(land, 0.055, 0.08, 0.2, 0.38, 0.86, 1.0);
       box(land, 0.2, 0.35, 0.2, 0.35, 1.2, 1.21);
     } },
-    clock: { w: 0.6, d: 0.4, make: (box) => {
+    clock: { make: (box) => {
       const timber = col(0x6f4a30), gold = col(GOLD);
       box(timber, 0.06, 0.54, 0, 0.36, 0, 1.55);
       box(timber, 0, 0.6, 0, 0.4, 1.55, 2.05);
@@ -662,7 +808,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(gold, 0.27, 0.33, 0.37, 0.38, 0.7, 1.3);
       box(gold, 0.23, 0.37, 0.37, 0.385, 0.56, 0.7);
     } },
-    thanks: { w: 0.6, d: 0.6, make: (box) => {
+    thanks: { make: (box) => {
       const leaf = col(LEAF), red = col(RED);
       box(col(GOLD), 0.15, 0.45, 0.15, 0.45, 0, 0.4);
       box(col(0x8a5a3a), 0.27, 0.33, 0.27, 0.33, 0.4, 1.0);
@@ -674,7 +820,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(red, 0.55, 0.57, 0.2, 0.28, 1.15, 1.23);
       box(red, 0.03, 0.05, 0.3, 0.38, 1.08, 1.16);
     } },
-    games: { w: 1.0, d: 0.7, make: (box) => {
+    games: { make: (box) => {
       const leg = col(0x8a5a3a);
       for (const [w0, d0] of [[0.05, 0.05], [0.87, 0.05], [0.05, 0.57], [0.87, 0.57]]) box(leg, w0, w0 + 0.08, d0, d0 + 0.08, 0, 0.7);
       box(col(0x3f7f4f), 0, 1.0, 0, 0.7, 0.7, 0.76);
@@ -684,7 +830,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(col(0x3f6fb0), 0.45, 0.51, 0.3, 0.36, 0.775, 0.85);
       box(col(0xf2cc74), 0.8, 0.88, 0.1, 0.18, 0.76, 0.84);
     } },
-    map: { w: 1.2, d: 0.8, make: (box) => {
+    map: { make: (box) => {
       const leg = col(0x8a5a3a), land = col(0x7fb069);
       for (const [w0, d0] of [[0.05, 0.05], [1.07, 0.05], [0.05, 0.67], [1.07, 0.67]]) box(leg, w0, w0 + 0.08, d0, d0 + 0.08, 0, 0.7);
       box(leg, 0, 1.2, 0, 0.8, 0.7, 0.76);
@@ -696,7 +842,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(col(0x3f6fb0), 0.8, 0.83, 0.42, 0.45, 0.775, 0.86);
       box(col(GOLD), 0.95, 1.05, 0.1, 0.2, 0.77, 0.79);
     } },
-    owl: { w: 0.5, d: 0.5, make: (box) => {
+    owl: { make: (box) => {
       const grey = col(STEEL), gold = col(GOLD);
       box(col(0x8d949a), 0.08, 0.42, 0.08, 0.42, 0, 0.7);
       box(grey, 0.14, 0.36, 0.16, 0.36, 0.7, 1.05);
@@ -707,14 +853,14 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(gold, 0.26, 0.33, 0.38, 0.39, 1.14, 1.22);
       box(gold, 0.235, 0.265, 0.38, 0.4, 1.08, 1.14);
     } },
-    friends: { w: 1.6, d: 0.1, make: (box) => {
+    friends: { make: (box) => {
       box(col(WHITE), 0, 1.6, 0, 0.05, 1.0, 1.9);
       for (let k = 0; k < 10; k++) {
         const w0 = 0.1 + (k % 5) * 0.3, z0 = 1.08 + Math.floor(k / 5) * 0.42;
         box(col(CLOTHS[(k * 3 + 1) % CLOTHS.length]), w0, w0 + 0.2, 0.05, 0.06, z0, z0 + 0.3);
       }
     } },
-    rocking: { w: 1.2, d: 0.45, make: (box) => {
+    rocking: { make: (box) => {
       const pale = col(0xd9b98a), runner = col(0x8a5a3a);
       box(runner, 0, 1.2, 0.05, 0.12, 0, 0.08);
       box(runner, 0, 1.2, 0.33, 0.4, 0, 0.08);
@@ -726,7 +872,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(col(RED), 0.45, 0.75, 0.08, 0.37, 0.8, 0.86);
       box(col(0x5a3a24), 0.14, 0.2, 0.18, 0.27, 0.5, 0.85);
     } },
-    fishtank: { w: 1.0, d: 0.42, make: (box) => {
+    fishtank: { make: (box) => {
       box(col(0x8a5a3a), 0, 1.0, 0, 0.42, 0, 0.7);
       box(col(0x7fc4e8), 0.03, 0.97, 0.03, 0.39, 0.7, 1.25);
       box(col(BLACK), 0, 1.0, 0, 0.42, 1.25, 1.3);
@@ -737,7 +883,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(col(LEAF), 0.8, 0.84, 0.39, 0.4, 0.78, 1.1);
       box(col(LEAF), 0.12, 0.15, 0.39, 0.4, 0.78, 0.98);
     } },
-    piano: { w: 1.5, d: 0.62, make: (box) => {
+    piano: { make: (box) => {
       const black = col(BLACK);
       box(black, 0, 1.5, 0, 0.34, 0, 1.25);
       box(black, 0, 1.5, 0.34, 0.6, 0.62, 0.72);
@@ -747,7 +893,7 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(black, 1.39, 1.47, 0.5, 0.6, 0, 0.62);
       box(col(0xf2e9c8), 0.5, 1.0, 0.34, 0.35, 0.85, 1.15);
     } },
-    telescope: { w: 0.6, d: 0.62, make: (box) => {
+    telescope: { make: (box) => {
       const leg = col(0x8a5a3a), tube = col(0xb98c5a);
       box(leg, 0.05, 0.11, 0.05, 0.11, 0, 0.9);
       box(leg, 0.49, 0.55, 0.05, 0.11, 0, 0.9);
@@ -758,13 +904,14 @@ export function buildInterior(home: HomeDoor, S: number, decor: Decor | null = n
       box(col(GOLD), 0.22, 0.38, 0.45, 0.62, 1.2, 1.36);
     } },
   };
+  for (const u of mine) PRIZES[u.id]?.make(boxIn(u.rect, u.k));
   for (const [n, id] of (decor?.prizes ?? []).entries()) {
-    const prize = PRIZES[id];
-    if (!prize) continue;
+    const prize = PRIZES[id], size = PRIZE_SIZE[id];
+    if (!prize || !size || mine.some((u) => u.id === id)) continue;
     const order = [...standers].sort((p, q) => PRIZE_ROOMS.indexOf(p.kind) - PRIZE_ROOMS.indexOf(q.kind));
     for (const room of order) {
       if (room.kind === "T") continue;
-      if (room.against(prize.w, prize.d, 0x5052495a + n * 17, prize.make)) break;
+      if (room.against(size[0], size[1], 0x5052495a + n * 17, prize.make)) break;
     }
   }
 

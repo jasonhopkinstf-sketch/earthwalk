@@ -55,6 +55,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9ec7e8; fon
 #decor .animal .do { grid-row: 1 / span 2; grid-column: 2; background: #2b2620; color: #f6efd9; border: 0; border-radius: 10px; padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; max-width: 170px; }
 #decor .animal .do:disabled { background: none; color: inherit; opacity: .6; cursor: default; }
 #decor .animal .go { grid-row: 1 / span 2; grid-column: 3; background: none; border: 0; color: #8a7a5a; font: inherit; font-size: 14px; cursor: pointer; }
+#decor .shown { display: flex; flex-direction: column; gap: 2px; }
+#decor .shown .piece { border-radius: 10px 10px 4px 4px; }
+#decor .acts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; }
+#decor .acts button { background: #2b2620; color: #f6efd9; border: 0; padding: 3px 2px; font: inherit; font-size: 12px; cursor: pointer; }
+#decor .acts button:first-child { border-radius: 4px 0 0 10px; }
+#decor .acts button:last-child { border-radius: 0 4px 10px 0; }
+#decor .acts button:disabled { opacity: .45; cursor: default; }
 #decor .out { background: none; border: 1px solid #a9987a; color: #6b5d45; border-radius: 10px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
 /* Food: five hearts in the corner, and the lunch box where the furnishing panel goes. */
 #hearts { position: fixed; right: 14px; bottom: 76px; display: flex; gap: 3px; background: var(--panel); border: 0; border-radius: 18px; padding: 4px 8px; cursor: pointer; font: inherit; }
