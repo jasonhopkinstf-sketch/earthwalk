@@ -34,8 +34,12 @@ import { GuideChat } from "./guide.js";
 import { MiniMap } from "./minimap.js";
 import { newsCard } from "./newsnotes.js";
 import { HAZE, Ink, LAYER, Sky, look, onLook, setLook } from "./look.js";
-import { lookSaid, parseLook } from "./lookdata.js";
+import { lookSaid, parseLines, parseLook } from "./lookdata.js";
 import { Traffic } from "./traffic.js";
+import { DayNight } from "./daynight.js";
+import { Weather } from "./weather.js";
+import { parseTime } from "./skymath.js";
+import { parseWeather } from "./weatherdata.js";
 import { World } from "./world.js";
 
 const $ = (id) => document.getElementById(id);
@@ -51,7 +55,8 @@ const scene = new THREE.Scene();
 // Far land sinks into the haze the sky paints under its horizon (look.js).
 renderer.setClearColor(HAZE);
 scene.fog = new THREE.Fog(HAZE, 900, 2600);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6a55, 1.15));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x5a6a55, 1.15);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2dd, 2.1);
 sun.position.set(-0.5, 1, 0.35);
 scene.add(sun);
@@ -59,9 +64,9 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.2, 6000);
 camera.layers.enable(LAYER.over);
 camera.layers.enable(LAYER.sky);
 const sky = new Sky(scene, sun.position);
-// The flat look's black line (look.js): a second pass over the picture, made only while it is wanted.
+// The drawn line of both looks (look.js): a second pass over the picture, made only while it is wanted.
 const ink = new Ink(renderer);
-onLook(() => { if (look.name !== "flat" || !look.lines) ink.rest(); });
+onLook(() => { if (!look.lines) ink.rest(); });
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
@@ -78,6 +83,19 @@ const meetup = new Meetup();
 const sounds = new Sounds();
 sounds.enabled = saved.sound !== false;
 const traffic = new Traffic(world, sounds);
+// The real sun and moon over wherever I am (daynight.js), and the real weather there (weather.js): each can be
+// left for the fine day the game always had, and that is remembered.
+const daynight = new DayNight({ scene, renderer, sun, hemi, sky, setting: saved.time });
+const weather = new Weather({ scene, sounds, sky, credit: $("credit"), code: () => world.code, setting: saved.weather });
+/** The hour and the weather, a few times a second: the light, the haze and the sky follow. */
+function skyTick() {
+  const landed = !player.waitingForGround;
+  const place = flight.where() ?? world.sceneToGeo(player.position);
+  const nowMs = meetup.now() * 1000;
+  const air = weather.tick(0.1, landed ? place : null, nowMs, !!houses.inside || (landed && player.inTunnel()), daynight.now?.light.day ?? 1);
+  daynight.flash = weather.flash;
+  daynight.tick(place, nowMs, air);
+}
 const life = new Life(scene, world, sounds, traffic);
 // What the E and T keys would do just now, shown together at the bottom of the screen.
 const hints = { ride: "", talk: "", door: "", food: "", care: "", flight: "" };
@@ -109,6 +127,8 @@ const houses = new Houses({
 });
 // Who is inside the shop, the office or the mall I am in; talk.js can speak to them.
 const people = new People({ world, player, meetup, houses });
+// Indoors the camera keeps under the ceilings, which nobody bumps into and so are not among the world's walls.
+player.roofs = () => (houses.inside ? houses.inside.chunk.interiors?.get(houses.inside.door.id)?.meshes ?? [] : []);
 talk.people = people;
 const lunch = new Lunch({
   panel: $("lunch"), hud: $("hearts"), meetup, world, player, atHome: () => houses.mine(),
@@ -367,7 +387,10 @@ function frame(now) {
   speedo.hidden = !car;
   if (car) speedo.textContent = `${Math.round(Math.abs(car.speed) * 3.6)} km/h`;
   sounds.engine(car ? Math.min(1, Math.abs(car.speed) / player.mount.drive.top) : null, !!car && !player.typing && player.keys.has("KeyW"));
-  avatars.showSelf(dt, car || player.view ? meetup.me : null, player.position, flight.active ? -flight.now.yaw : -player.yaw, flight.active ? Math.min(60, flight.now.left / 3) : -1);
+  // (And on foot, seen over my shoulder or from behind: walking, jumping or flying as I am.)
+  const outside = player.seenFromOutside && player.onFoot;
+  avatars.showSelf(dt, car || player.view || outside ? meetup.me : null, player.position, flight.active ? -flight.now.yaw : -player.yaw, flight.active ? Math.min(60, flight.now.left / 3) : -1,
+    outside ? { speed: player.pace, inAir: !player.grounded, flying: player.flying } : null);
   avatars.update(dt, meetup.peers, world);
   idle.frame(dt);
   riding.frame(dt, meetup.now());
@@ -384,8 +407,9 @@ function frame(now) {
   for (const entry of avatars.shown.values()) everyone.push(entry.group.position);
   life.update(dt, meetup.now(), everyone, camera);
   care.frame(meetup.now());
+  weather.frame(dt);
   sky.frame(camera, meetup.now());
-  if (look.name === "flat" && look.lines) ink.render(scene, camera);
+  if (look.lines) ink.render(scene, camera);
   else renderer.render(scene, camera);
   minimap.frame();
   const took = performance.now() - began;
@@ -436,6 +460,7 @@ function lookUpWhere(here) {
 let slowTicks = 0;
 function tickSlow() {
   slowTicks++;
+  skyTick();
   // A flight says where the world is wanted (flight.js): ahead of a low one, and only at the two ends of a high one.
   world.update(flight.loadAt() ?? player.position);
   const here = flight.where() ?? world.sceneToGeo(player.position);
@@ -546,11 +571,13 @@ function guideKey() {
 function raceKey() {
   if (!play.key()) races.key();
 }
-/** V: riding or being carried: the seat, the view from above, the view from high up. */
+/** V: on foot, through my own eyes, over my shoulder, from behind. Riding or being carried: the seat, the view from above, the view from high up. */
 function viewKey() {
+  const onFoot = player.onFoot;
   const view = player.nextView();
-  notice(view === null ? "V looks down from above while you are riding something, being carried, or being flown to a place: hop on first (E)."
-    : view === "your seat" ? "Back in your seat."
+  notice(view === "your seat" ? "Back in your seat."
+    : view === "your own eyes" ? "Looking through your own eyes again."
+    : onFoot ? `Looking ${view}. The wheel brings the camera nearer or further, and V moves on.`
     : `Looking ${view}. The mouse swings the camera round, the wheel brings it nearer or further, and V moves on.`);
 }
 /** K: my companion's tricks. */
@@ -596,6 +623,9 @@ function menuAction(id) {
   else if (id === "news") void openNews(false);
   else if (id === "above") viewKey();
   else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
+  else if (id === "lines") void command("lines", "");
+  else if (id === "daytime") void command("time", daynight.setting === "real" && !daynight.trying ? "day" : "real");
+  else if (id === "weather") void command("weather", weather.setting === "real" && !weather.trying ? "fine" : "real");
   else if (id === "look") void command("look", look.name === "flat" ? "barnyard" : "flat");
   else if (id === "tricks") tricksKey();
   else if (id === "myhouse") homeKey();
@@ -791,6 +821,32 @@ async function command(name, arg) {
       save({ look: look.name, lines: look.lines ? "on" : "off" });
       notice(lookSaid(look.name, look.lines));
     } else notice(`This is the ${look.name} look. /look flat   bright flat colours and bold black lines        /look barnyard   the painted look`);
+  } else if (name === "lines") {
+    // The drawn line round everything, in either look: "/lines off" for a slow computer, "/lines on", or "/lines" for the other.
+    const asked = parseLines(arg);
+    if (asked === null) return notice("/lines on   the drawn line round everything        /lines off   without it, which is easier on a slow computer");
+    setLook(look.name, asked ?? !look.lines);
+    save({ look: look.name, lines: look.lines ? "on" : "off" });
+    notice(lookSaid(look.name, look.lines));
+  } else if (name === "time") {
+    // The hour: "/time real" is the real sun and moon over wherever I am, "/time day" always a fine day. Both are
+    // remembered. "/time morning", noon, sunset and night try that time of the real day out, for this visit.
+    const asked = parseTime(arg);
+    if (asked && daynight.set(asked, meetup.now() * 1000)) {
+      if (asked === "real" || asked === "day") save({ time: asked });
+      skyTick();
+      notice(asked === "day" ? "Always daytime now. /time real goes back to the real sun and moon." : daynight.said());
+    } else if (asked) notice("Wait until you have landed, then try again.");
+    else notice(`${daynight.said()} /time real   the real sun and moon        /time day   always daytime        /time morning, noon, sunset or night   try one out`);
+  } else if (name === "weather") {
+    // The weather: "/weather real" is the real weather of wherever I am, "/weather fine" always a fine day. Both are
+    // remembered. "/weather rain", snow, fog, cloudy, storm, drizzle and windy try that weather out, for this visit.
+    const asked = parseWeather(arg);
+    if (asked && weather.set(asked)) {
+      if (asked === "real" || asked === "fine") save({ weather: asked });
+      if (asked === "real") notice("The real weather of wherever you are. /weather fine goes back to a fine day.");
+      else notice(weather.said());
+    } else notice(`${weather.said()} /weather real   the real weather        /weather fine   always a fine day        /weather rain, snow, fog, cloudy, storm, drizzle or windy   try one out`);
   } else if (name === "guide" || name === "ask") {
     // "/guide where is the nearest station": straight to the answer. With no question, the box that asks for one.
     if (arg) guide.ask(arg);
@@ -819,9 +875,15 @@ async function command(name, arg) {
     notice("/invite   get a link to send to someone        /where   show your coordinates");
     notice("/fly   toggle flying (also the F key; Space and C go up and down)        /login   /logout");
     notice("/sound on or /sound off   the animals' voices, car horns and tractors");
+    notice("/time real   the real sun and moon over wherever you are, by the clock there: morning, noon, evening, and a bright");
+    notice("    night with the moon as it really is        /time day   always daytime        /time night (or morning, noon, sunset)   try one out");
+    notice("/weather real   the real weather of wherever you are: cloud, rain, snow, fog and wind        /weather fine   always a fine day");
+    notice("    /weather snow (or rain, fog, cloudy, storm, drizzle, windy)   try one out");
     notice("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look");
-    notice("    (/look flat nolines leaves the black line off, for a slow computer)");
+    notice("/lines off   leaves the drawn line out of either look, for a slow computer        /lines on   puts it back");
     notice("E   hop on a horse, a cow, a tractor, a boat, a car or a passing train; E again hops off");
+    notice("V   on foot: see yourself over your shoulder, then from behind, then through your own eyes again; the wheel brings");
+    notice("    the camera nearer or further");
     notice("V   riding anything, or being carried by a train, a taxi or a friend: look down from above, then from high up,");
     notice("    then back to your seat; the mouse swings the camera round and the wheel brings it nearer or further");
     notice("/taxi <place>   call a taxi; it drives to you, and E beside it gets you a ride there");
@@ -1000,4 +1062,4 @@ addEventListener("pagehide", () => {
 
 // For the automated tests and for poking around in the browser console.
 // (`step` draws one frame and `tick` does the ten-times-a-second work: for a page in the background, where the browser does neither on time.)
-window.earthwalk = { flight, frames, step: frame, tick: tickSlow, goChoose, menu, guide, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, people, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { daynight, weather, skyTick, flight, frames, step: frame, tick: tickSlow, goChoose, menu, guide, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, people, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

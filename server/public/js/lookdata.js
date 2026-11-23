@@ -57,15 +57,36 @@ export const FLAT = {
   paintInk: 1,
   fadeStart: 50,
   fadeEnd: 400,
+  inkBlack: 1, // a plain black line
   cloudInk: 1.7,
 };
+/**
+ * The barnyard look's ink: M_EarthInk's barnyard column. A soft line, not a black one: the colour under it
+ * much darkened, thinner than the flat look's, fainter where one paint meets another, and gone sooner with
+ * distance. (The browser's barnyard look keeps its smooth light; the Windows game also sorts the light into
+ * three levels there.)
+ */
+export const BARNYARD = {
+  inkWidth: 1.3,
+  inkStrength: 0.9,
+  inkFar: 0.25,
+  farWidth: 1,
+  depthEdge: 0.02,
+  paintEdge: 0.2,
+  paintInk: 0.6,
+  fadeStart: 120,
+  fadeEnd: 600,
+  inkBlack: 0,
+};
+/** What a soft line multiplies the colour under it by (InkCode in the Windows game). */
+export const INK_TINT = [0.10, 0.075, 0.085];
 /** The sky's dials that do not change with the look (M_EarthSky). */
-export const SKY = { bright: 0.9, cloudBright: 1.5, clouds: 0.66, cloudInk: 1, drift: 0.0025, sunSize: 0.05 };
+export const SKY = { bright: 0.9, cloudBright: 1.5, clouds: 0.66, cloudInk: 1, drift: 0.0025, sunSize: 0.05, moonSize: 0.045 };
 
 /**
- * What "/look ..." asked for: { name, lines } with `lines` false for "flat nolines" (the black line
- * is the costly part, so slow machines can leave it off) and undefined when nothing was said about them.
- * Null for anything that is not a look.
+ * What "/look ..." asked for: { name, lines } with `lines` false for "flat nolines" or "barnyard nolines"
+ * (the line is the costly part, so slow machines can leave it off) and undefined when nothing was said
+ * about them. Null for anything that is not a look.
  */
 export function parseLook(text) {
   const words = String(text ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -80,7 +101,16 @@ export function lookSaid(name, lines) {
   if (name === "flat") return lines
     ? "The flat look: bright even colours and a bold black line. /look barnyard goes back; /look flat nolines leaves the line off, for a slow computer."
     : "The flat look without its black line. /look flat lines puts the line back; /look barnyard goes back.";
-  return "The barnyard look. /look flat is the other one: bright flat colours and bold black lines.";
+  return lines
+    ? "The barnyard look: painted colours and a soft ink line. /look flat is the other one: bright flat colours and bold black lines. /lines off leaves the line out, for a slow computer."
+    : "The barnyard look without its ink line. /lines on puts the line back; /look flat is the other look.";
+}
+
+/** "/lines ..." as typed: true for on, false for off, undefined for a plain "/lines" (the other of the two). Null for anything else. */
+export function parseLines(text) {
+  const word = String(text ?? "").trim().toLowerCase();
+  if (word === "") return undefined;
+  return /^(on|yes|1|lines)$/.test(word) ? true : /^(off|no|0|none|no-?lines)$/.test(word) ? false : null;
 }
 
 /** A colour made more vivid: further from its own grey. `rgb` is [r, g, b] as amounts of light (linear), 0 to 1. */

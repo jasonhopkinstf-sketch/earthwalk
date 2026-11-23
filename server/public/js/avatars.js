@@ -199,9 +199,10 @@ export class Avatars {
 
   /**
    * My own figure. The game is seen through its eyes, so it is only drawn when the camera stands back from it:
-   * at the wheel of a car. `me` is null to put it away; `yaw` is its rotation about the upright.
+   * at the wheel of a car, from above a ride, or behind it on foot. `me` is null to put it away; `yaw` is its rotation
+   * about the upright. `walking`, when given, is what it is doing on its own feet: { speed, inAir, flying }.
    */
-  showSelf(dt, me, position, yaw, flying = -1) {
+  showSelf(dt, me, position, yaw, flying = -1, walking = null) {
     const own = this.own;
     if (!me || own?.avatar !== me.avatar) {
       if (own) this.scene.remove(own.group);
@@ -222,7 +223,8 @@ export class Avatars {
     mine.group.position.copy(position);
     mine.group.rotation.y = yaw;
     // Seated on what I ride; or, being flown somewhere (`flying` is then the speed, in metres a second), stretched out in the air.
-    if (dt > 0) animateAnimal(mine.group, dt, { speed: Math.max(0, Math.min(60, flying)), turn: 0, inAir: flying >= 0, flying: flying >= 0, seated: flying < 0 });
+    if (dt > 0 && walking) animateAnimal(mine.group, dt, { speed: walking.speed, turn: 0, inAir: walking.inAir, flying: walking.flying, seated: false });
+    else if (dt > 0) animateAnimal(mine.group, dt, { speed: Math.max(0, Math.min(60, flying)), turn: 0, inAir: flying >= 0, flying: flying >= 0, seated: flying < 0 });
   }
 
   remove(id) {

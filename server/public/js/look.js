@@ -9,23 +9,31 @@
 // - `Sky` is a great ball round the camera with the sky painted inside it: pale at the horizon and
 //   deep overhead, a drawn sun, rows of flat-bottomed clouds drifting, and far country in haze below
 //   the horizon where the land has run out. In the flat look it is one blue with plain white clouds.
-// - `Ink` draws the flat look's line: the world is drawn into a picture with its depths, and a
-//   second pass over the whole screen paints black wherever the depth bends sharply (the edge of a
-//   thing) or the colour steps (one paint meeting another). It costs a pass over every pixel, so it
-//   can be left off ("/look flat nolines").
+// - `Ink` draws the line of both looks: the world is drawn into a picture with its depths, and a
+//   second pass over the whole screen paints a line wherever the depth bends sharply (the edge of a
+//   thing) or the colour steps (one paint meeting another). In the flat look the line is bold and
+//   black; in the barnyard look it is thin and soft, the colour under it much darkened. It costs a
+//   pass over every pixel, so it can be left off ("/lines off").
 
 import * as THREE from "three";
-import { FLAT, FLAT_GROUND, SKY, flatLevels, parseLook } from "./lookdata.js";
+import { BARNYARD, FLAT, FLAT_GROUND, INK_TINT, SKY, flatLevels, parseLook } from "./lookdata.js";
+import { FINE_DAY, skyLight } from "./skymath.js";
 
 /** What is drawn when: the world; names and speech bubbles, over everything and never inked; the sky, which the little map leaves out. */
 export const LAYER = { world: 0, over: 1, sky: 2 };
 
-/** The look in use. `lines`: whether the flat look has its black line. */
+/** The look in use. `lines`: whether it has its drawn line (the flat look's bold black one, the barnyard look's soft one). */
 export const look = { name: "barnyard", lines: true };
 const flat = { value: 0 };
 const vividness = { value: 0 };
 const none = { value: 0 };
+/** How far into the night it is, 0 by day to 1 after dark: lamps are lit in the windows by it (daynight.js sets it; world.js draws the windows). */
+export const night = { value: 0 };
+/** The hour's own tint, which the flat look multiplies its colours by: it takes no light, so the night would otherwise be as bright as noon. */
+export const hour = { value: new THREE.Vector3(1, 1, 1) };
 const marking = { value: 0 }; // 1 while the world is being drawn into the picture the line is worked out from
+/** For a shader of its own that is to get no black line (the rain, the snow): it writes a half in the fourth number while this is 1. */
+export const inkMark = marking;
 const floating = new Set(); // flat pictures that float in the world and get no line (see unlinedSprite)
 const listeners = [];
 
@@ -58,7 +66,7 @@ const FLAT_LIGHT = `
     float facingSun = dot(normal, directionalLights[0].direction);
     float soft = max(fwidth(facingSun), 0.004);
     float level = mix(mix(${L0}, ${L1}, smoothstep(${FLAT.band1.toFixed(3)} - soft, ${FLAT.band1.toFixed(3)} + soft, facingSun)), ${L2}, smoothstep(${FLAT.band2.toFixed(3)} - soft, ${FLAT.band2.toFixed(3)} + soft, facingSun));
-    outgoingLight = mix(outgoingLight, diffuseColor.rgb * level, uFlat);
+    outgoingLight = mix(outgoingLight, diffuseColor.rgb * level * uHour + totalEmissiveRadiance, uFlat);
   }
 #endif
 `;
@@ -83,8 +91,10 @@ export function paint(parameters = {}, { world = false, patch = null, line = tru
     patch?.(shader);
     shader.uniforms.uFlat = flat;
     shader.uniforms.uVivid = world ? vividness : none;
+    shader.uniforms.uNight = night;
+    shader.uniforms.uHour = hour;
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float uFlat;\nuniform float uVivid;")
+      .replace("#include <common>", "#include <common>\nuniform float uFlat;\nuniform float uVivid;\nuniform float uNight;\nuniform vec3 uHour;")
       .replace("#include <color_fragment>", `#include <color_fragment>\n${VIVID}`)
       .replace("#include <opaque_fragment>", `${FLAT_LIGHT}\n#include <opaque_fragment>`);
     if (!line) {
@@ -144,17 +154,36 @@ export const HAZE = new THREE.Color().setRGB(0.4 * SKY.bright, 0.66 * SKY.bright
 
 // ---------------------------------------------------------------- the sky
 // (Colours here are amounts of light, not screen colours, so they look darker written down than they come out.)
+// The air's colours, the clouds' and the far country's come from outside, by the hour and the weather
+// (skymath.js, skyLight; daynight.js sets them). Left alone they are a fine day's.
 const SKY_SHADER = `
 uniform vec3 uSun;
+uniform vec3 uMoon;
 uniform float uTime;
+uniform float uDrift;
 uniform float uFlat;
 uniform float uCloudInk;
+uniform vec3 uZenith;
+uniform vec3 uMid;
+uniform vec3 uHorizon;
+uniform vec3 uFlatSky;
+uniform vec3 uGlow;
+uniform vec3 uDusk;
+uniform vec3 uLand;
+uniform vec3 uSunDisc;
+uniform float uSunShow;
+uniform vec3 uCloudLit;
+uniform vec3 uCloudShade;
+uniform float uClouds;
+uniform float uStars;
+uniform float uMoonShow;
+uniform float uMoonGlow;
+uniform vec4 uMist;
 varying vec3 vDir;
 const float BRIGHT = ${SKY.bright.toFixed(3)};
 const float CLOUD_BRIGHT = ${SKY.cloudBright.toFixed(3)};
-const float CLOUDS = ${SKY.clouds.toFixed(3)};
-const float DRIFT = ${SKY.drift.toFixed(5)};
 const float SUN_SIZE = ${SKY.sunSize.toFixed(3)};
+const float MOON_SIZE = ${SKY.moonSize.toFixed(3)};
 float rnd(float n) { return fract(sin(n) * 43758.5453); }
 void main() {
   vec3 d = normalize(vDir);
@@ -163,37 +192,82 @@ void main() {
   float up = clamp(d.y, 0.0, 1.0);
 
   // The air: pale by the horizon, deep overhead, a little warm round the sun.
-  vec3 c = mix(vec3(0.42, 0.70, 0.95), vec3(0.10, 0.36, 0.86), smoothstep(0.0, 0.34, up));
-  c = mix(c, vec3(0.025, 0.15, 0.70), smoothstep(0.25, 0.95, up));
+  vec3 c = mix(uHorizon, uMid, smoothstep(0.0, 0.34, up));
+  c = mix(c, uZenith, smoothstep(0.25, 0.95, up));
   float toSun = dot(d, uSun);
-  c += vec3(0.10, 0.08, 0.02) * pow(clamp(toSun, 0.0, 1.0), 8.0) * (1.0 - uFlat);
+  c += uGlow * pow(clamp(toSun, 0.0, 1.0), 8.0) * (1.0 - uFlat);
+  // Morning and evening: warm light low along the horizon, strongest under the sun.
+  float sunSide = 0.5 + 0.5 * dot(normalize(d.xz + vec2(1e-5)), normalize(uSun.xz + vec2(1e-5)));
+  c += uDusk * (1.0 - smoothstep(0.0, 0.32, up)) * (0.2 + 0.8 * sunSide * sunSide) * (1.0 - uFlat);
   // Below the horizon, where the land has run out: far country in haze.
-  c = mix(c, vec3(0.40, 0.66, 0.66), 1.0 - smoothstep(-0.09, -0.01, d.y));
-  c = mix(c, vec3(0.26, 0.52, 0.34), 1.0 - smoothstep(-0.5, -0.09, d.y));
-  // The flat look: one blue from the horizon up.
-  c = mix(c, vec3(0.09, 0.40, 1.0), uFlat * smoothstep(-0.02, 0.0, d.y));
+  c = mix(c, vec3(0.40, 0.66, 0.66) * uLand, 1.0 - smoothstep(-0.09, -0.01, d.y));
+  c = mix(c, vec3(0.26, 0.52, 0.34) * uLand, 1.0 - smoothstep(-0.5, -0.09, d.y));
+  // The flat look: one colour from the horizon up.
+  c = mix(c, uFlatSky, uFlat * smoothstep(-0.02, 0.0, d.y));
   c *= BRIGHT;
+  // Nothing in the sky shows through the land.
+  float above = smoothstep(-0.02, -0.005, d.y);
+  float aa = 0.0014;
+
+  // Stars: the sky is cut into small boxes, and one box in ten holds a star, each with its own size and twinkle.
+  if (uStars > 0.0 && d.y > 0.0) {
+    vec3 q = d * 34.0;
+    vec3 box = floor(q);
+    float h = rnd(dot(box, vec3(127.1, 311.7, 74.7)));
+    if (h > 0.90) {
+      vec3 middle = box + 0.5 + (vec3(rnd(h * 91.7), rnd(h * 47.3), rnd(h * 13.9)) - 0.5) * 0.5;
+      float size = 0.07 + 0.19 * rnd(h * 7.7) * rnd(h * 5.3);
+      float twinkle = 0.78 + 0.22 * sin(uTime * (1.0 + 2.5 * rnd(h * 3.1)) + h * 500.0);
+      float star = (1.0 - smoothstep(size * 0.55, size, length(q - middle))) * twinkle;
+      c = mix(c, vec3(1.0, 0.96, 0.82) * CLOUD_BRIGHT, star * uStars * smoothstep(0.0, 0.10, d.y));
+    }
+  }
 
   // The sun: a warm disc with a drawn edge and a pale ring of glow.
   float sunAngle = acos(clamp(toSun, -1.0, 1.0));
-  float aa = 0.0014;
   float glow = exp(-sunAngle * 9.0);
-  c = mix(c, vec3(1.0, 0.92, 0.60) * CLOUD_BRIGHT, glow * 0.35 * (1.0 - uFlat));
+  float sunShow = uSunShow * above;
+  c = mix(c, vec3(1.0, 0.92, 0.60) * uSunDisc * CLOUD_BRIGHT, glow * 0.35 * (1.0 - uFlat) * sunShow);
   float rim = 1.0 - smoothstep(SUN_SIZE + 0.006 - aa, SUN_SIZE + 0.006 + aa, sunAngle);
   float disc = 1.0 - smoothstep(SUN_SIZE - aa, SUN_SIZE + aa, sunAngle);
-  c = mix(c, vec3(1.0, 0.42, 0.04) * CLOUD_BRIGHT, rim);
-  c = mix(c, vec3(1.0, 0.80, 0.22) * CLOUD_BRIGHT * 1.3, disc);
+  c = mix(c, vec3(1.0, 0.42, 0.04) * uSunDisc * CLOUD_BRIGHT, rim * sunShow);
+  c = mix(c, vec3(1.0, 0.80, 0.22) * uSunDisc * CLOUD_BRIGHT * 1.3, disc * sunShow);
+
+  // The moon: a ball lit from where the sun really is, so its phase and the way its horns point are the real ones.
+  if (uMoonShow > 0.0) {
+    float moonAngle = acos(clamp(dot(d, uMoon), -1.0, 1.0));
+    float moonShow = uMoonShow * above;
+    c = mix(c, vec3(0.70, 0.82, 1.0) * CLOUD_BRIGHT, exp(-moonAngle * 10.0) * 0.32 * uMoonGlow * (1.0 - uFlat) * above);
+    if (moonAngle < MOON_SIZE + 0.02) {
+      vec3 mx = normalize(cross(vec3(0.0, 1.0, 0.0), uMoon) + vec3(1e-4, 0.0, 0.0));
+      vec3 my = cross(uMoon, mx);
+      vec2 q = vec2(dot(d, mx), dot(d, my)) / sin(MOON_SIZE);
+      float r = length(q);
+      vec3 facing = q.x * mx + q.y * my - sqrt(max(0.0, 1.0 - r * r)) * uMoon;
+      float lit = smoothstep(-0.04, 0.04, dot(facing, uSun));
+      // Three grey seas, drawn as plain rounds.
+      float seas = max(max(1.0 - smoothstep(0.24, 0.27, length(q - vec2(-0.30, 0.28))), 1.0 - smoothstep(0.16, 0.19, length(q - vec2(0.28, -0.12)))), 1.0 - smoothstep(0.11, 0.14, length(q - vec2(0.02, -0.52))));
+      vec3 bright = vec3(0.98, 0.95, 0.80) * (1.0 - 0.17 * seas);
+      vec3 face = mix(mix(c, bright, 0.08), bright, lit);
+      float soft = aa / MOON_SIZE;
+      float edge = 1.0 - smoothstep(1.0 + 0.10 - soft, 1.0 + 0.10 + soft, r);
+      float round = 1.0 - smoothstep(1.0 - soft, 1.0 + soft, r);
+      c = mix(c, mix(vec3(0.30, 0.38, 0.62), vec3(0.01, 0.012, 0.02), uFlat) * CLOUD_BRIGHT, edge * moonShow * 0.55);
+      c = mix(c, face, round * moonShow);
+    }
+  }
 
   // Clouds, laid out like a painted backdrop in three rows: small and far near the horizon, big higher up.
   // Each row is a ring of places round the sky; a place holds a cloud or not, and a cloud is five puffs
   // side by side, cut flat along the bottom.
+  float inkLight = clamp(dot(uCloudLit, vec3(0.299, 0.587, 0.114)), 0.3, 1.0);
   for (int row = 0; row < 3; row++) {
     float rowEl = row == 0 ? 0.11 : row == 1 ? 0.27 : 0.50;
     float puff = row == 0 ? 0.040 : row == 1 ? 0.064 : 0.098;
     float places = row == 0 ? 15.0 : row == 1 ? 10.0 : 7.0;
     float around = cos(rowEl);
     float placeWidth = 6.2831853 / places;
-    float a = az + uTime * DRIFT * (0.6 + 0.5 * float(row)) + float(row) * 1.7;
+    float a = az + uDrift * (0.6 + 0.5 * float(row)) + float(row) * 1.7;
     float place = floor(a / placeWidth);
     for (int k = -1; k <= 1; k++) {
       float id = place + float(k);
@@ -201,7 +275,7 @@ void main() {
       float r1 = rnd(own * 127.1 + 3.7);
       float r2 = rnd(own * 269.5 + 1.3);
       float r3 = rnd(own * 419.2 + 7.1);
-      if (r1 > CLOUDS) continue;
+      if (r1 > uClouds) continue;
       float s = puff * (0.75 + 0.6 * r2);
       float middle = (id + 0.5 + (r3 - 0.5) * 0.45) * placeWidth;
       vec2 p = vec2((a - middle) * around, el - (rowEl + (r2 - 0.5) * 0.07)) / s;
@@ -222,22 +296,32 @@ void main() {
       float lineWidth = uCloudInk * 0.0032 / s;
       float inked = smoothstep(-lineWidth - soft, -lineWidth + soft, edge);
       float shaded = (1.0 - smoothstep(underside - 0.03, underside + 0.03, p.y)) * (1.0 - 0.75 * uFlat);
-      vec3 cloud = mix(vec3(1.0, 1.0, 0.985), vec3(0.56, 0.69, 0.93), shaded) * CLOUD_BRIGHT;
-      cloud = mix(cloud, mix(vec3(0.05, 0.13, 0.38), vec3(0.01, 0.012, 0.02), uFlat), inked * step(0.001, uCloudInk));
+      vec3 cloud = mix(uCloudLit, uCloudShade, shaded) * CLOUD_BRIGHT;
+      cloud = mix(cloud, mix(vec3(0.05, 0.13, 0.38) * inkLight, vec3(0.01, 0.012, 0.02), uFlat), inked * step(0.001, uCloudInk));
       // Far clouds sink into the air by the horizon.
       cloud = mix(cloud, c, (row == 0 ? 0.30 : row == 1 ? 0.10 : 0.0) * (1.0 - uFlat));
       c = mix(c, cloud, inside);
     }
   }
+  // Fog and falling rain: the sky is lost in it.
+  c = mix(c, uMist.rgb, uMist.a);
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }
 `;
 
+const FINE_SKY = skyLight(FINE_DAY, null);
+
 export class Sky {
   /** @param {THREE.Scene} scene  @param {THREE.Vector3} sun  where the sun stands, as a direction from the world to it */
   constructor(scene, sun) {
-    this.uniforms = { uSun: { value: sun.clone().normalize() }, uTime: { value: 0 }, uFlat: flat, uCloudInk: { value: SKY.cloudInk } };
+    const v3 = (c) => ({ value: new THREE.Vector3(c[0], c[1], c[2]) });
+    this.uniforms = {
+      uSun: { value: sun.clone().normalize() }, uMoon: { value: new THREE.Vector3(0, -1, 0) }, uTime: { value: 0 }, uDrift: { value: 0 }, uFlat: flat, uCloudInk: { value: SKY.cloudInk },
+      uZenith: v3(FINE_SKY.zenith), uMid: v3(FINE_SKY.mid), uHorizon: v3(FINE_SKY.horizon), uFlatSky: v3(FINE_SKY.flatSky), uGlow: v3(FINE_SKY.glow), uDusk: v3(FINE_SKY.duskGlow),
+      uLand: v3(FINE_SKY.land), uSunDisc: v3(FINE_SKY.sunDisc), uSunShow: { value: 1 }, uCloudLit: v3(FINE_SKY.cloud), uCloudShade: v3(FINE_SKY.cloudShade),
+      uClouds: { value: SKY.clouds }, uStars: { value: 0 }, uMoonShow: { value: 0 }, uMoonGlow: { value: 0 }, uMist: { value: new THREE.Vector4(0, 0, 0, 0) },
+    };
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({
       uniforms: this.uniforms, side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false,
       vertexShader: "varying vec3 vDir;\nvoid main() {\n  vDir = position;\n  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n}",
@@ -248,19 +332,48 @@ export class Sky {
     this.ball.frustumCulled = false;
     this.ball.layers.set(LAYER.sky);
     scene.add(this.ball);
+    /** How fast the clouds cross the sky, as a multiple of a fine day's pace (the wind's doing: weather.js). */
+    this.pace = 1;
+    this.was = null;
     const tune = () => { this.uniforms.uCloudInk.value = look.name === "flat" ? FLAT.cloudInk : SKY.cloudInk; };
     onLook(tune);
     tune();
+  }
+
+  /**
+   * The hour and the weather: `light` is skyLight's answer (skymath.js); `sun` and `moon` are where they stand,
+   * as [x, y, z] steps from the world towards them (no moon: null); `clouds` is how many of the sky's places hold a cloud.
+   */
+  paint(light, sun, moon, clouds) {
+    const u = this.uniforms;
+    const set = (name, c) => u[name].value.set(c[0], c[1], c[2]);
+    set("uSun", sun);
+    if (moon) set("uMoon", moon);
+    set("uZenith", light.zenith); set("uMid", light.mid); set("uHorizon", light.horizon); set("uFlatSky", light.flatSky);
+    set("uGlow", light.glow); set("uDusk", light.duskGlow); set("uLand", light.land); set("uSunDisc", light.sunDisc);
+    set("uCloudLit", light.cloud); set("uCloudShade", light.cloudShade);
+    u.uSunShow.value = light.sunShow;
+    u.uStars.value = light.stars;
+    u.uMoonShow.value = moon ? light.moonShow : 0;
+    u.uMoonGlow.value = light.moonGlow;
+    u.uMist.value.set(light.fogColor[0], light.fogColor[1], light.fogColor[2], light.mist);
+    u.uClouds.value = clouds;
   }
 
   /** Every frame: the ball stays round the camera, and the clouds drift. `t` is the shared clock in seconds. */
   frame(camera, t) {
     this.ball.position.copy(camera.position);
     this.uniforms.uTime.value = t % 100000;
+    // The clouds move on by the time that has passed, at the wind's pace (and start where the shared clock has them).
+    const u = this.uniforms.uDrift;
+    if (this.was === null || Math.abs(t - this.was) > 5) u.value = ((t % 100000) * SKY.drift) % (Math.PI * 2000);
+    else u.value = (u.value + (t - this.was) * SKY.drift * this.pace) % (Math.PI * 2000);
+    this.was = t;
   }
 }
 
-// ---------------------------------------------------------------- the black line
+// ---------------------------------------------------------------- the drawn line
+// (The dials are the look's: FLAT or BARNYARD in lookdata.js, by the Windows game's names.)
 const INK_SHADER = `
 uniform sampler2D tColor;
 uniform sampler2D tDepth;
@@ -268,16 +381,19 @@ uniform vec2 uTexel;
 uniform float uHeight;
 uniform float uNear;
 uniform float uFar;
+uniform float INK_WIDTH;
+uniform float INK_STRENGTH;
+uniform float INK_FAR;
+uniform float FAR_WIDTH;
+uniform float DEPTH_EDGE;
+uniform float PAINT_EDGE;
+uniform float PAINT_INK;
+uniform float FADE_START;
+uniform float FADE_END;
+uniform float INK_BLACK;
+uniform float uFogNear;
+uniform float uFogFar;
 varying vec2 vUv;
-const float INK_WIDTH = ${FLAT.inkWidth.toFixed(3)};
-const float INK_STRENGTH = ${FLAT.inkStrength.toFixed(3)};
-const float INK_FAR = ${FLAT.inkFar.toFixed(3)};
-const float FAR_WIDTH = ${FLAT.farWidth.toFixed(3)};
-const float DEPTH_EDGE = ${FLAT.depthEdge.toFixed(4)};
-const float PAINT_EDGE = ${FLAT.paintEdge.toFixed(4)};
-const float PAINT_INK = ${FLAT.paintInk.toFixed(3)};
-const float FADE_START = ${FLAT.fadeStart.toFixed(1)};
-const float FADE_END = ${FLAT.fadeEnd.toFixed(1)};
 // One over the distance in front of the camera, from what the depth buffer holds. Across any flat surface,
 // however steeply it is seen, this changes evenly from pixel to pixel: so where it bends, one thing ends
 // and another begins, and the ground does not grow lines near the horizon.
@@ -314,7 +430,10 @@ void main() {
   }
   float nearFar = clamp((nearest - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0);
   float ink = clamp(edge * INK_STRENGTH * mix(1.0, INK_FAR, nearFar), 0.0, 1.0);
-  gl_FragColor = vec4(mix(c, vec3(0.0), ink), 1.0);
+  // What is lost in the haze or the fog has no line either: an outline is not to show through a fog.
+  ink *= 1.0 - smoothstep(uFogNear, uFogFar, nearest);
+  // The line: the colour under it much darkened, or with INK_BLACK a plain black line.
+  gl_FragColor = vec4(mix(c, c * vec3(${INK_TINT.map((v) => v.toFixed(3)).join(", ")}) * (1.0 - INK_BLACK), ink), 1.0);
   #include <colorspace_fragment>
 }
 `;
@@ -324,7 +443,20 @@ export class Ink {
   constructor(renderer) {
     this.renderer = renderer;
     this.target = null; // made the first time the line is wanted
-    this.uniforms = { tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uHeight: { value: 720 }, uNear: { value: 0.2 }, uFar: { value: 6000 } };
+    this.uniforms = {
+      tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uHeight: { value: 720 }, uNear: { value: 0.2 }, uFar: { value: 6000 },
+      INK_WIDTH: { value: 0 }, INK_STRENGTH: { value: 0 }, INK_FAR: { value: 0 }, FAR_WIDTH: { value: 0 }, DEPTH_EDGE: { value: 0 }, PAINT_EDGE: { value: 0 }, PAINT_INK: { value: 0 },
+      FADE_START: { value: 0 }, FADE_END: { value: 0 }, INK_BLACK: { value: 0 }, uFogNear: { value: 900 }, uFogFar: { value: 2600 },
+    };
+    // Each look has its own line.
+    const tune = () => {
+      const d = look.name === "flat" ? FLAT : BARNYARD, u = this.uniforms;
+      u.INK_WIDTH.value = d.inkWidth; u.INK_STRENGTH.value = d.inkStrength; u.INK_FAR.value = d.inkFar; u.FAR_WIDTH.value = d.farWidth;
+      u.DEPTH_EDGE.value = d.depthEdge; u.PAINT_EDGE.value = d.paintEdge; u.PAINT_INK.value = d.paintInk;
+      u.FADE_START.value = d.fadeStart; u.FADE_END.value = d.fadeEnd; u.INK_BLACK.value = d.inkBlack;
+    };
+    onLook(tune);
+    tune();
     this.flat = new THREE.Scene();
     const square = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
       uniforms: this.uniforms, depthTest: false, depthWrite: false,
@@ -353,12 +485,16 @@ export class Ink {
     this.uniforms.uHeight.value = h;
   }
 
-  /** Draws the world with its black line; then the names and speech bubbles over it, which get none. */
+  /** Draws the world with its line; then the names and speech bubbles over it, which get none. */
   render(scene, camera) {
     const { renderer } = this;
     this.fit();
     this.uniforms.uNear.value = camera.near;
     this.uniforms.uFar.value = camera.far;
+    if (scene.fog) {
+      this.uniforms.uFogNear.value = scene.fog.near;
+      this.uniforms.uFogFar.value = scene.fog.far;
+    }
     const all = camera.layers.mask;
     camera.layers.set(LAYER.world);
     camera.layers.enable(LAYER.sky);

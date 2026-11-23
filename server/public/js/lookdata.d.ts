@@ -2,10 +2,13 @@
 export const LOOKS: string[];
 export const FLAT_GROUND: Record<number, number>;
 export const FLAT: Record<
-  "vivid" | "level0" | "level1" | "level2" | "band1" | "band2" | "inkWidth" | "inkStrength" | "inkFar" | "farWidth" | "depthEdge" | "paintEdge" | "paintInk" | "fadeStart" | "fadeEnd" | "cloudInk",
+  "vivid" | "level0" | "level1" | "level2" | "band1" | "band2" | "inkWidth" | "inkStrength" | "inkFar" | "farWidth" | "depthEdge" | "paintEdge" | "paintInk" | "fadeStart" | "fadeEnd" | "inkBlack" | "cloudInk",
   number
 >;
-export const SKY: Record<"bright" | "cloudBright" | "clouds" | "cloudInk" | "drift" | "sunSize", number>;
+export const BARNYARD: Record<"inkWidth" | "inkStrength" | "inkFar" | "farWidth" | "depthEdge" | "paintEdge" | "paintInk" | "fadeStart" | "fadeEnd" | "inkBlack", number>;
+export const INK_TINT: number[];
+export function parseLines(text: unknown): boolean | undefined | null;
+export const SKY: Record<"bright" | "cloudBright" | "clouds" | "cloudInk" | "drift" | "sunSize" | "moonSize", number>;
 export function parseLook(text: unknown): { name: string; lines: boolean | undefined } | null;
 export function lookSaid(name: string, lines: boolean): string;
 export function vivid(rgb: number[], amount?: number): number[];

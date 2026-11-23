@@ -57,6 +57,7 @@ settings (environment variables):
 | `EARTHWALK_CACHE` | Where downloaded data and built chunks are kept (default `./cache`) |
 | `EARTHWALK_OSM_SOURCES` | `overpass,osmapi` (default) or just one of them |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
+| `EARTHWALK_WEATHER` | `0` turns the live weather off: every game then has its fine day (see "The weather" in [docs/PROTOCOL.md](docs/PROTOCOL.md)) |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |
 | `ANTHROPIC_API_KEY`, `EARTHWALK_TALK_MONTHLY_USD`, `EARTHWALK_TALK_MODEL` | Optional and paid: let the things players talk to, and the guide, answer through Claude, under a monthly limit they share (see [docs/HOSTING.md](docs/HOSTING.md)) |
 
