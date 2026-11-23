@@ -226,6 +226,10 @@ bool UEarthShowcase::Look(const FEarthShow& Show, double FromX, double FromZ, do
 		double Best = Within;
 		for (const FEarthDoor& Door : Doors)
 		{
+			if (!Door.Use.IsEmpty())
+			{
+				continue; // a shop or an office: the show is of a house
+			}
 			const double D = FMath::Sqrt(FMath::Square(Door.X - FromX) + FMath::Square(Door.Z - FromZ));
 			if (D <= Best)
 			{

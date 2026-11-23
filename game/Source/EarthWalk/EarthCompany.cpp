@@ -1986,7 +1986,10 @@ void UEarthCompany::DoorFrame(double Dt)
 	bDoorNear = false;
 	double Px = 0.0, Pz = 0.0;
 	// Still in the house I went into? Not once I have been taken somewhere else, or wandered off (flying out through the roof).
-	if (bInHouse && (!Me || Me->IsWaitingForGround() || !PlayerAt(Px, Pz) || std::hypot(HouseIn.X - Px, HouseIn.Z - Pz) > 45.0 || FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H) > 12.0))
+	// A shop or an office is as big as its room: I am in it while within that of the door I came in by, and near its floor.
+	const bool bVenue = bInHouse && !HouseIn.Use.IsEmpty();
+	if (bInHouse && (!Me || Me->IsWaitingForGround() || !PlayerAt(Px, Pz) || std::hypot(HouseIn.Ix - Px, HouseIn.Iz - Pz) > (bVenue ? InsideSize + 10.0 : 45.0)
+		|| FMath::Abs(Me->FeetLocation().Z / 100.0 - HouseIn.H) > (bVenue ? 6.0 : 12.0)))
 	{
 		bInHouse = false;
 	}
@@ -1994,10 +1997,43 @@ void UEarthCompany::DoorFrame(double Dt)
 	{
 		const double FeetM = Me->FeetLocation().Z / 100.0;
 		TArray<FEarthDoor> DoorsHere;
-		World->DoorsNear(Px, Pz, ReachOutM, DoorsHere);
+		// (The door inside a big building can be a good way from its door outside, which is what the world looks doors up by.)
+		World->DoorsNear(Px, Pz, bInHouse ? 90.0 : ReachOutM, DoorsHere);
 		double BestD = TNumericLimits<double>::Max();
 		for (const FEarthDoor& Candidate : DoorsHere)
 		{
+			const bool bShop = Candidate.bEntry || !Candidate.Use.IsEmpty();
+			const bool bMine = bInHouse && Candidate.Id == HouseIn.Id && Candidate.Chunk == HouseIn.Chunk;
+			if (bShop)
+			{
+				if (bMine)
+				{
+					// In this building: its doors are used from the inside, each where it is on the wall of the room.
+					const double D = std::hypot(Candidate.Ix - Px, Candidate.Iz - Pz);
+					const double Out = (Candidate.IYaw * UE_DOUBLE_PI) / 180.0;
+					const double Side = (Px - Candidate.Ix) * std::sin(Out) + (Pz - Candidate.Iz) * -std::cos(Out);
+					if (D < BestD && D <= ReachInM && Side < 0.0 && FMath::Abs(FeetM - Candidate.H) <= 1.5)
+					{
+						BestD = D;
+						Door = Candidate;
+						bDoorInside = true;
+						bDoorNear = true;
+					}
+					continue;
+				}
+				// From the street: on the outer side of the door, and somewhere near the ground it stands on.
+				const double D = std::hypot(Candidate.X - Px, Candidate.Z - Pz);
+				const double Out = (Candidate.Yaw * UE_DOUBLE_PI) / 180.0;
+				const double Side = (Px - Candidate.X) * std::sin(Out) + (Pz - Candidate.Z) * -std::cos(Out);
+				if (D < BestD && D <= ReachOutM && Side >= 0.0 && FMath::Abs(FeetM - Candidate.G) <= 6.0)
+				{
+					BestD = D;
+					Door = Candidate;
+					bDoorInside = false;
+					bDoorNear = true;
+				}
+				continue;
+			}
 			const double D = std::hypot(Candidate.X - Px, Candidate.Z - Pz);
 			if (D >= BestD || D > ReachOutM)
 			{
@@ -2017,7 +2053,17 @@ void UEarthCompany::DoorFrame(double Dt)
 			bDoorNear = true;
 		}
 	}
-	DoorHint = bDoorNear ? FString(bDoorInside ? TEXT("E: go out") : TEXT("E: go in")) : FString();
+	if (bDoorNear && !bDoorInside && (Door.bEntry || !Door.Use.IsEmpty()))
+	{
+		// "E: go into Harbour Works", or for a place with no name what it is.
+		TArray<FEarthDoor> Same;
+		World->DoorsOf(Door, Same);
+		DoorHint = FString::Printf(TEXT("E: go into %s"), *(Same.Num() > 0 ? Same[0] : Door).Called());
+	}
+	else
+	{
+		DoorHint = bDoorNear ? FString(bDoorInside ? TEXT("E: go out") : TEXT("E: go in")) : FString();
+	}
 	// (When one house in sixteen opened, a line here said so beside each that did. Most open now, since
 	// 0.2.25 of the server, so the yellow board over the door is all the telling that is needed.)
 }
@@ -2036,7 +2082,7 @@ FString UEarthCompany::NearestHouse() const
 	for (const FEarthDoor& Candidate : Loaded)
 	{
 		const double D = std::hypot(Candidate.X - Px, Candidate.Z - Pz);
-		if (D < BestD)
+		if (D < BestD && Candidate.Use.IsEmpty())
 		{
 			BestD = D;
 			Best = &Candidate;
@@ -2098,15 +2144,32 @@ void UEarthCompany::UseDoor()
 			return;
 		}
 		Walker->SetFlying(false);
-		Walker->PlaceFeetAt(SceneToEngine(Going.X - Ox * 0.9, Going.H + 0.05, Going.Z - Oz * 0.9));
+		// Just inside the door inside, which in a shop or an office can be a few steps from the door outside.
+		const double In = (Going.IYaw * UE_DOUBLE_PI) / 180.0;
+		Walker->PlaceFeetAt(SceneToEngine(Going.Ix - std::sin(In) * 0.9, Going.H + 0.05, Going.Iz + std::cos(In) * 0.9));
 		Self->bInHouse = true;
 		Self->HouseIn = Going;
+		Self->InsideSize = 50.0;
 		if (APlayerController* PC = Cast<APlayerController>(Walker->GetController()))
 		{
 			FRotator Look = PC->GetControlRotation();
-			Look.Yaw = Going.Yaw + 180.0; // facing in
+			Look.Yaw = Going.IYaw + 180.0; // facing in
 			Look.Pitch = 0.0;
 			PC->SetControlRotation(Look);
+		}
+		if (Going.bEntry || !Going.Use.IsEmpty())
+		{
+			// What it is, and whether it can be walked right through.
+			TArray<FEarthDoor> Same;
+			if (Self->World.IsValid())
+			{
+				Self->World->DoorsOf(Going, Same);
+			}
+			const FEarthDoor& Named = Same.Num() > 0 ? Same[0] : Going;
+			const FString What = Going.Use == TEXT("office") ? TEXT("an office") : Going.Use == TEXT("shop") ? TEXT("a shop") : Going.Use == TEXT("cafe") ? TEXT("a caf\u00e9")
+				: Going.Use == TEXT("mall") ? TEXT("a row of shops") : TEXT("an entrance hall");
+			Self->Notice(FString::Printf(TEXT("%s%s"), Named.Text.IsEmpty() ? *FString::Printf(TEXT("This is %s."), *What) : *FString::Printf(TEXT("%s: %s."), *Named.Text, *What),
+				Same.Num() > 1 ? TEXT(" There is another door on another side: you can walk right through.") : TEXT("")));
 		}
 	});
 }
@@ -2199,6 +2262,13 @@ void UEarthCompany::TestAids(double Dt)
 			const FEarthDoor* Best = nullptr;
 			for (const FEarthDoor& Candidate : DoorsHere)
 			{
+				// -EWDoorUse=<mall, office, cafe, shop, lobby> goes to the nearest door of such a place; "house" to the nearest house.
+				static FString WantedUse;
+				FParse::Value(FCommandLine::Get(), TEXT("-EWDoorUse="), WantedUse);
+				if (!WantedUse.IsEmpty() && (WantedUse == TEXT("house") ? !Candidate.Use.IsEmpty() : Candidate.Use != WantedUse))
+				{
+					continue;
+				}
 				if (WantedId ? Candidate.Id == WantedId : (!Best || std::hypot(Candidate.X - Px, Candidate.Z - Pz) < std::hypot(Best->X - Px, Best->Z - Pz)))
 				{
 					Best = &Candidate;

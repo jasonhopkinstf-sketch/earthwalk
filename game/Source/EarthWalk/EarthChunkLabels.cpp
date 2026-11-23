@@ -252,6 +252,30 @@ void AEarthChunkLabels::AddTree(const FVector& Base, double Yaw, double HeightM,
 
 void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const FVector& ChunkOrigin, double TileCm, AEarthWorld* World)
 {
+	// First, what the doors of shops and offices need to know of each other and of the name boards:
+	// a building's name is on one of its doors only, and a door under a board with the same name gets no second one.
+	TMap<int64, FString> Names;
+	struct FBoard { FString Text; FVector At; double Yaw; };
+	TArray<FBoard> Boards;
+	for (const TSharedPtr<FJsonValue>& Value : Items)
+	{
+		const TSharedPtr<FJsonObject>* Item = nullptr;
+		FString Kind, Text;
+		double U = 0.0, V = 0.0, H = 0.0, Yaw = 0.0, Id = 0.0;
+		if (!Value.IsValid() || !Value->TryGetObject(Item) || !(*Item)->TryGetStringField(TEXT("kind"), Kind) || !(*Item)->TryGetStringField(TEXT("text"), Text) || Text.IsEmpty())
+		{
+			continue;
+		}
+		if ((Kind == TEXT("entry") || Kind == TEXT("door")) && (*Item)->TryGetNumberField(TEXT("id"), Id))
+		{
+			Names.Add(static_cast<int64>(Id), Text);
+		}
+		else if (Kind == TEXT("sign") && (*Item)->TryGetNumberField(TEXT("u"), U) && (*Item)->TryGetNumberField(TEXT("v"), V) && (*Item)->TryGetNumberField(TEXT("h"), H))
+		{
+			(*Item)->TryGetNumberField(TEXT("yaw"), Yaw);
+			Boards.Add({ Text, ChunkOrigin + FVector(-V * TileCm, U * TileCm, H * 100.0), Yaw });
+		}
+	}
 	for (const TSharedPtr<FJsonValue>& Value : Items)
 	{
 		const TSharedPtr<FJsonObject>* Item = nullptr;
@@ -284,6 +308,61 @@ void AEarthChunkLabels::Build(const TArray<TSharedPtr<FJsonValue>>& Items, const
 			continue;
 		}
 
+		FString Use;
+		Json.TryGetStringField(TEXT("use"), Use);
+		if (Kind == TEXT("entry") || (Kind == TEXT("door") && !Use.IsEmpty()))
+		{
+			// A door of a shop, a café, an office, a mall, a block of flats or a hotel (docs/PROTOCOL.md, "Inside
+			// other buildings"). An "entry" is drawn here, since the server's mesh has no door at that spot (unless
+			// "drawn" says it has): glass double doors in a white frame, with a mat. Over every such door goes a
+			// cream board with the building's name, or with what it is. At is the door on its wall at the height of
+			// the floor inside; "g" is the ground outside it, which the doors and the board stand on.
+			double Ground = H, Porch = 0.0, Drawn = 0.0, Id = 0.0;
+			Json.TryGetNumberField(TEXT("g"), Ground);
+			Json.TryGetNumberField(TEXT("porch"), Porch);
+			Json.TryGetNumberField(TEXT("drawn"), Drawn);
+			Json.TryGetNumberField(TEXT("id"), Id);
+			const bool bGlass = Kind == TEXT("entry") && Drawn < 0.5;
+			const FVector Doorstep(At.X, At.Y, ChunkOrigin.Z + Ground * 100.0);
+			const auto Out = [&](double OutCm, double AcrossCm, double UpCm) { return Doorstep + Facing.RotateVector(FVector(OutCm, AcrossCm, UpCm)); };
+			if (bGlass)
+			{
+				UMaterialInterface* White = World->MaterialFor(0xf7f7f4ff);
+				AddBox(Out(2.0, 0.0, 95.0), Facing, FVector(16.0, 190.0, 270.0), White); // the frame; it goes 40 cm into the ground, for a sloping street
+				for (const double Side : { -43.0, 43.0 })
+				{
+					AddBox(Out(9.0, Side, 110.0), Facing, FVector(5.0, 80.0, 212.0), World->MaterialFor(0xa9d6f2ff)); // a leaf of pale blue glass
+					AddBox(Out(13.0, Side, 105.0), Facing, FVector(3.0, 62.0, 7.0), White); // and the bar across it
+				}
+				AddBox(Out(60.0, 0.0, 2.5), Facing, FVector(90.0, 170.0, 5.0), World->MaterialFor(0x3a3a40ff)); // the mat
+			}
+			FString Words;
+			if (!Json.TryGetStringField(TEXT("text"), Words) || Words.IsEmpty())
+			{
+				Words = Names.FindRef(static_cast<int64>(Id));
+			}
+			if (Words.IsEmpty())
+			{
+				Words = Use == TEXT("office") ? TEXT("OFFICE") : Use == TEXT("shop") ? TEXT("SHOP") : Use == TEXT("cafe") ? TEXT("CAF\u00c9") : Use == TEXT("mall") ? TEXT("SHOPS") : TEXT("COME IN");
+			}
+			// Glass doors carry their board just above the frame; a door the mesh drew has it where COME IN would be.
+			const FVector Board = bGlass ? Out(13.0, 0.0, 262.0) : Porch > 0.5 ? Out(103.0, 0.0, 276.0 + 30.0) : Out(11.0, 0.0, 281.0);
+			bool bNamedAlready = false;
+			for (const FBoard& Other : Boards)
+			{
+				const double Turn = FMath::Abs(FMath::FindDeltaAngleDegrees(Other.Yaw, Yaw));
+				bNamedAlready = bNamedAlready || (Other.Text == Words && FVector::Dist(Other.At, Board) < 450.0 && Turn < 30.0);
+			}
+			if (!bNamedAlready)
+			{
+				const double Width = FMath::Clamp(Words.Len() * 20.0 + 50.0, 130.0, 340.0);
+				AddBox(Board, Facing, FVector(6.0, Width, 56.0), World->MaterialFor(0xf4f1e6ff));
+				const float Size = FMath::Min(34.f, static_cast<float>(Width * 0.92 / (FMath::Max(Words.Len(), 1) * 0.62)));
+				AddText(Words, Board + Facing.RotateVector(FVector(3.8, 0.0, 0.0)), Facing, Size, FColor(38, 34, 31));
+			}
+			++Count;
+			continue;
+		}
 		if (Kind == TEXT("door"))
 		{
 			// A front door that opens (AEarthWorld keeps where it is). It gets a yellow board over it that says

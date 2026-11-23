@@ -273,6 +273,8 @@ private:
 	bool bDoorNear = false;
 	bool bInHouse = false;
 	FEarthDoor HouseIn;
+	/** For a shop or an office: how far across its room is, in metres; I am "in" it while within that (and a bit) of the door I came in by. */
+	double InsideSize = 50.0;
 	bool bDoorInside = false;
 	bool bDoorBusy = false;
 	FEarthDoor Door;

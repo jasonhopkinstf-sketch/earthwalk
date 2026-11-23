@@ -30,7 +30,21 @@ struct FEarthDoor
 	double Z = 0.0;   // metres south of it
 	double H = 0.0;   // the height of the floor inside, metres above sea level
 	double Yaw = 0.0; // the compass heading out of the door, in degrees
-	FString Use;      // "shop", "cafe", "office" or "lobby" when this is a small shop or the like, which opens as a house does but is nobody's to live in; empty for a house
+	FString Use;      // "shop", "cafe", "office", "mall" or "lobby" when this is a shop or the like, which opens as a house does but is nobody's to live in; empty for a house
+	FString Text;     // what the building is called, where the map says (on the first of its doors)
+	bool bEntry = false; // a labels item of kind "entry": a door of a shop, an office, a mall... (docs/PROTOCOL.md, "Inside other buildings")
+	double G = 0.0;   // the ground outside the door, metres above sea level
+	// The door inside, on the wall of the room: where the door outside is, unless the room is a few steps from it.
+	double Ix = 0.0;
+	double Iz = 0.0;
+	double IYaw = 0.0;
+
+	/** What to call the building: its name, or what it is ("the office"). Empty for a house. */
+	FString Called() const
+	{
+		return !Text.IsEmpty() ? Text : Use == TEXT("office") ? FString(TEXT("the office")) : Use == TEXT("shop") ? FString(TEXT("the shop")) : Use == TEXT("cafe") ? FString(TEXT("the caf\u00e9"))
+			: Use == TEXT("mall") ? FString(TEXT("the shops")) : Use == TEXT("lobby") ? FString(TEXT("the entrance hall")) : FString();
+	}
 };
 
 /** A shop or somewhere to eat with its name on a board (a labels item of kind "sign" with a `use`; docs/PROTOCOL.md, "Food and hearts"). */
@@ -147,6 +161,8 @@ public:
 	AEarthLife* GetLife() const { return Life; }
 	/** The front doors that open within reach of a spot (metres east and south of the origin). */
 	void DoorsNear(double EastM, double SouthM, double ReachM, TArray<FEarthDoor>& Out) const;
+	/** Every door of the building a door belongs to (one or two), each with the building's name on it. */
+	void DoorsOf(const FEarthDoor& Door, TArray<FEarthDoor>& Out) const;
 	/** The shops and places to eat within reach of a spot: food is bought beside one. */
 	void ShopsNear(double EastM, double SouthM, double ReachM, TArray<FEarthShop>& Out) const;
 	/**

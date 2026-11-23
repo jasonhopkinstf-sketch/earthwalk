@@ -390,6 +390,32 @@ void AEarthWorld::DoorsNear(double EastM, double SouthM, double ReachM, TArray<F
 	}
 }
 
+void AEarthWorld::DoorsOf(const FEarthDoor& Door, TArray<FEarthDoor>& Out) const
+{
+	const TArray<FEarthDoor>* Here = Doors.Find(Door.Chunk);
+	if (!Here)
+	{
+		Out.Add(Door);
+		return;
+	}
+	FString Name;
+	for (const FEarthDoor& Other : *Here)
+	{
+		if (Other.Id == Door.Id)
+		{
+			Out.Add(Other);
+			if (!Other.Text.IsEmpty())
+			{
+				Name = Other.Text;
+			}
+		}
+	}
+	for (FEarthDoor& Each : Out)
+	{
+		Each.Text = Name; // the name is on one door only in the labels: here it is on each
+	}
+}
+
 namespace
 {
 	FString InteriorName(FIntPoint Key, int64 Id)
@@ -907,7 +933,7 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 							FString Kind;
 							double U = 0.0, V = 0.0, Id = 0.0;
 							FEarthDoor Door;
-							if (Value.IsValid() && Value->TryGetObject(Item) && (*Item)->TryGetStringField(TEXT("kind"), Kind) && Kind == TEXT("door")
+							if (Value.IsValid() && Value->TryGetObject(Item) && (*Item)->TryGetStringField(TEXT("kind"), Kind) && (Kind == TEXT("door") || Kind == TEXT("entry"))
 								&& (*Item)->TryGetNumberField(TEXT("u"), U) && (*Item)->TryGetNumberField(TEXT("v"), V) && (*Item)->TryGetNumberField(TEXT("h"), Door.H)
 								&& (*Item)->TryGetNumberField(TEXT("yaw"), Door.Yaw) && (*Item)->TryGetNumberField(TEXT("id"), Id))
 							{
@@ -915,7 +941,29 @@ void AEarthWorld::RequestLabels(FIntPoint Key)
 								Door.Id = static_cast<int64>(Id);
 								Door.X = (Key.X - OriginX + U) * TileCm / 100.0;
 								Door.Z = (Key.Y - OriginY + V) * TileCm / 100.0;
+								Door.bEntry = Kind == TEXT("entry");
 								(*Item)->TryGetStringField(TEXT("use"), Door.Use);
+								(*Item)->TryGetStringField(TEXT("text"), Door.Text);
+								Door.G = Door.H;
+								(*Item)->TryGetNumberField(TEXT("g"), Door.G);
+								// The door inside: just behind the door outside, unless the labels say where else.
+								double Iu = U, Iv = V;
+								Door.IYaw = Door.Yaw;
+								if ((*Item)->TryGetNumberField(TEXT("iu"), Iu) && (*Item)->TryGetNumberField(TEXT("iv"), Iv))
+								{
+									(*Item)->TryGetNumberField(TEXT("iyaw"), Door.IYaw);
+								}
+								else
+								{
+									Iu = U;
+									Iv = V;
+								}
+								Door.Ix = (Key.X - OriginX + Iu) * TileCm / 100.0;
+								Door.Iz = (Key.Y - OriginY + Iv) * TileCm / 100.0;
+								if (Door.bEntry && Door.Use.IsEmpty())
+								{
+									continue; // an entry always says what it is
+								}
 								ChunkDoors.Add(Door);
 							}
 						}
