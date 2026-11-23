@@ -62,6 +62,7 @@ export const ACTIONS = [
   own("invite", "Me", "Invite somebody", "Copies a link to send to them: it brings them into your room.", "", "invite"),
 
   row("look", "The game", "Switch the look", "Between the painted look and the flat cartoon look."),
+  row("lines", "The game", "The drawn lines: on, or off", "The ink line round everything. Off is easier on a slow computer."),
   row("sound", "The game", "Sounds on, or off", "The animals' voices, car horns and train whistles."),
   row("daytime", "The game", "The real time of day, or always daytime", "The real sun and moon over wherever you are, with a bright night. Or a fine day whatever the hour."),
   row("weather", "The game", "The real weather, or a fine day", "The real cloud, rain, snow, fog and wind of wherever you are. Or a fine day whatever the weather."),

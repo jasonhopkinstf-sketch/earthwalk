@@ -18,6 +18,7 @@ const NOT_IN_BROWSER: Record<string, string> = {
  * Windows game has not got yet. When its table gains the row (same id, words and key), this test says to take it off.
  */
 const NOT_IN_WINDOWS_YET: Record<string, string> = {
+  lines: "the Windows game has no switch for its ink line yet (2026-11-24)",
   daytime: "the real sun and moon were built in the browser first (2026-11-24)",
   weather: "the real weather was built in the browser first (2026-11-24)",
 };

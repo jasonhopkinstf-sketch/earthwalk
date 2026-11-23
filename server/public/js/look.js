@@ -9,19 +9,20 @@
 // - `Sky` is a great ball round the camera with the sky painted inside it: pale at the horizon and
 //   deep overhead, a drawn sun, rows of flat-bottomed clouds drifting, and far country in haze below
 //   the horizon where the land has run out. In the flat look it is one blue with plain white clouds.
-// - `Ink` draws the flat look's line: the world is drawn into a picture with its depths, and a
-//   second pass over the whole screen paints black wherever the depth bends sharply (the edge of a
-//   thing) or the colour steps (one paint meeting another). It costs a pass over every pixel, so it
-//   can be left off ("/look flat nolines").
+// - `Ink` draws the line of both looks: the world is drawn into a picture with its depths, and a
+//   second pass over the whole screen paints a line wherever the depth bends sharply (the edge of a
+//   thing) or the colour steps (one paint meeting another). In the flat look the line is bold and
+//   black; in the barnyard look it is thin and soft, the colour under it much darkened. It costs a
+//   pass over every pixel, so it can be left off ("/lines off").
 
 import * as THREE from "three";
-import { FLAT, FLAT_GROUND, SKY, flatLevels, parseLook } from "./lookdata.js";
+import { BARNYARD, FLAT, FLAT_GROUND, INK_TINT, SKY, flatLevels, parseLook } from "./lookdata.js";
 import { FINE_DAY, skyLight } from "./skymath.js";
 
 /** What is drawn when: the world; names and speech bubbles, over everything and never inked; the sky, which the little map leaves out. */
 export const LAYER = { world: 0, over: 1, sky: 2 };
 
-/** The look in use. `lines`: whether the flat look has its black line. */
+/** The look in use. `lines`: whether it has its drawn line (the flat look's bold black one, the barnyard look's soft one). */
 export const look = { name: "barnyard", lines: true };
 const flat = { value: 0 };
 const vividness = { value: 0 };
@@ -371,7 +372,8 @@ export class Sky {
   }
 }
 
-// ---------------------------------------------------------------- the black line
+// ---------------------------------------------------------------- the drawn line
+// (The dials are the look's: FLAT or BARNYARD in lookdata.js, by the Windows game's names.)
 const INK_SHADER = `
 uniform sampler2D tColor;
 uniform sampler2D tDepth;
@@ -379,16 +381,17 @@ uniform vec2 uTexel;
 uniform float uHeight;
 uniform float uNear;
 uniform float uFar;
+uniform float INK_WIDTH;
+uniform float INK_STRENGTH;
+uniform float INK_FAR;
+uniform float FAR_WIDTH;
+uniform float DEPTH_EDGE;
+uniform float PAINT_EDGE;
+uniform float PAINT_INK;
+uniform float FADE_START;
+uniform float FADE_END;
+uniform float INK_BLACK;
 varying vec2 vUv;
-const float INK_WIDTH = ${FLAT.inkWidth.toFixed(3)};
-const float INK_STRENGTH = ${FLAT.inkStrength.toFixed(3)};
-const float INK_FAR = ${FLAT.inkFar.toFixed(3)};
-const float FAR_WIDTH = ${FLAT.farWidth.toFixed(3)};
-const float DEPTH_EDGE = ${FLAT.depthEdge.toFixed(4)};
-const float PAINT_EDGE = ${FLAT.paintEdge.toFixed(4)};
-const float PAINT_INK = ${FLAT.paintInk.toFixed(3)};
-const float FADE_START = ${FLAT.fadeStart.toFixed(1)};
-const float FADE_END = ${FLAT.fadeEnd.toFixed(1)};
 // One over the distance in front of the camera, from what the depth buffer holds. Across any flat surface,
 // however steeply it is seen, this changes evenly from pixel to pixel: so where it bends, one thing ends
 // and another begins, and the ground does not grow lines near the horizon.
@@ -425,7 +428,8 @@ void main() {
   }
   float nearFar = clamp((nearest - FADE_START) / (FADE_END - FADE_START), 0.0, 1.0);
   float ink = clamp(edge * INK_STRENGTH * mix(1.0, INK_FAR, nearFar), 0.0, 1.0);
-  gl_FragColor = vec4(mix(c, vec3(0.0), ink), 1.0);
+  // The line: the colour under it much darkened, or with INK_BLACK a plain black line.
+  gl_FragColor = vec4(mix(c, c * vec3(${INK_TINT.map((v) => v.toFixed(3)).join(", ")}) * (1.0 - INK_BLACK), ink), 1.0);
   #include <colorspace_fragment>
 }
 `;
@@ -435,7 +439,20 @@ export class Ink {
   constructor(renderer) {
     this.renderer = renderer;
     this.target = null; // made the first time the line is wanted
-    this.uniforms = { tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uHeight: { value: 720 }, uNear: { value: 0.2 }, uFar: { value: 6000 } };
+    this.uniforms = {
+      tColor: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uHeight: { value: 720 }, uNear: { value: 0.2 }, uFar: { value: 6000 },
+      INK_WIDTH: { value: 0 }, INK_STRENGTH: { value: 0 }, INK_FAR: { value: 0 }, FAR_WIDTH: { value: 0 }, DEPTH_EDGE: { value: 0 }, PAINT_EDGE: { value: 0 }, PAINT_INK: { value: 0 },
+      FADE_START: { value: 0 }, FADE_END: { value: 0 }, INK_BLACK: { value: 0 },
+    };
+    // Each look has its own line.
+    const tune = () => {
+      const d = look.name === "flat" ? FLAT : BARNYARD, u = this.uniforms;
+      u.INK_WIDTH.value = d.inkWidth; u.INK_STRENGTH.value = d.inkStrength; u.INK_FAR.value = d.inkFar; u.FAR_WIDTH.value = d.farWidth;
+      u.DEPTH_EDGE.value = d.depthEdge; u.PAINT_EDGE.value = d.paintEdge; u.PAINT_INK.value = d.paintInk;
+      u.FADE_START.value = d.fadeStart; u.FADE_END.value = d.fadeEnd; u.INK_BLACK.value = d.inkBlack;
+    };
+    onLook(tune);
+    tune();
     this.flat = new THREE.Scene();
     const square = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
       uniforms: this.uniforms, depthTest: false, depthWrite: false,
@@ -464,7 +481,7 @@ export class Ink {
     this.uniforms.uHeight.value = h;
   }
 
-  /** Draws the world with its black line; then the names and speech bubbles over it, which get none. */
+  /** Draws the world with its line; then the names and speech bubbles over it, which get none. */
   render(scene, camera) {
     const { renderer } = this;
     this.fit();

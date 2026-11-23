@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { FLAT, FLAT_GROUND, LOOKS, SKY, flatLevels, lookSaid, parseLook, vivid } from "../public/js/lookdata.js";
+import { BARNYARD, FLAT, FLAT_GROUND, INK_TINT, LOOKS, SKY, flatLevels, lookSaid, parseLines, parseLook, vivid } from "../public/js/lookdata.js";
 
 const GAME = new URL("../../game/Source/", import.meta.url);
 const windows = (file: string): string => readFileSync(new URL(file, GAME), "utf8");
@@ -18,7 +18,42 @@ test("\"/look\" takes a look by name, and for the flat one whether to leave the 
   for (const not of ["", null, undefined, "shiny", "flat please", "flat nolines now", "nolines"]) assert.equal(parseLook(not), null, `not a look: ${String(not)}`);
   assert.match(lookSaid("flat", true), /bold black line/);
   assert.match(lookSaid("flat", false), /without its black line/);
-  assert.match(lookSaid("barnyard", true), /barnyard/);
+  assert.match(lookSaid("barnyard", true), /barnyard.*soft ink line/);
+  assert.match(lookSaid("barnyard", false), /without its ink line/);
+  assert.deepEqual(parseLook("barnyard nolines"), { name: "barnyard", lines: false });
+});
+
+test("\"/lines\" turns the drawn line on or off, or over", () => {
+  for (const on of ["on", " ON ", "yes", "lines"]) assert.equal(parseLines(on), true);
+  for (const off of ["off", "no", "none", "nolines", "no-lines"]) assert.equal(parseLines(off), false);
+  for (const over of ["", "  ", null, undefined]) assert.equal(parseLines(over), undefined);
+  assert.equal(parseLines("thicker"), null);
+});
+
+test("the barnyard look's line is the Windows game's soft one", { skip: noWindows }, () => {
+  const cpp = windows("EarthWalk/EarthLook.cpp");
+  /** The barnyard column of a dial in EarthLook.cpp: { TEXT("InkWidth"), 1.3f, 2.3f }. */
+  const dial = (name: string): number => {
+    const m = new RegExp(`TEXT\\("${name}"\\), ([\\d.]+)f, ([\\d.]+)f`).exec(cpp);
+    assert.ok(m, `the dial ${name}`);
+    return Number(m[1]);
+  };
+  assert.equal(BARNYARD.inkWidth, dial("InkWidth"));
+  assert.equal(BARNYARD.inkStrength, dial("InkStrength"));
+  assert.equal(BARNYARD.inkFar, dial("InkFar"));
+  assert.equal(BARNYARD.farWidth, dial("FarWidth"));
+  assert.equal(BARNYARD.depthEdge, dial("DepthEdge"));
+  assert.equal(BARNYARD.paintEdge, dial("PaintEdge"));
+  assert.equal(BARNYARD.paintInk, dial("PaintInk"));
+  assert.equal(BARNYARD.inkBlack, dial("InkBlack"));
+  assert.equal(BARNYARD.fadeStart, dial("FadeStart") / 100);
+  assert.equal(BARNYARD.fadeEnd, dial("FadeEnd") / 100);
+  assert.equal(FLAT.inkBlack, 1);
+  // What the soft line multiplies the colour under it by.
+  const code = windows("EarthWalkEditor/EarthWalkAssetsCommandlet.cpp");
+  const tint = /c \* float3\(([\d.]+), ([\d.]+), ([\d.]+)\) \* \(1\.0 - InkBlack\)/.exec(code);
+  assert.ok(tint, "the line's tint in InkCode");
+  assert.deepEqual(INK_TINT, tint.slice(1).map(Number));
 });
 
 test("vivid pushes a colour away from its own grey and leaves a grey alone", () => {

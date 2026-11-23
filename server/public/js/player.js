@@ -1,5 +1,6 @@
-// The local player: first-person walking and flying, driving, seen from behind the car, and the view from
-// above while riding, being carried, or being flown to a place (flight.js).
+// The local player: walking and flying, seen through their own eyes, over their shoulder or from behind;
+// driving, seen from behind the car; and the view from above while riding, being carried, or being flown
+// to a place (flight.js).
 
 import * as THREE from "three";
 import { stepCar } from "./cardrive.js";
@@ -28,6 +29,22 @@ export const VIEWS = [
   { name: "from above", far: 17, tilt: 0.5 },
   { name: "from high up", far: 62, tilt: 0.85 },
 ];
+/**
+ * The views on foot (the V key), as in the Windows game (AEarthWalkCharacter::ApplyView): through your own eyes,
+ * over your shoulder, and from behind. `arm` is how far behind the camera hangs, in metres, and `least` and
+ * `most` how near and far the mouse wheel may bring it; `right` and `up` set it off to one side and above.
+ * The arm hangs from 30 cm above the eyes.
+ */
+export const FOOT_VIEWS = [
+  { name: "your own eyes" },
+  { name: "over your shoulder", arm: 2.5, least: 1.2, most: 5, right: 0.45, up: 0.4 },
+  { name: "from behind", arm: 7, least: 4, most: 25, right: 0, up: 0.8 },
+];
+/** Seen from outside, looking no further down than this or up than that (radians): further would put the camera in the ground. */
+const BEHIND_DOWN = -70 * Math.PI / 180;
+const BEHIND_UP = 60 * Math.PI / 180;
+/** How far the camera keeps from a wall or a ceiling. */
+const CAMERA_CLEAR = 0.3;
 /** Being carried, the hovering camera circles slowly until the mouse says where to look: radians a second. */
 const DRIFT = 0.09;
 /** The least turn from one angle to another, -pi to pi. */
@@ -63,6 +80,16 @@ export class Player {
     this.car = null;
     /** Which of VIEWS the ride is seen from. */
     this.view = 0;
+    /** Which of FOOT_VIEWS the player is seen from on foot, and how long each view's arm has been made by the mouse wheel. */
+    this.foot = 0;
+    this.footArm = FOOT_VIEWS.map((v) => v.arm ?? 0);
+    this.armNow = 0; // how far behind the camera is this moment
+    /** True while the camera stands back from the player on foot, far enough for their own figure to be drawn. */
+    this.seenFromOutside = false;
+    /** How fast the player is going over the ground, in metres a second: for their own figure's legs. */
+    this.pace = 0;
+    /** More that the camera must keep out of, beside the world's walls: the ceilings of the house the player is in (main.js gives them). */
+    this.roofs = null;
     /** True while something else is taking the player along: a train, a friend, or a mount finding its own way. */
     this.taken = false;
     this.course = 0; // which way the ride has been going, as a heading
@@ -96,9 +123,11 @@ export class Player {
     });
     // From above, the wheel brings the camera nearer or takes it further off.
     canvas.addEventListener("wheel", (e) => {
-      if (!this.view) return;
+      const foot = this.onFoot ? FOOT_VIEWS[this.foot] : null;
+      if (!this.view && !foot?.arm) return;
       e.preventDefault();
-      this.zoom = Math.min(2.5, Math.max(0.4, this.zoom * Math.exp(e.deltaY * 0.0012)));
+      if (this.view) this.zoom = Math.min(2.5, Math.max(0.4, this.zoom * Math.exp(e.deltaY * 0.0012)));
+      else this.footArm[this.foot] = Math.min(foot.most, Math.max(foot.least, this.footArm[this.foot] * Math.exp(e.deltaY * 0.0012)));
     }, { passive: false });
   }
 
@@ -118,13 +147,27 @@ export class Player {
     if (this.car) { this.car.look += by; this.car.idle = 0; } else if (this.view && this.taken) this.orbit += by; else this.yaw += by;
   }
 
+  /** On their own feet (or flying by themselves): not riding, carried or being flown somewhere. */
+  get onFoot() {
+    return !this.mount && !this.carried && !this.flight;
+  }
+
   /**
-   * The V key: the next of VIEWS, while riding, being carried or being flown. Returns the view's name, or null on foot.
+   * The V key: the next of VIEWS while riding, being carried or being flown, and the next of FOOT_VIEWS on foot.
+   * Returns the view's name.
    */
   nextView() {
-    if (!this.mount && !this.carried && !this.flight) return null;
+    if (this.onFoot) {
+      this.foot = (this.foot + 1) % FOOT_VIEWS.length;
+      return FOOT_VIEWS[this.foot].name;
+    }
     this.setView((this.view + 1) % VIEWS.length);
     return VIEWS[this.view].name;
+  }
+
+  /** Goes straight to one of FOOT_VIEWS. */
+  setFootView(foot) {
+    this.foot = Math.min(FOOT_VIEWS.length - 1, Math.max(0, foot | 0));
   }
 
   setView(view) {
@@ -151,6 +194,24 @@ export class Player {
     this.position.set(0, this.position.y, 0);
     this.velocityY = 0;
     this.waitingForGround = true;
+  }
+
+  /** The first thing a camera must not go behind along a ray: a wall, a bridge, or a ceiling of the house the player is in. Null for nothing. */
+  cameraHit(origin, direction, far) {
+    const more = this.roofs?.() ?? [];
+    const things = more.length ? this.world.solids.concat(more) : this.world.solids;
+    this.ray.set(origin, direction);
+    this.ray.near = 0;
+    this.ray.far = far;
+    let nearest = this.ray.intersectObjects(things, false)[0]?.distance ?? Infinity;
+    // And from the far end back again. A ray only meets the face of a thing, not its back: so the underside of a roof
+    // with no walls under it (a canopy, a veranda) lets the first one through, and the camera would sit on top of
+    // it looking at tiles. Coming back, that roof is met face on.
+    this.ray.set(origin.clone().addScaledVector(direction, far), direction.clone().negate());
+    this.ray.firstHitOnly = false;
+    for (const met of this.ray.intersectObjects(things, false)) nearest = Math.min(nearest, far - met.distance);
+    this.ray.firstHitOnly = true;
+    return nearest < Infinity ? { distance: Math.max(0, nearest) } : null;
   }
 
   /** First building surface along a ray, or null. */
@@ -211,7 +272,7 @@ export class Player {
     // Never behind a wall, and never under the ground.
     const reach = at.clone().sub(eye);
     const far = reach.length();
-    const wall = this.hit(eye, reach.clone().divideScalar(far), far + 0.4);
+    const wall = this.cameraHit(eye, reach.clone().divideScalar(far), far + 0.4);
     if (wall) at.copy(eye).addScaledVector(reach, Math.max(0.15, (wall.distance - 0.4) / far));
     const ground = this.world.groundHeight(at.x, at.z);
     if (ground !== null && at.y < ground + 0.6 && !this.inTunnel()) at.y = ground + 0.6;
@@ -229,6 +290,7 @@ export class Player {
     const dx = this.position.x - this.was.x, dz = this.position.z - this.was.z;
     this.was.copy(this.position);
     const step = Math.hypot(dx, dz);
+    if (dt > 0) this.pace = step < 50 ? step / dt : 0;
     if (dt > 0 && step < 50 && step / dt > 1) {
       this.still = 0;
       this.course += wrap(Math.atan2(dx, -dz) - this.course) * (1 - Math.exp(-2.5 * dt));
@@ -261,7 +323,7 @@ export class Player {
     // Over the rooftops, not behind them: where a building is in the way, look from steeper.
     let want = arm(tilt);
     for (let t = tilt; ; ) {
-      const wall = this.hit(eye, want.clone().divideScalar(far), far + 0.5);
+      const wall = this.cameraHit(eye, want.clone().divideScalar(far), far + 0.5);
       if (!wall) break;
       t += 0.2;
       if (t > 1.5) { want.multiplyScalar(Math.max(0.1, (wall.distance - 0.5) / far)); break; } // under a roof: come in close
@@ -273,6 +335,35 @@ export class Player {
     if (ground !== null && at.y < ground + 1.2 && !this.inTunnel()) at.y = ground + 1.2;
     this.camera.position.copy(at);
     this.camera.lookAt(eye);
+  }
+
+  /**
+   * The camera behind the player on foot: over the shoulder, or further back. It looks where the player looks,
+   * hangs on an arm from just above their head, and comes in along that arm rather than go behind a wall or
+   * through a ceiling; it never goes under the ground.
+   */
+  behind(dt) {
+    const v = FOOT_VIEWS[this.foot];
+    this.pitch = Math.min(BEHIND_UP, Math.max(BEHIND_DOWN, this.pitch));
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw), cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    const forward = new THREE.Vector3(sin * cp, sp, -cos * cp);
+    const right = new THREE.Vector3(cos, 0, sin);
+    const up = new THREE.Vector3().crossVectors(right, forward);
+    const hangs = new THREE.Vector3(this.position.x, this.position.y + EYE_HEIGHT + 0.3, this.position.z);
+    const reach = forward.clone().multiplyScalar(-this.footArm[this.foot]).addScaledVector(right, v.right).addScaledVector(up, v.up);
+    const far = reach.length();
+    reach.divideScalar(far);
+    // In at once when something is in the way, and out again gently when it no longer is.
+    const wall = this.cameraHit(hangs, reach, far + CAMERA_CLEAR);
+    const room = wall ? Math.max(0.05, wall.distance - CAMERA_CLEAR) : far;
+    this.armNow = room < this.armNow ? room : Math.min(room, this.armNow + (room - this.armNow) * (1 - Math.exp(-10 * dt)) + 0.001);
+    const at = hangs.addScaledVector(reach, this.armNow);
+    const ground = this.world.groundHeight(at.x, at.z);
+    if (ground !== null && at.y < ground + CAMERA_CLEAR && at.y > ground - 3 && !this.roofs?.().length && !this.inTunnel()) at.y = ground + CAMERA_CLEAR;
+    this.camera.position.copy(at);
+    this.camera.rotation.set(this.pitch, -this.yaw, 0);
+    // Come right in against a wall, the camera is inside the player's own head: their figure is then left out.
+    this.seenFromOutside = this.armNow > 0.9;
   }
 
   update(dt) {
@@ -398,6 +489,9 @@ export class Player {
     if (this.view && !this.mount && !this.carried && !this.flight) this.setView(0); // on foot again
     if (this.view && !this.waitingForGround) return this.hover(dt);
     if (this.car && this.mount && !this.waitingForGround) return this.chase(dt);
+    if (this.foot && this.onFoot && !this.waitingForGround) return this.behind(dt);
+    this.seenFromOutside = false;
+    this.armNow = 0;
     this.camera.position.set(this.position.x, this.position.y + (this.mount || this.carried ? RIDING_EYE : EYE_HEIGHT), this.position.z);
     this.camera.rotation.set(this.pitch, -this.yaw, 0);
   }
