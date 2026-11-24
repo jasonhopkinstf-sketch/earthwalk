@@ -136,9 +136,13 @@ namespace
 	}
 
 	/** Which leg of the round trip, and how many seconds along the path, at time T. */
-	void Timetable(const EarthLife::FTrip& Trip, uint32 Salt, double T, int32& Leg, double& At)
+	void Timetable(const EarthLife::FTrip& Trip, uint32 Salt, double T, int32& Leg, double& At, double* OutTau = nullptr)
 	{
 		const double Tau = std::fmod(std::fmod(T + EarthLife::Unit(Trip.Id, Salt) * Trip.Period, Trip.Period) + Trip.Period, Trip.Period);
+		if (OutTau)
+		{
+			*OutTau = Tau;
+		}
 		Leg = 0;
 		At = 0.0;
 		if (Tau >= Trip.Da + Trip.Time + Trip.Db)
@@ -391,8 +395,8 @@ double EarthLife::HeadingAt(const FTrip& Trip, double D, double Reach)
 EarthLife::FTrainPose EarthLife::TrainPose(const FTrip& Train, double T)
 {
 	int32 Leg;
-	double At;
-	Timetable(Train, SaltTrain, T, Leg, At);
+	double At, Tau;
+	Timetable(Train, SaltTrain, T, Leg, At, &Tau);
 	int32 Lo, Hi;
 	double F, Span;
 	Stretch(Train, At, Lo, Hi, F, Span);
@@ -402,7 +406,57 @@ EarthLife::FTrainPose EarthLife::TrainPose(const FTrip& Train, double T)
 	Out.bBack = Leg == 0 || Leg == 3;
 	Out.bMoving = (Leg == 1 || Leg == 3) && Run > 0.0;
 	Out.Leg = Leg;
+	Out.Stood = Leg == 0 ? Tau : Leg == 2 ? Tau - Train.Da - Train.Time : 0.0;
 	return Out;
+}
+
+EarthLife::FRunPose EarthLife::RunPose(const FTrip& Train, double Since, bool bBack)
+{
+	const double Gone = FMath::Clamp(Since, 0.0, Train.Time);
+	const double At = bBack ? Train.Time - Gone : Gone;
+	int32 Lo, Hi;
+	double F, Span;
+	Stretch(Train, At, Lo, Hi, F, Span);
+	const double Run = Train.Dist[Hi] - Train.Dist[Lo];
+	FRunPose Out;
+	Out.Along = Train.Dist[Lo] + Run * F;
+	Out.bMoving = Since > 0.0 && Since < Train.Time && Run > 0.0;
+	Out.bDone = Since >= Train.Time;
+	return Out;
+}
+
+const EarthLife::FTrip* EarthLife::JoinOf(const FTrip& Train, bool bFar, const TArray<const FTrip*>& Others, bool& bOutBack)
+{
+	const FVector2D End = PointAt(Train, bFar ? Train.Length : 0.0);
+	const FVector2D Going = End - PointAt(Train, bFar ? Train.Length - 12.0 : 12.0); // the way it was going as it reached this end
+	const FTrip* Best = nullptr;
+	double Least = JoinM;
+	for (const FTrip* Other : Others)
+	{
+		if (!Other || Other == &Train || Other->Id == Train.Id || Other->N < 2)
+		{
+			continue;
+		}
+		for (const bool bBack : { false, true })
+		{
+			const FVector2D Theirs = PointAt(*Other, bBack ? Other->Length : 0.0);
+			const double D = FVector2D::Distance(Theirs, End);
+			if (D >= Least)
+			{
+				continue;
+			}
+			const FVector2D On = PointAt(*Other, bBack ? Other->Length - 12.0 : 12.0) - Theirs; // the way it leads on from that end
+			const double Bend = FMath::Abs(std::atan2(Going.X * On.Y - Going.Y * On.X, Going.X * On.X + Going.Y * On.Y));
+			if (Bend > 1.2)
+			{
+				continue;
+			}
+			Least = D;
+			Best = Other;
+			bOutBack = bBack;
+		}
+	}
+	return Best;
 }
 
 EarthLife::FTripPose EarthLife::TripPose(const FTrip& Trip, double T)

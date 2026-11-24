@@ -288,6 +288,24 @@ void AEarthLife::AddChunk(FIntPoint Key, const TArray<TSharedPtr<FJsonValue>>& I
 				Chunk.Trips.Add(MoveTemp(Car));
 			}
 		}
+		else if (Kind == TEXT("track"))
+		{
+			// A stretch of railway with no train of its own, for a train somebody rides to carry on along.
+			EarthLife::FTrip Track;
+			if (!Number(Json, TEXT("da"), Track.Da) || !Number(Json, TEXT("db"), Track.Db) || !ReadPath(Json, Ox, Oz, S, Track.Path))
+			{
+				continue;
+			}
+			Track.Id = Identity;
+			Track.Da = FMath::Max(1.0, Track.Da);
+			Track.Db = FMath::Max(1.0, Track.Db);
+			ReadLift(Json, Track.Path.Num() / 3, Track.Lift);
+			EarthLife::Prepare(Track);
+			if (Track.Time > 0.0 && Track.Length > 1.0)
+			{
+				Chunk.Tracks.Add(MoveTemp(Track));
+			}
+		}
 		else if (Kind == TEXT("train"))
 		{
 			// A train comes with every chunk on its run. Its path is measured from the chunk that sent it.
@@ -324,6 +342,7 @@ void AEarthLife::RemoveChunk(FIntPoint Key)
 		Parked.Reset();
 		Trips.Reset();
 		Trains.Reset();
+		Tracks.Reset();
 		bDirty = true;
 	}
 }
@@ -335,6 +354,8 @@ void AEarthLife::Clear()
 	Parked.Reset();
 	Trips.Reset();
 	Trains.Reset();
+	Tracks.Reset();
+	Through = FThrough();
 	States.Reset();
 	CarStates.Reset();
 	TrainStates.Reset();
@@ -456,6 +477,8 @@ void AEarthLife::Sync(const FVector2D& Me)
 	Parked.Reset();
 	Trips.Reset();
 	Trains.Reset();
+	Tracks.Reset();
+	TSet<uint32> TracksSeen;
 	TSet<uint32> TrainsSeen; // one of each, whichever chunk it came with
 	for (TPair<FIntPoint, FChunk>& Pair : Chunks)
 	{
@@ -490,6 +513,20 @@ void AEarthLife::Sync(const FVector2D& Me)
 			if (!bAlready)
 			{
 				Trains.Add(&Train);
+			}
+			TracksSeen.Add(Train.Trip.Id, &bAlready);
+			if (!bAlready)
+			{
+				Tracks.Add(&Train.Trip);
+			}
+		}
+		for (const EarthLife::FTrip& Track : Pair.Value.Tracks)
+		{
+			bool bAlready = false;
+			TracksSeen.Add(Track.Id, &bAlready);
+			if (!bAlready)
+			{
+				Tracks.Add(&Track);
 			}
 		}
 	}
@@ -1026,9 +1063,28 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 	}
 
 	// ---- trains: four carriages spread along the track, the middle of the train where the timetable puts it
+	if (Through.bOn && Through.Rig)
+	{
+		// The train the player is carried on down the line by, where it has got to.
+		for (int32 J = 0; J < Carriages; ++J)
+		{
+			FEarthThing At;
+			if (ThroughAt(World, J, T, At))
+			{
+				FBase Base;
+				Base.Position = Engine(At.X, At.Y, At.Z);
+				Base.Rotation = EarthRigs::Turned(0.0, At.Yaw, 0.0);
+				Put(*Through.Rig, Through.Rig->PaletteA[Through.Coat], Through.Rig->PaletteB[Through.Coat], Base, AtRest, T);
+			}
+		}
+	}
 	for (const FTrain* Train : Trains)
 	{
 		const EarthLife::FTrip& Trip = Train->Trip;
+		if (Through.bOn && Through.Hide.Contains(Trip.Id))
+		{
+			continue; // (the one boarded, and the timetable's own train of the track the player's is on)
+		}
 		const EarthLife::FTrainPose Pose = EarthLife::TrainPose(Trip, T);
 		const double Middle = TrainM / 2.0 + (Pose.Along * (Trip.Length - TrainM)) / Trip.Length;
 		double Nearest = TNumericLimits<double>::Max();
@@ -1154,8 +1210,130 @@ void AEarthLife::PutMount(const FEarthThing& Mount, double T)
 	Put(*Rig, Rig->PaletteA[Coat], Rig->PaletteB[Coat], Base, Pose, T);
 }
 
+FString AEarthLife::CarryOn(uint32 Id, double T)
+{
+	if (!Through.bOn)
+	{
+		for (const FTrain* Train : Trains)
+		{
+			if (Train->Trip.Id != Id)
+			{
+				continue;
+			}
+			const EarthLife::FTrainPose Pose = EarthLife::TrainPose(Train->Trip, T);
+			if ((Pose.Leg != 0 && Pose.Leg != 2) || Pose.Stood < EarthLife::ThroughDwellS)
+			{
+				return FString(); // not standing at an end of its run, or not for long enough yet
+			}
+			const bool bFar = Pose.Leg == 2;
+			bool bBack = false;
+			const EarthLife::FTrip* Next = EarthLife::JoinOf(Train->Trip, bFar, Tracks, bBack);
+			if (!Next)
+			{
+				return FString();
+			}
+			// Its front is at the end of the run it was on, and sets off along the next when the train has stood its six
+			// seconds (whenever this game came to notice: friends aboard go together).
+			Through = FThrough();
+			Through.bOn = true;
+			Through.bFar = bFar;
+			Through.Rig = Train->Rig;
+			Through.Coat = Train->Coat;
+			Through.Hide = { Id, Next->Id };
+			FThroughSeg& First = Through.Segs.AddDefaulted_GetRef();
+			First.Trip = Train->Trip;
+			First.bBack = !bFar;
+			FThroughSeg& Second = Through.Segs.AddDefaulted_GetRef();
+			Second.Trip = *Next;
+			Second.bBack = bBack;
+			Second.Start = Train->Trip.Length;
+			Second.T0 = T - (Pose.Stood - EarthLife::ThroughDwellS);
+			UE_LOG(LogTemp, Display, TEXT("EarthWalk: life: train %u carries on along %u (%.0f m, %s)"), Id, Next->Id, Next->Length, bBack ? TEXT("from its far end") : TEXT("from its start"));
+			return FString(TEXT("The train carries on down the line. E hops off when you like."));
+		}
+		return FString();
+	}
+	const FThroughSeg& Last = Through.Segs.Last();
+	if (T - Last.T0 < Last.Trip.Time)
+	{
+		return FString();
+	}
+	bool bBack = false;
+	if (const EarthLife::FTrip* Next = EarthLife::JoinOf(Last.Trip, !Last.bBack, Tracks, bBack))
+	{
+		FThroughSeg Seg;
+		Seg.Trip = *Next;
+		Seg.bBack = bBack;
+		Seg.Start = Last.Start + Last.Trip.Length;
+		Seg.T0 = Last.T0 + Last.Trip.Time;
+		Through.Hide = { Id, Next->Id };
+		UE_LOG(LogTemp, Display, TEXT("EarthWalk: life: train %u carries on along %u (%.0f m), %d stretches so far"), Id, Next->Id, Next->Length, Through.Segs.Num() + 1);
+		Through.Segs.Add(MoveTemp(Seg));
+		if (Through.Segs.Num() > 12)
+		{
+			Through.Segs.RemoveAt(0); // (the train is on the last few of them at most)
+		}
+		return FString();
+	}
+	if (Through.bSaid)
+	{
+		return FString();
+	}
+	Through.bSaid = true;
+	return FString(TEXT("This is as far as the track goes from here. E hops off."));
+}
+
+bool AEarthLife::ThroughAt(const AEarthWorld* World, int32 J, double T, FEarthThing& Out) const
+{
+	if (!Through.bOn || Through.Segs.Num() == 0)
+	{
+		return false;
+	}
+	const FThroughSeg& Last = Through.Segs.Last();
+	const EarthLife::FRunPose Pose = EarthLife::RunPose(Last.Trip, T - Last.T0, Last.bBack);
+	const double Front = Last.Start + (Last.bBack ? Last.Trip.Length - Pose.Along : Pose.Along);
+	// So far down the whole way it has come: on whichever stretch that is, and never before the first of them.
+	const double Want = FMath::Max(Through.Segs[0].Start, Front - CarriageM / 2.0 - J * (CarriageM + CouplingM));
+	const FThroughSeg* Seg = &Through.Segs[0];
+	for (const FThroughSeg& One : Through.Segs)
+	{
+		if (One.Start <= Want)
+		{
+			Seg = &One;
+		}
+	}
+	const double Local = FMath::Min(Seg->Trip.Length, Want - Seg->Start);
+	const double D = Seg->bBack ? Seg->Trip.Length - Local : Local;
+	const FVector2D At = EarthLife::PointAt(Seg->Trip, D);
+	// (Where the ground ahead has not come yet, the train keeps the height it had: it does not stop for the map.)
+	double Y = 0.0;
+	if (World && World->TerrainHeightAt(At.X, At.Y, Y))
+	{
+		Through.Ground = Y;
+		Through.bGround = true;
+	}
+	else if (Through.bGround)
+	{
+		Y = Through.Ground;
+	}
+	else
+	{
+		return false;
+	}
+	Out.X = At.X;
+	Out.Y = Y + RailLiftM + EarthLife::LiftAt(Seg->Trip, D);
+	Out.Z = At.Y;
+	Out.Yaw = (-EarthLife::HeadingAt(Seg->Trip, D, 6.0) * Pi) / 180.0;
+	return true;
+}
+
 bool AEarthLife::CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double T, FEarthThing& Out) const
 {
+	// (Carried on down the line, the carriages count from the train's front, which was its far end or its near one.)
+	if (Through.bOn)
+	{
+		return ThroughAt(World, Through.bFar ? Carriages - 1 - K : K, T, Out);
+	}
 	for (const FTrain* Train : Trains)
 	{
 		if (Train->Trip.Id != Id)

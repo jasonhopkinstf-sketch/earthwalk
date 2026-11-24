@@ -388,6 +388,25 @@ If the tracks cannot be fetched, the labels are sent without trains and the serv
 answer, so the next request tries again. A train does not stop for players: it whistles and passes
 through them.
 
+**Track with no train, and a train that carries on.** A square's other runs (the seventh longest and
+after, and those shorter than 400 m, down to 30 m; forty at most) go out as `track` items: the same
+shape as a `train`, with a timetable a train could keep along it, and no train. A game draws nothing
+for one. They are there because a train's own run ends where its square does, about every two
+kilometres, and somebody riding does not want to be taken back: when the train a player is on has
+stood six seconds at an end of its run, and another run (`train` or `track`) has an end within 12 m
+of that end and leads on much the same way (`joinOf`), the player's game carries the train on along
+that run by a clock of its own (`runPose`), front first, and on again at the end of that, as far as
+the line goes; where no run leads on it stands, and the player hops off. The game draws that train for
+its player where it has got to, and leaves out the timetable's own train of the run it is on and the
+one that was boarded. The server is told nothing new: the player's `ride` is still the train they
+boarded, and their position says where they are. Friends on the same train go on together, since each
+game works out the same moment; friends watching from the ground see the riders go on without a train
+under them (not built). `server/public/js/trafficmotion.js` and `traffic.js` (`carryOn`,
+`throughAt`); `EarthLifeMotion.cpp` and `AEarthLife::CarryOn` in the Windows game.
+
+A railway on the ground is drawn as a bed of stones (surface 8), sleepers (12) and two rails (17):
+surfaces the games have already.
+
 ## Inside houses: `GET /v1/interior/16/{x}/{y}/{id}`
 
 Most homes can be walked into. A plain four-cornered house gives the whole of itself to its rooms.

@@ -113,8 +113,30 @@ namespace EarthLife
 		bool bBack = false;
 		bool bMoving = false;
 		int32 Leg = 0;
+		double Stood = 0.0; // how many seconds it has been standing at the end of its run it is at (legs 0 and 2), else 0
 	};
 	FTrainPose TrainPose(const FTrip& Train, double T);
+
+	// A train that carries on (trafficmotion.js, under that heading): a train's own run ends where its square of the
+	// map does, and somebody riding does not want to be taken back, so where the track goes on their train goes along it.
+	/** How long a train stands at the end of its run before it carries on down the line with whoever is aboard. */
+	constexpr double ThroughDwellS = 6.0;
+	/** Two runs are the same track going on when an end of each is this near the other, and they point much the same way. */
+	constexpr double JoinM = 12.0;
+	/** A run gone along once, by a clock of its own: Since seconds after setting off from one end (the far end when bBack). */
+	struct FRunPose
+	{
+		double Along = 0.0;
+		bool bMoving = false;
+		bool bDone = false; // it has reached the other end
+	};
+	FRunPose RunPose(const FTrip& Train, double Since, bool bBack);
+	/**
+	 * The run a train goes on along from one end of its own (bFar: its far end, else its start): of Others, the one with
+	 * an end nearest that point, within JoinM, that leads on much the way the train was going. Null when there is none.
+	 * bOutBack: it is entered at its far end, and so run backwards.
+	 */
+	const FTrip* JoinOf(const FTrip& Train, bool bFar, const TArray<const FTrip*>& Others, bool& bOutBack);
 
 	/**
 	 * Runs the numbers of game/Tools/life-vectors.mjs through this port and logs the largest difference.

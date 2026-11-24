@@ -540,6 +540,10 @@ void UEarthCompany::Off()
 
 void UEarthCompany::Land()
 {
+	if (AEarthLife* Railway = World.IsValid() ? World->GetLife() : nullptr)
+	{
+		Railway->LeaveTrain();
+	}
 	const double Side = Mine.Sp == TEXT("train") ? 3.5 : 1.6; // step down to the right
 	Mine = FEarthRide();
 	MineMount = nullptr;
@@ -609,14 +613,20 @@ void UEarthCompany::RidingFrame(double Dt, double T)
 	// ---- being carried: by a train, or by the friend who is steering
 	if (Mine.bOn && Mine.Sp == TEXT("train"))
 	{
+		// Past the end of its run the train carries on down the line with me aboard (AEarthLife::CarryOn).
+		if (const FString News = Life->CarryOn(Mine.Thing, T); !News.IsEmpty())
+		{
+			Notice(News);
+		}
 		FEarthThing At;
 		if (Life->CarriageAt(Earth, Mine.Thing, MineK, T, At))
 		{
+			Lost = 0.0;
 			Me->PlaceFeetAt(SceneToEngine(At.X, At.Y + MineMount->Seat, At.Z));
 		}
-		else
+		else if ((Lost += Dt) > 30.0)
 		{
-			Off(); // the train has gone where this game cannot follow
+			Off(); // the train has gone where this game cannot follow (the ground ahead still being built is waited for)
 		}
 	}
 	else if (Mine.bOn && Mine.Seat > 0)
@@ -2742,6 +2752,10 @@ void UEarthCompany::TestAids(double Dt)
 	if (TestStep == 0 && RideKind == TEXT("taxi") && TestClock < 150.0 && !(Nearest(RideKind, Waiting) && !Waiting.bMoving))
 	{
 		return; // the taxi has not pulled up yet
+	}
+	if (TestStep == 0 && RideKind == TEXT("train") && TestClock < 480.0 && !Nearest(RideKind, Waiting))
+	{
+		return; // no train has come by yet: one is waited for, for as long as a train's whole round takes
 	}
 	if (TestStep == 0 && RideKind == TEXT("taxi"))
 	{

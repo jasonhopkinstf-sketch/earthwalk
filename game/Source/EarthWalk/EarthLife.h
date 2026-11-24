@@ -80,6 +80,14 @@ public:
 	void SetOutOfPlace(const TSet<uint32>& InHidden, const TArray<FEarthThing>& InMounts) { Taken = InHidden; Mounts = InMounts; }
 	/** Where carriage K of a train is at shared time T, for a passenger on its roof (X, Y, Z and Yaw of Out); false if this game does not have the train. */
 	bool CarriageAt(const AEarthWorld* World, uint32 Id, int32 K, double T, FEarthThing& Out) const;
+	/**
+	 * Every frame while the player rides the train Id: where the track goes on past the end of its run, the train
+	 * carries on along it with them, and on again at the end of that, as far as the line goes; where the track ends
+	 * it stands (carryOn of traffic.js). Returns words to say, when there are any.
+	 */
+	FString CarryOn(uint32 Id, double T);
+	/** Off the train: whatever it was doing for its rider, it does no longer. */
+	void LeaveTrain() { Through = FThrough(); }
 
 	/**
 	 * How high the rider of a car sits, in metres: on the roof of the body it really has (a van's is higher than a saloon's), at the size it is drawn.
@@ -169,6 +177,7 @@ private:
 		TArray<FParked> Parked;
 		TArray<FCar> Trips;
 		TArray<FTrain> Trains;
+		TArray<EarthLife::FTrip> Tracks; // stretches of railway with no train of their own ("track" in the labels)
 	};
 	/** How an animal (or a tractor) is reacting to players: a short offset from where the clock puts it. */
 	struct FState
@@ -264,6 +273,34 @@ private:
 	TArray<const FParked*> Parked;
 	TArray<const FCar*> Trips;
 	TArray<const FTrain*> Trains;
+	/** Every stretch of railway this game has: the trains' own runs, and the spare track with no train. */
+	TArray<const EarthLife::FTrip*> Tracks;
+	/**
+	 * The train the player is on, once it has carried on past the end of its own run. Segs are the stretches of
+	 * track it has gone along, the last the one its front is on (kept whole: the chunk a run came with may go).
+	 */
+	struct FThroughSeg
+	{
+		EarthLife::FTrip Trip;
+		bool bBack = false;
+		double Start = 0.0; // how far down the whole way this stretch begins
+		double T0 = 0.0;    // when the train's front set off along it
+	};
+	struct FThrough
+	{
+		bool bOn = false;
+		TArray<FThroughSeg> Segs;
+		bool bFar = false;  // which end of the train is its front: its far end, or its near one
+		const FEarthRig* Rig = nullptr;
+		int32 Coat = 0;
+		TSet<uint32> Hide;  // the timetable's own trains not drawn meanwhile: the one boarded, and any whose track this one is on
+		bool bSaid = false;
+		bool bGround = false;
+		double Ground = 0.0; // the ground's height where it was last known: kept where the world ahead has not come
+	};
+	mutable FThrough Through;
+	/** Where carriage J of that train is (0 is its front). False where nothing is known of the ground at all. */
+	bool ThroughAt(const AEarthWorld* World, int32 J, double T, FEarthThing& Out) const;
 	TMap<uint32, FState> States;
 	TMap<uint32, FCarState> CarStates;
 	TMap<uint32, FTrainState> TrainStates;
