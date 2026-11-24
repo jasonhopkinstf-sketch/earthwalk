@@ -24,6 +24,9 @@ test("a place by name is looked for close by first, and of what is found there t
     if (q === "Grand Street, Devonport" && box === 0.04) rows = [row("Grand Street, Devonport", -36.8300, 174.7990)];
     if (q === "7 King Edward Parade, Devonport" && box === 0.04) rows = [row("7, King Edward Parade, Devonport", -36.8320, 174.8000)];
     if (q === "volcano" && box === null) rows = [row("Volcano, Hawaii, United States", 19.44, -155.23)];
+    // (A road close by that was Queen Street long ago comes back for "Queen Street" too, as the real search has it.)
+    if ((q === "Queen St, Auckland" || q === "3 Queen Street") && box === 0.04) rows = [row(`${q.startsWith("3") ? "3, " : ""}Ngātaringa Road, Devonport`, -36.8290, 174.7990), row(`${q.startsWith("3") ? "3, " : ""}Queen Street, City Centre, Auckland`, -36.8440, 174.7660)];
+    if (q === "Tour de la Reine" && box === 0.04) rows = [row("Queen's Tower, Devonport", -36.8300, 174.7990), row("Old Tower, Devonport", -36.8320, 174.7960)];
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(rows));
   });
@@ -69,7 +72,13 @@ test("a place by name is looked for close by first, and of what is found there t
     asked.length = 0;
     assert.equal((await geocodeNear("12a Grand Street, Devonport", HERE.lat, HERE.lon))?.name, "Grand Street, Devonport");
     assert.deepEqual(asked, [{ q: "12a Grand Street, Devonport", box: 0.04 }, { q: "12a Grand Street, Devonport", box: 0.25 }, { q: "12a Grand Street, Devonport", box: null }, { q: "Grand Street, Devonport", box: 0.04 }]);
-    const { streetOf, tidyPlace } = await import("../src/geocode.ts");
+    // The place that is called what was asked for, not a nearer one that only once had the name.
+    assert.equal((await geocodeNear("Queen St, Auckland", HERE.lat, HERE.lon))?.name, "Queen Street, City Centre, Auckland");
+    assert.equal((await geocodeNear("3 Queen Street", HERE.lat, HERE.lon))?.name, "3, Queen Street, City Centre, Auckland");
+    // Where nothing found has the words in its name (another language), the nearest of it all, as before.
+    assert.equal((await geocodeNear("Tour de la Reine", HERE.lat, HERE.lon))?.name, "Old Tower, Devonport");
+    const { calledThat, streetOf, tidyPlace } = await import("../src/geocode.ts");
+    assert.deepEqual(calledThat([{ name: "Ngātaringa Road" }, { name: "Te Ara Ngātaringa" }], "ngataringa rd").map((r) => r.name), ["Ngātaringa Road"]);
     assert.deepEqual(["34 Long Road, Town", "Unit 2/14 Short St", "3-5 The Mall", "Route 66", "4 km", "221B Baker Street"].map(streetOf), ["Long Road, Town", "Short St", "The Mall", null, "km", "Baker Street"]);
     assert.deepEqual(tidyPlace("to the  closest beach"), { words: "beach", nearest: true });
     assert.deepEqual(tidyPlace("The Mall"), { words: "Mall", nearest: false });

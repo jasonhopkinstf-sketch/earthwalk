@@ -46,6 +46,27 @@ export function nearestOf(places: Place[], lat: number, lon: number): Place | nu
   return best;
 }
 
+const SHORT: Record<string, string> = { st: "street", rd: "road", ave: "avenue", av: "avenue", dr: "drive", pl: "place", cres: "crescent", cr: "crescent", tce: "terrace", ln: "lane", hwy: "highway", pde: "parade", sq: "square", ct: "court" };
+/** A name as it is compared: small letters, no accents or marks, "st" spelt out as "street". */
+const plain = (text: string): string => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").map((w) => SHORT[w] ?? w).join(" ");
+/**
+ * Of what the search found, the places that are called what was asked for. The search also hands back places
+ * that only once had the name, or have it as a second name: from Devonport "Queen Street" brought Ngātaringa
+ * Road, which was Queen Street long ago and is nearer than the real one, and the nearest was taken. So where
+ * any of what was found has the words asked for in its own name, only those are kept; where none has (a name
+ * in another language, a kind of place the search knows by another word), all of it is.
+ */
+export function calledThat<T extends { name: string }>(rows: T[], words: string): T[] {
+  const first = words.split(",")[0];
+  const asked = plain(streetOf(first.trim()) ?? first);
+  if (!asked) return rows;
+  const kept = rows.filter((row) => ` ${plain(row.name)} `.includes(` ${asked} `));
+  // (A house asked for by its number: the house itself, where it is among them, and not a café at the same address.)
+  const number = streetOf(first.trim()) ? plain(/^\D*(\d+\s?[a-z]?)\b/i.exec(first)?.[1] ?? "") : "";
+  const house = number ? kept.filter((row) => plain(row.name).startsWith(`${number} `)) : [];
+  return house.length ? house : kept.length ? kept : rows;
+}
+
 /** How far round a position a place is looked for by name, in degrees each way: about 4 km first, then about 25 km. */
 export const NEAR_BOXES = [0.04, 0.25];
 
@@ -93,7 +114,7 @@ export async function geocodeNear(query: string, lat: number, lon: number): Prom
         const res = await httpGet(`${NOMINATIM_URL}/search?format=jsonv2&limit=10&bounded=1&viewbox=${(lon - box).toFixed(3)},${(lat + box).toFixed(3)},${(lon + box).toFixed(3)},${(lat - box).toFixed(3)}&q=${encodeURIComponent(what)}`, 15000);
         if (!res.ok) throw new Error(`geocoder HTTP ${res.status}`);
         const rows = (await res.json()) as { display_name: string; lat: string; lon: string }[];
-        return nearestOf(rows.map((row) => ({ name: row.display_name, lat: parseFloat(row.lat), lon: parseFloat(row.lon) })), lat, lon);
+        return nearestOf(calledThat(rows.map((row) => ({ name: row.display_name, lat: parseFloat(row.lat), lon: parseFloat(row.lon) })), what), lat, lon);
       });
       if (near) return near;
     }
@@ -166,7 +187,7 @@ export async function geocodeAround(query: string, lat: number, lon: number): Pr
     const world = (await ask(words, 1))[0] ?? null;
     if (world && world.importance >= FAMOUS && !EVERYDAY.has(words.toLowerCase())) return plain(world);
     for (const box of NEAR_BOXES) {
-      const close = (await ask(words, 10, { lat, lon, box })).filter((p) => everyday || several || p.settlement);
+      const close = calledThat((await ask(words, 10, { lat, lon, box })).filter((p) => everyday || several || p.settlement), words);
       const nearest = nearestOf(close, lat, lon) as Found | null;
       if (nearest) return plain(nearest);
     }
