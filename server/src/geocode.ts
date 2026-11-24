@@ -49,6 +49,27 @@ export function nearestOf(places: Place[], lat: number, lon: number): Place | nu
 /** How far round a position a place is looked for by name, in degrees each way: about 4 km first, then about 25 km. */
 export const NEAR_BOXES = [0.04, 0.25];
 
+/** Words before a place that are not part of its name: "the closest beach" is looked up as "beach". */
+const LEAD = /^(?:to\s+)?(?:the|a|an|my|our|your|nearest|closest|nearby|local)\s+/i;
+/** A place as it is looked up: without the words in front of it, and whether those said "the nearest one". */
+export function tidyPlace(query: string): { words: string; nearest: boolean } {
+  let words = query.trim().replace(/\s+/g, " ");
+  let nearest = false;
+  for (let m = LEAD.exec(words); m; m = LEAD.exec(words)) {
+    nearest ||= /nearest|closest|nearby|local/i.test(m[0]);
+    words = words.slice(m[0].length);
+  }
+  return { words, nearest };
+}
+/**
+ * A street address without its house number ("34 Grand View Road, Leigh" gives "Grand View Road, Leigh"), or null
+ * for anything that does not start with one. The map does not know every house's number; it does know the street.
+ */
+export function streetOf(words: string): string | null {
+  const m = /^(?:(?:unit|flat|apartment|apt|no\.?|number)\s*)?\d+\s?[a-z]?(?:\s*[/-]\s*\d+\s?[a-z]?)?\s*,?\s+(.*[a-z].*)$/i.exec(words);
+  return m ? m[1].trim() : null;
+}
+
 /**
  * A place by name, looked for round a position first ("the beach" should be the nearest beach, not
  * the most famous), then anywhere. The search lists what it finds best known first, and of many
@@ -58,22 +79,37 @@ export const NEAR_BOXES = [0.04, 0.25];
  * on an island twenty kilometres off. Only when nothing is close is it asked for the wider region.
  */
 export async function geocodeNear(query: string, lat: number, lon: number): Promise<Place | null> {
-  const q = query.trim().slice(0, 200);
+  // ("The closest beach" is the beach: the words in front are not part of what the map calls it.)
+  const { words, nearest } = tidyPlace(query.slice(0, 200));
+  const q = words;
   if (!q || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   // (Kept by about a kilometre: the nearest beach is not the same one from the far side of town.)
-  const key = `${q.toLowerCase()}@${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const key = `${nearest ? "nearest " : ""}${q.toLowerCase()}@${lat.toFixed(2)},${lon.toFixed(2)}`;
   if (cache.has(key)) return cache.get(key)!;
-  let near: Place | null = null;
-  for (const box of NEAR_BOXES) {
-    near = await throttle.run(async () => {
-      const res = await httpGet(`${NOMINATIM_URL}/search?format=jsonv2&limit=10&bounded=1&viewbox=${(lon - box).toFixed(3)},${(lat + box).toFixed(3)},${(lon + box).toFixed(3)},${(lat - box).toFixed(3)}&q=${encodeURIComponent(q)}`, 15000);
-      if (!res.ok) throw new Error(`geocoder HTTP ${res.status}`);
-      const rows = (await res.json()) as { display_name: string; lat: string; lon: string }[];
-      return nearestOf(rows.map((row) => ({ name: row.display_name, lat: parseFloat(row.lat), lon: parseFloat(row.lon) })), lat, lon);
-    });
-    if (near) break;
-  }
-  const place = near ?? (await geocode(q));
+  /** The nearest of what the search finds by these words close by: within four kilometres, then twenty-five. */
+  const closeBy = async (what: string): Promise<Place | null> => {
+    for (const box of NEAR_BOXES) {
+      const near = await throttle.run(async () => {
+        const res = await httpGet(`${NOMINATIM_URL}/search?format=jsonv2&limit=10&bounded=1&viewbox=${(lon - box).toFixed(3)},${(lat + box).toFixed(3)},${(lon + box).toFixed(3)},${(lat - box).toFixed(3)}&q=${encodeURIComponent(what)}`, 15000);
+        if (!res.ok) throw new Error(`geocoder HTTP ${res.status}`);
+        const rows = (await res.json()) as { display_name: string; lat: string; lon: string }[];
+        return nearestOf(rows.map((row) => ({ name: row.display_name, lat: parseFloat(row.lat), lon: parseFloat(row.lon) })), lat, lon);
+      });
+      if (near) return near;
+    }
+    return null;
+  };
+  // "The closest beach, Leigh" (a talking car adds the town it lives in) is the nearest beach to the rider, wherever
+  // the map thinks Leigh's own beach is: what comes before the comma is looked for close by, and nothing further off.
+  const head = q.split(",")[0].trim();
+  const street = streetOf(q);
+  let place: Place | null;
+  // The nearest of something, or an everyday thing by itself ("shop"), is close by or is not found: the best known
+  // "Shop" in the world is a village in Cornwall, and nobody asking a car for the nearest shop means that.
+  if (nearest || EVERYDAY.has(q.toLowerCase())) place = head && head !== q ? (await closeBy(head)) ?? (await closeBy(q)) : await closeBy(q);
+  else place = (await closeBy(q)) ?? (await geocode(q));
+  // A house the map has no number for: its street, close by or anywhere.
+  if (!place && street) place = (await closeBy(street)) ?? (await geocode(street));
   if (cache.size >= 500) cache.delete(cache.keys().next().value!);
   cache.set(key, place);
   return place;
@@ -137,7 +173,10 @@ export async function geocodeAround(query: string, lat: number, lon: number): Pr
     const region = (await ask(words, 5, { lat, lon, box: REGION_BOX }))[0] ?? null; // the search lists the best known first
     return region ? plain(region) : world ? plain(world) : null;
   };
-  const place = await find();
+  let place = await find();
+  // A house the map has no number for: its street.
+  const street = place ? null : streetOf(words);
+  if (street) place = await geocodeAround(street, lat, lon);
   if (aroundCache.size >= 500) aroundCache.delete(aroundCache.keys().next().value!);
   aroundCache.set(key, place);
   return place;

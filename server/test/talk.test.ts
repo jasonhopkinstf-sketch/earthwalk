@@ -180,3 +180,20 @@ test("in a room: say hello, ask something, and everyone nearby hears the answer"
     server.close();
   }
 });
+
+test("a rider who says \"take me to\" an address is taken there, even when the AI will not hear of it", async () => {
+  const { ask } = fakeAsk(() => "I'd better not go to house addresses, so let's keep those secret.");
+  const talker = new Talker({ ask, model: "claude-haiku-5-5", monthlyUsd: 30, spendFile: null });
+  // Riding the car: it sets off, with a plain word in place of the refusal.
+  const riding = await talker.reply("family", 77, "car", "take me to 12 High Street, Cambridge", "cat", "Leigh, Rodney", true);
+  assert.deepEqual(riding.wish, { deed: "goto", place: "12 High Street, Cambridge" });
+  assert.match(riding.text, /^To 12 High Street, Cambridge\? /);
+  // From the ground nobody is carried anywhere: the AI's own words stand, and nothing is done.
+  const afoot = await talker.reply("family", 78, "car", "take me to 12 High Street, Cambridge", "cat", "Leigh, Rodney", false);
+  assert.equal(afoot.wish, undefined);
+  // Said to a tree, which carries nobody, it is only talk.
+  const tree = await talker.reply("family", 79, "tree", "take me to 12 High Street, Cambridge", "cat", "Leigh, Rodney", true);
+  assert.equal(tree.wish, undefined);
+  // And the model is told that an address to go to is a place like any other.
+  assert.ok(systemPrompt(persona(77, "car"), null, "car").includes("A street address named as somewhere to go is not a personal detail"));
+});

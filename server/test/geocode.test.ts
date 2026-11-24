@@ -21,6 +21,9 @@ test("a place by name is looked for close by first, and of what is found there t
     if (q === "beach" && box === 0.25) rows = [row("O'Neills Beach, Takapuna", -36.7800, 174.7790), row("Palm Beach, Waiheke", -36.7800, 175.0400)];
     if (q === "Sky Tower" && box === 0.25) rows = [row("Sky Tower, Victoria Street West, Auckland", -36.8485, 174.7622)];
     if (q === "Eiffel Tower" && box === null) rows = [row("Tour Eiffel, Paris, France", 48.8583, 2.2945)];
+    if (q === "Grand Street, Devonport" && box === 0.04) rows = [row("Grand Street, Devonport", -36.8300, 174.7990)];
+    if (q === "7 King Edward Parade, Devonport" && box === 0.04) rows = [row("7, King Edward Parade, Devonport", -36.8320, 174.8000)];
+    if (q === "volcano" && box === null) rows = [row("Volcano, Hawaii, United States", 19.44, -155.23)];
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(rows));
   });
@@ -48,6 +51,28 @@ test("a place by name is looked for close by first, and of what is found there t
     assert.deepEqual(asked.map((a) => a.box), [0.04, 0.25, null]);
     assert.equal(await geocodeNear("Atlantis", HERE.lat, HERE.lon), null);
     assert.equal(await geocodeNear("  ", HERE.lat, HERE.lon), null);
+
+    // "The closest beach", with the town a talking car likes to add: the nearest beach, asked for as "beach".
+    asked.length = 0;
+    assert.equal((await geocodeNear("the closest beach, Devonport, Auckland", HERE.lat, HERE.lon))?.name, "Duders Beach, Devonport");
+    assert.deepEqual(asked, [{ q: "beach", box: 0.04 }]);
+    // The nearest of something there is none of close by is not found: never the best known one in the world.
+    asked.length = 0;
+    assert.equal(await geocodeNear("the nearest volcano", HERE.lat, HERE.lon), null);
+    assert.deepEqual(asked.map((a) => a.box), [0.04, 0.25]);
+
+    // A street address is a place like any other, found by its number where the map has it...
+    asked.length = 0;
+    assert.equal((await geocodeNear("7 King Edward Parade, Devonport", HERE.lat, HERE.lon))?.name, "7, King Edward Parade, Devonport");
+    assert.deepEqual(asked.map((a) => a.box), [0.04]);
+    // ...and by its street where the map has no number for the house.
+    asked.length = 0;
+    assert.equal((await geocodeNear("12a Grand Street, Devonport", HERE.lat, HERE.lon))?.name, "Grand Street, Devonport");
+    assert.deepEqual(asked, [{ q: "12a Grand Street, Devonport", box: 0.04 }, { q: "12a Grand Street, Devonport", box: 0.25 }, { q: "12a Grand Street, Devonport", box: null }, { q: "Grand Street, Devonport", box: 0.04 }]);
+    const { streetOf, tidyPlace } = await import("../src/geocode.ts");
+    assert.deepEqual(["34 Long Road, Town", "Unit 2/14 Short St", "3-5 The Mall", "Route 66", "4 km", "221B Baker Street"].map(streetOf), ["Long Road, Town", "Short St", "The Mall", null, "km", "Baker Street"]);
+    assert.deepEqual(tidyPlace("to the  closest beach"), { words: "beach", nearest: true });
+    assert.deepEqual(tidyPlace("The Mall"), { words: "Mall", nearest: false });
   } finally {
     search.close();
   }

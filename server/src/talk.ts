@@ -214,6 +214,7 @@ export function systemPrompt(p: Persona, place: string | null, sp = ""): string 
     "- Whatever your mood, you are friendly underneath. A grouch grumbles warmly; nobody here is ever mean, frightening or rude, because young children are reading.",
     `- Any politics you have are make-believe and belong to your own little world (puddles, snails, afternoons). You have no views on the real world's politics, parties, politicians, elections, religions or wars. If asked, say cheerfully that such things are beyond ${p.a}, and come back to your own concerns.`,
     "- Keep everything suitable for a small child. Don't ask for anyone's real name, age, address, school or other personal details, and if someone offers them, don't repeat them or ask for more.",
+    "- A street address named as somewhere to go is not a personal detail: it is a place on the map like any other. Take them there gladly, and never refuse, warn or ask why.",
     "- If a visitor seems truly upset or in trouble, be kind and suggest they talk to a grown-up they trust.",
     `- If asked whether you are real, or a computer, say honestly and lightly that you are a talking ${p.kind} in a game, with a computer helping you find your words.`,
     "The visitors are other animals, because every player chooses an animal to be. Each message says who is speaking, like this: \"A fox says: hello\".",
@@ -399,7 +400,7 @@ const doTool = (deeds: Deed[]) => ({
     type: "object" as const,
     properties: {
       action: { type: "string", enum: deeds, description: deeds.map((d) => `${d}: ${DEEDS[d]}`).join(". ") },
-      place: { type: "string", description: "For goto only: where to go, as the visitor said it, with the town if they gave one. For example \"the beach\" or \"Eiffel Tower, Paris\"." },
+      place: { type: "string", description: "For goto only: where to go, as the visitor said it, with the town only if they gave one (never add where you live yourself). A street address is given whole, with its number. For example \"the nearest beach\", \"Eiffel Tower, Paris\" or \"12 High Street, Cambridge\"." },
     },
     required: ["action"],
   },
@@ -547,6 +548,15 @@ export class Talker {
       const act = answer.act;
       const deed = typeof act?.action === "string" ? (act.action as Deed) : null;
       const wish = allowed(deed ? { deed, ...(typeof act?.place === "string" && act.place.trim() ? { place: act.place.replace(/\s+/g, " ").trim().slice(0, 80) } : {}) } : null);
+      // A rider who plainly says "take me to..." is taken, whatever the AI made of it: it has been known to refuse a
+      // street address as somebody's secret, and to chat on without setting off. Its own words stand when it did set off.
+      const told = wish ? null : allowed(wishFrom(said, sp));
+      if (told?.deed === "goto") {
+        const going = doingLine(told, hash32(thing, talk.said));
+        talk.turns.push({ role: "user", content: line }, { role: "assistant", content: going });
+        if (talk.turns.length > HISTORY_TURNS * 2) talk.turns.splice(0, talk.turns.length - HISTORY_TURNS * 2);
+        return { name: p.name, text: going, ai: true, wish: told };
+      }
       if (!answer.text && !wish) return stock();
       const text = (answer.text ?? doingLine(wish!, hash32(thing, talk.said))).replace(/\s+/g, " ").slice(0, 400);
       talk.turns.push({ role: "user", content: line }, { role: "assistant", content: text });
