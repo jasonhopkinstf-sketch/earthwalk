@@ -22,6 +22,7 @@
 #include "EarthWalkNet.h"
 #include "EarthWalkSettings.h"
 #include "EarthWorld.h"
+#include "EarthWorldMap.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -1370,6 +1371,8 @@ void AEarthWalkHUD::BeginPlay()
 		Care->Setup(this);
 		Play = NewObject<UEarthPlay>(this);
 		Play->Setup(this);
+		WorldMap = NewObject<UEarthWorldMap>(this);
+		WorldMap->Setup(this);
 		// In a house of one's own, or by its door, the lunch box is a kitchen too.
 		Lunch->SetKitchen([this]() { return House && House->AtHome(); });
 	}
@@ -1521,6 +1524,11 @@ void AEarthWalkHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		House->Shutdown();
 		House = nullptr;
 	}
+	if (WorldMap)
+	{
+		WorldMap->Shutdown();
+		WorldMap = nullptr;
+	}
 	if (Care)
 	{
 		Care->Shutdown();
@@ -1666,6 +1674,25 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 			ChoiceDone(1);
 		}
 	}
+	// The world map has the keyboard while it is up: N, M or Esc puts it away, and + and - come closer and stand back.
+	bool bMapKey = false;
+	if (WorldMap && WorldMap->IsOpen())
+	{
+		if (PC->WasInputKeyJustPressed(EKeys::Escape) || PC->WasInputKeyJustPressed(EKeys::N) || PC->WasInputKeyJustPressed(EKeys::M))
+		{
+			WorldMap->Close();
+			bMenuTookEsc = true;
+			bMapKey = true;
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Equals) || PC->WasInputKeyJustPressed(EKeys::Add))
+		{
+			WorldMap->ZoomBy(1.0, FVector2D::ZeroVector);
+		}
+		else if (PC->WasInputKeyJustPressed(EKeys::Hyphen) || PC->WasInputKeyJustPressed(EKeys::Subtract))
+		{
+			WorldMap->ZoomBy(-1.0, FVector2D::ZeroVector);
+		}
+	}
 	// Being flown somewhere: the flight puts the player where it has got to, and a movement key or Esc takes over.
 	if (Flight && Flight->Frame(DeltaSeconds, !Typing() && !bMenuOpen))
 	{
@@ -1715,9 +1742,13 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		{
 			ToggleStrip();
 		}
-		if (PC->WasInputKeyJustPressed(EKeys::M))
+		if (!bMapKey && PC->WasInputKeyJustPressed(EKeys::M))
 		{
 			CycleMap();
+		}
+		if (WorldMap && !bMapKey && PC->WasInputKeyJustPressed(EKeys::N))
+		{
+			OpenWorldMap();
 		}
 		if (Lunch && PC->WasInputKeyJustPressed(EKeys::B))
 		{
@@ -2603,6 +2634,10 @@ void AEarthWalkHUD::MenuAction(const FString& Id)
 	{
 		CycleMap();
 	}
+	else if (Id == TEXT("worldmap"))
+	{
+		OpenWorldMap();
+	}
 	else if (Id == TEXT("news"))
 	{
 		OpenNews(false);
@@ -2853,6 +2888,71 @@ void AEarthWalkHUD::ChoiceDone(int32 Which)
 		AddLine(FString::Printf(TEXT("Travelling to %s"), *ChoiceName), NoticeColor);
 		Character->TeleportToGeo(ChoiceLat, ChoiceLon);
 	}
+}
+
+bool AEarthWalkHUD::Typing() const
+{
+	// (The world map is no box to type in, but the keys are its own while it is up.)
+	return bChatOpen || bAskOpen || bTalkOpen || bChoiceOpen || (WorldMap && WorldMap->IsOpen());
+}
+
+void AEarthWalkHUD::OpenWorldMap()
+{
+	if (!WorldMap)
+	{
+		return;
+	}
+	if (WorldMap->IsOpen())
+	{
+		WorldMap->Close();
+		return;
+	}
+	// One panel at a time.
+	CloseMenu();
+	ClosePassport();
+	CloseShows();
+	if (Lunch)
+	{
+		Lunch->Close();
+	}
+	if (House)
+	{
+		House->Close();
+	}
+	if (Care)
+	{
+		Care->Close();
+	}
+	WorldMap->Toggle();
+	if (!WorldMap->IsOpen())
+	{
+		AddLine(TEXT("The world map opens once the ground is under your feet."), NoticeColor);
+	}
+}
+
+void AEarthWalkHUD::MapGo(int32 How, const FString& Name, double Lat, double Lon)
+{
+	APlayerController* PC = GetOwningPlayerController();
+	AEarthWalkCharacter* Character = PC ? Cast<AEarthWalkCharacter>(PC->GetPawn()) : nullptr;
+	if (How == 0)
+	{
+		// A taxi comes to where I am, and takes me there once I am aboard (it says so itself).
+		if (UEarthCompany* Friends = Company())
+		{
+			Friends->CallTaxi(Name, true, Lat, Lon);
+		}
+		else
+		{
+			AddLine(TEXT("No taxi can be called just now: the world is not up yet."), NoticeColor);
+		}
+		return;
+	}
+	if (!Character || (How == 1 && Flight && Flight->Start(Name, Lat, Lon)))
+	{
+		return;
+	}
+	AddLine(How == 1 ? FString::Printf(TEXT("%s is too near to fly to, so: travelling there."), *Name) : FString::Printf(TEXT("Travelling to %s"), *Name), NoticeColor);
+	Character->TeleportToGeo(Lat, Lon);
 }
 
 void AEarthWalkHUD::FlyToPlace(const FString& Query)
@@ -3289,6 +3389,38 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 	{
 		CycleMap();
 	}
+	else if (Command == TEXT("worldmap"))
+	{
+		// "/worldmap" is the N key. The rest is for tests, which have no mouse: pick a spot up and to the right, stand
+		// back, change the colours, and press a button of the card.
+		if (!WorldMap)
+		{
+		}
+		else if (Argument.IsEmpty())
+		{
+			OpenWorldMap();
+		}
+		else if (Argument == TEXT("pick"))
+		{
+			WorldMap->Choose(FVector2D(230.0, -120.0));
+		}
+		else if (Argument == TEXT("far"))
+		{
+			WorldMap->ZoomBy(-3.0, FVector2D::ZeroVector);
+		}
+		else if (Argument == TEXT("colours"))
+		{
+			WorldMap->SwitchLook();
+		}
+		else if (Argument == TEXT("taxi") || Argument == TEXT("fly") || Argument == TEXT("now"))
+		{
+			WorldMap->Go(Argument == TEXT("taxi") ? 0 : Argument == TEXT("fly") ? 1 : 2);
+		}
+		else if (Argument == TEXT("wheel") || Argument == TEXT("drag") || Argument == TEXT("click"))
+		{
+			WorldMap->TestMouse(Argument);
+		}
+	}
 	else if (Command == TEXT("news"))
 	{
 		OpenNews(false);
@@ -3479,6 +3611,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/invite   copy a link to send to someone: it brings them into your room, in their browser"), NoticeColor);
 		AddLine(TEXT("/suggest <what you would like>   tell the people who make EarthWalk what you would like in it"), NoticeColor);
 		AddLine(TEXT("/about   opens a page in your browser about what EarthWalk is and everything there is to explore and do"), NoticeColor);
+		AddLine(TEXT("N   the world map: drag to look round, wheel to zoom, click where you want to go, and take a taxi, fly or go there at once"), NoticeColor);
 		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
 		AddLine(TEXT("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look"), NoticeColor);
 		AddLine(TEXT("/lines on, /lines off   the drawn line round everything; off is easier on a slow computer"), NoticeColor);

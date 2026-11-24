@@ -26,6 +26,7 @@ namespace
 	// (and, when it is not a chat command already, a few in AEarthWalkHUD::MenuAction).
 	const FEarthAction Table[] = {
 		{ TEXT("goto"), TEXT("Go somewhere"), TEXT("Go to a place..."), TEXT("Anywhere on Earth: a town, a street, a famous place."), TEXT(""), TEXT("goto"), TEXT("Where to?"), TEXT("Sydney Opera House"), TEXT("Go to...") },
+		{ TEXT("worldmap"), TEXT("Go somewhere"), TEXT("The world map..."), TEXT("A map of the whole world to look round. Click where you want to go, and a taxi comes for you."), TEXT("N"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("shows"), TEXT("Go somewhere"), TEXT("Show me..."), TEXT("A list of things to see and do, and straight to the one you pick."), TEXT("G"), TEXT(""), TEXT(""), TEXT(""), TEXT("Show me") },
 		{ TEXT("join"), TEXT("Go somewhere"), TEXT("Go to a friend..."), TEXT("Lands you beside somebody in your room."), TEXT(""), TEXT("join"), TEXT("Who do you want to go to?"), TEXT("their name"), TEXT("") },
 		{ TEXT("who"), TEXT("Go somewhere"), TEXT("Who is here?"), TEXT("Lists everybody in your room and how far off they are."), TEXT(""), TEXT("who"), TEXT(""), TEXT(""), TEXT("") },

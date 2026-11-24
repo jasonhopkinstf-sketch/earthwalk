@@ -14,6 +14,7 @@ class UEarthFlight;
 class UEarthHome;
 class UEarthCare;
 class UEarthPlay;
+class UEarthWorldMap;
 class SEarthWalkOverlay;
 class UEarthCompany;
 
@@ -94,6 +95,8 @@ public:
 	void GuideAsk(const FString& Question);
 	/** One of the buttons under the guide's answer that start the trip: take me there, call a taxi, go there now, show me. */
 	void GuideGo(int32 Index);
+	/** A button of the world map's card (EarthWorldMap.h): 0 a taxi to the place chosen, 1 a flight there, 2 there at once. */
+	void MapGo(int32 How, const FString& Name, double Lat, double Lon);
 	/** Being flown somewhere, for the little map; null before the world is up. */
 	const UEarthFlight* GetFlight() const { return Flight; }
 
@@ -105,7 +108,7 @@ private:
 	/** Z: the strip of buttons along the bottom, on or off, and remembered. */
 	void ToggleStrip();
 	/** Typing into the chat box or into the box that asks "where to?": the keys are letters, not commands. */
-	bool Typing() const { return bChatOpen || bAskOpen || bTalkOpen || bChoiceOpen; }
+	bool Typing() const;
 	/** "Go to a place..." from the menu: finds it, and offers to go at once or to be flown there (EarthFlight.h). */
 	void GoChoose(const FString& Query);
 	/** Looks a place up and flies there at once: "/flyto ...". */
@@ -136,6 +139,8 @@ private:
 	UPROPERTY()
 	TObjectPtr<UEarthMiniMap> MiniMap;
 	void CycleMap();
+	/** N: the world map, up or away (and every other panel away first). */
+	void OpenWorldMap();
 	/** Food and hearts: the five hearts in the corner and the lunch box (EarthLunch.h). B opens and closes it. */
 	UPROPERTY()
 	TObjectPtr<UEarthLunch> Lunch;
@@ -157,6 +162,9 @@ private:
 	/** Games with animals: thoughts over hungry ones, the tricks panel and its lessons (EarthCare.h). K is the tricks key. */
 	UPROPERTY()
 	TObjectPtr<UEarthCare> Care;
+	/** The world map: a street map to look round on and choose a place from (EarthWorldMap.h). N opens it and puts it away. */
+	UPROPERTY()
+	TObjectPtr<UEarthWorldMap> WorldMap;
 	/** -EWRun's commands still to run, one after another, and when the next may (a "wait_3" among them holds the rest up). */
 	TArray<FString> RunQueue;
 	double RunNextAt = 0.0;

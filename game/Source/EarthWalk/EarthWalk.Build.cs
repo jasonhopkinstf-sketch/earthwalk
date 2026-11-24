@@ -17,7 +17,7 @@ public class EarthWalk : ModuleRules
 		});
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"HTTP", "WebSockets", "Json", "Slate", "SlateCore", "MeshDescription", "StaticMeshDescription", "ApplicationCore"
+			"HTTP", "WebSockets", "Json", "Slate", "SlateCore", "MeshDescription", "StaticMeshDescription", "ApplicationCore", "ImageWrapper"
 		});
 
 		// The box Windows has for choosing a file (EarthFilePick.h: a picture of a floor plan).
