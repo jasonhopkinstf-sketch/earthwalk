@@ -242,6 +242,7 @@ body.talking #ride, body.talking #speedo { display: none; }
 #join { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow-y: auto; background: rgba(18, 22, 28, .92); padding: 24px 26px; border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); }
 #join h1 { margin: 0; font-size: 28px; }
 #join .lead { margin: 2px 0 14px; opacity: .8; }
+#newhere { display: block; margin-top: 6px; color: #ffd75e; font-weight: 600; }
 #join label, #join legend { display: block; margin: 12px 0 4px; font-size: 13px; font-weight: 600; padding: 0; }
 #join input[type=text], #join input:not([type]) { width: 100%; padding: 9px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .08); color: #fff; font: inherit; }
 #join fieldset { border: 0; padding: 0; margin: 0; }

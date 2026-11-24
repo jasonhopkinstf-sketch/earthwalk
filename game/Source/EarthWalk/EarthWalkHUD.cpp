@@ -3478,6 +3478,7 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 		AddLine(TEXT("/where   show your coordinates        /fly   toggle flying (also the F key)"), NoticeColor);
 		AddLine(TEXT("/invite   copy a link to send to someone: it brings them into your room, in their browser"), NoticeColor);
 		AddLine(TEXT("/suggest <what you would like>   tell the people who make EarthWalk what you would like in it"), NoticeColor);
+		AddLine(TEXT("/about   opens a page in your browser about what EarthWalk is and everything there is to explore and do"), NoticeColor);
 		AddLine(TEXT("/sound on   /sound off   the animals' voices, car horns and train whistles"), NoticeColor);
 		AddLine(TEXT("/look flat   bright flat colours and bold black lines, like a television cartoon        /look barnyard   the painted look"), NoticeColor);
 		AddLine(TEXT("/lines on, /lines off   the drawn line round everything; off is easier on a slow computer"), NoticeColor);
@@ -3604,6 +3605,18 @@ void AEarthWalkHUD::RunCommand(const FString& Command, const FString& Argument)
 				}
 			});
 		}
+	}
+	else if (Command == TEXT("about"))
+	{
+		// The page for somebody new (server/public/welcome.html): what the world is, and what there is to explore and do in it.
+		FString Page = FEarthWalkConfig::ServerUrl();
+		while (Page.EndsWith(TEXT("/")))
+		{
+			Page.LeftChopInline(1);
+		}
+		Page += TEXT("/welcome.html");
+		FPlatformProcess::LaunchURL(*Page, nullptr, nullptr);
+		AddLine(FString::Printf(TEXT("Your browser is opening a page about EarthWalk. If it does not, open %s yourself."), *Page), NoticeColor);
 	}
 	else if (Command == TEXT("suggest"))
 	{

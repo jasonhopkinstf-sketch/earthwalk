@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New to EarthWalk? Start here</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="What EarthWalk is, and everything there is to explore and do in it.">
+<style>
+  :root { --accent: #5fae4e; --gold: #ffd75e; --ink: #12161c; --panel: #1b222c; --soft: rgba(255, 255, 255, .72); }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ink); color: #fff; font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--gold); }
+  img { display: block; width: 100%; height: auto; border-radius: 12px; }
+  header { position: relative; }
+  header img { border-radius: 0; max-height: 62vh; object-fit: cover; }
+  header .over { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 24px 22px; background: linear-gradient(transparent, rgba(18, 22, 28, .95)); }
+  header h1 { margin: 0 auto; max-width: 980px; font-size: clamp(30px, 6vw, 54px); line-height: 1.1; }
+  header p { margin: 8px auto 0; max-width: 980px; font-size: clamp(17px, 2.4vw, 22px); color: var(--soft); }
+  main { max-width: 980px; margin: 0 auto; padding: 8px 24px 60px; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
+  nav a { text-decoration: none; background: var(--panel); border: 1px solid rgba(255, 255, 255, .14); border-radius: 999px; padding: 6px 14px; font-size: 15px; font-weight: 600; }
+  nav a:hover { border-color: var(--gold); }
+  h2 { margin: 46px 0 8px; font-size: 28px; line-height: 1.2; scroll-margin-top: 12px; }
+  h2 span { color: var(--gold); margin-right: 8px; }
+  h3 { margin: 0 0 4px; font-size: 18px; }
+  p { margin: 8px 0; }
+  .lead { font-size: 19px; color: var(--soft); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: center; margin: 14px 0; }
+  .pair.flip > :first-child { order: 2; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin: 14px 0; }
+  .card { background: var(--panel); border: 1px solid rgba(255, 255, 255, .1); border-radius: 12px; padding: 14px 16px; }
+  .card p { margin: 0; color: var(--soft); font-size: 16px; }
+  kbd { display: inline-block; min-width: 1.9em; text-align: center; padding: 1px 7px; border-radius: 6px; background: var(--gold); color: #1f1a05; font: 700 14px/1.5 system-ui, sans-serif; white-space: nowrap; }
+  ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 14px 0; }
+  ol.steps li { counter-increment: step; position: relative; padding: 10px 14px 10px 54px; margin: 8px 0; background: var(--panel); border-radius: 12px; }
+  ol.steps li::before { content: counter(step); position: absolute; left: 14px; top: 10px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); font-weight: 800; text-align: center; line-height: 28px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  td { padding: 7px 10px; border-bottom: 1px solid rgba(255, 255, 255, .1); vertical-align: top; }
+  td:first-child { white-space: nowrap; width: 1%; }
+  .note { background: rgba(255, 215, 94, .1); border-left: 4px solid var(--gold); border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .go { display: inline-block; margin: 10px 0; padding: 12px 22px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 700; text-decoration: none; }
+  footer { max-width: 980px; margin: 0 auto; padding: 0 24px 50px; color: var(--soft); font-size: 13px; }
+  @media (max-width: 720px) { .pair { grid-template-columns: 1fr; } .pair.flip > :first-child { order: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <img src="/img/welcome/city.jpg" alt="Auckland's harbour and city seen from the air in EarthWalk" width="1280" height="720">
+  <div class="over">
+    <h1>Welcome to EarthWalk</h1>
+    <p>The whole real Earth, drawn as a cartoon you can walk, ride and fly through, together.</p>
+  </div>
+</header>
+<main>
+  <nav aria-label="On this page">
+    <a href="#what">What it is</a>
+    <a href="#start">Your first five minutes</a>
+    <a href="#go">Go anywhere</a>
+    <a href="#ride">Ride and drive</a>
+    <a href="#talk">Talk to anything</a>
+    <a href="#inside">Go inside</a>
+    <a href="#house">A house of your own</a>
+    <a href="#play">Games and your passport</a>
+    <a href="#together">Play together</a>
+    <a href="#sky">Real sun and weather</a>
+    <a href="#keys">The keys</a>
+  </nav>
+
+  <h2 id="what"><span>1</span>What EarthWalk is</h2>
+  <div class="pair">
+    <div>
+      <p class="lead">EarthWalk is a copy of the real world. The streets, buildings, hills, rivers, railways and parks are where they really are, taken from real maps, and painted in a friendly cartoon style.</p>
+      <p>You are an animal: a fox, a bear, a rabbit, a cat, an owl or a frog. You can walk down your own street, fly over Paris, or take a taxi to the pyramids.</p>
+      <p>There is nothing to win and nothing can hurt you. It is a place to explore, alone or with family and friends.</p>
+    </div>
+    <img src="/img/welcome/eiffel.jpg" alt="The Eiffel Tower in EarthWalk" width="1280" height="720" loading="lazy">
+  </div>
+  <div class="note">Famous places and big cities look most like themselves. An ordinary house is in the right spot with the right outline, but its colour and roof are made up.</div>
+
+  <h2 id="start"><span>2</span>Your first five minutes</h2>
+  <ol class="steps">
+    <li><b>Pick a name and an animal</b>, then choose <b>Enter the world</b>. People in the same room see each other, so use the room name your family uses.</li>
+    <li><b>Walk</b> with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>. Hold the left mouse button and drag to look around. <kbd>Space</kbd> jumps.</li>
+    <li><b>Press <kbd>Tab</kbd></b>. That opens a list of everything you can do, to click. You never need to type a command.</li>
+    <li><b>Press <kbd>G</kbd></b> for "Show me". Pick anything on the list and you are taken straight there.</li>
+    <li><b>Press <kbd>F</kbd></b> to fly, and <kbd>F</kbd> again to land. <kbd>Space</kbd> goes up and <kbd>C</kbd> goes down.</li>
+  </ol>
+  <img src="/img/welcome/menu.jpg" alt="The menu of everything you can do, opened with the Tab key" width="1280" height="720" loading="lazy">
+  <p>The row of buttons along the bottom of the screen holds the things used most. The little map in the corner shows friends, doors you can go in, parked cars and train stops.</p>
+
+  <h2 id="go"><span>3</span>Go anywhere on Earth</h2>
+  <div class="cards">
+    <div class="card"><h3>Go to a place</h3><p>Type a town, a street or a famous place, such as "Sydney Opera House", and you fly there and watch the journey.</p></div>
+    <div class="card"><h3>Show me</h3><p>A ready list of good places to see and things to try. Press <kbd>G</kbd>.</p></div>
+    <div class="card"><h3>Ask the guide</h3><p>Press <kbd>Q</kbd> and ask in plain words: "where am I?", "is there a shop near here?", "how do I get to the beach?". The answer comes with buttons that take you there.</p></div>
+    <div class="card"><h3>Fly</h3><p>Press <kbd>F</kbd> and look at the world from above. The higher you go, the further you see.</p></div>
+  </div>
+
+  <h2 id="ride"><span>4</span>Ride and drive</h2>
+  <div class="pair flip">
+    <img src="/img/welcome/ride.jpg" alt="An animal riding on the roof of a fire engine through a street of houses" width="1280" height="720" loading="lazy">
+    <div>
+      <p class="lead">Walk up to almost anything that moves and press <kbd>E</kbd> to hop on. Press <kbd>E</kbd> again to hop off.</p>
+      <p><b>Animals:</b> horses, cows, sheep, camels, elephants, giraffes, kangaroos and many more.</p>
+      <p><b>Wheels and water:</b> cars, vans, fire engines, tractors, rowing boats and sailing boats.</p>
+      <p><b>Trains:</b> wait where a train stops, hop on, and watch the country go by.</p>
+      <p><b>Your own car</b> comes when you press <kbd>C</kbd>. A <b>taxi</b> comes when you press <kbd>X</kbd> and drives you where you ask.</p>
+      <p>While you ride, <kbd>V</kbd> changes the view: your seat, from above, or from high over the rooftops.</p>
+    </div>
+  </div>
+
+  <h2 id="talk"><span>5</span>Talk to anything</h2>
+  <p class="lead">Stand beside an animal, a car, a train, a tree or a house and press <kbd>T</kbd>. They all answer.</p>
+  <div class="cards">
+    <div class="card"><h3>Tell it what to do</h3><p>"Follow me", "stay", or "take me to the beach". A horse or a car will carry you there by itself.</p></div>
+    <div class="card"><h3>Feed a hungry animal</h3><p>A thought bubble over an animal shows the food it would like. Feed it from your lunch box and you earn coins.</p></div>
+    <div class="card"><h3>Chat with people</h3><p>Press <kbd>Enter</kbd> and type. Everybody in your room reads it.</p></div>
+  </div>
+
+  <h2 id="inside"><span>6</span>Go inside buildings</h2>
+  <div class="pair">
+    <div>
+      <p class="lead">A yellow <b>COME IN</b> sign over a door means you can walk in. Press <kbd>E</kbd> at the door.</p>
+      <p>Most houses open. So do shops, cafés, offices, shopping malls, churches, mosques, temples, schools, hospitals, factories, warehouses and petrol stations.</p>
+      <p>There are people inside doing what they do there: teaching, cooking, working a machine. Press <kbd>T</kbd> to talk to them. Beside a real shop or café, your lunch box shows what it sells.</p>
+    </div>
+    <img src="/img/welcome/church.jpg" alt="The inside of a church in EarthWalk" width="1280" height="720" loading="lazy">
+  </div>
+
+  <h2 id="house"><span>7</span>A house of your own</h2>
+  <div class="cards">
+    <div class="card"><h3>Make it yours</h3><p>Walk into a house nobody lives in and press <kbd>H</kbd>. Your name goes over the door, and <kbd>H</kbd> takes you home from anywhere.</p></div>
+    <div class="card"><h3>Furnish it</h3><p>Inside your house, <kbd>H</kbd> opens the panel: walls, floors, sofas, beds and rugs, bought with coins. Prizes you win go on show.</p></div>
+    <div class="card"><h3>Keep a garden</h3><p>Up to four young animals live by your front door. Feed them once a day and when they are grown they give eggs, milk or wool.</p></div>
+    <div class="card"><h3>Use a real floor plan</h3><p>Signed in, you can upload a picture of a real house's floor plan and have the inside of your house built from it, stairs and all.</p></div>
+  </div>
+
+  <h2 id="play"><span>8</span>Games, and your passport</h2>
+  <p class="lead">Press <kbd>P</kbd> for your passport. It keeps everything you have done.</p>
+  <div class="cards">
+    <div class="card"><h3>Today's tasks</h3><p>Three small things to do each day, such as "ride a kilometre on anything".</p></div>
+    <div class="card"><h3>Treasure hunts and expeditions</h3><p>Follow clues to a place, or set off on a longer journey.</p></div>
+    <div class="card"><h3>Stamps, riddles and hats</h3><p>A stamp for each country you visit, riddles to solve, and hats to buy with your coins.</p></div>
+    <div class="card"><h3>Levels</h3><p>Your progress bar fills as you explore, eat well and finish tasks. A full bar is a new level.</p></div>
+    <div class="card"><h3>Races</h3><p>Press <kbd>R</kbd> to set up a race along the roads where you stand. Friends press <kbd>R</kbd> to join.</p></div>
+    <div class="card"><h3>Tag, hide and seek, a round-up</h3><p>Start one from the menu where you stand. In a round-up you lead animals into a pen.</p></div>
+    <div class="card"><h3>A companion and its tricks</h3><p>Feed enough hungry animals and one becomes your companion. Press <kbd>K</kbd> to teach it tricks or set up an agility course.</p></div>
+    <div class="card"><h3>Your lunch box</h3><p>Press <kbd>B</kbd>. Five hearts, one each for fruit, vegetables, grains, protein and dairy. Eating a bit of everything keeps them full.</p></div>
+  </div>
+
+  <h2 id="together"><span>9</span>Play together</h2>
+  <div class="cards">
+    <div class="card"><h3>Rooms</h3><p>People in the same room see each other, wherever on Earth they are standing.</p></div>
+    <div class="card"><h3>Invite somebody</h3><p>"Invite somebody" in the menu copies a link. Send it, and it brings them into your room.</p></div>
+    <div class="card"><h3>Go to a friend</h3><p>"Go to a friend" lands you beside them. Then ride in the same car, race, or visit each other's houses.</p></div>
+    <div class="card"><h3>Sign in to keep things</h3><p>Signing in with Google keeps your passport, coins, house and home between visits and between computers.</p></div>
+  </div>
+
+  <h2 id="sky"><span>10</span>Real sun, moon and weather</h2>
+  <div class="pair">
+    <img src="/img/welcome/night.jpg" alt="A street at night with lamps lit in the windows" width="1280" height="720" loading="lazy">
+    <img src="/img/welcome/rain.jpg" alt="Rain falling in a park beside a motorway bridge" width="1280" height="720" loading="lazy">
+  </div>
+  <p>The sky over each place is the real one: if it is night and raining in London right now, it is night and raining in EarthWalk's London, with lamps lit in the windows. If you would rather have a fine day everywhere, the menu has "always daytime" and "a fine day".</p>
+
+  <h2 id="keys"><span>11</span>The keys, all in one place</h2>
+  <table>
+    <tr><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td><td>Walk. Hold <kbd>Shift</kbd> to run.</td></tr>
+    <tr><td>Drag the mouse</td><td>Look around (hold the left button).</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>The menu of everything you can do.</td></tr>
+    <tr><td><kbd>E</kbd></td><td>Hop on or off. At a door, go in or out.</td></tr>
+    <tr><td><kbd>T</kbd></td><td>Talk to what is nearest.</td></tr>
+    <tr><td><kbd>F</kbd></td><td>Fly, or land. <kbd>Space</kbd> up, <kbd>C</kbd> down.</td></tr>
+    <tr><td><kbd>G</kbd></td><td>Show me: a list of things to see.</td></tr>
+    <tr><td><kbd>Q</kbd></td><td>Ask the guide a question.</td></tr>
+    <tr><td><kbd>C</kbd> / <kbd>X</kbd></td><td>Call your car / call a taxi.</td></tr>
+    <tr><td><kbd>P</kbd></td><td>Your passport.</td></tr>
+    <tr><td><kbd>H</kbd></td><td>Your house, or home.</td></tr>
+    <tr><td><kbd>B</kbd></td><td>Your lunch box.</td></tr>
+    <tr><td><kbd>K</kbd></td><td>Your companion's tricks.</td></tr>
+    <tr><td><kbd>R</kbd></td><td>A race.</td></tr>
+    <tr><td><kbd>V</kbd></td><td>Change the camera view.</td></tr>
+    <tr><td><kbd>M</kbd></td><td>The little map: bigger, or hidden.</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Chat with the people in your room.</td></tr>
+  </table>
+
+  <h2><span>12</span>Good to know</h2>
+  <div class="cards">
+    <div class="card"><h3>Two ways to play</h3><p>In a web browser, right here, or with the EarthWalk game for Windows from the <a href="https://github.com/jasonhopkinstf-sketch/earthwalk/releases/latest">download page</a>. Both show the same world and the same people.</p></div>
+    <div class="card"><h3>You need a keyboard and mouse</h3><p>Phones and tablets are not supported yet.</p></div>
+    <div class="card"><h3>A new place takes a moment</h3><p>The first time anybody visits somewhere, the world there has to be built from the map. It is quicker the next time.</p></div>
+    <div class="card"><h3>Got an idea?</h3><p>"Suggest something" in the menu sends your idea to the people who make EarthWalk.</p></div>
+  </div>
+
+  <p><a class="go" href="/">Enter the world</a></p>
+</main>
+<footer>
+  Map data © OpenStreetMap contributors, Overture Maps Foundation. Ground cover © ESA WorldCover project 2021. Tree heights: Meta and World Resources Institute. Weather data by Open-Meteo.com. Car models by Kenney (kenney.nl).
+</footer>
+</body>
+</html>

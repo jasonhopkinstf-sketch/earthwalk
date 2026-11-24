@@ -108,7 +108,7 @@ Controls (Unreal):
 | `W A S D` | Move |
 | Left-drag the mouse, or `Left`/`Right` arrows | Look around (`Up`/`Down` tilt). The pointer stays free when you are not dragging, so a trackpad works |
 | `2` / `1` | Run / walk (or hold `Shift` to run) |
-| `V` | On foot (Windows): the camera view: first person, over the shoulder, far behind. Riding or being carried (both games): your seat, from above, from high up. Mouse wheel moves it closer or further |
+| `V` | On foot (both games): the camera view: first person, over the shoulder, far behind. Riding or being carried (both games): your seat, from above, from high up. Mouse wheel moves it closer or further |
 | `Space` | Jump (walking) or rise (flying) |
 | `F` | Toggle flying (`C` descends) |
 | `E` | Hop on the horse, tractor, boat, car or train beside you; again to hop off. At a front door: go in, or out |
@@ -151,6 +151,7 @@ Chat commands:
 | `/passport` | Your passport (the `P` key) |
 | `/guide`, `/guide <question>` | Browser so far: ask the guide (the `Q` key), or straight to an answer: `/guide where is the nearest station` |
 | `/menu`, `/buttons`, `/map`, `/news` | The Tab menu, the strip of buttons (`Z`), the little map (`M`) and the "What's new" card |
+| `/about` | Opens the page for somebody new (`server/public/welcome.html`, with its pictures in `server/public/img/welcome`): what the world is and what there is to explore and do. The first screen of the browser game links to it, and "New here? What you can do" in the Tab menu of both games opens it |
 | `/suggest <what you would like>` | Puts a suggestion in the box for whoever runs the server ("Suggest something..." in the Tab menu asks for it) |
 | `/do <name>` | One thing from the Tab menu by its name in the table: `/do goto` asks "Where to?" |
 | `/look flat`, `/look barnyard` | The look of the whole world (see "The look" below). Browser: `/look flat nolines` leaves the black line off, for a slow computer |

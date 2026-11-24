@@ -68,6 +68,7 @@ export const ACTIONS = [
   row("weather", "The game", "The real weather, or a fine day", "The real cloud, rain, snow, fog and wind of wherever you are. Or a fine day whatever the weather."),
   row("map", "The game", "The little map: bigger, or hidden", "The map in the corner: friends, doors, trains, cars and where you are going.", "M"),
   row("strip", "The game", "Buttons on, or off", "The row of buttons along the bottom of the screen.", "Z"),
+  row("about", "The game", "New here? What you can do", "Opens a page about what EarthWalk is, and everything there is to explore and do in it.", "", "about"),
   row("news", "The game", "What's new", "What has been added to EarthWalk lately."),
   row("help", "The game", "Every typed command", "Lists the slash commands in the chat window, for those who like typing.", "", "help"),
   row("suggest", "The game", "Suggest something...", "Tell the people who make EarthWalk what you would like in it.", "", "suggest", "What would you like to see in the game?", "more animals to ride"),

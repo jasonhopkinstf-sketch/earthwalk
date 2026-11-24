@@ -71,6 +71,7 @@ namespace
 		{ TEXT("weather"), TEXT("The game"), TEXT("The real weather, or a fine day"), TEXT("The real cloud, rain, snow, fog and wind of wherever you are. Or a fine day whatever the weather."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("map"), TEXT("The game"), TEXT("The little map: bigger, or hidden"), TEXT("The map in the corner: friends, doors, trains, cars and where you are going."), TEXT("M"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("strip"), TEXT("The game"), TEXT("Buttons on, or off"), TEXT("The row of buttons along the bottom of the screen."), TEXT("Z"), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
+		{ TEXT("about"), TEXT("The game"), TEXT("New here? What you can do"), TEXT("Opens a page about what EarthWalk is, and everything there is to explore and do in it."), TEXT(""), TEXT("about"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("news"), TEXT("The game"), TEXT("What's new"), TEXT("What has been added to EarthWalk lately."), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("help"), TEXT("The game"), TEXT("Every typed command"), TEXT("Lists the slash commands in the chat window, for those who like typing."), TEXT(""), TEXT("help"), TEXT(""), TEXT(""), TEXT("") },
 		{ TEXT("suggest"), TEXT("The game"), TEXT("Suggest something..."), TEXT("Tell the people who make EarthWalk what you would like in it."), TEXT(""), TEXT("suggest"), TEXT("What would you like to see in the game?"), TEXT("more animals to ride"), TEXT("") },

@@ -11,6 +11,19 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.49", date: "2026-11-24", title: "Real sky, real places, and a page for new people",
+    items: [
+      { text: "New here? A page shows what EarthWalk is and all there is to explore and do. It is on the first screen and in the Tab menu." },
+      { text: "The real sun, moon and weather of wherever you stand, with lamps in the windows at night. The Tab menu can keep it a fine day." },
+      { text: "A progress bar: it fills as you explore, eat well and finish tasks. A full bar is a new level. You may already be a level or two up." },
+      { text: "Churches, mosques, temples, schools, hospitals, factories, warehouses and petrol stations open. Walk in and talk to who is there." },
+      { text: "More of the real world: buildings the map lacked, truer heights, real ground cover and tree heights. A first visit takes a moment." },
+      { text: "Cars keep to their side of the road and drive up to ten kilometres. New: vans, pickups, police cars, fire engines, turning wheels." },
+      { text: "\"Suggest something\" in the Tab menu sends us your idea. \"Invite somebody\" copies a link that brings a friend into your room." },
+      { text: "Windows game: upload a picture of a real floor plan for your house (H). Left alone, your animal now fidgets and talks to itself." },
+    ],
+  },
+  {
     version: "0.2.48", date: "2026-11-23", title: "The Windows game catches up",
     items: [
       { text: "Windows game: shops, cafés, offices, malls, flats and hotels open. Walk in and through, and talk to the animals who work there." },

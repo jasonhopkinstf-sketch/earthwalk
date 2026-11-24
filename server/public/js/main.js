@@ -871,6 +871,7 @@ async function command(name, arg) {
     notice("/join <name>   go to someone        /who   who is online and where");
     notice("/home   make where you stand your home (or /home <place>); you start there next time");
     notice("/suggest <what you would like>   tell the people who make EarthWalk what you would like in it");
+    notice("/about   opens a page about what EarthWalk is and everything there is to explore and do");
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
     notice("    (your passport, P, has the six animals to choose from too: \"Your animal\")");
     notice("/invite   get a link to send to someone        /where   show your coordinates");
@@ -1023,6 +1024,10 @@ async function command(name, arg) {
     notice(key === "avatar" ? `You are ${/^[aeiou]/.test(hello.avatar) ? "an" : "a"} ${hello.avatar} now.` : "Saved. Reconnecting...");
     if (key === "avatar" && riding.mine) riding.off(); // step down first: the change is a quick leaving and coming back
     meetup.connect(hello);
+  } else if (name === "about") {
+    // The page for somebody new (welcome.html): what the world is, and what there is to explore and do in it.
+    window.open("/welcome.html", "_blank", "noopener");
+    notice("A page about EarthWalk has opened beside this one.");
   } else if (name === "suggest") {
     // The suggestions box: what a player would like in the game, sent to whoever runs the server (who is
     // told who said it, and where they stood). With nothing typed after it, the box that asks.
