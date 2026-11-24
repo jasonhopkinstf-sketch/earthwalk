@@ -50,4 +50,9 @@ export function shortName(name: string): string;
 export function choiceWords(name: string, plan: FlightPlan | null): null | {
   title: string; sub: string; now: { label: string; about: string }; fly: { label: string; about: string };
 };
-export function flyingWords(name: string, part: "low" | "up" | "over" | "wait" | "down" | "settle", metresLeft: number): { head: string; sub: string; hint: string };
+export function flyingWords(name: string, part: "low" | "up" | "over" | "wait" | "down" | "settle", metresLeft: number, trim?: { high: number; pace: number } | null): { head: string; sub: string; hint: string };
+export const LOW_TRIM_M: [number, number];
+export const PACES: number[];
+export function paceStep(pace: number, by: number): number;
+export function trimHeight(high: number, up: number, dt: number): number;
+export function roofClear(high: number): number;

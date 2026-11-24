@@ -760,7 +760,7 @@ const KEYS = {
   KeyH: homeKey,
   KeyV: viewKey,
   KeyE: rideKey,
-  KeyC: () => { if (!player.flying) menuAction("car"); }, // my car comes to me (flying, C is "down")
+  KeyC: () => { if (!player.flying && !flight.active) menuAction("car"); }, // my car comes to me (flying or being flown, C is "down")
   KeyX: () => menuAction("taxi"), // a taxi: where to?
   KeyZ: toggleStrip,
   KeyM: cycleMap,

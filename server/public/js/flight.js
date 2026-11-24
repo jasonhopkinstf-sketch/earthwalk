@@ -12,13 +12,14 @@
 // player is being flown: the flight is not a walk for the passport, and the server downloads no map ahead of it.
 
 import * as THREE from "three";
-import { climbAt, descentAt, farWords, flightHeading, flyingWords, lowAt, metresBetween, overAt, planFlight, shortName, smooth, timeWords } from "./flightplan.js";
+import { climbAt, descentAt, farWords, flightHeading, flyingWords, LOW_TRIM_M, lowAt, metresBetween, overAt, PACES, paceStep, planFlight, roofClear, shortName, smooth, timeWords, trimHeight } from "./flightplan.js";
 
 const DOWN = new THREE.Vector3(0, -1, 0);
-/** Any of these takes over. (The arrow keys only look round.) */
-const HANDS = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyC"];
-/** A flight keeps this far above a roof it passes over, and looks this many seconds ahead for hills and roofs. */
-const ROOF_CLEAR_M = 8;
+/** Any of these takes over. (The arrow keys only look round; Space, C, 1 and 2 trim a low flight and are otherwise left alone.) */
+const HANDS = ["KeyW", "KeyA", "KeyS", "KeyD"];
+/** Where the height and pace the player last flew at are kept, for their next flight. */
+const KEPT = "earthwalk.flight";
+/** A flight looks this many seconds ahead for hills and roofs. (How far it keeps above a roof is roofClear, in flightplan.js.) */
 const AHEAD_S = 3;
 /** How far along the way one note of the ground's height covers. */
 const NOTE_M = 8;
@@ -52,6 +53,17 @@ export class Flight {
     return planFlight(this.geo(), place);
   }
 
+  /** The height and pace the player chose on an earlier low flight: { high, pace }, either of them null for "as the sums have it". */
+  kept() {
+    try {
+      const was = JSON.parse(localStorage.getItem(KEPT) ?? "{}");
+      return {
+        high: Number.isFinite(was.high) ? Math.min(LOW_TRIM_M[1], Math.max(LOW_TRIM_M[0], was.high)) : null,
+        pace: PACES.includes(was.pace) ? was.pace : null,
+      };
+    } catch { return { high: null, pace: null }; }
+  }
+
   /** Sets off. `place` is { name, lat, lon }. False when there is no flight to make. */
   start(place) {
     if (this.now) this.takeOver(true); // on from where the flight that is on has got to
@@ -70,6 +82,12 @@ export class Flight {
       asked: world.asked, began: performance.now(), tick: performance.now(), frames: 0, worst: 0, top: 0,
     };
     f.aim = f.end.clone();
+    // A low flight goes as high and as fast as the player last had one go, until they say otherwise.
+    const kept = plan.kind === "low" ? this.kept() : { high: null, pace: null };
+    f.high = kept.high ?? plan.height;
+    f.pace = kept.pace ?? 1;
+    f.keptHigh = kept.high;
+    f.held = {};
     if (plan.kind === "low") {
       // What is known of the ground and the roofs along the first of the way, so the climb clears them.
       const length = Math.hypot(f.end.x - start.x, f.end.z - start.z);
@@ -83,7 +101,8 @@ export class Flight {
     p.grounded = false;
     p.velocityY = 0;
     p.keys.clear();
-    this.say(`Flying to ${shortName(place.name)}: ${farWords(plan.metres)}, ${timeWords(plan.seconds)}. Look round with the mouse; V looks from above; W, A, S, D or Esc takes over.`
+    this.say(`Flying to ${shortName(place.name)}: ${farWords(plan.metres)}, ${timeWords(plan.seconds / f.pace)}. Look round with the mouse; V looks from above; W, A, S, D or Esc takes over.`
+      + (plan.kind === "low" ? " Space and C take you higher and lower, 1 and 2 slower and faster." : "")
       + (plan.kind === "high" ? " High up in the middle there is only sky and haze: the land between is not drawn." : ""));
     return true;
   }
@@ -99,7 +118,7 @@ export class Flight {
     const ground = this.world.groundHeight(x, z);
     if (ground === null) return null;
     const roof = this.roofAt(x, z);
-    return roof !== null && roof > ground + 0.5 ? roof + ROOF_CLEAR_M : ground;
+    return roof !== null && roof > ground + 0.5 ? roof + roofClear(this.now?.high ?? 300) : ground;
   }
 
   /** Notes what must be cleared at a point of a low flight's way, `along` metres from its start. */
@@ -194,7 +213,24 @@ export class Flight {
     const tick = performance.now();
     if (f.frames++) f.worst = Math.max(f.worst, tick - f.tick);
     f.tick = tick;
-    f.t += dt;
+    // A low flight is trimmed as it goes: higher and lower while Space or C is held, a step slower or faster at each press of 1 or 2.
+    if (f.part === "low" && !p.typing) {
+      const up = (p.keys.has("Space") ? 1 : 0) - (p.keys.has("KeyC") ? 1 : 0);
+      if (up) {
+        f.high = trimHeight(f.high, up, dt);
+        f.keptHigh = f.high;
+        f.chose = true;
+      }
+      for (const [code, by] of [["Digit1", -1], ["Digit2", 1]]) {
+        const down = p.keys.has(code);
+        if (down && !f.held[code]) {
+          f.pace = paceStep(f.pace, by);
+          f.chose = true;
+        }
+        f.held[code] = down;
+      }
+    }
+    f.t += f.part === "low" ? dt * f.pace : dt;
     if (f.part === "low") this.low(f, dt);
     else if (f.part === "up") this.up(f);
     else if (f.part === "over" || f.part === "wait") this.over(f, dt);
@@ -213,7 +249,7 @@ export class Flight {
       p.pitch += (tip - p.pitch) * (1 - Math.exp(-1.5 * dt));
     }
     const waiting = f.part === "wait" || (f.part === "settle" && !f.land);
-    f.words = flyingWords(f.name, waiting ? "wait" : f.part, f.left);
+    f.words = flyingWords(f.name, waiting ? "wait" : f.part, f.left, { high: f.high, pace: f.pace });
     this.hint(f.words.hint);
   }
 
@@ -243,7 +279,7 @@ export class Flight {
     if (high > -Infinity) f.base += (high - f.base) * (1 - Math.exp(-(high > f.base ? 4 : 0.9) * dt));
     // Not down again until the ground at the place is known.
     const held = f.land || f.t < plan.seconds / 2 ? lift : 1;
-    let y = f.base + plan.height * held + f.offset * (1 - smooth(f.t / 3));
+    let y = f.base + f.high * held + f.offset * (1 - smooth(f.t / 3));
     const here = f.t > 3 ? this.top(x, z) : null;
     if (here !== null && y < here + 1) y = here + 1;
     p.set(x, y, z);
@@ -365,6 +401,8 @@ export class Flight {
     if (!f) return;
     this.now = null;
     this.player.flight = null;
+    // How they trimmed it is how the next one sets off. (A height they never touched stays "as the sums have it".)
+    if (f.chose) { try { localStorage.setItem(KEPT, JSON.stringify({ high: f.keptHigh, pace: f.pace })); } catch { /* no storage: next time as the sums have it */ } }
     const seconds = (performance.now() - f.began) / 1000;
     this.last = {
       kind: f.plan.kind, name: f.name, metres: Math.round(f.plan.metres), planned: +f.plan.seconds.toFixed(1), seconds: +seconds.toFixed(1),

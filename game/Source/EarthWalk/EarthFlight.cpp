@@ -3,9 +3,12 @@
 #include "EarthGeo.h"
 #include "EarthWalkCharacter.h"
 #include "EarthWalkHUD.h"
+#include "EarthWalkSettings.h"
 #include "EarthWorld.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 #include <cmath>
 
@@ -19,7 +22,8 @@ namespace
 	constexpr double FlightDownS = 15.0;
 	constexpr double FlightEndsM = 2000.0;
 	constexpr double FlightTooNearM = 40.0;
-	constexpr double FlightRoofClearM = 8.0; // a flight keeps this far above a roof it passes over
+	/** How far over a roof a flight passes, at the height its passenger has it (roofClear of flightplan.js): eight metres as a rule, less flown low. */
+	double FlightRoofClear(double High) { return FMath::Min(8.0, 2.0 + High / 2.0); }
 	constexpr double FlightAheadS = 3.0;     // and looks this many seconds ahead for hills and roofs
 	constexpr double FlightNoteM = 8.0;      // how far along the way one note of the ground's height covers
 	constexpr double FlightHeldOffM = 18000.0; // crossing in the haze the player is kept this near the place in the scene: far-off numbers draw badly
@@ -27,6 +31,24 @@ namespace
 
 	double FlightSmooth(double U) { const double V = FMath::Clamp(U, 0.0, 1.0); return V * V * (3.0 - 2.0 * V); }
 	double FlightSmoother(double U) { const double V = FMath::Clamp(U, 0.0, 1.0); return V * V * V * (V * (V * 6.0 - 15.0) + 10.0); }
+	// A low flight's trim (LOW_TRIM_M, PACES, PACE_WORDS, paceStep and trimHeight of flightplan.js).
+	constexpr double TrimLeastM = 3.0, TrimMostM = 300.0;
+	const double Paces[] = { 0.1, 0.15, 0.25, 0.4, 0.6, 1.0, 1.5, 2.0 };
+	const TCHAR* const PaceWords[] = { TEXT("at a stroll"), TEXT("at a trot"), TEXT("very slowly"), TEXT("slowly"), TEXT("gently"), TEXT(""), TEXT("quickly"), TEXT("fast") };
+	int32 PaceAt(double Pace)
+	{
+		int32 At = 0;
+		for (int32 i = 0; i < UE_ARRAY_COUNT(Paces); ++i)
+		{
+			if (FMath::Abs(Paces[i] - Pace) < FMath::Abs(Paces[At] - Pace))
+			{
+				At = i;
+			}
+		}
+		return At;
+	}
+	double PaceStep(double Pace, int32 By) { return Paces[FMath::Clamp(PaceAt(Pace) + By, 0, UE_ARRAY_COUNT(Paces) - 1)]; }
+	double TrimHeight(double High, double Up, double Dt) { return FMath::Clamp(High * std::exp(Up * Dt), TrimLeastM, TrimMostM); }
 	FVector FlightToEngine(double X, double Y, double Z) { return FVector(-Z * 100.0, X * 100.0, Y * 100.0); }
 	const FLinearColor FlightNotice(0.75f, 0.9f, 1.f);
 }
@@ -210,7 +232,7 @@ bool UEarthFlight::Top(double X, double Z, double& Out) const
 	{
 		return false;
 	}
-	Out = RoofAt(X, Z, Roof) && Roof > Ground + 0.5 ? Roof + FlightRoofClearM : Ground;
+	Out = RoofAt(X, Z, Roof) && Roof > Ground + 0.5 ? Roof + FlightRoofClear(bOn && Going.bLow ? TrimM : 300.0) : Ground;
 	return true;
 }
 
@@ -362,6 +384,30 @@ bool UEarthFlight::Start(const FString& InName, double Lat, double Lon)
 	Left = P.Metres;
 	bLooked = false;
 	bLookSet = false;
+	// A low flight goes as high and as fast as the player last had one go, until they say otherwise.
+	// (-EWFlyTrim=<metres>,<pace> sets both for one run, for pictures.)
+	TrimM = P.Height;
+	Pace = 1.0;
+	KeptHigh = -1.0;
+	bChose = false;
+	if (P.bLow)
+	{
+		FString Kept;
+		if (FEarthWalkConfig::HasOverride(TEXT("FlightHigh"), Kept) && FCString::Atod(*Kept) > 0.0)
+		{
+			TrimM = KeptHigh = FMath::Clamp(FCString::Atod(*Kept), TrimLeastM, TrimMostM);
+		}
+		if (FEarthWalkConfig::HasOverride(TEXT("FlightPace"), Kept) && FCString::Atod(*Kept) > 0.0)
+		{
+			Pace = PaceStep(FCString::Atod(*Kept), 0);
+		}
+		FString Trim, Metres, Speed;
+		if (FParse::Value(FCommandLine::Get(), TEXT("-EWFlyTrim="), Trim, false) && Trim.Split(TEXT(","), &Metres, &Speed))
+		{
+			TrimM = FMath::Clamp(FCString::Atod(*Metres), TrimLeastM, TrimMostM);
+			Pace = PaceStep(FCString::Atod(*Speed), 0);
+		}
+	}
 	NowX = From.X;
 	NowY = From.Y;
 	NowZ = From.Z;
@@ -385,8 +431,8 @@ bool UEarthFlight::Start(const FString& InName, double Lat, double Lon)
 	if (Hud.IsValid())
 	{
 		Hud->AddLine(FString::Printf(TEXT("Flying to %s: %s, %s. Look round with the mouse; V looks from above; W, A, S, D or Esc takes over.%s"), *EarthFlightSums::ShortName(Name),
-			*EarthFlightSums::FarWords(P.Metres), *EarthFlightSums::TimeWords(P.Seconds),
-			P.bLow ? TEXT("") : TEXT(" High up in the middle there is only sky and haze: the land between is not drawn.")), FlightNotice);
+			*EarthFlightSums::FarWords(P.Metres), *EarthFlightSums::TimeWords(P.Seconds / Pace),
+			P.bLow ? TEXT(" Space and C take you higher and lower, 1 and 2 slower and faster.") : TEXT(" High up in the middle there is only sky and haze: the land between is not drawn.")), FlightNotice);
 	}
 	UE_LOG(LogTemp, Display, TEXT("EarthWalk: flight: to %s, %s, %.0f m, %.1f s, %d steps"), *Name, P.bLow ? TEXT("low") : TEXT("high"), P.Metres, P.Seconds, P.Steps);
 	return true;
@@ -394,6 +440,12 @@ bool UEarthFlight::Start(const FString& InName, double Lat, double Lon)
 
 void UEarthFlight::Finish()
 {
+	// How they trimmed it is how the next one sets off. (A height they never touched stays "as the sums have it".)
+	if (bOn && bChose)
+	{
+		FEarthWalkConfig::Save(TEXT("FlightHigh"), KeptHigh > 0.0 ? FString::Printf(TEXT("%.1f"), KeptHigh) : FString(TEXT("0")));
+		FEarthWalkConfig::Save(TEXT("FlightPace"), FString::Printf(TEXT("%.2f"), Pace));
+	}
 	bOn = false;
 	bGeo = false;
 	if (Earth.IsValid())
@@ -465,6 +517,12 @@ void UEarthFlight::Words()
 	const bool bWaiting = Part == EPart::Wait || (Part == EPart::Settle && !bLand);
 	Head = FString::Printf(TEXT("Flying to %s"), *EarthFlightSums::ShortName(Name));
 	Sub = bWaiting ? FString(TEXT("the world here is still being built")) : Part == EPart::Over ? To + TEXT("  ·  high over the haze, where no land is drawn") : To;
+	if (!bWaiting && Part == EPart::Low)
+	{
+		// (How high and how fast its passenger has it.)
+		const TCHAR* How = PaceWords[PaceAt(Pace)];
+		Sub += FString::Printf(TEXT("  ·  %d m up%s%s"), FMath::RoundToInt32(TrimM), *How ? TEXT(", ") : TEXT(""), How);
+	}
 }
 
 bool UEarthFlight::Frame(float DeltaSeconds, bool bKeysFree)
@@ -484,15 +542,32 @@ bool UEarthFlight::Frame(float DeltaSeconds, bool bKeysFree)
 	if (bKeysFree)
 	{
 		const bool bEsc = PC->WasInputKeyJustPressed(EKeys::Escape);
+		// (Space, C, 1 and 2 trim a low flight and are otherwise left alone.)
 		if (bEsc || PC->IsInputKeyDown(EKeys::W) || PC->IsInputKeyDown(EKeys::A) || PC->IsInputKeyDown(EKeys::S) || PC->IsInputKeyDown(EKeys::D)
-			|| PC->IsInputKeyDown(EKeys::SpaceBar) || PC->IsInputKeyDown(EKeys::C) || PC->WasInputKeyJustPressed(EKeys::F))
+			|| PC->WasInputKeyJustPressed(EKeys::F))
 		{
 			TakeOver();
 			return bEsc;
 		}
 	}
 	const double Dt = DeltaSeconds;
-	T += Dt;
+	// A low flight is trimmed as it goes: higher and lower while Space or C is held, a step slower or faster at each press of 1 or 2.
+	if (Part == EPart::Low && bKeysFree)
+	{
+		const double Rise = (PC->IsInputKeyDown(EKeys::SpaceBar) ? 1.0 : 0.0) - (PC->IsInputKeyDown(EKeys::C) ? 1.0 : 0.0);
+		if (Rise != 0.0)
+		{
+			TrimM = KeptHigh = TrimHeight(TrimM, Rise, Dt);
+			bChose = true;
+		}
+		const int32 Step = (PC->WasInputKeyJustPressed(EKeys::Two) ? 1 : 0) - (PC->WasInputKeyJustPressed(EKeys::One) ? 1 : 0);
+		if (Step != 0)
+		{
+			Pace = PaceStep(Pace, Step);
+			bChose = true;
+		}
+	}
+	T += Part == EPart::Low ? Dt * Pace : Dt;
 	switch (Part)
 	{
 	case EPart::Low: LowPart(Dt); break;
@@ -600,7 +675,7 @@ void UEarthFlight::LowPart(double Dt)
 	}
 	// Not down again until the ground at the place is known.
 	const double Held = bLand || T < Going.Seconds / 2.0 ? Lift : 1.0;
-	double Y = Base + Going.Height * Held + Offset * (1.0 - FlightSmooth(T / 3.0));
+	double Y = Base + TrimM * Held + Offset * (1.0 - FlightSmooth(T / 3.0));
 	double Here = 0.0;
 	if (T > 3.0 && Top(X, Z, Here) && Y < Here + 1.0)
 	{

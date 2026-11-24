@@ -55,8 +55,10 @@ namespace EarthFlightSums
  * haze, and comes down as the ground there appears: our own world at both ends, and nothing pretended
  * in between (Jason's choice, 2026-11-23, over the photographic world from the air).
  *
- * The mouse looks round and V is the view from above, as on any ride; W, A, S, D, Space, C, F or Esc
- * takes over and leaves the player flying where they are.
+ * The mouse looks round and V is the view from above, as on any ride; W, A, S, D, F or Esc takes over and
+ * leaves the player flying where they are. A low flight is the passenger's to trim as it goes: Space and C
+ * take it higher and lower (down to three metres, along the ground), 1 and 2 slower and faster, and what
+ * they chose is how their next flight sets off (LOW_TRIM_M, PACES, paceStep and trimHeight in flightplan.js).
  */
 UCLASS()
 class UEarthFlight : public UObject
@@ -77,7 +79,11 @@ public:
 	// What is said while flying: at the top of the screen, where the place is otherwise named, and along the foot of it.
 	const FString& GetHead() const { return Head; }
 	const FString& GetSub() const { return Sub; }
-	FString GetHint() const { return bOn ? FString(TEXT("Esc takes over   ·   V looks from above")) : FString(); }
+	FString GetHint() const
+	{
+		return !bOn ? FString() : Part == EPart::Low ? FString(TEXT("Space / C up, down   ·   1 / 2 slower, faster   ·   Esc takes over   ·   V from above"))
+			: FString(TEXT("Esc takes over   ·   V looks from above"));
+	}
 	/**
 	 * For the little map: where the flight ends, in the scene (metres east and south of the world's origin), the
 	 * place's name and how far there is still to go. While a high flight climbs out the place is far off the map,
@@ -124,6 +130,10 @@ private:
 	FSpot Land;
 	TMap<int32, double> Notes; // what must be cleared along a low flight's way, every eight metres
 	double Base = 0.0;
+	double TrimM = 0.0;     // how far above the ground and the roofs a low flight goes: the plan's, or as the passenger has it
+	double Pace = 1.0;      // how fast its clock runs: 1 is the plan's own pace
+	double KeptHigh = -1.0; // the height they chose, to keep for next time; below 0 for "as the sums have it"
+	bool bChose = false;    // they trimmed this flight
 	double Offset = 0.0;
 	double Alt = 0.0;
 	FSpot Came; // where the crossing ended and the coming down began

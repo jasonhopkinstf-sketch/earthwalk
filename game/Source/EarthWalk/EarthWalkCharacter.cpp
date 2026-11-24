@@ -469,11 +469,11 @@ void AEarthWalkCharacter::RideTick(float DeltaSeconds, APlayerController* PC)
 		return;
 	}
 
-	if (!bHandsOff && !bTyping && PC->WasInputKeyJustPressed(EKeys::Two))
+	if (!bHandsOff && !bTyping && !bFlown && PC->WasInputKeyJustPressed(EKeys::Two)) // (being flown, 1 and 2 are the flight's pace)
 	{
 		bRunToggled = !bRunToggled;
 	}
-	if (!bHandsOff && !bTyping && PC->WasInputKeyJustPressed(EKeys::One))
+	if (!bHandsOff && !bTyping && !bFlown && PC->WasInputKeyJustPressed(EKeys::One))
 	{
 		bRunToggled = false;
 	}
@@ -978,11 +978,11 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 	}
 
 	// Running: hold Shift, or press 2 to keep running until 1 (or 2 again).
-	if (Pressed(EKeys::Two))
+	if (!bFlown && Pressed(EKeys::Two))
 	{
 		bRunToggled = !bRunToggled;
 	}
-	if (Pressed(EKeys::One))
+	if (!bFlown && Pressed(EKeys::One))
 	{
 		bRunToggled = false;
 	}

@@ -35,6 +35,27 @@ export const HIGH_M = 3000;
 export const UP_S = 14;
 export const DOWN_S = 15;
 export const ENDS_M = 2000;
+/**
+ * A low flight is the passenger's to trim as it goes: Space and C take it higher and lower, between these heights
+ * above the ground and the roofs (three metres is along the ground, over the hedges), and 1 and 2 slower and
+ * faster, through these paces (1 is the pace the sums give). What they chose is how their next flight sets off.
+ */
+export const LOW_TRIM_M = [3, 300];
+export const PACES = [0.1, 0.15, 0.25, 0.4, 0.6, 1, 1.5, 2];
+const PACE_WORDS = ["at a stroll", "at a trot", "very slowly", "slowly", "gently", "", "quickly", "fast"];
+/**
+ * How far over a roof a low flight passes, at the height its passenger has it: eight metres as a rule, and less
+ * the lower they fly, so that "three metres up" skims the rooftops and the hedges and is not eleven metres over them.
+ */
+export const roofClear = (high) => Math.min(8, 2 + high / 2);
+/** The pace a step slower (-1) or faster (1) than this one. */
+export function paceStep(pace, by) {
+  let at = 0;
+  for (let i = 0; i < PACES.length; i++) if (Math.abs(PACES[i] - pace) < Math.abs(PACES[at] - pace)) at = i;
+  return PACES[Math.min(PACES.length - 1, Math.max(0, at + by))];
+}
+/** A height the passenger is taking the flight to: `up` is 1 for higher, -1 for lower, held for `dt` seconds. It doubles or halves in about two thirds of a second. */
+export const trimHeight = (high, up, dt) => Math.min(LOW_TRIM_M[1], Math.max(LOW_TRIM_M[0], high * Math.exp(up * dt)));
 /** Nearer than this there is nothing to fly: it is a few steps. */
 export const TOO_NEAR_M = 40;
 
@@ -202,7 +223,7 @@ export function choiceWords(name, plan) {
     fly: {
       label: "Fly there and watch",
       about: plan.kind === "low"
-        ? `You are carried over the rooftops, ${timeWords(plan.seconds)}.`
+        ? `You are carried over the rooftops, ${timeWords(plan.seconds)}. On the way Space and C take you higher and lower, and 1 and 2 slower and faster.`
         : `Up over where you are, across high in the haze, and down over it, ${timeWords(plan.seconds)}. The land in between is not drawn.`,
     },
   };
@@ -212,11 +233,14 @@ export function choiceWords(name, plan) {
  * What is said while flying: `head` and `sub` at the top of the screen, where the place the player is in is
  * otherwise named, and `hint` along the foot of it. `part` is "low", "up", "over", "wait", "down" or "settle".
  */
-export function flyingWords(name, part, metresLeft) {
+export function flyingWords(name, part, metresLeft, trim = null) {
   const to = `${farWords(metresLeft)} to go`;
+  // (A low flight says how high and how fast its passenger has it: `trim` is { high, pace }.)
+  const pace = trim ? PACE_WORDS[PACES.indexOf(paceStep(trim.pace, 0))] : "";
+  const trimmed = part === "low" && trim ? `  ·  ${Math.round(trim.high)} m up${pace ? `, ${pace}` : ""}` : "";
   return {
     head: `Flying to ${shortName(name)}`,
-    sub: part === "over" ? `${to}  ·  high over the haze, where no land is drawn` : part === "wait" ? "the world here is still being built" : to,
-    hint: "Esc takes over   ·   V looks from above",
+    sub: part === "over" ? `${to}  ·  high over the haze, where no land is drawn` : part === "wait" ? "the world here is still being built" : to + trimmed,
+    hint: part === "low" ? "Space / C up, down   ·   1 / 2 slower, faster   ·   Esc takes over   ·   V from above" : "Esc takes over   ·   V looks from above",
   };
 }

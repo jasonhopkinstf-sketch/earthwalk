@@ -136,7 +136,7 @@ Chat commands:
 | Command | What it does |
 | --- | --- |
 | `/goto <place>` | Travel anywhere: `/goto Times Square`, `/goto 35.3606, 138.7274` |
-| `/flyto <place>` | Be flown there and watch the world go by, in place of landing there at once. "Go to a place..." in the Tab menu finds the place and then asks which you would like |
+| `/flyto <place>` | Be flown there and watch the world go by, in place of landing there at once. "Go to a place..." in the Tab menu finds the place and then asks which you would like. Over the rooftops (a place up to a few kilometres off) the flight is yours to trim: Space and C take it higher and lower, from 300 m down to 3 m along the ground, and 1 and 2 slower and faster, from a stroll to twice the usual pace; what you chose is how your next flight sets off (`LOW_TRIM_M`, `PACES` and `roofClear` in `server/public/js/flightplan.js`, the same in `EarthFlight.cpp`; `-EWFlyTrim=<metres>,<pace>` sets both for one run) |
 | `/join <name>` | Go to someone in your room (or, when signed in, anyone online: it switches room) |
 | `/who` | List who is in your room and, when signed in, everyone with an account: online or not, which room, and where on Earth |
 | `/login`, `/logout` | Sign in with Google (the game opens your browser; the browser version has a button on its join screen) and forget the sign-in |

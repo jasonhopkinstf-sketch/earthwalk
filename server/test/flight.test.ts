@@ -6,6 +6,7 @@ import WebSocket from "ws";
 import {
   BUILD_CAP, BUILDS_PER_CHUNK, HAZE_M, LOW_STEPS, choiceWords, chunkMetres, climbAt, descentAt, farWords, flightHeading, flyingWords, lowAt, lowSpeed,
   lowTopSpeed, metresBetween, overAt, overTopSpeed, planFlight, reachAhead, shortName, timeWords,
+  LOW_TRIM_M, PACES, paceStep, roofClear, trimHeight,
 } from "../public/js/flightplan.js";
 import { GuestDirectory } from "../src/people.ts";
 import { Rooms } from "../src/rooms.ts";
@@ -159,9 +160,23 @@ test("the words that offer the choice, and the words while flying, say plainly w
   assert.equal(over.head, "Flying to Tour Eiffel, France");
   assert.equal(over.sub, "9,000 km to go  ·  high over the haze, where no land is drawn");
   assert.match(flyingWords("Tour Eiffel", "wait", 2000).sub, /still being built/);
-  for (const part of ["low", "up", "down", "settle"] as const) {
-    assert.deepEqual(flyingWords("Queens Wharf", part, 800), { head: "Flying to Queens Wharf", sub: "800 m to go", hint: "Esc takes over   ·   V looks from above" });
+  for (const part of ["up", "down", "settle"] as const) {
+    assert.deepEqual(flyingWords("Queens Wharf", part, 800, { high: 12, pace: 0.4 }), { head: "Flying to Queens Wharf", sub: "800 m to go", hint: "Esc takes over   ·   V looks from above" });
   }
+  // A low flight is the passenger's to trim: the words say how, and how they have it.
+  const low = flyingWords("Queens Wharf", "low", 800, { high: 12.4, pace: 0.4 });
+  assert.equal(low.sub, "800 m to go  ·  12 m up, slowly");
+  assert.equal(flyingWords("Queens Wharf", "low", 800, { high: 3, pace: 0.1 }).sub, "800 m to go  ·  3 m up, at a stroll");
+  // Flown low, it skims the roofs; as the sums have it, it keeps well over them.
+  assert.deepEqual([roofClear(3), roofClear(8), roofClear(12), roofClear(180)], [3.5, 6, 8, 8]);
+  assert.equal(low.hint, "Space / C up, down   ·   1 / 2 slower, faster   ·   Esc takes over   ·   V from above");
+  assert.equal(flyingWords("Queens Wharf", "low", 800, { high: 60, pace: 1 }).sub, "800 m to go  ·  60 m up");
+  assert.equal(flyingWords("Queens Wharf", "low", 800).sub, "800 m to go");
+  assert.deepEqual([paceStep(1, -1), paceStep(1, 1), paceStep(0.25, -1), paceStep(2, 1), paceStep(0.4, 1), paceStep(0.1, -1)], [0.6, 1.5, 0.15, 2, 0.6, 0.1]);
+  assert.deepEqual(PACES.includes(1) && LOW_TRIM_M, [3, 300]);
+  // Held for a second it is about 2.7 times as high or as low, and never past the ends.
+  assert.ok(Math.abs(trimHeight(60, -1, 1) - 60 / Math.E) < 1e-9 && Math.abs(trimHeight(60, 1, 1) - 60 * Math.E) < 1e-9);
+  assert.deepEqual([trimHeight(4, -1, 5), trimHeight(200, 1, 5)], [3, 300]);
 });
 
 test("somebody being flown to a place is seen by friends as ever, but the server downloads nothing ahead of them", async () => {

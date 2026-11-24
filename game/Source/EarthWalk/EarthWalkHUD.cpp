@@ -1758,7 +1758,7 @@ void AEarthWalkHUD::Tick(float DeltaSeconds)
 		}
 		// C calls my car (flying, C is "down" and nothing else), and X asks where a taxi should take me.
 		const AEarthWalkCharacter* Flier = Cast<AEarthWalkCharacter>(PC->GetPawn());
-		if (PC->WasInputKeyJustPressed(EKeys::C) && Flier && !Flier->IsFlying())
+		if (PC->WasInputKeyJustPressed(EKeys::C) && Flier && !Flier->IsFlying() && !(Flight && Flight->IsOn())) // (being flown, C is "lower")
 		{
 			CloseMenu();
 			MenuAction(TEXT("car"));
@@ -2813,7 +2813,7 @@ void AEarthWalkHUD::GoChoose(const FString& Query)
 		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 		PC->SetInputMode(Mode);
 		Menu->ShowChoice(true, EarthFlightSums::ShortName(Name), FString::Printf(TEXT("%s from here. How would you like to get there?"), *EarthFlightSums::FarWords(Plan.Metres)),
-			Plan.bLow ? FString::Printf(TEXT("You are carried over the rooftops, %s."), *EarthFlightSums::TimeWords(Plan.Seconds))
+			Plan.bLow ? FString::Printf(TEXT("You are carried over the rooftops, %s. On the way Space and C take you higher and lower, and 1 and 2 slower and faster."), *EarthFlightSums::TimeWords(Plan.Seconds))
 				: FString::Printf(TEXT("Up over where you are, across high in the haze, and down over it, %s. The land in between is not drawn."), *EarthFlightSums::TimeWords(Plan.Seconds)));
 	}, /*bFromHere*/ true);
 }
