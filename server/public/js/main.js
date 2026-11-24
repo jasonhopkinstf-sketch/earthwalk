@@ -32,6 +32,7 @@ import { findAction, Menu } from "./menu.js";
 import { GUIDE_QUESTIONS, quickReplies } from "./actions.js";
 import { GuideChat } from "./guide.js";
 import { MiniMap } from "./minimap.js";
+import { WorldMap } from "./worldmap.js";
 import { newsCard } from "./newsnotes.js";
 import { HAZE, Ink, LAYER, Sky, look, onLook, setLook } from "./look.js";
 import { lookSaid, parseLines, parseLook } from "./lookdata.js";
@@ -177,6 +178,22 @@ function talkSay(words) {
 // The little map in the corner (M): small unless it was made large or hidden, and that is remembered.
 const minimap = new MiniMap({ canvas: $("minimap"), renderer, scene, camera, world, player, meetup, riding, traffic, houses, orders, flight, saved: saved.map, save: (name) => save({ map: name }) });
 const cycleMap = () => notice(minimap.cycle());
+/**
+ * The world map (worldmap.js): a street map to look round on, and what is done about the place chosen on it:
+ * a taxi called to take me there, a flight there, or there at once.
+ */
+const worldmap = new WorldMap({
+  panel: $("worldmap"), world, player, meetup,
+  onOpen: () => { menu.close(); syncTyping(); },
+  onClose: () => syncTyping(),
+  go: (how, place) => {
+    if (how === "fly") return flyTo(place);
+    if (how === "now") return goNow(place);
+    if (!meetup.joined) return problem("Not connected to the meetup server.");
+    notice(`Calling a taxi to take you to ${place.name}...`);
+    meetup.sendTaxi(place.name, place);
+  },
+});
 // The strip of buttons along the bottom: there unless it was hidden (Z), and that is remembered.
 let stripOn = saved.strip !== "off";
 menu.showStrip(stripOn);
@@ -536,7 +553,7 @@ const typingNow = () => {
   return !!at && (at.tagName === "TEXTAREA" || (at.tagName === "INPUT" && !/^(radio|checkbox|button|submit)$/.test(at.type)));
 };
 function syncTyping() {
-  const typing = typingNow() || !!menu.choosing; // (a choice that is up has the keyboard too)
+  const typing = typingNow() || !!menu.choosing || !!worldmap?.open; // (a choice that is up has the keyboard too, and the world map)
   if (typing && !player.typing) player.keys.clear();
   player.typing = typing;
 }
@@ -620,6 +637,7 @@ function menuAction(id) {
   else if (id === "chat") say.focus();
   else if (id === "strip") toggleStrip();
   else if (id === "map") cycleMap();
+  else if (id === "worldmap") worldmap.toggle();
   else if (id === "news") void openNews(false);
   else if (id === "above") viewKey();
   else if (id === "sound") void command("sound", sounds.enabled ? "off" : "on");
@@ -713,6 +731,15 @@ addEventListener("keydown", (e) => {
     else if (!e.repeat) menu.chooseKey(e.code);
     return;
   }
+  if (worldmap.open) {
+    // The world map is up, and has the keyboard: N, M or Esc puts it away, and + and - come closer and stand back.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (e.code === "Escape" || e.code === "KeyN" || e.code === "KeyM") worldmap.close();
+    else if (e.code === "Equal" || e.code === "NumpadAdd") worldmap.zoomBy(1, null);
+    else if (e.code === "Minus" || e.code === "NumpadSubtract") worldmap.zoomBy(-1, null);
+    return;
+  }
   const typing = typingNow();
   if (e.code === "Tab") {
     e.preventDefault(); // the keyboard stays with the game
@@ -764,6 +791,7 @@ const KEYS = {
   KeyX: () => menuAction("taxi"), // a taxi: where to?
   KeyZ: toggleStrip,
   KeyM: cycleMap,
+  KeyN: () => worldmap.toggle(), // the world map: look round, and choose a place to go
 };
 say.addEventListener("keydown", (e) => {
   if (e.code !== "Enter" && e.code !== "NumpadEnter") return;
@@ -872,6 +900,7 @@ async function command(name, arg) {
     notice("/home   make where you stand your home (or /home <place>); you start there next time");
     notice("/suggest <what you would like>   tell the people who make EarthWalk what you would like in it");
     notice("/about   opens a page about what EarthWalk is and everything there is to explore and do");
+    notice("N   the world map: drag to look round, wheel to zoom, click where you want to go, and take a taxi, fly or go there at once");
     notice("/name <name>   /animal <fox, bear, rabbit, cat, owl or frog>   /room <room>");
     notice("    (your passport, P, has the six animals to choose from too: \"Your animal\")");
     notice("/invite   get a link to send to someone        /where   show your coordinates");
@@ -1084,4 +1113,4 @@ addEventListener("pagehide", () => {
 
 // For the automated tests and for poking around in the browser console.
 // (`step` draws one frame and `tick` does the ten-times-a-second work: for a page in the background, where the browser does neither on time.)
-window.earthwalk = { daynight, weather, skyTick, flight, frames, step: frame, tick: tickSlow, goChoose, menu, guide, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, people, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };
+window.earthwalk = { worldmap, daynight, weather, skyTick, flight, frames, step: frame, tick: tickSlow, goChoose, menu, guide, menuAction, openTalk, talkSay, openNews, minimap, look, ink, sky, scene, camera, renderer, world, player, meetup, avatars, life, traffic, riding, talk, orders, houses, people, decor, lunch, train, care, garden, taxis, pets, treasure, garage, races, play, sounds, showcase, command, isStarted: () => started };

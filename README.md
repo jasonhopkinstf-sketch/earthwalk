@@ -65,6 +65,7 @@ settings (environment variables):
 | `EARTHWALK_ADMINS` | Emails (of Google sign-ins) that may open the admin screen at `/admin.html`, comma-separated. On your own computer the word `local` lets in whoever asks from that computer |
 | `EARTHWALK_RESEND_KEY`, `EARTHWALK_MAIL_TO`, `EARTHWALK_MAIL_FROM` | Send an email about each new suggestion (see [docs/HOSTING.md](docs/HOSTING.md)); none is sent without the first two |
 | `EARTHWALK_MEMORY_MB` | How much memory the machine has (default 512): what the admin screen draws the load against |
+| `EARTHWALK_MAP_TILES`, `EARTHWALK_MAP_TILES_URL` | `0` turns off the street map behind the world map (N). The second names another server of map pictures than OpenStreetMap's, with `{z}`, `{x}` and `{y}` in it |
 | `EARTHWALK_SHOWCASE` | `0` stops the server keeping the "Show me" places built |
 | `EARTHWALK_WEATHER` | `0` turns the live weather off: every game then has its fine day (see "The weather" in [docs/PROTOCOL.md](docs/PROTOCOL.md)) |
 | `EARTHWALK_QUIET_MAP` | `1` stops the log lines about what each map server did |

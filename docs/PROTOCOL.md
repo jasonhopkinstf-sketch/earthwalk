@@ -585,6 +585,24 @@ keeps it as what its player has seen.
 `in`, when present, says that only one of the two games (`browser` or `windows`) has the thing
 so far: the other game says so beside it.
 
+## The street map: `GET /v1/maptile/{z}/{x}/{y}.png`
+
+One square of a street map of the whole world, as a 256 by 256 PNG, for the world map a player looks
+round and chooses a place from (N in both games; `server/public/js/worldmap.js` and `mapview.js`,
+`EarthWorldMap.cpp`). The squares are the web's usual ones: zoom `z` from 0 (the whole world in one
+picture) to 17, `x` east from the date line and `y` south, each from 0 to 2^z - 1. Needs the access
+code or a player token, like the world's own data.
+
+The pictures are OpenStreetMap's (`tile.openstreetmap.org`), fetched by the server, kept in
+`maptiles/` in its cache for a fortnight and passed on (`server/src/maptiles.ts`): a game never asks
+OpenStreetMap itself, so nobody outside learns which player looked at what. A caller gets 900 pictures in
+five minutes (429 after that, with `Retry-After`); 404 for a square there is no picture of, 503 where
+the map is turned off (`EARTHWALK_MAP_TILES=0`). A game must show "(c) OpenStreetMap contributors" on
+the map itself, where it can be seen, as their tile usage policy asks.
+
+A place chosen on the map is named by `GET /v1/place` (its neighbourhood, no closer), and gone to with
+what there is already: `taxi` with `lat` and `lon`, a flight, or a jump.
+
 ## A suggestion: `POST /v1/suggest`
 
 The suggestions box: what a player would like in the game, for whoever runs the server

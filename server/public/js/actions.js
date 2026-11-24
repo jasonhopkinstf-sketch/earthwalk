@@ -22,6 +22,7 @@ const own = (...args) => ({ ...row(...args), own: true });
 /** @type {Action[]} */
 export const ACTIONS = [
   row("goto", "Go somewhere", "Go to a place...", "Anywhere on Earth: a town, a street, a famous place.", "", "goto", "Where to?", "Sydney Opera House", "Go to..."),
+  own("worldmap", "Go somewhere", "The world map...", "A map of the whole world to look round. Click where you want to go, and a taxi comes for you.", "N"),
   row("shows", "Go somewhere", "Show me...", "A list of things to see and do, and straight to the one you pick.", "G", "", "", "", "Show me"),
   row("join", "Go somewhere", "Go to a friend...", "Lands you beside somebody in your room.", "", "join", "Who do you want to go to?", "their name"),
   row("who", "Go somewhere", "Who is here?", "Lists everybody in your room and how far off they are.", "", "who"),

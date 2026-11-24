@@ -31,6 +31,7 @@ import { SHOWS } from "./showcase.ts";
 import { newsSince } from "./news.ts";
 import { claudeGuide, Guide, sightsOf, type ChunkSights, type GuideAsk } from "./guide.ts";
 import { WeatherService } from "./weather.ts";
+import { MapTiles } from "./maptiles.ts";
 import { BuildTimes, LoadHistory, postedJson, RecentLog, serveAdmin, type AdminContext } from "./admin.ts";
 import { SuggestionBox } from "./suggestions.ts";
 import type { Mailer } from "./mail.ts";
@@ -117,6 +118,8 @@ export interface AppOptions {
   guideAsk?: GuideAsk | null;
   /** The live weather (weather.ts). Defaults to Open-Meteo, unless EARTHWALK_WEATHER is 0; null turns it off, and every game then has its fine day. */
   weather?: WeatherService | null;
+  /** The street map behind the world map (maptiles.ts); null for none. */
+  mapTiles?: MapTiles | null;
   /** How many areas that are news to the weather service one address may ask about in ten minutes. */
   weatherLimit?: number;
   /** How soon a taxi first speaks to its fare and how long between remarks, in milliseconds. For tests. */
@@ -263,6 +266,7 @@ export function createApp(options: AppOptions = {}): App {
   };
   const weather = options.weather !== undefined ? options.weather : process.env.EARTHWALK_WEATHER === "0" ? null : new WeatherService();
   const weatherLimit = options.weatherLimit ?? 40;
+  const mapTiles = options.mapTiles !== undefined ? options.mapTiles : process.env.EARTHWALK_MAP_TILES === "0" ? null : new MapTiles();
   const weatherAsks = new Map<string, number[]>(); // caller address -> times it had the weather service asked
   const ahead = options.warm ? new LookAhead(options.warm) : null;
   // The guide (guide.ts) reads what is near a player out of the labels already built for the chunks round them:
@@ -706,6 +710,21 @@ export function createApp(options: AppOptions = {}): App {
         if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) return json(res, 400, { error: "lat and lon are needed" });
         // Rounded to about a kilometre before it goes anywhere: enough to name the neighbourhood, and no more.
         return json(res, 200, await placeDetail(Math.round(lat * 100) / 100, Math.round(lon * 100) / 100));
+      }
+      const tile = /^\/v1\/maptile\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(p);
+      if (tile) {
+        // One square of the street map, for the world map a player looks round (maptiles.ts): kept here, and fetched
+        // from the map's own server when it is not. A caller gets so many in five minutes and no more.
+        if (!allowed(req, url)) return json(res, 401, { error: "access code required" });
+        if (!mapTiles) return json(res, 503, { error: "there is no map here" });
+        if (!mapTiles.allow(callerOf(req))) {
+          res.setHeader("Retry-After", "60");
+          return json(res, 429, { error: "looking round the map too fast; try again shortly" });
+        }
+        const picture = await mapTiles.get(Number(tile[1]), Number(tile[2]), Number(tile[3]));
+        if (!picture) return json(res, 404, { error: "no map of that square" });
+        res.writeHead(200, { "Content-Type": "image/png", "Content-Length": picture.length, "Cache-Control": "private, max-age=604800" });
+        return void res.end(picture);
       }
       if (p === "/v1/weather") {
         // The weather of the district round a position (weather.ts): asked of the service at most every quarter of an
