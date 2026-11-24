@@ -11,12 +11,14 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
-    version: "0.2.50", date: "2026-11-24", title: "Fly low and slow, and go to an address",
+    version: "0.2.50", date: "2026-11-24", title: "Fly low, ride the train on, go to an address",
     items: [
       { text: "Being flown to a place over the rooftops, the flight is yours to trim: hold C to come down, as low as the hedges, and Space to go up." },
       { text: "On the same flight, 1 is a step slower and 2 a step faster, from a stroll to twice the usual speed. Your next flight sets off the same way." },
       { text: "A street address is somewhere to go like any other. Say it to a car or a taxi, ask the guide, or type it into \"Go to a place\"." },
       { text: "\"Take me to the closest beach\" finds the beach nearest to you." },
+      { text: "Stay on a train and it carries on down the line, past where it used to turn back, as far as the track goes. E hops off when you like." },
+      { text: "Railway lines look like railway now: a bed of stones, wooden sleepers and two steel rails." },
     ],
   },
   {
