@@ -236,6 +236,13 @@ float3 toon = scene * (level / max(light, 1e-3));
 // Plain: the surface's own colour at that level, without the colour of the light, so shade is the
 // same paint darker and not blue from the sky.
 toon = lerp(toon, base * level, Plain);
+// After dark in the flat look, whose paint takes no notice of the light (NightDim and NightGlow, both nothing by
+// day and in the other look: AEarthWalkGameMode::SetAir sets them): every surface is the same paint darker, and a
+// lamp in a window, far brighter than anything the night's own light falls on, is drawn as a lamp: in the colour
+// it is told (GlowR, GlowG, GlowB), which allows for the night's blue being laid over the whole picture afterwards.
+toon *= 1.0 - NightDim;
+// (Brighter than its paint by far, and bright in itself: a dark roof the moon catches is the first and not the second.)
+toon = lerp(toon, float3(GlowR, GlowG, GlowB), NightGlow * min(smoothstep(GlowAt, GlowAt * 1.6, light), smoothstep(0.8, 1.3, lumScene)));
 float3 c = lerp(scene, toon, isLit * (1.0 - haze * ToonFade));
 
 // Lines.
@@ -686,6 +693,7 @@ return saturate(c);
 			{ TEXT("Level0"), 0.68f }, { TEXT("Level1"), 1.4f }, { TEXT("Level2"), 1.65f },
 			{ TEXT("FadeStart"), 12000.f }, { TEXT("FadeEnd"), 60000.f }, { TEXT("ToonFade"), 1.f }, { TEXT("InkBlack"), 0.f }, { TEXT("Plain"), 0.f },
 			{ TEXT("FarWidth"), 1.f }, { TEXT("SmallInk"), 1.f },
+			{ TEXT("NightDim"), 0.f }, { TEXT("NightGlow"), 0.f }, { TEXT("GlowAt"), 1.6f }, { TEXT("GlowR"), 1.f }, { TEXT("GlowG"), 0.74f }, { TEXT("GlowB"), 0.3f },
 		};
 		for (const FUse& Use : Scene)
 		{
@@ -1013,8 +1021,14 @@ UEarthWalkAssetsCommandlet::UEarthWalkAssetsCommandlet()
 int32 UEarthWalkAssetsCommandlet::Main(const FString& Params)
 {
 	IAssetTools& Tools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
-	// -only=figure, -only=sky or -only=fence builds just that material and leaves the others as they are.
+	// -only=figure, -only=sky, -only=ink or -only=fence builds just that material and leaves the others as they are.
 	FString Only;
+	if (FParse::Value(*Params, TEXT("only="), Only) && Only.Equals(TEXT("ink"), ESearchCase::IgnoreCase))
+	{
+		BuildInkMaterial(Tools);
+		UE_LOG(LogEarthWalkAssets, Display, TEXT("EarthWalk assets built: M_EarthInk only"));
+		return 0;
+	}
 	if (FParse::Value(*Params, TEXT("only="), Only) && Only.Equals(TEXT("figure"), ESearchCase::IgnoreCase))
 	{
 		BuildFigureMaterial(Tools);

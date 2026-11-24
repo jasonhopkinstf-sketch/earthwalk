@@ -103,6 +103,35 @@ void AEarthWalkGameMode::InitGame(const FString& MapName, const FString& Options
 	}
 }
 
+namespace
+{
+	/**
+	 * The flat look's night: how much darker its paint is drawn, how many times brighter than its paint a lamp must be to be
+	 * let through, how bright a lamp is drawn, and how many stops darker the whole picture is on top of the other look's
+	 * night (the engine sets the picture's brightness by what is on it, and so makes up for some of the darker paint).
+	 * -EWFlatNight=<dim>,<glow at>,<glow gain>,<stops> tries other numbers, for pictures.
+	 */
+	const TArray<float>& FlatNight()
+	{
+		static const TArray<float> Tuned = []()
+		{
+			TArray<float> Out = { 0.72f, 1.6f, 1.0f, 1.3f };
+			FString Text;
+			if (FParse::Value(FCommandLine::Get(), TEXT("-EWFlatNight="), Text, false))
+			{
+				TArray<FString> Parts;
+				Text.ParseIntoArray(Parts, TEXT(","));
+				for (int32 i = 0; i < FMath::Min(Parts.Num(), Out.Num()); ++i)
+				{
+					Out[i] = FCString::Atof(*Parts[i]);
+				}
+			}
+			return Out;
+		}();
+		return Tuned;
+	}
+}
+
 void AEarthWalkGameMode::SetAir(double Mist, double NearM, double FarM, double Night, const FLinearColor& Hour)
 {
 	if (LookVolume)
@@ -115,7 +144,25 @@ void AEarthWalkGameMode::SetAir(double Mist, double NearM, double FarM, double N
 		LookVolume->Settings.ColorGain = FVector4(Hour.R / Lum, Hour.G / Lum, Hour.B / Lum, 1.0);
 		LookVolume->Settings.bOverride_AutoExposureBias = true;
 		// (1 is the engine's own setting for a view that sets none, which is what this view had until now.)
-		LookVolume->Settings.AutoExposureBias = static_cast<float>(1.0 - 0.85 * FMath::Clamp(Night, 0.0, 1.0));
+		LookVolume->Settings.AutoExposureBias = static_cast<float>(1.0 - (0.85 + (bFlat ? FlatNight()[3] : 0.0)) * FMath::Clamp(Night, 0.0, 1.0));
+	}
+	if (Ink)
+	{
+		// The flat look's paint is its own colour whatever the light, so its night is made in the ink pass: everything
+		// that is lit drawn darker, and the lamps in the windows (lit as EarthWeather lights them) let through.
+		const TArray<float>& Tuned = FlatNight();
+		const bool bFlat = EarthLook::Current() == EEarthLook::Flat;
+		const float Dark = bFlat ? static_cast<float>(FMath::Clamp(Night, 0.0, 1.0)) : 0.f;
+		Ink->SetScalarParameterValue(TEXT("NightDim"), Tuned[0] * Dark);
+		Ink->SetScalarParameterValue(TEXT("NightGlow"), bFlat ? static_cast<float>(FMath::SmoothStep(0.35, 0.75, Night)) : 0.f);
+		Ink->SetScalarParameterValue(TEXT("GlowAt"), Tuned[1]);
+		// (The hour's colour is laid over the whole flat picture afterwards, ColorGain above, and at night that is a strong
+		// blue: the lamp's warm yellow is given here with that taken out again, or it would come out white.)
+		const float Lum = FMath::Max(0.299f * Hour.R + 0.587f * Hour.G + 0.114f * Hour.B, 0.2f);
+		const FLinearColor Lamp(1.0f, 0.74f, 0.30f);
+		Ink->SetScalarParameterValue(TEXT("GlowR"), Tuned[2] * Lamp.R / FMath::Max(Hour.R / Lum, 0.25f));
+		Ink->SetScalarParameterValue(TEXT("GlowG"), Tuned[2] * Lamp.G / FMath::Max(Hour.G / Lum, 0.25f));
+		Ink->SetScalarParameterValue(TEXT("GlowB"), Tuned[2] * Lamp.B / FMath::Max(Hour.B / Lum, 0.25f));
 	}
 	if (!Ink || FMath::Abs(Mist - AirMist) < 0.01)
 	{
