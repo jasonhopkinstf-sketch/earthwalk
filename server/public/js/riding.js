@@ -123,6 +123,7 @@ export class Riding {
 
   land() {
     const p = this.player;
+    this.traffic.leaveTrain();
     const side = this.mine.sp === "train" ? 3.5 : 1.6; // step down to the right
     this.mine = null;
     p.mount = null;
@@ -144,9 +145,14 @@ export class Riding {
 
     // ---- being carried: by a train, or by the friend who is steering
     if (me?.sp === "train") {
+      // Past the end of its run the train carries on down the line with me aboard (traffic.js, carryOn).
+      const news = this.traffic.carryOn(me.thing, t);
+      if (news) this.say(news);
       const at = this.traffic.carriageAt(me.thing, me.k, t);
-      if (at) p.position.set(at.x, at.y + me.mount.seat, at.z);
-      else this.off(); // the train has gone where this game cannot follow
+      if (at) {
+        me.lost = 0;
+        p.position.set(at.x, at.y + me.mount.seat, at.z);
+      } else if ((me.lost += dt) > 30) this.off(); // the train has gone where this game cannot follow (the ground ahead still being built is waited for)
     } else if (me && me.seat > 0) {
       let driver = null;
       for (const [id, peer] of meetup.peers) if (peer.ride?.thing === me.thing && peer.ride.seat === 0) driver = avatars.shown.get(id);

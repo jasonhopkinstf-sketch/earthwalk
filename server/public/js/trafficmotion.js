@@ -91,8 +91,9 @@ export function stopsAlong(train) {
  * Where a train is at shared time `t`: it waits at the start, runs out along its track (standing a
  * while at each station, where the path has two points in one place), waits at the far end and
  * runs back. A train is the same at both ends, so it never turns round.
- * @returns {{ along: number, back: boolean, moving: boolean, leg: number }}
+ * @returns {{ along: number, back: boolean, moving: boolean, leg: number, stood: number }}
  *   `along`: metres along the track, from 0 to `train.length`. `back`: heading for the start.
+ *   `stood`: how many seconds it has been standing at the end of its run it is at (legs 0 and 2), else 0.
  */
 export function trainPose(train, t) {
   const tau = (((t + (hash32(train.id, SALT_TRAIN) / 4294967296) * train.period) % train.period) + train.period) % train.period;
@@ -111,7 +112,67 @@ export function trainPose(train, t) {
   const span = p[hi * 3 + 2] - p[lo * 3 + 2];
   const f = span > 0 ? Math.min(1, Math.max(0, (at - p[lo * 3 + 2]) / span)) : 0;
   const run = train.dist[hi] - train.dist[lo];
-  return { along: train.dist[lo] + run * f, back: leg === 0 || leg === 3, moving: (leg === 1 || leg === 3) && run > 0, leg };
+  return { along: train.dist[lo] + run * f, back: leg === 0 || leg === 3, moving: (leg === 1 || leg === 3) && run > 0, leg, stood: leg === 0 ? tau : leg === 2 ? tau - train.da - train.time : 0 };
+}
+
+// ---------------------------------------------------------------- a train that carries on
+//
+// A train shuttles along its own run, which ends where its square of the map ends (about two kilometres), and
+// there the track goes on as another train's run. Somebody riding does not want to be taken back: so where the
+// track goes on, their train carries on along it, run after run, as far as the line does (traffic.js).
+
+/** How long a train stands at the end of its run before it carries on down the line with whoever is aboard. */
+export const THROUGH_DWELL_S = 6;
+/** Two runs are the same track going on when an end of each is this near the other, and they point much the same way. */
+export const JOIN_M = 12;
+
+/**
+ * A train run along once, by a clock of its own: `since` seconds after it set off from one end (the far end
+ * when `back`), at the pace the timetable has, standing at each station as the timetable does.
+ * @returns {{ along: number, moving: boolean, done: boolean }}  `done`: it has reached the other end.
+ */
+export function runPose(train, since, back) {
+  const gone = Math.min(train.time, Math.max(0, since));
+  const at = back ? train.time - gone : gone;
+  const p = train.path;
+  let lo = 0;
+  let hi = train.n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (p[mid * 3 + 2] <= at) lo = mid; else hi = mid;
+  }
+  const span = p[hi * 3 + 2] - p[lo * 3 + 2];
+  const f = span > 0 ? Math.min(1, Math.max(0, (at - p[lo * 3 + 2]) / span)) : 0;
+  const run = train.dist[hi] - train.dist[lo];
+  return { along: train.dist[lo] + run * f, moving: since > 0 && since < train.time && run > 0, done: since >= train.time };
+}
+
+/**
+ * The run a train goes on along from one end of its own (`far`: its far end, else its start): of `others`, the
+ * one with an end nearest that point, within JOIN_M, that leads on much the way the train was going.
+ * @returns {{ train: object, back: boolean } | null}  `back`: it is entered at its far end, and so run backwards.
+ */
+export function joinOf(train, far, others) {
+  const [x, y] = pointAt(train, far ? train.length : 0);
+  const [bx, by] = pointAt(train, far ? train.length - 12 : 12);
+  const going = [x - bx, y - by]; // the way it was going as it reached this end
+  let best = null;
+  let least = JOIN_M;
+  for (const other of others) {
+    if (other === train || other.id === train.id) continue;
+    for (const back of [false, true]) {
+      const [ox, oy] = pointAt(other, back ? other.length : 0);
+      const d = Math.hypot(ox - x, oy - y);
+      if (d >= least) continue;
+      const [nx, ny] = pointAt(other, back ? other.length - 12 : 12);
+      const on = [nx - ox, ny - oy]; // the way it leads on from that end
+      const turn = Math.abs(Math.atan2(going[0] * on[1] - going[1] * on[0], going[0] * on[0] + going[1] * on[1]));
+      if (turn > 1.2) continue;
+      least = d;
+      best = { train: other, back };
+    }
+  }
+  return best;
 }
 
 /**

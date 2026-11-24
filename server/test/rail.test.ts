@@ -6,8 +6,8 @@ import { Elevation } from "../src/elevation.ts";
 import { metersPerTile, xToLon, yToLat } from "../src/geo.ts";
 import { buildLabels, generateLabels, partialLabels, type LabelsJson } from "../src/labels.ts";
 import type { Features, OsmJson } from "../src/osm.ts";
-import { buildTrains, parseRail, RAIL_SPAN, trainsFor, TRAINS_PER_SQUARE } from "../src/rail.ts";
-import { pointAt, prepare, trainPose } from "../public/js/trafficmotion.js";
+import { buildRuns, buildTrains, parseRail, RAIL_SPAN, trainsFor, TRAINS_PER_SQUARE } from "../src/rail.ts";
+import { JOIN_M, joinOf, pointAt, prepare, runPose, THROUGH_DWELL_S, trainPose } from "../public/js/trafficmotion.js";
 
 // The rail square that holds the Eiffel Tower's chunk.
 const RX = 33185 >> 2;
@@ -156,4 +156,48 @@ test("labels built with a piece missing are served but not kept, so the next vis
   } finally {
     app.close();
   }
+});
+
+test("a train that carries on: the track of a square goes on into the next, and a train somebody rides goes along it", () => {
+  // Every run of the square is sent: its trains, and after them the stretches with no train of their own.
+  const runs = buildRuns(RX, RY, parseRail(railway()));
+  const trains = buildTrains(RX, RY, parseRail(railway()));
+  assert.deepEqual(runs.filter((r) => !r.spare), trains);
+  assert.ok(runs.some((r) => r.spare), "the branch and the tunnel, too short for trains of their own, go out as track");
+  assert.ok(runs.filter((r) => r.spare).every((r) => r.path.length >= 3 && r.path[r.path.length - 1][2] > 0), "each with a timetable a train could keep");
+
+  // Two stretches end to end, as at the edge of a square: west to east, and the next one drawn from its far end.
+  const line = (id: number, from: number, to: number, y = 0) => {
+    const path: number[] = [];
+    const n = Math.round(Math.abs(to - from) / 12);
+    for (let i = 0; i <= n; i++) path.push(from + ((to - from) * i) / n, y, i * 1.2);
+    return prepare({ id, w: 0, left: false, da: 20, db: 20, path });
+  };
+  const a = line(1, 0, 600), b = line(2, 1200, 600), beside = line(3, 600, 1200, 30), turnsBack = line(4, 603, 0, 2);
+  assert.deepEqual(joinOf(a, true, [a, beside, turnsBack, b]), { train: b, back: true }, "the one that leads straight on, entered at its far end");
+  assert.equal(joinOf(a, false, [a, b, beside]), null, "nothing goes on from its near end");
+  assert.equal(joinOf(a, true, [a, beside]), null, "the track beside it is not the same track");
+  assert.ok(JOIN_M >= 5 && THROUGH_DWELL_S > 0);
+
+  // Run along once by a clock of its own, from either end, with no jumps, and done at the other end.
+  for (const back of [false, true]) {
+    let last = runPose(b, 0, back).along;
+    assert.equal(last, back ? b.length : 0);
+    for (let s = 0.1; s <= b.time + 1; s += 0.1) {
+      const now = runPose(b, s, back);
+      assert.ok(Math.abs(now.along - last) < 1.6, "no jumps");
+      assert.equal(now.done, s >= b.time);
+      last = now.along;
+    }
+    assert.equal(last, back ? 0 : b.length);
+  }
+  // A train stood at the end of its run says how long it has stood there.
+  const t0 = 1_795_000_000;
+  let stood = 0;
+  for (let i = 0; i < a.period * 2; i++) {
+    const pose = trainPose(a, t0 + i);
+    if (pose.leg === 1 || pose.leg === 3) assert.equal(pose.stood, 0);
+    else stood = Math.max(stood, pose.stood);
+  }
+  assert.ok(stood > 15 && stood <= 20, "up to its twenty seconds");
 });

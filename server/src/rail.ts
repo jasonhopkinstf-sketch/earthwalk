@@ -26,9 +26,20 @@ export interface RailData { lines: { id: number; pts: Pt[] }[]; stations: Pt[] }
  * A train and its trip: `path` is [x, y, seconds since setting off], a point every 12 m; it waits `wa` and `wb` seconds at the ends.
  * `lift`, once worked out (labels.ts), is how far above the ground each point is, or below it: on bridges and in tunnels.
  */
-export interface Train { id: number; wa: number; wb: number; path: [number, number, number][]; lift?: number[] | null }
+export interface Train {
+  id: number; wa: number; wb: number; path: [number, number, number][]; lift?: number[] | null;
+  /**
+   * A stretch of track with no train of its own: a square has six trains at most, and its other runs, and the
+   * short ones, go out as track only. A train somebody is riding carries on along them (trafficmotion.js, "a train
+   * that carries on"): without them it would have nowhere to go at a junction or a yard.
+   */
+  spare?: true;
+}
 
 const MIN_RUN_M = 400;
+/** A run this short is not worth sending even as track, and a square sends this many spare runs at most. */
+const MIN_SPARE_M = 30;
+const SPARES_PER_SQUARE = 40;
 const STEP_M = 12;
 const PACE = 14; // metres a second: a slow, friendly train
 const ACCEL = 0.5;
@@ -105,6 +116,11 @@ const key = (p: Pt): string => `${p[0]},${p[1]}`;
  * keeping straight on at points; each run of 400 m or more gets one train, the six longest at most.
  */
 export function buildTrains(rx: number, ry: number, data: RailData): Train[] {
+  return buildRuns(rx, ry, data).filter((t) => !t.spare);
+}
+
+/** The trains of a rail square and, after them, its other stretches of track (`spare`), each with a timetable a train could keep along it. */
+export function buildRuns(rx: number, ry: number, data: RailData): Train[] {
   const X0 = rx * RAIL_SPAN;
   const Y0 = ry * RAIL_SPAN;
   const S = metersPerTile(Y0 + RAIL_SPAN / 2, CHUNK_Z);
@@ -152,11 +168,15 @@ export function buildTrains(rx: number, ry: number, data: RailData): Train[] {
     // Whichever end we started from, the run reads the same way: from its western (or northern) end.
     const [a, b] = [run[0], run[run.length - 1]];
     if (a[0] > b[0] || (a[0] === b[0] && a[1] > b[1])) run.reverse();
-    if (length >= MIN_RUN_M) runs.push({ first: piece.id, pts: run, length });
+    if (length >= MIN_SPARE_M) runs.push({ first: piece.id, pts: run, length });
   });
   runs.sort((a, b) => b.length - a.length || a.first - b.first);
 
-  return runs.slice(0, TRAINS_PER_SQUARE).map((run) => timetable(run.pts, run.length, hash32(hash32(run.first, Math.round(run.length)), hash32(rx, ry) ^ 0x7241494c) || 1));
+  const made = (run: (typeof runs)[number]): Train => timetable(run.pts, run.length, hash32(hash32(run.first, Math.round(run.length)), hash32(rx, ry) ^ 0x7241494c) || 1);
+  const long = runs.filter((run) => run.length >= MIN_RUN_M);
+  const trains = long.slice(0, TRAINS_PER_SQUARE);
+  const spares = runs.filter((run) => !trains.includes(run)).slice(0, SPARES_PER_SQUARE);
+  return [...trains.map(made), ...spares.map((run) => ({ ...made(run), spare: true as const }))];
 
   function timetable(line: Pt[], total: number, id: number): Train {
     // ---- a point every 12 m
@@ -211,6 +231,11 @@ const building = new Map<string, Promise<Train[]>>();
 
 /** The trains whose run passes through a chunk. Throws when the tracks cannot be fetched. */
 export async function trainsFor(cx: number, cy: number, load = fetchRail): Promise<Train[]> {
+  return (await runsFor(cx, cy, load)).filter((t) => !t.spare);
+}
+
+/** The trains whose run passes through a chunk and the spare stretches of track that do. Throws when the tracks cannot be fetched. */
+export async function runsFor(cx: number, cy: number, load = fetchRail): Promise<Train[]> {
   const rx = cx >> (CHUNK_Z - RAIL_Z);
   const ry = cy >> (CHUNK_Z - RAIL_Z);
   const k = `${rx}/${ry}`;
@@ -219,7 +244,7 @@ export async function trainsFor(cx: number, cy: number, load = fetchRail): Promi
     let job = building.get(k);
     if (!job) {
       job = load(rx, ry).then((json) => {
-        const made = buildTrains(rx, ry, parseRail(json));
+        const made = buildRuns(rx, ry, parseRail(json));
         if (built.size >= 32) built.delete(built.keys().next().value!);
         built.set(k, made);
         return made;

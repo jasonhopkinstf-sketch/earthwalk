@@ -586,6 +586,7 @@ export class World {
       chunk.routes = items.filter((it) => it.kind === "route"); // the trips cars make, and
       chunk.cars = items.filter((it) => it.kind === "car"); // the cars parked at the kerb; traffic.js drives them
       chunk.trains = items.filter((it) => it.kind === "train"); // and the trains, each sent with every chunk on its run
+      chunk.tracks = items.filter((it) => it.kind === "track"); // and the stretches of railway with no train of their own
       this.plant(chunk, items.filter((it) => it.kind === "tree"));
       this.signDoors(chunk, chunk.doors.filter((it) => it.kind === "door" && !it.use));
       this.nameHomesOf(chunk);

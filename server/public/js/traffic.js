@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import { hash32 } from "./lifemotion.js";
 import { BODIES, VEHICLES } from "./liferigs.js";
-import { headingAt, liftAt, pointAt, prepare, stopsAlong, trainPose, tripPose } from "./trafficmotion.js";
+import { headingAt, joinOf, liftAt, pointAt, prepare, runPose, stopsAlong, THROUGH_DWELL_S, trainPose, tripPose } from "./trafficmotion.js";
 
 const SHOW_M = 220;
 const MAX_PARKED = 40;
@@ -49,6 +49,16 @@ export class Traffic {
     this.trains = [];
     /** Set by main.js: riding.js, which says what is being ridden (and so not drawn where its timetable has it). */
     this.riding = null;
+    /** Every stretch of railway this game has, by its identity: the trains' own runs, and the spare track with no train. */
+    this.tracks = new Map();
+    /**
+     * The train I am on, once it has carried on past the end of its own run (trafficmotion.js, "a train that
+     * carries on"), or null. `segs` are the stretches of track it has gone along, the last the one its front is
+     * on: { train, back, start, t0 }, the run, which way along it, how far down the whole way it begins, and when
+     * the front set off along it. `far` says which end of the train is its front; `hide` the timetable's own
+     * trains that are not drawn for me meanwhile (the one I boarded, and any whose track mine is on).
+     */
+    this.through = null;
     /** The cars and railway carriages near enough to hop on, as drawn last frame. */
     this.rideable = [];
     this.states = new Map(); // car id -> { lag, yaw, tooted }
@@ -90,13 +100,23 @@ export class Traffic {
         const rig = VEHICLES.railcar;
         if (train.time > 0 && train.length > TRAIN_M + 30) trains.push({ train, rig, coat: rig.palette[hash32(train.id, SALT_PAINT) % rig.palette.length] });
       }
-      this.byChunk.set(key, { chunk, parked, trips, trains });
+      // And the stretches of track with no train of their own, for a train somebody rides to carry on along.
+      const tracks = trains.map((x) => x.train);
+      for (const it of chunk.tracks ?? []) {
+        if (![it.id, it.da, it.db].every(Number.isFinite) || !Array.isArray(it.pts) || it.pts.length < 6 || !it.pts.every(Number.isFinite)) continue;
+        const path = it.pts.map((n, i) => (i % 3 === 0 ? ox + n * S : i % 3 === 1 ? oz + n * S : n));
+        const track = prepare({ id: it.id >>> 0, w: 0, left: false, da: Math.max(1, it.da), db: Math.max(1, it.db), path, lift: liftsOf(it) });
+        if (track.time > 0 && track.length > 1) tracks.push(track);
+      }
+      this.byChunk.set(key, { chunk, parked, trips, trains, tracks });
     }
     this.parked = [];
     this.trips = [];
     const trains = new Map(); // one of each, whichever chunk it came with
-    for (const { parked, trips, trains: list } of this.byChunk.values()) {
+    this.tracks = new Map();
+    for (const { parked, trips, trains: list, tracks } of this.byChunk.values()) {
       for (const item of list) if (!trains.has(item.train.id)) trains.set(item.train.id, item);
+      for (const track of tracks) if (!this.tracks.has(track.id)) this.tracks.set(track.id, track);
       for (const car of parked) {
         car.d = Math.hypot(car.x - position.x, car.z - position.z);
         if (car.d < SHOW_M) this.parked.push(car);
@@ -181,7 +201,19 @@ export class Traffic {
       shown++;
     }
     // ---- trains: four carriages spread along the track, the middle of the train where the timetable puts it
+    const mine = this.through;
+    if (mine) {
+      // The train I am carried on down the line by, where it has got to.
+      for (let j = 0; j < CARRIAGES; j++) {
+        const at = this.throughAt(j, t);
+        if (!at) continue;
+        life.base.compose(this.v.set(at.x, at.y, at.z), this.q.setFromEuler(this.euler.set(0, at.yaw, 0)), this.s.set(1, 1, 1));
+        life.put(VEHICLES.railcar, mine.coat, counts, null, 0, 0, t, 0);
+        shown++;
+      }
+    }
     for (const { train, rig, coat } of this.trains) {
+      if (mine?.hide.has(train.id)) continue; // (the one I boarded, and the timetable's own train of the track mine is on)
       const pose = trainPose(train, t);
       const middle = TRAIN_M / 2 + (pose.along * (train.length - TRAIN_M)) / train.length;
       let nearest = Infinity;
@@ -325,8 +357,73 @@ export class Traffic {
     return out;
   }
 
+  /**
+   * Every frame while I ride the train `id`: where the track goes on past the end of its run, the train carries on
+   * along it with me, and on again at the end of that, as far as the line goes. Where the track ends it stands.
+   * Returns words to say, when there are any: "the train carries on", "as far as the track goes".
+   */
+  carryOn(id, t) {
+    const all = [...this.tracks.values()];
+    const th = this.through;
+    if (!th) {
+      const item = this.trains.find((x) => x.train.id === id);
+      if (!item) return null;
+      const pose = trainPose(item.train, t);
+      if (pose.leg !== 0 && pose.leg !== 2) return null; // not standing at an end of its run
+      const far = pose.leg === 2;
+      const join = pose.stood >= THROUGH_DWELL_S ? joinOf(item.train, far, all) : null;
+      if (!join) return null;
+      // Its front is at the end of the run it was on, and sets off along the next when the train has stood its six
+      // seconds (whenever this game came to notice: friends aboard go together).
+      this.through = {
+        segs: [{ train: item.train, back: !far, start: 0, t0: 0 }, { ...join, start: item.train.length, t0: t - (pose.stood - THROUGH_DWELL_S) }],
+        far, coat: item.coat, hide: new Set([id, join.train.id]), said: false,
+      };
+      return "The train carries on down the line. E hops off when you like.";
+    }
+    const last = th.segs[th.segs.length - 1];
+    if (t - last.t0 < last.train.time) return null;
+    const join = joinOf(last.train, !last.back, all);
+    if (join) {
+      th.segs.push({ ...join, start: last.start + last.train.length, t0: last.t0 + last.train.time });
+      if (th.segs.length > 12) th.segs.shift(); // (the train is on the last few of them at most)
+      th.hide = new Set([id, join.train.id]);
+      return null;
+    }
+    if (th.said) return null;
+    th.said = true;
+    return "This is as far as the track goes from here. E hops off.";
+  }
+
+  /** Off the train: whatever it was doing for me, it does no longer. */
+  leaveTrain() {
+    this.through = null;
+  }
+
+  /** Where carriage `j` of the train I am carried on by is (0 is its front): the place, and null where the ground has not come. */
+  throughAt(j, t) {
+    const th = this.through;
+    const last = th.segs[th.segs.length - 1];
+    const pose = runPose(last.train, t - last.t0, last.back);
+    const front = last.start + (last.back ? last.train.length - pose.along : pose.along);
+    // So far down the whole way it has come: on whichever stretch that is, and never before the first of them.
+    const want = Math.max(th.segs[0].start, front - CARRIAGE_M / 2 - j * (CARRIAGE_M + COUPLING_M));
+    let seg = th.segs[0];
+    for (const one of th.segs) if (one.start <= want) seg = one;
+    const local = Math.min(seg.train.length, want - seg.start);
+    const d = seg.back ? seg.train.length - local : local;
+    const [x, z] = pointAt(seg.train, d);
+    // (Where the ground ahead has not come yet, the train keeps the height it had: it does not stop for the map.)
+    const ground = this.world.groundHeight(x, z);
+    if (ground !== null) th.ground = ground;
+    const y = ground ?? th.ground ?? null;
+    return y === null ? null : { x, y: y + liftAt(seg.train, d), z, yaw: (-headingAt(seg.train, d, 6) * Math.PI) / 180 };
+  }
+
   /** Where carriage `k` of a train is at shared time `t`, for a passenger on its roof; null if this game does not have the train. */
   carriageAt(id, k, t) {
+    // (Carried on down the line, the carriages count from the train's front, which was its far end or its near one.)
+    if (this.through) return this.throughAt(this.through.far ? CARRIAGES - 1 - k : k, t);
     const item = this.trains.find((x) => x.train.id === id);
     if (!item) return null;
     const { train } = item;

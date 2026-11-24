@@ -5,7 +5,11 @@ export interface CarPose { x: number; y: number; yaw: number; moving: boolean; l
 export const KERB_IN: number;
 export const EASE_M: number;
 export const TURN_M: number;
-export interface TrainPose { along: number; back: boolean; moving: boolean; leg: number }
+export interface TrainPose { along: number; back: boolean; moving: boolean; leg: number; stood: number }
+export const THROUGH_DWELL_S: number;
+export const JOIN_M: number;
+export function runPose(train: PreparedTrip, since: number, back: boolean): { along: number; moving: boolean; done: boolean };
+export function joinOf(train: PreparedTrip, far: boolean, others: PreparedTrip[]): { train: PreparedTrip; back: boolean } | null;
 export function prepare(trip: TripInput): PreparedTrip;
 export function pointAt(trip: PreparedTrip, d: number): [number, number];
 export function liftAt(trip: PreparedTrip, d: number): number;

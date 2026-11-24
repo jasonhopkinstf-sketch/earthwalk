@@ -18,7 +18,7 @@ import { drawSpans, planTunnels, type SpanCtx } from "./spanmesh.ts";
 export const FORMAT_MAGIC = 0x31435745; // "EWC1" little-endian
 export const FORMAT_VERSION = 1;
 /** Bump when generated geometry changes, so cached chunks are rebuilt. */
-export const GENERATOR_REV = 15;
+export const GENERATOR_REV = 16;
 /**
  * More buildings of its own than this, and a chunk is drawn more plainly. OFF (0: never) unless EARTHWALK_CROWDED
  * sets a number: the game's owner looked at it on 2026-11-24 and chose to keep every house drawn in full ("lets
@@ -679,6 +679,13 @@ interface RoofLook {
 }
 /** Width of the pavement beside a town street, in metres. */
 const PAVEMENT = 1.6;
+/** A railway track, in metres: its bed of stones across, the rails apart and wide, and its sleepers (long, wide, and how far from one to the next). Drawn bold, to be read from a train's roof. */
+const TRACK_BED_M = 3.4;
+const RAIL_GAUGE_M = 1.5;
+const RAIL_WIDE_M = 0.18;
+const SLEEPER_LONG_M = 2.6;
+const SLEEPER_WIDE_M = 0.42;
+const SLEEPER_EVERY_M = 1.5;
 
 /**
  * Roofs: a gable on rectangular houses, a hip on other small convex ones, and on L-shaped and other
@@ -1184,6 +1191,62 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
     }
   }
 
+  /**
+   * A railway on the ground, so that it looks like one: a bed of stones, wooden sleepers across it and two
+   * steel rails along it. It is made of surfaces the games have already (rock, rail, structure), so neither
+   * game needs telling. `line` is the middle of the track, metres east and north of the chunk's corner.
+   */
+  const track = (line: [number, number][]): void => {
+    const bed = sec(MATERIALS.rock), wood = sec(MATERIALS.rail), steel = sec(MATERIALS.structure);
+    type Sec = typeof bed;
+    const put = (s: Sec, e: number, n: number, lift: number): number => {
+      const wx = cx + e / S, wy = cy - n / S;
+      const [ne, nn, nh] = groundNormal(wx, wy);
+      return s.vert(e, n, ground(wx, wy) + lift, ne, nn, nh);
+    };
+    /** The way the track runs at a point of the line: east and north, one metre long. */
+    const along = (i: number): [number, number] => {
+      const a = line[Math.max(0, i - 1)], b = line[Math.min(line.length - 1, i + 1)];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    };
+    // The bed and the two rails: strips the length of the track, each from so far left of the middle to so far left of it.
+    for (const [s, from, to, lift] of [[bed, -TRACK_BED_M / 2, TRACK_BED_M / 2, 0.09], [steel, RAIL_GAUGE_M / 2, RAIL_GAUGE_M / 2 + RAIL_WIDE_M, 0.2],
+      [steel, -RAIL_GAUGE_M / 2 - RAIL_WIDE_M, -RAIL_GAUGE_M / 2, 0.2]] as [Sec, number, number, number][]) {
+      let prevL = -1, prevR = -1;
+      for (let i = 0; i < line.length; i++) {
+        const [te, tn] = along(i);
+        const L = put(s, line[i][0] - tn * to, line[i][1] + te * to, lift);
+        const R = put(s, line[i][0] - tn * from, line[i][1] + te * from, lift);
+        if (prevL >= 0) {
+          s.triUp(prevL, prevR, R);
+          s.triUp(prevL, R, L);
+        }
+        prevL = L;
+        prevR = R;
+      }
+    }
+    // The sleepers: one every so many metres along the track, lying across it between the bed and the rails.
+    let due = SLEEPER_EVERY_M / 2;
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1], b = line[i];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 1e-6) continue;
+      const te = (b[0] - a[0]) / len, tn = (b[1] - a[1]) / len;
+      for (; due <= len; due += SLEEPER_EVERY_M) {
+        const e = a[0] + te * due, n = a[1] + tn * due;
+        const half = SLEEPER_LONG_M / 2, w = SLEEPER_WIDE_M / 2;
+        const bl = put(wood, e - te * w - tn * half, n - tn * w + te * half, 0.14);
+        const br = put(wood, e - te * w + tn * half, n - tn * w - te * half, 0.14);
+        const fr = put(wood, e + te * w + tn * half, n + tn * w - te * half, 0.14);
+        const fl = put(wood, e + te * w - tn * half, n + tn * w + te * half, 0.14);
+        wood.triUp(bl, br, fr);
+        wood.triUp(bl, fr, fl);
+      }
+      due -= len;
+    }
+  };
+
   // ---- roads, paths, rails and streams: ribbons draped on the terrain
   const ribbon = (road: Road): void => {
     const mat = MATERIALS[road.cls];
@@ -1206,6 +1269,10 @@ export function buildChunkMesh(cx: number, cy: number, features: Features, elev:
         line.push([e, n]);
       }
       if (line.length < 2) continue;
+      if (road.cls === "rail") {
+        track(line);
+        continue;
+      }
       const s = sec(mat);
       let prevL = -1;
       let prevR = -1;

@@ -10,19 +10,20 @@ import { Elevation } from "./elevation.ts";
 import { clipPolyline, featuresForChunk, groundClasses, homesOf, placeTrees, signsOf } from "./chunk.ts";
 import { placeHomes, placeMachines, placeWild } from "./life.ts";
 import { placeTraffic } from "./traffic.ts";
-import { trainsFor, type Train } from "./rail.ts";
+import { runsFor, type Train } from "./rail.ts";
 import { DATA_Z, loadFeatures, type Features, type Pt, type Road } from "./osm.ts";
 import { heightOn, liftAt, prepareSpans, type Profile, rampsOf, spansOf, SURFACE_M } from "./spans.ts";
 import { venuesOf } from "./venues.ts";
 
 /** Bump when label placement changes, so cached label files are rebuilt. */
-export const LABELS_REV = 19;
+export const LABELS_REV = 20;
 
 /** Labels built while the railway tracks could not be fetched: complete but for trains, and not to be kept. */
 export const partialLabels = new WeakSet<Buffer>();
 
 export interface LabelItem {
-  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "door" | "sign" | "entry";
+  /** ("track": a stretch of railway with no train of its own, in the shape of a train, for a train somebody rides to carry on along.) */
+  kind: "house" | "street" | "tree" | "home" | "car" | "route" | "train" | "track" | "door" | "sign" | "entry";
   /** Plate text; absent on trees and homes. */
   text?: string;
   /** Homes (a herd, a flock or a pet): the animal, how many, and the home's identity; `r` is the roam radius in metres. */
@@ -338,7 +339,7 @@ export function buildLabels(cx: number, cy: number, features: Features, elev: El
     const u = r5(train.path[0][0] - cx);
     const v = r5(train.path[0][1] - cy);
     return {
-      kind: "train", id: train.id, u, v, h: elev.surfaceHeight(Math.min(cx + 1, Math.max(cx, cx + u)), Math.min(cy + 1, Math.max(cy, cy + v))), yaw: 0,
+      kind: train.spare ? "track" : "train", id: train.id, u, v, h: elev.surfaceHeight(Math.min(cx + 1, Math.max(cx, cx + u)), Math.min(cy + 1, Math.max(cy, cy + v))), yaw: 0,
       da: train.wa, db: train.wb, pts: train.path.flatMap(([x, y, t]) => [r5(x - cx), r5(y - cy), t]),
       ...(train.lift ? { lift: train.lift } : {}),
     };
@@ -403,7 +404,7 @@ async function liftTrain(train: Train, elev: Elevation, load: typeof loadFeature
 export async function generateLabels(
   cx: number, cy: number, elev: Elevation, load = loadFeatures,
   // With the map swapped out (tests), the railways are not fetched either.
-  trains: (cx: number, cy: number) => Promise<Train[]> = load === loadFeatures ? trainsFor : async () => [],
+  trains: (cx: number, cy: number) => Promise<Train[]> = load === loadFeatures ? runsFor : async () => [],
 ): Promise<Buffer> {
   const features = await featuresForChunk(cx, cy, load, elev);
   // (A car's trip can run 420 m out of its chunk, and how high it is above the ground is wanted all the way.)
