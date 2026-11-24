@@ -11,6 +11,14 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.51", date: "2026-11-24", title: "The right Queen Street",
+    items: [
+      { text: "Asking for a street by name takes you to the street called that. \"Queen Street\" from Devonport went to a nearer road that had the name long ago." },
+      { text: "A numbered address takes you to the house itself, where the map knows it." },
+      { text: "Windows game: the train that carries on down the line is in this version. An early 0.2.50 did not have it." },
+    ],
+  },
+  {
     version: "0.2.50", date: "2026-11-24", title: "Fly low, ride the train on, go to an address",
     items: [
       { text: "Being flown to a place over the rooftops, the flight is yours to trim: hold C to come down, as low as the hedges, and Space to go up." },
