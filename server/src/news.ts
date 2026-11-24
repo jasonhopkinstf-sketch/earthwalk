@@ -11,6 +11,15 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.52", date: "2026-11-24", title: "The world map",
+    items: [
+      { text: "Press N for a map of the whole world. Drag it to look round, and turn the wheel to come closer or stand back." },
+      { text: "Click anywhere on the map and it tells you the place and how far off it is." },
+      { text: "Then call a taxi: it comes to you, you hop on with E, and it drives you there. Or fly there, or go there at once." },
+      { text: "The Colours button on the map switches between brighter colours and the plain map. N or Esc puts the map away." },
+    ],
+  },
+  {
     version: "0.2.51", date: "2026-11-24", title: "The right Queen Street",
     items: [
       { text: "Asking for a street by name takes you to the street called that. \"Queen Street\" from Devonport went to a nearer road that had the name long ago." },
