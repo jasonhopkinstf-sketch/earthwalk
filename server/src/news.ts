@@ -11,6 +11,15 @@ export interface NewsEntry { version: string; date: string; title: string; items
 
 export const NEWS: NewsEntry[] = [
   {
+    version: "0.2.53", date: "2026-11-27", title: "Cars keep out of each other",
+    items: [
+      { text: "Cars driving round no longer go through the cars parked at the kerb. They pull out round them and back into their lane." },
+      { text: "Cars give way to each other. Where there is room for only one, a car waits in a gap and lets the other through." },
+      { text: "A car finishes its trip at an empty stretch of kerb, not inside another car. Narrow streets have parked cars along one side only." },
+      { text: "Each place gets its new car trips the first time somebody goes there after today, so the first visit takes a moment." },
+    ],
+  },
+  {
     version: "0.2.52", date: "2026-11-24", title: "The world map",
     items: [
       { text: "Press N for a map of the whole world. Drag it to look round, and turn the wheel to come closer or stand back." },
