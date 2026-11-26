@@ -348,7 +348,38 @@ last 10 m it pulls in from `lane` to `kerb`, each with `g² × (3 − 2g)` smoot
 body round to its heading gradually, which is what swings the car about at each end.
 
 A car that finds a player in front of it stops and toots; that is each client's own doing, like the
-animals' reactions. It then runs a little late and makes up the time. Cars do not notice each other.
+animals' reactions. It then runs a little late and makes up the time.
+
+### Cars and each other
+
+A timetable knows nothing of the other cars, so left to their timetables cars drive through whatever is
+in the way. Three things stop that. The first is the server's, the other two each client's own
+(`trafficmotion.js` again, under "giving way"; the Windows game's `EarthLifeMotion.cpp` is the same line
+for line, and `-EWLifeTest` holds the two against each other):
+
+1. **Where cars stand.** The server ends a trip only at a stretch of kerb with nothing along it (no
+   parked car and no other trip's end within 14 m on that side, nor on the other side where the car
+   crosses over as it sets off for home), and starts one only from a space whose neighbours ahead are
+   empty. A street under 6 m wide has parked cars along one kerb only.
+2. **Steering round cars at the kerb.** A client tells each trip what stands beside its road (`setSpots`:
+   the parked cars it draws, and where every trip's own car waits at its two ends). Beside one on its own
+   side, the car moves over until there is 0.4 m between them, starting 10 m before it is level with it
+   and back in its lane 10 m after; its body turns half as far as its path does. A spot counts only
+   while something stands there (a trip's end while its car is away does not; a parked car somebody has
+   driven off does not).
+3. **Giving way.** Each frame every car looks along its own timetable, 4.2 s ahead, for where it would
+   be inside another car's box (a little larger than the car) at the same moment, and 12.6 s ahead for a
+   car coming the other way through a stretch with room for one. Of two that would meet, the one
+   behind waits; of two that face each other, a car pulling out waits for one in its lane, and a car in
+   its lane for one already out round a parked car; otherwise the one with the larger `id`. Waiting
+   means its clock stops (it falls behind its timetable, at most 90 s) and it draws in to its kerb; free
+   again, it makes the time up at 1.3 times its pace. A car out round a parked car goes on until it is
+   back in its lane before it waits. Two that have stood for each other 8 to 14 s are let through each
+   other, so nothing stands for ever.
+
+What a client has worked out is its own: another client, which began watching at another moment, may
+have a car a few metres from where this one has it while the car is waiting. Parked cars and the
+timetables are the same for everybody.
 
 ## Trains
 

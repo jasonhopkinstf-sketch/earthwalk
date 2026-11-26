@@ -1,14 +1,15 @@
 // Cars in the browser: the parked ones, and the ones out on a trip. The server works out every
 // trip; trafficmotion.js replays it from the shared clock, so everyone in a room sees the same car
 // in the same place. What a car does about a player in its way (it stops and toots) is worked out
-// here, from the player positions we already have.
+// here, from the player positions we already have; and so is what it does about other cars: it
+// steers out round the ones at the kerb and gives way to the ones on the move (trafficmotion.js).
 //
 // Cars are drawn through Life's instanced meshes, with the figures of liferigs.js.
 
 import * as THREE from "three";
 import { hash32 } from "./lifemotion.js";
 import { BODIES, VEHICLES } from "./liferigs.js";
-import { headingAt, joinOf, liftAt, pointAt, prepare, runPose, stopsAlong, THROUGH_DWELL_S, trainPose, tripPose } from "./trafficmotion.js";
+import { giveWay, headingAt, joinOf, liftAt, pointAt, prepare, restPose, runPose, setSpots, stopsAlong, THROUGH_DWELL_S, trainPose, tripPose } from "./trafficmotion.js";
 
 const SHOW_M = 220;
 const MAX_PARKED = 40;
@@ -130,6 +131,20 @@ export class Traffic {
     this.trains = [...trains.values()];
     this.parked.sort((a, b) => a.d - b.d);
     this.parked.length = Math.min(this.parked.length, MAX_PARKED);
+    // What stands at the kerbs, for the cars that steer out round it: the parked cars that are drawn, and where
+    // each trip's own car waits at its two ends. Told to the trips again only when it has changed.
+    const sign = `${this.parked.map((car) => car.id).sort().join()}|${this.trips.map((car) => car.trip.id).sort().join()}`;
+    if (sign !== this.spotsSign) {
+      this.spotsSign = sign;
+      const spots = this.parked.map((car) => ({ x: car.x, y: car.z, key: `p${car.id}` }));
+      for (const { trip } of this.trips) {
+        for (const far of [false, true]) {
+          const at = restPose(trip, far);
+          spots.push({ x: at.x, y: at.y, key: `${far ? "b" : "a"}${trip.id}` });
+        }
+      }
+      for (const { trip } of this.trips) setSpots(trip, spots.filter((s) => s.key !== `a${trip.id}` && s.key !== `b${trip.id}`));
+    }
     if (this.states.size > 300) this.states.clear();
   }
 
@@ -155,39 +170,45 @@ export class Traffic {
     }
     // Where every car on a trip is now; the nearest are drawn, and of those on the move only so many.
     const me = players[0];
-    const near = [];
+    const out = [];
     for (const car of this.trips) {
+      if (taken?.has(car.trip.id)) continue; // somebody has driven it off: it is theirs, and off its timetable
       let st = this.states.get(car.trip.id);
       if (!st) this.states.set(car.trip.id, (st = { lag: 0, yaw: null, tootAt: 0 }));
-      const pose = tripPose(car.trip, t - st.lag);
-      const d = Math.hypot(pose.x - me.x, pose.y - me.z);
-      if (d <= SHOW_M) near.push({ car, st, pose, d });
+      car.st = st;
+      out.push(car);
+    }
+    // ---- is somebody in the way? Then wait, toot, and make up the time afterwards. (After a minute and a
+    // half it gives up waiting and drives on.) And the same for another car in the way, without the toot.
+    const inWay = (car) => {
+      const pose = car.pose;
+      if (!pose.moving) return false;
+      const a = (pose.yaw * Math.PI) / 180;
+      const fx = Math.sin(a); // the way it faces, in the scene: x east, z south
+      const fz = -Math.cos(a);
+      for (const p of players) {
+        const ahead = (p.x - pose.x) * fx + (p.z - pose.y) * fz;
+        const aside = Math.abs((p.x - pose.x) * fz - (p.z - pose.y) * fx);
+        if (!(ahead > 1 && ahead < 8 && aside < 1.6)) continue;
+        if (t > car.st.tootAt) {
+          car.st.tootAt = t + 4;
+          this.sounds.play("toot", pose.x, (this.world.groundHeight(pose.x, pose.y) ?? 0) + 1, pose.y, 0.9 + 0.2 * unit(car.trip.id, 9));
+        }
+        return true;
+      }
+      return false;
+    };
+    giveWay(out, t, dt, { gone: (key) => !!taken?.has(Number(key.slice(1))), also: inWay });
+    const near = [];
+    for (const car of out) {
+      const d = Math.hypot(car.pose.x - me.x, car.pose.y - me.z);
+      if (d <= SHOW_M) near.push({ car, st: car.st, pose: car.pose, d });
     }
     near.sort((a, b) => a.d - b.d);
     let moving = 0;
     for (const { car, st, pose, d } of near) {
-      if (taken?.has(car.trip.id)) continue;
       if (pose.moving && ++moving > MAX_TRIPS) continue;
       const want = (-pose.yaw * Math.PI) / 180;
-      const fx = Math.sin(-want); // the way it faces, in the scene: x east, z south
-      const fz = -Math.cos(want);
-
-      // ---- is somebody in the way? Then wait, toot, and make up the time afterwards.
-      let blocked = false;
-      if (pose.moving) {
-        for (const p of players) {
-          const ahead = (p.x - pose.x) * fx + (p.z - pose.y) * fz;
-          const aside = Math.abs((p.x - pose.x) * fz - (p.z - pose.y) * fx);
-          if (ahead > 1 && ahead < 8 && aside < 1.6) { blocked = true; break; }
-        }
-      }
-      if (blocked) {
-        st.lag = Math.min(90, st.lag + dt); // after a minute and a half it gives up waiting and drives on
-        if (t > st.tootAt) {
-          st.tootAt = t + 4;
-          this.sounds.play("toot", pose.x, (this.world.groundHeight(pose.x, pose.y) ?? 0) + 1, pose.y, 0.9 + 0.2 * unit(car.trip.id, 9));
-        }
-      } else if (st.lag > 0) st.lag = Math.max(0, st.lag - dt * 0.3);
 
       const ground = this.world.groundHeight(pose.x, pose.y);
       if (ground === null) continue;

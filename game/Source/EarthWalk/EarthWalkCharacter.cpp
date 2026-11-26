@@ -920,6 +920,14 @@ void AEarthWalkCharacter::Tick(float DeltaSeconds)
 		if (!ShotFile.IsEmpty() && ShotCountdown < 0.f)
 		{
 			ShotCountdown = FMath::Max(ShotDelay, 0.f); // let the nearby chunks and shaders settle first
+			// -EWShotAt=<seconds since 1970>: the picture is taken at that moment by the clock, not so long after
+			// the ground came: for catching something that happens at a time known beforehand (a car passing).
+			double ShotAt = 0.0;
+			if (FParse::Value(FCommandLine::Get(), TEXT("-EWShotAt="), ShotAt) && ShotAt > 0.0)
+			{
+				const FDateTime Clock = FDateTime::UtcNow();
+				ShotCountdown = FMath::Max(1.f, static_cast<float>(ShotAt - (static_cast<double>(Clock.ToUnixTimestamp()) + Clock.GetMillisecond() / 1000.0)));
+			}
 		}
 		return;
 	}

@@ -406,6 +406,10 @@ friend's mount) stands on the floor there (`UEarthCompany::GroundFor`: a trace d
 the feet, so a deck or a tunnel's floor where there is one), and a ride over water on a deck is not
 stopped at the "shore". `-EWLiftLog` writes every car and train that is off the ground to the log
 every two seconds, with the ground's height and how far the road or rails are from it.
+Cars keep out of each other: they steer out round the ones at the kerb and give way to the ones on
+the move (docs/PROTOCOL.md, "Cars and each other"). `-EWCarsLog` writes every car that is out round a
+parked car or waiting for another to the log every two seconds, and `-EWShotAt=<seconds since 1970>`
+takes the test picture at a moment by the clock, for catching one as it passes.
 `server/public/js/taxi.js`; docs/PROTOCOL.md, "Taxis".
 
 Fifty-four kinds of animal now live in the world (`server/src/life.ts` places them,

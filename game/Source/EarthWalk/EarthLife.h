@@ -198,7 +198,8 @@ private:
 	};
 	struct FCarState
 	{
-		double Lag = 0.0;
+		/** How far behind its timetable it is, and why: held back by a player in its way, or by another car (EarthLifeMotion.h, GiveWay). */
+		EarthLife::FGiveState Give;
 		double Yaw = 0.0;
 		bool bYawSet = false;
 		double TootAt = 0.0;
@@ -303,6 +304,8 @@ private:
 	bool ThroughAt(const AEarthWorld* World, int32 J, double T, FEarthThing& Out) const;
 	TMap<uint32, FState> States;
 	TMap<uint32, FCarState> CarStates;
+	/** What the trips were last told stands at their kerbs: a number made of which cars are about (Sync). */
+	uint64 SpotsSign = 0;
 	TMap<uint32, FTrainState> TrainStates;
 
 	TArray<FEarthThing> Nearby;

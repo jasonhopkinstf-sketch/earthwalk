@@ -63,6 +63,17 @@ namespace EarthLife
 	/** When animal Id calls during call slot Slot (= floor(T / CallSlot)); false when it stays quiet. */
 	bool CallTime(uint32 Id, const FSpecies& Species, int64 Slot, double& OutTime);
 
+	/** A car at rest beside a trip's road: how far along the path, and how far to the side (positive: to the right of the way out). */
+	struct FKerbSpot
+	{
+		double Along = 0.0;
+		double Aside = 0.0;
+		uint64 Key = 0; // whose spot it is: ParkedKey or RestKey
+	};
+	inline uint64 ParkedKey(uint32 Id) { return (uint64(1) << 32) | Id; }
+	/** Where a trip's own car waits: at the start of its trip, or (bFar) at the far end. */
+	inline uint64 RestKey(uint32 TripId, bool bFar) { return (uint64(bFar ? 3 : 2) << 32) | TripId; }
+
 	/** A car's trip or a train's run, ready to replay. Path is x, y, seconds, three numbers a point. */
 	struct FTrip
 	{
@@ -83,6 +94,11 @@ namespace EarthLife
 		double Time = 0.0;
 		double Length = 0.0;
 		double Period = 0.0;
+		/**
+		 * What stands at the kerbs of the trip's road, for the car to steer out round (SetSpots). Not part of the
+		 * trip itself, and told to it again whenever the cars about change: so it may be set on a trip held const.
+		 */
+		mutable TArray<FKerbSpot> Spots;
 	};
 	void Prepare(FTrip& Trip);
 
@@ -104,8 +120,99 @@ namespace EarthLife
 		bool bInLane = false;
 		double Lift = 0.0; // metres above the terrain: on a bridge, or on the ramp up to one
 		double Rolled = 0.0; // metres driven since it last set off: what its wheels have turned through
+		bool bOut = false; // it has steered out of its lane round a car at the kerb
 	};
+	/** Where a car is at shared time T. Every car the trip knows of at its kerbs (SetSpots) counts as standing there. */
 	FTripPose TripPose(const FTrip& Trip, double T);
+
+	// ---- cars at the kerb, and giving way: trafficmotion.js over again, under the same names. Keep the two in step.
+	/** A car, for keeping cars out of each other: how long and how wide, in metres. */
+	constexpr double CarLong = 4.3;
+	constexpr double CarWide = 1.85;
+	/** The air a moving car leaves between itself and a car at the kerb. */
+	constexpr double KerbGap = 0.4;
+	/** Two cars whose middles are this near along the road are side by side; a car steers out round one over SwerveM more. */
+	constexpr double AbeamM = CarLong + 0.2;
+	constexpr double SwerveM = 10.0;
+	/** How much of the turn its path makes a car's body shows as it steers over. */
+	constexpr double SteerShown = 0.5;
+	/** At an end of its trip a car is let in to the kerb, or out from it, over this many metres, whatever stands next door. */
+	constexpr double EndFreeM = 4.6;
+
+	struct FAlong
+	{
+		double Along = 0.0;
+		double Aside = 0.0;
+		double D = TNumericLimits<double>::Max();
+	};
+	/** Where a point is against a trip's path: how far along the middle of the road, how far to the side of it, and how far off. */
+	FAlong AlongOf(const FTrip& Trip, double X, double Y);
+	/** A car at rest, in the trip's own metres, and whose spot it is. */
+	struct FSpotAt
+	{
+		double X = 0.0;
+		double Y = 0.0;
+		uint64 Key = 0;
+	};
+	/** Tells a trip what stands at the kerbs of its road (its own two resting places are left out). */
+	void SetSpots(const FTrip& Trip, const TArray<FSpotAt>& Spots);
+	/**
+	 * Where a car is at shared time T, when what stands at each of its kerb spots is asked for: Hold says how
+	 * much a spot counts just now (1 a car at rest there, 0 nothing). Tuck (0 to 1) draws the car in to its own
+	 * kerb as far as there is room: a car standing to let another by.
+	 */
+	FTripPose TripPose(const FTrip& Trip, double T, TFunctionRef<double(uint64 Key)> Hold, double Tuck = 0.0);
+	/** Where a trip's car stands while it waits: at the start of its trip, or (bFar) at the far end. */
+	FTripPose RestPose(const FTrip& Trip, bool bFar);
+
+	/** A car's box on the ground: its middle, and the way it faces (a unit; x east, y south). */
+	struct FCarBox
+	{
+		double X = 0.0;
+		double Y = 0.0;
+		double Fx = 0.0;
+		double Fy = -1.0;
+	};
+	/** Whether two cars' boxes are inside each other. For giving way a car counts as a little larger than it is. */
+	bool BoxesMeet(const FCarBox& A, const FCarBox& B, double Long = CarLong + 0.5, double Wide = CarWide + 0.1);
+
+	/** How far ahead a car looks, in seconds of its own timetable: seven near, then seven far (for a car coming the other way through a narrow stretch). */
+	constexpr int32 NumNear = 7;
+	constexpr int32 NumLooks = 14;
+	/** Two cars that have waited for each other this long are let through each other, so nothing stands for ever. */
+	constexpr double StuckS = 8.0;
+	/** The longest a car falls behind its timetable before it stops waiting for anything. */
+	constexpr double LagMostS = 90.0;
+	/** What a car keeps from one moment to the next of giving way. */
+	struct FGiveState
+	{
+		double Lag = 0.0;   // seconds behind its timetable
+		double Rate = 0.0;  // how fast it is falling behind: 1 standing still
+		double Tuck = 0.0;  // drawn in to its kerb, to let another by
+		double Stuck = 0.0;
+		double Ghost = 0.0; // until this time it waits for no car: the way out of a jam
+		bool bBlocked = false;
+		bool bByCar = false;
+	};
+	struct FGivingCar
+	{
+		const FTrip* Trip = nullptr;
+		FGiveState* St = nullptr;
+		FTripPose Pose;
+		FCarBox Box;
+		FCarBox Ahead[NumLooks];
+		bool bAhead[NumLooks] = {};
+		bool bGoing = false;
+		int32 Rank = 0;
+		int32 Waits = 0;
+		bool bJam = false;
+	};
+	/**
+	 * One moment of giving way, for the cars a game has (giveWay of trafficmotion.js). Afterwards each has its
+	 * Pose: where it is now, lag and all. Gone: whether a parked car's spot is empty just now. Also: whether
+	 * something else is in a car's way (a player), which holds it back the same.
+	 */
+	void GiveWay(TArray<FGivingCar>& Cars, double T, double Dt, TFunctionRef<bool(uint32 ParkedId)> Gone, TFunctionRef<bool(const FGivingCar& Car)> Also);
 
 	struct FTrainPose
 	{

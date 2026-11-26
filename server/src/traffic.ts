@@ -32,6 +32,10 @@ const PARK_ON = /^(residential|living_street|unclassified|tertiary|road)$/;
 const SLOT_M = 9; // a kerb space
 const NEAR_HOMES_M = 35;
 const JUNCTION_CLEAR_M = 10;
+/** A car pulls in to a kerb, and out from it, along this much of it: nothing else stands there. */
+const KERB_CLEAR_M = 14;
+/** Kerb spaces are worked out this far beyond the chunk, so that a trip knows what stands along its whole way. */
+const SPACES_REACH_M = 520;
 const STEP_M = 4;
 const ACCEL = 1.5; // metres a second, each second
 const ROLL = 0.8; // pace when pulling out and when coming to rest
@@ -95,8 +99,11 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
   const indoors = (p: Pt): boolean => boxes.some((b) => p[0] > b.x0 && p[0] < b.x1 && p[1] > b.y0 && p[1] < b.y1 && inRing(p, b.ring));
 
   // ---- kerb spaces: every 9 m along both sides of streets where people live, one in five taken
-  interface Space { road: number; seg: number; f: number; side: number; seed: number; at: Pt; kerb: Pt; face: [number, number] }
+  // (`here`: in this chunk, and so this chunk's to send. The others are its neighbours', known here so that no trip
+  // of ours ends where one of their cars stands.)
+  interface Space { road: number; seg: number; f: number; side: number; slot: number; seed: number; at: Pt; kerb: Pt; face: [number, number]; here: boolean }
   const spaces: Space[] = [];
+  const far = SPACES_REACH_M / S;
   roads.forEach((road, r) => {
     if (!PARK_ON.test(road.hw!) || road.width < 4.5 || road.bridge) return; // (nobody parks on a bridge)
     const along: number[] = [0];
@@ -113,16 +120,18 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
         const s = (slot + 0.5) * SLOT_M;
         const f = (s - along[i]) / len;
         const at: Pt = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
-        if (at[0] < cx || at[0] >= cx + 1 || at[1] < cy || at[1] >= cy + 1) continue;
+        if (at[0] < cx - far || at[0] >= cx + 1 + far || at[1] < cy - far || at[1] >= cy + 1 + far) continue;
+        const here = at[0] >= cx && at[0] < cx + 1 && at[1] >= cy && at[1] < cy + 1;
         if (junctions.some((j) => Math.abs(j - s) < JUNCTION_CLEAR_M)) continue;
-        for (const side of [1, -1]) {
+        // A street under six metres has room for cars along one kerb only, if anything is to get past them.
+        for (const side of road.width >= 6 ? [1, -1] : [hash32(road.id, 7) % 2 === 0 ? 1 : -1]) {
           const seed = hash32(hash32(road.id, slot), side + 2);
           if (seed % 5 !== 0) continue;
           const off = (side * (road.width / 2 - 0.95)) / S; // to the right of the way the road is drawn, or to the left
           const kerb: Pt = [at[0] - d[1] * off, at[1] + d[0] * off];
           if (!homesNear(kerb) || indoors(kerb)) continue;
           // A car at the kerb faces the way its side of the road flows.
-          spaces.push({ road: r, seg: i, f, side, seed, at, kerb, face: [d[0] * side * hand, d[1] * side * hand] });
+          spaces.push({ road: r, seg: i, f, side, slot, seed, at, kerb, face: [d[0] * side * hand, d[1] * side * hand], here });
         }
       }
     }
@@ -131,7 +140,10 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
   // ---- trips: one parked car in four goes out and comes back
   const trips: Trip[] = [];
   const parked: ParkedCar[] = [];
+  const taken = new Set(spaces.map((sp) => `${sp.road}:${sp.side}:${sp.slot}`));
+  const ends: Pt[] = []; // the kerbs our trips so far end at
   for (const sp of spaces) {
+    if (!sp.here) continue;
     const trip = (sp.seed >>> 8) % 4 === 0 && trips.length < TRIP_CAP ? route(sp) : null;
     if (trip) trips.push(trip);
     else parked.push({ wx: sp.kerb[0], wy: sp.kerb[1], yaw: heading(sp.face[0], sp.face[1]), id: sp.seed || 1 });
@@ -150,6 +162,10 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
     const first = roads[r];
     const seg: [number, number] = [first.pts[sp.seg + 1][0] - first.pts[sp.seg][0], first.pts[sp.seg + 1][1] - first.pts[sp.seg][1]];
     let dir = seg[0] * out[0] + seg[1] * out[1] > 0 ? 1 : -1;
+    // The car pulls out along the kerb ahead of it, and pulls in along it when it comes home: so the next space
+    // that way must be empty, or it would go through whatever stands there.
+    // And it crosses the road as it sets off, so the space ahead on the other side must be empty too.
+    if (taken.has(`${sp.road}:${sp.side}:${sp.slot + dir}`) || taken.has(`${sp.road}:${-sp.side}:${sp.slot + dir}`)) return null;
     let i = dir > 0 ? sp.seg + 1 : sp.seg; // the next point of the road ahead
     const line: { p: Pt; vmax: number; meet: boolean; road: number }[] = [{ p: sp.at, vmax: SPEED[first.hw!], meet: false, road: first.id }];
     const seen = new Set<string>();
@@ -187,17 +203,40 @@ export function placeTraffic(cx: number, cy: number, features: Features): { park
     }
     if (length < 80) return null;
 
-    // ---- the far end: at the target distance, but never within 10 m of a junction
+    // ---- the far end: at the target distance or short of it, never within 10 m of a junction, and at a
+    // stretch of kerb with nothing standing along it: no parked car, and no other trip's end
     const dist: number[] = [0];
     for (let n = 1; n < line.length; n++) dist.push(dist[n - 1] + metres(line[n - 1].p, line[n].p));
     const meetsAt = line.map((l, n) => (l.meet ? dist[n] : -1)).filter((d) => d >= 0);
-    let total = Math.min(target, dist[dist.length - 1] - 3);
-    for (let tries = 0; tries < 4; tries++) {
-      const j = meetsAt.find((d) => Math.abs(d - total) < JUNCTION_CLEAR_M);
-      if (j === undefined) break;
-      total = j - JUNCTION_CLEAR_M - 2;
+    /** The kerb the car would stand at, `want` metres along the way, and the way the road runs there (a unit, in metres). */
+    const kerbAt = (want: number): { kerb: Pt; d: [number, number] } => {
+      let s = 0;
+      while (s + 2 < line.length && dist[s + 1] < want) s++;
+      const len = dist[s + 1] - dist[s] || 1;
+      const f = Math.min(1, Math.max(0, (want - dist[s]) / len));
+      const d: [number, number] = [((line[s + 1].p[0] - line[s].p[0]) * S) / len, ((line[s + 1].p[1] - line[s].p[1]) * S) / len];
+      const off = (hand * (width / 2 - 0.95)) / S; // its own side of the road: the right of the way it is going, or the left
+      const p: Pt = [line[s].p[0] + (line[s + 1].p[0] - line[s].p[0]) * f, line[s].p[1] + (line[s + 1].p[1] - line[s].p[1]) * f];
+      return { kerb: [p[0] - d[1] * off, p[1] + d[0] * off], d };
+    };
+    const kerbClear = (want: number): boolean => {
+      const { kerb, d } = kerbAt(want);
+      const beside = (q: Pt): boolean => {
+        const ex = (q[0] - kerb[0]) * S;
+        const ey = (q[1] - kerb[1]) * S;
+        const across = Math.abs(-ex * d[1] + ey * d[0]);
+        const along = ex * d[0] + ey * d[1];
+        // Along its own kerb; and at the other kerb, the stretch it crosses the road by as it sets off for home.
+        return across < 2.2 ? Math.abs(along) < KERB_CLEAR_M : across < 8 && along > -KERB_CLEAR_M && along < 3;
+      };
+      return !spaces.some((o) => beside(o.kerb)) && !ends.some(beside);
+    };
+    let total = -1;
+    for (let want = Math.min(target, dist[dist.length - 1] - 3); want >= 60 && total < 0; want -= 5) {
+      if (!meetsAt.some((d) => Math.abs(d - want) < JUNCTION_CLEAR_M) && kerbClear(want)) total = want;
     }
-    if (total < 60 || meetsAt.some((d) => Math.abs(d - total) < JUNCTION_CLEAR_M)) return null;
+    if (total < 0) return null;
+    ends.push(kerbAt(total).kerb);
 
     // ---- a point every 4 m, each with the fastest the car may go there
     const count = Math.max(2, Math.round(total / STEP_M));

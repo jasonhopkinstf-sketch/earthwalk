@@ -536,6 +536,40 @@ void AEarthLife::Sync(const FVector2D& Me)
 	{
 		Parked.SetNum(MaxParked);
 	}
+	// What stands at the kerbs, for the cars that steer out round it (EarthLifeMotion.h, SetSpots): the parked
+	// cars that are drawn, and where each trip's own car waits at its two ends. Told to the trips again only
+	// when it has changed (which cars, or where they are kept: a chunk that comes again brings new ones).
+	uint64 Sign = uint64(Parked.Num()) * 1000003ull + uint64(Trips.Num());
+	for (const FParked* Car : Parked)
+	{
+		Sign += (uint64(Car->Id) + 1) * 2654435761ull + uint64(reinterpret_cast<UPTRINT>(Car));
+	}
+	for (const FCar* Car : Trips)
+	{
+		Sign += (uint64(Car->Trip.Id) + 1) * 40503ull + uint64(reinterpret_cast<UPTRINT>(Car)) * 3;
+	}
+	if (Sign != SpotsSign)
+	{
+		SpotsSign = Sign;
+		TArray<EarthLife::FSpotAt> Spots;
+		Spots.Reserve(Parked.Num() + Trips.Num() * 2);
+		for (const FParked* Car : Parked)
+		{
+			Spots.Add({ Car->X, Car->Z, EarthLife::ParkedKey(Car->Id) });
+		}
+		for (const FCar* Car : Trips)
+		{
+			for (const bool bFar : { false, true })
+			{
+				const EarthLife::FTripPose At = EarthLife::RestPose(Car->Trip, bFar);
+				Spots.Add({ At.X, At.Y, EarthLife::RestKey(Car->Trip.Id, bFar) });
+			}
+		}
+		for (const FCar* Car : Trips)
+		{
+			EarthLife::SetSpots(Car->Trip, Spots);
+		}
+	}
 	// Far-off animals are forgotten; they are calm again by the time we return.
 	if (States.Num() > 600)
 	{
@@ -967,18 +1001,67 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 		double D;
 	};
 	TArray<FNear> Near;
+	// Every car out on a trip, each with what it keeps from one moment to the next. (All of them are given
+	// their place in CarStates first: adding one moves the others about.)
+	TArray<const FCar*> OnTrips;
 	for (const FCar* Car : Trips)
 	{
-		if (Taken.Contains(Car->Trip.Id))
+		if (!Taken.Contains(Car->Trip.Id)) // (somebody has driven it off: it is theirs, and off its timetable)
 		{
-			continue;
+			CarStates.FindOrAdd(Car->Trip.Id);
+			OnTrips.Add(Car);
 		}
-		const FCarState& St = CarStates.FindOrAdd(Car->Trip.Id);
-		const EarthLife::FTripPose Pose = EarthLife::TripPose(Car->Trip, T - St.Lag);
+	}
+	TArray<EarthLife::FGivingCar> Giving;
+	Giving.SetNum(OnTrips.Num());
+	for (int32 i = 0; i < OnTrips.Num(); ++i)
+	{
+		Giving[i].Trip = &OnTrips[i]->Trip;
+		Giving[i].St = &CarStates.FindChecked(OnTrips[i]->Trip.Id).Give;
+	}
+	// ---- is somebody in the way? Then wait, toot, and make up the time afterwards. (After a minute and a half it
+	// gives up waiting and drives on.) And the same for another car in the way, without the toot: GiveWay.
+	const auto InWay = [&](const EarthLife::FGivingCar& C)
+	{
+		const EarthLife::FTripPose& Pose = C.Pose;
+		if (!Pose.bMoving)
+		{
+			return false;
+		}
+		const double Facing = (Pose.Yaw * Pi) / 180.0;
+		const double Fx = std::sin(Facing); // the way it faces: x east, z south
+		const double Fz = -std::cos(Facing);
+		for (const FVector2D& P : Players)
+		{
+			const double Ahead = (P.X - Pose.X) * Fx + (P.Y - Pose.Y) * Fz;
+			const double Off = FMath::Abs((P.X - Pose.X) * Fz - (P.Y - Pose.Y) * Fx);
+			if (!(Ahead > 1.0 && Ahead < 8.0 && Off < 1.6))
+			{
+				continue;
+			}
+			FCarState& St = CarStates.FindChecked(C.Trip->Id);
+			if (T > St.TootAt)
+			{
+				St.TootAt = T + 4.0;
+				double Ground = 0.0;
+				const bool bGround = World->TerrainHeightAt(Pose.X, Pose.Y, Ground);
+				if (Sounds)
+				{
+					Sounds->Play(TEXT("toot"), Engine(Pose.X, (bGround ? Ground + Pose.Lift : 0.0) + 1.0, Pose.Y), 0.9 + 0.2 * EarthLife::Unit(C.Trip->Id, 9), EarsNow);
+				}
+			}
+			return true;
+		}
+		return false;
+	};
+	EarthLife::GiveWay(Giving, T, Dt, [this](uint32 ParkedId) { return Taken.Contains(ParkedId); }, InWay);
+	for (int32 i = 0; i < OnTrips.Num(); ++i)
+	{
+		const EarthLife::FTripPose& Pose = Giving[i].Pose;
 		const double D = std::hypot(Pose.X - Me.X, Pose.Y - Me.Y);
 		if (D <= ShowCarsM)
 		{
-			Near.Add({ Car, Pose, D });
+			Near.Add({ OnTrips[i], Pose, D });
 		}
 	}
 	Near.Sort([](const FNear& A, const FNear& B) { return A.D < B.D; });
@@ -993,24 +1076,6 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 		const uint32 Id = Entry.Car->Trip.Id;
 		FCarState& St = CarStates.FindChecked(Id);
 		const double Want = (-Pose.Yaw * Pi) / 180.0;
-		const double Fx = std::sin(-Want); // the way it faces: x east, z south
-		const double Fz = -std::cos(Want);
-
-		// ---- is somebody in the way? Then wait, toot, and make up the time afterwards.
-		bool bBlocked = false;
-		if (Pose.bMoving)
-		{
-			for (const FVector2D& P : Players)
-			{
-				const double Ahead = (P.X - Pose.X) * Fx + (P.Y - Pose.Y) * Fz;
-				const double Off = FMath::Abs((P.X - Pose.X) * Fz - (P.Y - Pose.Y) * Fx);
-				if (Ahead > 1.0 && Ahead < 8.0 && Off < 1.6)
-				{
-					bBlocked = true;
-					break;
-				}
-			}
-		}
 		double Y = 0.0;
 		const bool bGround = World->TerrainHeightAt(Pose.X, Pose.Y, Y);
 		Y += Pose.Lift; // on a bridge, the deck and not the ground under it
@@ -1026,21 +1091,18 @@ void AEarthLife::DrawTraffic(const AEarthWorld* World, double Dt, double T, cons
 				UE_LOG(LogTemp, Display, TEXT("EarthWalk: lift: car %lld at %.1f east %.1f south: ground %.1f m, road %.1f m over it, %.0f m from me"), int64(Id), Pose.X, Pose.Y, Y - Pose.Lift, Pose.Lift, Entry.D);
 			}
 		}
-		if (bBlocked)
+		// -EWCarsLog: every car that is waiting for another, every two seconds, for tests.
+		static const bool bCarsLog = FParse::Param(FCommandLine::Get(), TEXT("EWCarsLog"));
+		if (bCarsLog && (St.Give.bByCar || Pose.bOut))
 		{
-			St.Lag = FMath::Min(90.0, St.Lag + Dt); // after a minute and a half it gives up waiting and drives on
-			if (T > St.TootAt)
+			static TMap<int64, double> NextCarLog;
+			double& CarLogAt = NextCarLog.FindOrAdd(int64(Id));
+			if (FPlatformTime::Seconds() > CarLogAt)
 			{
-				St.TootAt = T + 4.0;
-				if (Sounds)
-				{
-					Sounds->Play(TEXT("toot"), Engine(Pose.X, (bGround ? Y : 0.0) + 1.0, Pose.Y), 0.9 + 0.2 * EarthLife::Unit(Id, 9), EarsNow);
-				}
+				CarLogAt = FPlatformTime::Seconds() + 2.0;
+				UE_LOG(LogTemp, Display, TEXT("EarthWalk: cars: car %lld at %.1f east %.1f south, %.0f m from me: %s, %.1f s behind its timetable"), int64(Id), Pose.X, Pose.Y, Entry.D,
+					St.Give.bByCar ? TEXT("waiting for another car") : TEXT("out round a car at the kerb"), St.Give.Lag);
 			}
-		}
-		else if (St.Lag > 0.0)
-		{
-			St.Lag = FMath::Max(0.0, St.Lag - Dt * 0.3);
 		}
 		if (!bGround)
 		{

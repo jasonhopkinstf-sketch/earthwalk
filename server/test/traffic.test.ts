@@ -8,7 +8,7 @@ import { MACHINE_CAP, placeMachines } from "../src/life.ts";
 import { parseOsm, type Features, type Pt, type Road } from "../src/osm.ts";
 import { drivesLeft, PARKED_CAP, placeTraffic, TRIP_CAP } from "../src/traffic.ts";
 import { creatureAt, SPECIES } from "../public/js/lifemotion.js";
-import { KERB_IN, prepare, tripPose } from "../public/js/trafficmotion.js";
+import { boxesMeet, giveWay, KERB_IN, prepare, restPose, setSpots, tripPose, type CarBox, type GivingCar } from "../public/js/trafficmotion.js";
 
 const PARIS: [number, number] = [33185, 22545];
 const LONDON: [number, number] = [Math.floor(lonToX(-0.12)), Math.floor(latToY(51.5))];
@@ -150,6 +150,60 @@ for (const [name, [cx, cy], left] of [["Paris", PARIS, false], ["London", LONDON
       assert.deepEqual([...legs].sort(), [0, 1, 2, 3], "waits, drives out, waits, drives back");
       assert.deepEqual(tripPose(car, t0 + 77.7), tripPose(prepare({ ...car }), t0 + 77.7), "the same for everyone");
     }
+  });
+}
+
+for (const [name, [cx, cy]] of [["Paris", PARIS], ["London", LONDON]] as const) {
+  test(`${name}: cars steer out round the ones at the kerb, give way to each other, and rest where nothing else stands`, () => {
+    const S = metersPerTile(cy + 0.5);
+    const { parked, trips } = placeTraffic(cx, cy, village(cx, cy));
+    const boxOf = (c: { x: number; y: number; yaw: number }): CarBox => ({ x: c.x, y: c.y, fx: Math.sin(toRad(c.yaw)), fy: -Math.cos(toRad(c.yaw)) });
+    const ready = (): GivingCar[] => trips.map((trip) => ({
+      trip: prepare({ id: trip.id, w: trip.w, left: trip.left, da: trip.dwellA, db: trip.dwellB, path: trip.path.flatMap(([x, y, t]) => [(x - cx) * S, (y - cy) * S, t]) }),
+      st: { lag: 0 },
+    }));
+    const kerb = parked.map((p) => ({ id: p.id, x: (p.wx - cx) * S, y: (p.wy - cy) * S, yaw: p.yaw }));
+    const cars = ready();
+
+    // ---- where each car waits, at either end of its trip: no parked car there, and no other trip's car
+    const rests = cars.flatMap(({ trip }) => [false, true].map((far) => ({ id: trip.id, far, ...restPose(trip, far) })));
+    for (const a of rests) {
+      assert.ok(!kerb.some((p) => boxesMeet(boxOf(a), boxOf(p))), "no trip ends where a parked car stands");
+      for (const b of rests) if (b.id !== a.id) assert.ok(!boxesMeet(boxOf(a), boxOf(b)), "nor where another trip does");
+    }
+
+    // ---- an hour of it, as a game plays it: told what stands at the kerbs, and giving way
+    const spots = [...kerb.map((p) => ({ x: p.x, y: p.y, key: `p${p.id}` })), ...rests.map((r) => ({ x: r.x, y: r.y, key: `${r.far ? "b" : "a"}${r.id}` }))];
+    for (const { trip } of cars) setSpots(trip, spots.filter((s) => s.key !== `a${trip.id}` && s.key !== `b${trip.id}`));
+    const plain = ready(); // and the timetables alone, as it was before, to see that there was something to mend
+    const t0 = 1_795_000_000;
+    const count = { parked: 0, each: 0, plainParked: 0, behind: 0 };
+    const [LONG, WIDE] = [4.2, 1.8]; // a car as it is drawn: inside that is through it
+    for (let i = 0; i < 3600 * 4; i++) {
+      const t = t0 + i * 0.25;
+      giveWay(cars, t, 0.25);
+      for (const a of cars) {
+        count.behind = Math.max(count.behind, a.st.lag);
+        if (!a.pose!.moving) continue;
+        if (kerb.some((p) => boxesMeet(a.box!, boxOf(p), LONG, WIDE))) count.parked++;
+        for (const b of cars) if (b !== a && boxesMeet(a.box!, b.box!, LONG, WIDE)) count.each++;
+      }
+      for (const a of plain) {
+        const pose = tripPose(a.trip, t);
+        if (pose.moving && kerb.some((p) => boxesMeet(boxOf(pose), boxOf(p), LONG, WIDE))) count.plainParked++;
+      }
+    }
+    assert.ok(count.plainParked > 200, `left to their timetables they drive through the parked cars (${count.plainParked} quarter seconds of it)`);
+    assert.equal(count.parked, 0, "never through a parked car");
+    assert.equal(count.each, 0, "nor through each other");
+    assert.ok(count.behind < 45, `and nobody is kept waiting long (${count.behind.toFixed(0)} s at most)`);
+    // What a car does is the same whoever works it out: from the same start, the same answer.
+    const again = ready();
+    for (const { trip } of again) setSpots(trip, spots.filter((s) => s.key !== `a${trip.id}` && s.key !== `b${trip.id}`));
+    const first = ready();
+    for (const { trip } of first) setSpots(trip, spots.filter((s) => s.key !== `a${trip.id}` && s.key !== `b${trip.id}`));
+    for (let i = 0; i < 400; i++) { giveWay(again, t0 + i * 0.25, 0.25); giveWay(first, t0 + i * 0.25, 0.25); }
+    assert.deepEqual(again.map((c) => [c.pose!.x, c.pose!.y, c.st.lag]), first.map((c) => [c.pose!.x, c.pose!.y, c.st.lag]));
   });
 }
 
